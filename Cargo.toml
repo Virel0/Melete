@@ -24,18 +24,18 @@ regex = "=1.13.1"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json", "query", "form"] }
 russh = { version = "=0.64.1", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "=3.0.1"
-scraper = { version = "=0.27.0", default-features = false }
+scraper = { version = "=0.29.0", default-features = false }
 # Reads music tags and audio properties in-process (ID3, Vorbis comments, MP4 atoms, APE).
 lofty = "=0.25.4"
 # Reading Japanese lyrics (kanji in context) for their pronunciation, with the IPADIC
 # dictionary built in; its build fetches the dictionary once and checks its MD5.
 lindera = { version = "=6.2.0", default-features = false, features = ["embed-ipadic"] }
 # Folding accents (NFD) when matching imported track lists.
-unicode-normalization = "=0.1.25"
+unicode-normalization = "=0.1.26"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154", features = ["raw_value"] }
 sha1 = "=0.11.0"
-sha2 = "=0.11.0"
+sha2 = "=0.11.1"
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "macros"] }
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "process", "time"] }
 # Handing each request to the API as it's set up now (live); axum brings it in already.
