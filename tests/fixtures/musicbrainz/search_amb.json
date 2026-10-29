@@ -1,0 +1,275 @@
+{
+ "count": 160,
+ "releases": [
+  {
+   "id": "aceaf449-ca32-443d-af49-993aeb5a56a7",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "1991",
+   "country": "US",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "5ef3806b-c1b0-4d42-8951-7171963dd46b",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "2004",
+   "country": "US",
+   "track-count": 22,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "015fa681-78e3-37b2-bff2-fa19f8d5a8d4",
+    "title": "Greatest Hits: We Will Rock You",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "6c94c60f-7e5f-408b-952f-c8400b3839d4",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": null,
+   "country": null,
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "552e25b5-f75a-480e-84cc-e9ab578e3d1c",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "1981",
+   "country": "NL",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "c5227430-6fc9-485a-a4fa-44040d0b8e3b",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": null,
+   "country": null,
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "5849837a-d033-4251-afa0-864a64f9ec52",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "2016-11-18",
+   "country": "US",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "a980aeba-26be-4b71-9fd6-c6a14d7a0a16",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "",
+   "country": "US",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "8ffceca8-e548-48de-95d8-2945a943393f",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "1991",
+   "country": "IT",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "928f0785-eefe-3a03-b0a8-aaf6e3f652be",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "2011-01-03",
+   "country": "XE",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  },
+  {
+   "id": "f0fe5760-370f-4c5d-9f0c-a2d62d7b0006",
+   "score": 100,
+   "title": "Greatest Hits",
+   "status": "Official",
+   "date": "1991",
+   "country": "SU",
+   "track-count": 17,
+   "artist-credit": [
+    {
+     "name": "Queen",
+     "joinphrase": "",
+     "artist": {
+      "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+      "name": "Queen"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "69ce61c8-127f-3809-95d8-62fdf3ae1347",
+    "title": "Greatest Hits",
+    "primary-type": "Album",
+    "secondary-types": [
+     "Compilation"
+    ]
+   }
+  }
+ ]
+}

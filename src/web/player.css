@@ -1,0 +1,196 @@
+/* The music bar and the Queue | Lyrics panel, after shell.css. The bar sits at the foot of
+   every page while something is queued, and the page leaves room for it; the panel sits beside
+   the page at 1100 px and wider, over it when narrower. Tokens are in app.css. */
+
+body.with-player { padding-block-end: calc(var(--player-height, 5rem) + var(--space-2)); }
+.music-bar {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-5);
+  padding-block-end: max(var(--space-2), env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-block-start: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.music-bar .now { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.music-bar .cover, .music-panel .cover {
+  flex: none;
+  width: 3rem;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.music-bar .cover img, .music-panel .cover img { width: 100%; height: 100%; object-fit: cover; }
+.music-bar .words, .music-panel .words { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.music-bar .track-title { color: var(--text); font-weight: 600; text-decoration: none; }
+.music-bar .track-title:hover { text-decoration: underline; }
+.music-bar .track-artist, .music-bar .track-status { color: var(--muted); font-size: var(--step--1); }
+.music-bar .track-status:empty { display: none; }
+.music-bar .phone-only { display: none; }
+
+/* The controls, in the bar and in the panel on a phone. */
+.controls { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); min-width: 0; }
+.controls .buttons { display: flex; align-items: center; gap: var(--space-2); }
+.controls .position { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
+.controls .position input { flex: 1; min-width: 0; min-height: 1.5rem; padding: 0; border: 0; background: none; accent-color: var(--accent); }
+.controls .time { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; min-width: 4.5ch; }
+.controls .time:last-child { text-align: end; }
+button.icon {
+  position: relative;
+  width: 2.5rem;
+  height: 2.5rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+}
+button.icon:hover { background: var(--surface-raised); }
+button.icon:disabled { opacity: 0.45; cursor: default; }
+button.icon.play { background: var(--accent); color: var(--accent-ink); }
+button.icon svg { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+button.icon svg.lines { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* A switch that's on (shuffle, repeat, an open panel): brass, with a dot under it, so it isn't
+   told by colour alone. */
+button.icon[aria-pressed="true"] { color: var(--accent); }
+button.icon[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 0.15rem;
+  inset-inline-start: calc(50% - 0.15rem);
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+button.icon.unavailable { visibility: hidden; }
+.music-bar .extras { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-1); }
+.music-bar .volume { display: flex; align-items: center; }
+.music-bar .volume input { width: 6rem; min-height: 1.5rem; padding: 0; border: 0; background: none; accent-color: var(--accent); }
+
+/* Phones: the cover (which opens the panel), the title and play. */
+@media (max-width: 40rem) {
+  .music-bar { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-4); }
+  .music-bar > .controls, .music-bar .extras { display: none; }
+  .music-bar .phone-only { display: inline-flex; flex: none; }
+}
+@media (max-width: 64rem) {
+  .music-bar .volume input { display: none; }
+}
+
+/* The panel. */
+body { --panel-width: 22rem; }
+.music-panel {
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  background: var(--surface);
+  border: 0;
+  border-inline-start: 1px solid var(--line);
+}
+.music-panel[open] { display: flex; }
+.music-panel:not(:modal) {
+  position: fixed;
+  inset: var(--header-height, 0px) 0 var(--player-height, 0px) auto;
+  z-index: 4;
+  width: var(--panel-width);
+  height: auto;
+  max-height: none;
+}
+body.with-panel .frame { margin-inline-end: var(--panel-width); }
+.music-panel:modal {
+  inset: 0 0 0 auto;
+  width: min(24rem, 100%);
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding-block-end: env(safe-area-inset-bottom);
+}
+.music-panel::backdrop { background: var(--scrim); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.panel-head h2 { font-size: var(--step-1); }
+.panel-now { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4) var(--space-3); }
+.panel-now .cover { width: 4rem; }
+.panel-now p { margin: 0; }
+.now-title { font-weight: 600; }
+.now-artist { color: var(--muted); font-size: var(--step--1); }
+.panel-controls { display: none; align-items: flex-start; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); }
+.panel-controls .controls { flex: 1; }
+@media (max-width: 40rem) {
+  .panel-controls { display: flex; }
+}
+.panel-tabs { display: flex; gap: var(--space-4); padding: 0 var(--space-4); border-block-end: 1px solid var(--line); }
+.panel-tabs [role="tab"] {
+  min-height: 2.5rem;
+  padding: var(--space-2) 0;
+  background: none;
+  color: var(--muted);
+  border: 0;
+  border-block-end: 2px solid transparent;
+  border-radius: 0;
+}
+.panel-tabs [role="tab"]:hover { color: var(--text); }
+.panel-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-block-end-color: var(--accent); }
+.music-panel [role="tabpanel"] { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) var(--space-4) var(--space-4); }
+.music-panel [role="tabpanel"]:focus-visible { outline-offset: -3px; }
+
+/* Queue: its parts under small headings, a row per track. */
+.queue-part h3 { margin: var(--space-3) 0 var(--space-1); font-size: var(--step--1); font-weight: 600; color: var(--muted); }
+.queue-part ol { list-style: none; margin: 0; padding: 0; }
+.queue-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem 5.25rem; align-items: center; gap: var(--space-2); padding-block: var(--space-1); }
+.queue-row .cover { width: 2.5rem; }
+.queue-play {
+  display: grid;
+  justify-content: stretch;
+  justify-items: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: var(--space-1);
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+  text-align: start;
+}
+.queue-play:hover { background: var(--surface-raised); }
+.queue-play small { color: var(--muted); font-size: var(--step--1); }
+.queue-row.played .queue-play { color: var(--muted); }
+.queue-row.now .queue-play { color: var(--accent); font-weight: 600; }
+.queue-row .length { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+.row-tools { display: flex; justify-content: flex-end; }
+.row-tools button.icon { width: 1.75rem; height: 1.75rem; }
+.row-tools button.icon svg { width: 1rem; height: 1rem; }
+.queue > button { margin-block-start: var(--space-4); }
+
+/* Lyrics: the line sung in brass and bold, the rest muted; each synced line seeks there. */
+.lyrics-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2); }
+.lyrics-tools button { margin: 0; }
+.lyrics-tools button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.lyrics { display: grid; gap: var(--space-1); }
+.lyrics .line {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  color: var(--muted);
+  font-size: var(--step-1);
+  font-weight: 600;
+  text-align: start;
+  border-radius: var(--radius-s);
+}
+.lyrics button.line:hover { color: var(--text); background: var(--surface-raised); }
+.lyrics .line.now { color: var(--accent); }
+.lyrics .extra { display: block; font-size: var(--step--1); font-weight: 400; }
+.lyrics-source { margin-block-start: var(--space-4); }

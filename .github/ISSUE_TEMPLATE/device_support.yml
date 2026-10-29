@@ -1,0 +1,53 @@
+name: Device support
+description: A device, browser or file that doesn't play, or plays badly.
+labels: [device support]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Leave out real names, addresses, paths and file names that say something personal:
+        made-up values are enough.
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The device and its system version.
+      placeholder: Living room TV, Android TV 12
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: App or browser
+      description: The web UI in which browser and version, or which app and version.
+      placeholder: Web UI in Firefox 140
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you tried to play, and what happened (doesn't start, no sound, wrong subtitles, stutters…).
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: The file
+      description: |
+        Its container, video and audio codecs, resolution, HDR, and subtitle tracks. The output of
+        `ffprobe -hide_banner <file>` is ideal; replace the file name with something neutral.
+      render: text
+  - type: dropdown
+    id: conversion
+    attributes:
+      label: Was it converted?
+      options:
+        - Played directly
+        - Converted (HLS)
+        - I don't know
+  - type: input
+    id: version
+    attributes:
+      label: Melete version
+      placeholder: 0.1.0 (sha256:…)

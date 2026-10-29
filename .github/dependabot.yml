@@ -1,0 +1,26 @@
+version: 2
+
+# Version updates once a week, each ecosystem in one grouped pull request, proposing only
+# versions out for at least 7 days. Security updates don't wait for the cooldown or the week.
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      crates:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns: ["*"]

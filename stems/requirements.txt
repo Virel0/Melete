@@ -1,0 +1,7 @@
+# The versions benchmarked on MUSDB18 when choosing the models (decision 84).
+audio-separator[gpu]==0.47.1
+# 1.22.0 is built for CUDA 12, as the base image has (1.31 wants CUDA 13, and its CUDA provider
+# can't load here, so an ONNX model would fall back to the CPU). Our two models run on PyTorch.
+onnxruntime-gpu==1.22.0
+soundfile==0.14.0
+numpy==2.2.6

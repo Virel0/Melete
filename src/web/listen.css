@@ -1,0 +1,200 @@
+/* Listen's pages, after player.css: Home's rows, its Jump back in cards, the wide cards mixes
+   sit on, genre chips, songs, radio, an album's head, a track's actions, Add to playlist, and
+   playlists. Tokens are in app.css; the music bar and panel in player.css. */
+
+/* Home: rows with a modest heading, one after another. */
+.listen-home .home-row { margin-block-start: var(--space-6); }
+.listen-home .home-row > h2 { font-size: var(--step-1); margin-block-end: var(--space-3); }
+.listen-home .home-row .tracks { max-width: 48rem; }
+
+/* Jump back in: compact cards that play an album at once. */
+.jump {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+.jump-card {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  align-items: center;
+  justify-content: stretch;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0 var(--space-3) 0 0;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-weight: 400;
+  text-align: start;
+}
+.jump-card:hover { background: var(--surface-raised); }
+.jump-card .art { width: 3.5rem; aspect-ratio: 1 / 1; background: var(--surface-raised); }
+.jump-card .art img { width: 100%; height: 100%; object-fit: cover; }
+.jump-card .words { display: flex; flex-direction: column; min-width: 0; }
+.jump-card .words span { color: var(--muted); font-size: var(--step--1); }
+
+/* A mix on a wide card: what it is, Play and Shuffle, its songs folded away. */
+.wide-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr)); gap: var(--space-4); }
+.wide-card {
+  max-width: 48rem;
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+.wide-card .words p { margin: var(--space-1) 0 var(--space-3); }
+.wide-card .play-actions { margin: 0; }
+.mix-tracks { margin-block-start: var(--space-3); }
+.mix-tracks summary { cursor: pointer; color: var(--muted); min-height: 1.5rem; }
+.mix-tracks summary:hover { color: var(--text); }
+.mix-tracks .tracks { margin-block-start: var(--space-2); }
+
+/* Genre chips, each with how many albums it has. */
+.pills { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.pills a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  text-decoration: none;
+}
+.pills a:hover { background: var(--surface-raised); }
+.pills .count { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+
+/* In the house: who shares, then the choice to share. */
+.listen-home .rows + .check { margin-block-start: var(--space-4); }
+
+/* A page's opening sentence. */
+.lead { max-width: 40rem; color: var(--muted); }
+
+/* Songs: title and artist, the album beside them (under them on a phone), the length. */
+.tracks.songs li { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto; }
+.tracks.songs .album { color: var(--muted); font-size: var(--step--1); text-decoration: none; }
+.tracks.songs .album:hover { color: var(--text); text-decoration: underline; }
+@media (max-width: 40rem) {
+  .tracks.songs li { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; }
+  .tracks.songs .album { grid-column: 1; grid-row: 2; }
+  .tracks.songs .length { grid-column: 2; grid-row: 1; }
+}
+
+/* Radio: albums to start it from, each a row with its cover. */
+.listen-row { margin-block-start: var(--space-6); }
+.listen-row > h2 { font-size: var(--step-1); }
+.radio-now p { margin: var(--space-2) 0 var(--space-3); }
+.radio-seeds { list-style: none; margin: var(--space-3) 0 0; padding: 0; max-width: 48rem; }
+.radio-seeds li {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-2);
+  border-block-end: 1px solid var(--line);
+}
+.radio-seeds .art { width: 3.5rem; aspect-ratio: 1 / 1; border-radius: var(--radius-s); overflow: hidden; background: var(--surface-raised); }
+.radio-seeds .art img { width: 100%; height: 100%; object-fit: cover; }
+.radio-seeds .words { display: flex; flex-direction: column; min-width: 0; }
+.radio-seeds .by { color: var(--muted); font-size: var(--step--1); }
+.radio-seeds .play-actions { grid-column: 2; margin: 0; }
+@media (min-width: 40rem) {
+  .radio-seeds li { grid-template-columns: 3.5rem minmax(0, 1fr) auto; }
+  .radio-seeds .play-actions { grid-column: auto; justify-content: flex-end; }
+}
+
+/* An album's head: its cover beside its facts, on the album's own colours when the server has
+   worked them out (paint() in music-album.js sets them; each reads on the background at 4.5:1,
+   the line at 3:1), else on the surface. Buttons take the album's ink. */
+.album-head {
+  display: grid;
+  grid-template-columns: min(15rem, 32vw) minmax(0, 1fr);
+  align-items: end;
+  gap: var(--space-5);
+  margin-block-start: var(--space-3);
+  padding: var(--space-5);
+  background: var(--surface);
+  border-radius: var(--radius-m);
+  color: var(--text);
+}
+.album-cover { aspect-ratio: 1 / 1; border-radius: var(--radius-m); overflow: hidden; background: var(--surface-raised); box-shadow: var(--shadow); }
+.album-cover img { width: 100%; height: 100%; object-fit: cover; }
+.album-head h1 { font-size: var(--step-4); overflow-wrap: anywhere; }
+.album-head .kind { margin: 0 0 var(--space-1); font-size: var(--step--1); color: var(--muted); }
+.album-head .by-line a { font-weight: 600; }
+.album-head .meta-row { margin-block: var(--space-2) 0; color: var(--muted); font-size: var(--step--1); }
+.album-head .play-actions { margin-block: var(--space-4) var(--space-2); }
+.album-head .play-actions .play-actions { margin: 0; }
+.play-actions > .note:empty { display: none; }
+.album-head .note { color: var(--muted); }
+.album-head.coloured { background: var(--album-bg); color: var(--album-ink); }
+.album-head.coloured .kind,
+.album-head.coloured .meta-row,
+.album-head.coloured .note { color: var(--album-ink); }
+.album-head.coloured button:not(.quiet) { background: var(--album-ink); color: var(--album-bg); }
+.album-head.coloured button.quiet { color: var(--album-ink); border-color: var(--album-line); }
+.album-head.coloured button.quiet:hover { background: color-mix(in srgb, var(--album-ink) 14%, transparent); }
+.album-head.coloured :focus-visible { outline-color: var(--album-ink); }
+@media (max-width: 40rem) {
+  .album-head { grid-template-columns: 1fr; padding: var(--space-4); }
+  .album-cover { width: min(16rem, 70vw); }
+  .album-head h1 { font-size: var(--step-3); }
+  .album-cover:empty { display: none; }
+}
+
+/* A track row with its actions: the More button at its end, the strip under it. */
+.tracks li.with-actions { grid-template-columns: 2.5em minmax(0, 1fr) auto auto; align-items: center; }
+.tracks.songs li.with-actions { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto auto; }
+.tracks li .track-more { width: 2.25rem; height: 2.25rem; min-height: 0; padding: 0; }
+.tracks li .track-more[aria-expanded="true"] { color: var(--accent); }
+.liked-mark { display: inline-flex; vertical-align: middle; color: var(--accent); }
+.liked-mark svg { width: 0.9rem; height: 0.9rem; fill: currentColor; }
+.track-actions { grid-column: 1 / -1; padding: var(--space-2) 0 var(--space-1); }
+.strip-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.strip-buttons > button, .strip-buttons > a { margin: 0; }
+.strip-buttons a.button.small { min-height: 2rem; padding: var(--space-1) var(--space-3); }
+.strip-buttons .like { gap: var(--space-1); }
+.strip-buttons .like svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; }
+.strip-buttons .like[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.strip-buttons .like[aria-pressed="true"] svg { fill: currentColor; }
+.track-actions .note:empty { display: none; }
+@media (max-width: 40rem) {
+  .tracks.songs li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .tracks.songs li.with-actions .track-more { grid-column: 3; grid-row: 1; }
+}
+
+/* Add to playlist: the caller's playlists as buttons, then a new one. */
+.playlist-picker { margin-block-start: var(--space-3); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-m); max-width: 32rem; }
+.picker-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.picker-list button { gap: var(--space-2); margin: 0; }
+.picker-list .count { color: var(--muted); font-size: var(--step--1); }
+.picker-find { margin-block-end: var(--space-3); }
+.picker-new { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
+.picker-new input { width: min(16rem, 100%); }
+.album-head .playlist-picker { border-color: currentColor; }
+.album-head.coloured .playlist-picker .count { color: inherit; }
+
+/* A song gone from the library, in Liked songs or a playlist: what it was, greyed. */
+.tracks li.gone { grid-template-columns: minmax(0, 1fr) auto auto; color: var(--muted); }
+.tracks li.gone .missing { font-size: var(--step--1); font-style: italic; }
+
+/* A playlist: its notes, the forms to rename and delete it, and its songs' tools. */
+.playlist-notes { white-space: pre-line; max-width: 40rem; }
+.playlist-edit, .playlist-delete { margin-block: var(--space-3); max-width: 32rem; }
+.playlist-edit input, .playlist-edit textarea { width: 100%; }
+.playlist-edit textarea { font: inherit; color: inherit; padding: var(--space-2) var(--space-3); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-s); }
+.playlist-delete { padding: var(--space-3) var(--space-4); border: 1px solid var(--danger); border-radius: var(--radius-m); }
+.playlist-delete p { margin-block: 0 var(--space-3); }
+.playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto auto auto; }
+.playlist-items .item-tools button.icon { width: 2.25rem; height: 2.25rem; }
+.new-playlist { margin-block: var(--space-3) var(--space-2); }
+@media (max-width: 40rem) {
+  .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .playlist-items .item-tools { grid-column: 1 / -1; justify-self: end; }
+}

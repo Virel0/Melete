@@ -1,0 +1,135 @@
+//! The account, import, backup and restore commands, run inside the container: `docker exec melete melete …`
+//! (a restore with Melete stopped, through `docker compose run`).
+
+use anyhow::bail;
+
+use crate::{aoide, auth, backup};
+
+pub(crate) const USAGE: &str = "usage:
+  melete                                  run the server
+  melete user add <name> [--admin]        create a user with a generated password
+  melete user reset-password <name>       set a new generated password and sign the user out everywhere
+  melete backup                           copy the database into the data folder's backups
+  melete restore [<copy>]                 list the copies, or put one in place of the database, with
+                                          Melete stopped (docker compose run --rm melete melete restore <copy>)
+  melete seedbox host-key <host> [port]   show the key a seedbox presents, to pin it (sends nothing)
+  melete import aoide <aoide-sync.db> [--user <jellyfin-id>=<name>]... [--skip-user <jellyfin-id>]... [--apply]
+                                          import the Jellyfin aoide-sidecar's sync data (a dry run without --apply)";
+
+/// Account commands, run inside the container: `docker exec melete melete user add <name> --admin`.
+pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> anyhow::Result<()> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    match args.as_slice() {
+        ["user", "add", name, flags @ ..] if matches!(flags, [] | ["--admin"]) => {
+            if let Err(rule) = auth::validate_username(name) {
+                bail!("{rule}");
+            }
+            let password = auth::generate_password()?;
+            let is_admin = !flags.is_empty();
+            if auth::create_user(pool, name, password.clone(), is_admin)
+                .await?
+                .is_none()
+            {
+                bail!("the username {name:?} is taken");
+            }
+            let role = if is_admin { "admin" } else { "user" };
+            println!("Created {role} {name}. Password: {password}");
+            println!("Sign in and change it with PUT /api/v1/me/password.");
+        }
+        ["user", "reset-password", name] => {
+            let Some(user) = auth::find_user(pool, name).await? else {
+                bail!("no user named {name:?}");
+            };
+            let password = auth::generate_password()?;
+            auth::set_password(pool, user.id, password.clone(), None).await?;
+            println!("New password for {}: {password}", user.username);
+            println!("All of their sessions and API keys were signed out.");
+            println!("A sign-in lockout already running ends within 15 minutes.");
+        }
+        ["import", "aoide", rest @ ..] => aoide::import::run(pool, rest).await?,
+        ["backup"] => {
+            let data_dir = crate::config::Config::data_dir_from_env();
+            let copy = backup::by_hand(pool, &data_dir).await?;
+            let path = backup::folder(&data_dir)?.join(&copy.file);
+            println!(
+                "Copied the database to {} ({} bytes).",
+                path.display(),
+                copy.bytes
+            );
+            println!("It's kept until you remove it.");
+        }
+        _ => bail!("{USAGE}"),
+    }
+    Ok(())
+}
+
+/// Runs `melete restore [<copy>]` when that's the command, saying whether it was. It never
+/// opens the database the usual way, which would migrate it first.
+pub(crate) async fn restore_command(args: &[String]) -> anyhow::Result<bool> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let data_dir = crate::config::Config::data_dir_from_env();
+    let folder = data_dir.join(backup::FOLDER);
+    match args.as_slice() {
+        ["restore"] => {
+            let copies = backup::restore::copies(&data_dir)?;
+            if copies.is_empty() {
+                println!("There are no copies in {}.", folder.display());
+                return Ok(true);
+            }
+            println!("Copies in {}, newest first:", folder.display());
+            for (name, bytes, _) in &copies {
+                println!("  {name}  ({bytes} bytes)");
+            }
+            println!("Restore one, with Melete stopped: melete restore <copy>");
+        }
+        ["restore", chosen] => {
+            let restored = backup::restore::restore(&data_dir, chosen, &sqlx::migrate!()).await?;
+            say_restored(&data_dir, &restored);
+        }
+        ["restore", ..] => bail!("{USAGE}"),
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// Says what a restore did, step by step.
+fn say_restored(data_dir: &std::path::Path, restored: &backup::restore::Restored) {
+    use backup::restore::Kept;
+    let folder = data_dir.join(backup::FOLDER);
+    println!(
+        "Checked {}: it passes SQLite's integrity check and holds migrations up to {:04}.",
+        restored.from.display(),
+        restored.version
+    );
+    match &restored.kept {
+        Kept::Nothing => println!("There was no database to keep."),
+        Kept::Copied(copy) => println!(
+            "Kept the database that was there as {} ({} bytes), until you remove it.",
+            folder.join(&copy.file).display(),
+            copy.bytes
+        ),
+        Kept::Moved { files, why } => {
+            println!("SQLite couldn't copy the database that was there ({why}),");
+            println!(
+                "so its files were moved as they were into {}:",
+                folder.display()
+            );
+            for file in files {
+                println!("  {file}");
+            }
+        }
+    }
+    for file in &restored.removed {
+        println!("Removed {}.", data_dir.join(file).display());
+    }
+    println!(
+        "Put the copy in place of {}.",
+        data_dir.join("melete.db").display()
+    );
+    if restored.behind {
+        println!(
+            "The copy is from an older version: when Melete starts it copies it again, then applies the newer migrations."
+        );
+    }
+    println!("Start Melete again to use it.");
+}

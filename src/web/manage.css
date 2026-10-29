@@ -1,0 +1,122 @@
+/* Manage's Movies, Series, Anime and Music pages: the Library's toolbar, filters, posters and
+   tables (in a `div.stacks`, apart from the Indexers and System tables in tools.css), and
+   choosing several titles. Tokens are in app.css; the state marks are in shell.css. */
+
+.manage-body { min-width: 0; }
+.manage-body > h1 { margin-block-end: var(--space-4); }
+
+/* The Library's toolbar: search, sort and library on the left; the view and actions after. */
+.library-toolbar { margin-block: 0 var(--space-3); }
+.library-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-s); overflow: hidden; }
+.segmented button { border-radius: 0; min-height: 2.25rem; }
+.segmented button + button { border-inline-start: 1px solid var(--line-strong); }
+.manage-body button[aria-pressed="true"] { background: var(--surface-raised); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.library-runs:empty { display: none; }
+.library-runs { margin-block-end: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+
+/* The filters, each with its count. */
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: 0 var(--space-3); }
+.filters button { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; border: 1px solid var(--line); border-radius: 999px; padding-inline: var(--space-3); }
+.filters button[aria-pressed="true"] { border-color: var(--accent); box-shadow: none; }
+.filters .count { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+
+/* Choosing several titles. */
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-block-end: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  position: sticky;
+  top: var(--header-height, 0px);
+  z-index: 2;
+}
+.selected-count { margin: 0; font-weight: 600; }
+
+/* Posters: each with its name, year and state under it. */
+.library-grid { margin-block-start: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(8rem, 40vw), 1fr)); }
+.library-card { position: relative; display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.library-card .art.square { aspect-ratio: 1 / 1; }
+.library-card .art { aspect-ratio: 2 / 3; border-radius: var(--radius-m); overflow: hidden; background: var(--surface-raised); box-shadow: var(--shadow); }
+.library-card .art img { width: 100%; height: 100%; object-fit: cover; }
+.library-card .title-link { margin-block-start: var(--space-1); font-weight: 600; min-width: 0; }
+.library-card .meta { color: var(--muted); font-size: var(--step--1); }
+.library-card .state { font-size: var(--step--1); }
+.library-card input[type="checkbox"] { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 1; width: 1.5rem; height: 1.5rem; accent-color: var(--accent); }
+.library-card a.title-link { text-decoration: none; }
+.library-card a.title-link:hover, .library-card a.title-link:focus-visible { text-decoration: underline; }
+.tick-none { display: inline-block; width: 1.5rem; }
+
+/* A table that scrolls sideways in its own box when the page is narrower than it. */
+div.stacks table.data { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: var(--step--1); }
+div.stacks table.data th, div.stacks table.data td { padding: var(--space-2); border-block-end: 1px solid var(--line); text-align: start; vertical-align: middle; }
+div.stacks table.data thead th { color: var(--muted); font-weight: 600; border-block-end-color: var(--line-strong); white-space: nowrap; }
+div.stacks table.data tbody th { font-weight: 600; max-width: 22rem; }
+div.stacks table.data .r { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+div.stacks table.data .num { font-variant-numeric: tabular-nums; }
+div.stacks table.data input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
+
+/* On a phone, a table marked to stack turns into a block per row: its title first, then each
+   cell under its column's name. */
+@media (max-width: 40rem) {
+  div.stacks { overflow-x: visible; }
+  div.stacks table.data { min-width: 0; }
+  div.stacks thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  div.stacks tbody tr { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); padding-block: var(--space-3); border-block-end: 1px solid var(--line); }
+  div.stacks table.data tbody th, div.stacks table.data tbody td { display: block; padding: 0; border: 0; text-align: start; }
+  div.stacks tbody th { grid-column: 1 / -1; max-width: none; }
+  div.stacks table.data tbody td.tick { grid-row: 1; grid-column: 1; }
+  div.stacks tbody td.tick + th { grid-column: 2; }
+  div.stacks table.data tbody td[data-label] { display: contents; }
+  div.stacks td[data-label]::before { content: attr(data-label); color: var(--muted); }
+}
+
+/* A title's page: poster beside its facts and what can be done with it. */
+.manage-head { display: grid; grid-template-columns: minmax(6rem, 11rem) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.manage-head > .art { aspect-ratio: 2 / 3; border-radius: var(--radius-m); overflow: hidden; background: var(--surface-raised); box-shadow: var(--shadow); }
+.manage-head > .art img { width: 100%; height: 100%; object-fit: cover; }
+.manage-head > .art.square { aspect-ratio: 1 / 1; }
+.title-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.title-line h1 { overflow-wrap: anywhere; }
+.title-line .year { color: var(--muted); font-weight: 400; }
+.title-state { margin: var(--space-2) 0 0; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin: var(--space-3) 0; font-size: var(--step--1); }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.title-actions { margin-block: var(--space-3) var(--space-2); }
+.title-panel:empty { display: none; }
+.title-panel { margin-block-start: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+h2.part { font-size: var(--step-1); margin-block: var(--space-6) var(--space-2); }
+.title-panel h2.part { margin-block-start: 0; }
+h3.part-sub { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+@media (max-width: 40rem) { .manage-head { grid-template-columns: 6rem minmax(0, 1fr); gap: var(--space-3); } }
+
+/* A monitoring switch is the switch tools.css draws, with its state in words inside it. */
+.manage-body button.switch { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text); }
+.manage-body .switch-track { flex: none; }
+
+/* Search and choose: how each indexer answered, then the results. */
+.outcomes { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: var(--space-2) 0; padding: 0; list-style: none; font-size: var(--step--1); }
+div.stacks .why { margin: var(--space-1) 0 0; color: var(--danger); font-size: var(--step--1); font-weight: 400; }
+table.releases tbody th { font-weight: 400; max-width: 28rem; }
+table.releases tr.accepted th .path { font-weight: 600; }
+.choose h3 { font-size: var(--step-0); }
+
+/* A series' seasons, each opening onto its episodes. */
+.season { margin-block-start: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.season > header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-2) var(--space-4); }
+.season > header h3 { font-size: var(--step-0); }
+.season > header .row-actions { margin-inline-start: auto; }
+.season > .form-result:empty { display: none; }
+.season > .form-result, .season > div { padding-inline: var(--space-4); }
+.episodes-box { padding-block-end: var(--space-3); }
+
+/* Add new: how a result stands here, and the form to add it. */
+.marks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-1) 0 0; font-size: var(--step--1); }
+.add-form { margin-block-start: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.add-form select, .add-form input:not([type="checkbox"]) { width: min(100%, 24rem); }

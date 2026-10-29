@@ -1,0 +1,268 @@
+/* The library's pages, after app.css and before tools.css (rule order matters across them):
+   sign-in, title grids and cards, a title's page, the narrow-screen layout and music. The music
+   bar is in player.css. Tokens are in app.css. */
+
+/* Sign-in */
+.sign-in {
+  max-width: 22rem;
+  margin: 12vh auto 0;
+}
+.sign-in h1 { margin-block-end: var(--space-5); }
+.sign-in form > div { margin-block-end: var(--space-4); }
+.sign-in input { width: 100%; }
+.sign-in button { width: 100%; margin-block-start: var(--space-2); }
+.sign-in .other-way { margin-block-start: var(--space-5); text-align: center; }
+
+/* Sections and title grids */
+section + section { margin-block-start: var(--space-7); }
+.title-head + section { margin-block-start: var(--space-6); }
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-block-end: var(--space-4);
+}
+.section-head a { color: var(--muted); }
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-4);
+  margin-block: var(--space-4) var(--space-5);
+}
+.toolbar input[type="search"] { width: min(22rem, 100%); }
+.toolbar > div:first-child { flex: 0 1 22rem; }
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(9.5rem, 40vw), 1fr));
+  gap: var(--space-5) var(--space-4);
+}
+.grid.wide { grid-template-columns: repeat(auto-fill, minmax(min(15rem, 80vw), 1fr)); }
+/* Home's shelves: one row each, scrolled sideways inside the shelf. */
+.grid.shelf {
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  grid-auto-columns: min(9.5rem, 38vw);
+  overflow-x: auto;
+  padding-block-end: var(--space-2);
+  scroll-padding-inline: var(--space-1);
+}
+.grid.shelf.wide { grid-auto-columns: min(17rem, 75vw); }
+
+.card { display: block; text-decoration: none; }
+.card .art {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.wide .card .art { aspect-ratio: 16 / 9; }
+/* Album covers are square. */
+.card .art.square { aspect-ratio: 1 / 1; }
+.card .art img { width: 100%; height: 100%; object-fit: cover; }
+.card:hover .title { text-decoration: underline; }
+.card .title {
+  margin-block-start: var(--space-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.card .meta { color: var(--muted); font-size: var(--step--1); }
+
+.more { margin-block-start: var(--space-6); text-align: center; }
+
+/* Title pages */
+.backdrop {
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
+  max-height: 42vh;
+  overflow: hidden;
+  background: var(--surface);
+}
+.backdrop img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+
+.title-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5) var(--space-6);
+  margin-block-start: var(--space-5);
+}
+.title-head .poster {
+  width: min(13rem, 40vw);
+  flex: none;
+  align-self: flex-start;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.title-head .facts { flex: 1 1 20rem; max-width: 48rem; }
+.title-head h1 { font-size: var(--step-4); overflow-wrap: anywhere; }
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  list-style: none;
+  padding: 0;
+}
+.facts .meta-row { color: var(--muted); margin-block: var(--space-2) var(--space-4); }
+.facts p { margin-block: 0 var(--space-4); }
+.note { color: var(--muted); font-size: var(--step--1); }
+
+.files { list-style: none; padding: 0; margin: 0; }
+.files li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding-block: var(--space-2);
+  border-block-end: 1px solid var(--line);
+}
+.files .path { overflow-wrap: anywhere; }
+.files .size { color: var(--muted); display: flex; gap: var(--space-4); }
+.files .size a { color: var(--text); }
+
+.seasons,
+.tabs {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0 0 var(--space-5);
+}
+.seasons a,
+.tabs a {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  text-decoration: none;
+}
+.seasons a[aria-current="page"],
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tabs { margin-block-start: var(--space-3); }
+.seasons .count { display: block; font-size: var(--step--1); opacity: 0.85; }
+
+.episodes { list-style: none; padding: 0; margin: 0; }
+.episodes > li {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) 1fr;
+  gap: var(--space-4);
+  padding-block: var(--space-4);
+  border-block-end: 1px solid var(--line);
+}
+.episodes .still {
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+.episodes .still img { width: 100%; height: 100%; object-fit: cover; }
+.episodes h3 { font-size: var(--step-0); }
+.episodes .meta-row { color: var(--muted); font-size: var(--step--1); margin-block: var(--space-1); }
+.episodes p { margin: 0; max-width: 48rem; }
+.episodes .missing { color: var(--muted); font-style: italic; }
+
+@media (max-width: 48rem) {
+  .settings { grid-template-columns: 1fr; gap: var(--space-4); }
+  .settings-nav ul { position: static; display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .settings-nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
+}
+
+/* Phones: the header is in shell.css. */
+@media (max-width: 40rem) {
+  main { padding: var(--space-4); }
+  .backdrop { margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0; }
+  .title-head h1 { font-size: var(--step-3); }
+  .episodes > li { grid-template-columns: 1fr; }
+  .episodes .still { max-width: 20rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; transition: none !important; }
+}
+
+/* Music */
+.artist-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  columns: 16rem;
+  column-gap: var(--space-6);
+}
+.artist-list li { break-inside: avoid; }
+.artist-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: var(--space-2);
+  border-block-end: 1px solid var(--line);
+  text-decoration: none;
+}
+.artist-list a:hover .name { text-decoration: underline; }
+.artist-list .name { overflow-wrap: anywhere; }
+.artist-list .count { color: var(--muted); font-size: var(--step--1); flex: none; }
+
+.by-line { font-size: var(--step-1); margin-block: var(--space-1) 0; }
+.album-tracks { margin-block-start: var(--space-6); max-width: 48rem; }
+/* Home: a row per kind, the mixes each with their tracks. */
+.home-row { margin-block-start: var(--space-6); }
+/* An artist's page: the albums they appear on, under their own. */
+.appears-on { margin-block-start: var(--space-6); }
+.appears-on h2 { margin-block-end: var(--space-3); }
+.home-row .tracks, .home-row .mix { max-width: 48rem; }
+.mix { margin-block-start: var(--space-5); }
+.mix h3 { margin-block-end: var(--space-1); }
+.disc h3 { font-size: var(--step-0); color: var(--muted); margin-block: var(--space-5) var(--space-2); }
+.tracks { list-style: none; padding: 0; margin: 0; }
+.tracks li {
+  display: grid;
+  grid-template-columns: 2.5em 1fr auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding-block: var(--space-2);
+  border-block-end: 1px solid var(--line);
+}
+.tracks .number { color: var(--muted); text-align: end; font-variant-numeric: tabular-nums; }
+.tracks .name { overflow-wrap: anywhere; }
+.tracks .by { display: block; color: var(--muted); font-size: var(--step--1); }
+.tracks .length { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tracks .track-play { text-decoration: none; }
+.tracks .track-play:hover { text-decoration: underline; }
+/* The track playing now. */
+.tracks li.playing .track-play,
+.tracks li.playing .number { color: var(--accent); }
+
+/* A work's recordings side by side: movements down, recordings across, scrolled
+   sideways in its own box when there are more than fit. */
+.work-list .name { overflow-wrap: anywhere; }
+/* Positioned, so the hidden labels in its cells scroll with it instead of widening the page. */
+.compare-wrap { position: relative; overflow-x: auto; margin-block-start: var(--space-5); }
+.compare { border-collapse: collapse; min-width: 100%; }
+.compare th,
+.compare td {
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
+.compare thead th { min-width: 10rem; font-weight: 600; }
+.compare thead th:first-child,
+.compare tbody th { min-width: 12rem; font-weight: normal; }
+.compare thead .by { display: block; color: var(--muted); font-size: var(--step--1); font-weight: normal; }
+.compare thead button { margin-block-start: var(--space-2); }
+.compare td { font-variant-numeric: tabular-nums; }
+.compare .track-play { text-decoration: none; }
+.compare .track-play:hover { text-decoration: underline; }
+.compare .missing { color: var(--muted); font-size: var(--step--1); }
+.compare td.playing .track-play { color: var(--accent); }
+}

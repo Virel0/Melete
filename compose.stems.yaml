@@ -1,0 +1,51 @@
+# Splitting music into its parts on the GPU, for the Auto DJ and sing-along (docs/DESIGN.md,
+# decision 84). Off unless added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.stems.yaml
+# The separator reads the music read-only, publishes no port and talks to Melete only through a
+# folder of job files. On its first start it downloads its models from their publishers into
+# MELETE_STEMS_MODELS_DIR (they're never part of an image or this repository); nothing else
+# leaves the server. Its image is large: PyTorch with CUDA.
+
+services:
+  stems:
+    build: ./stems
+    image: melete-stems:dev
+    container_name: melete-stems
+    restart: unless-stopped
+    # Melete's own user: Melete reads, and on a track's removal deletes, what it writes.
+    user: "10001:10001"
+    environment:
+      STEMS_DIR: /stems
+      STEMS_JOBS: /stems-jobs
+      STEMS_MODELS: /models
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      # The same path Melete's music library has, so a job names a track the same way to both.
+      - ${MELETE_MUSIC_DIR:?set MELETE_MUSIC_DIR in .env}:/media/music:ro
+      # The parts, about 2.4 times the music library's size; writable by uid 10001.
+      - ${MELETE_STEMS_DATA_DIR:?set MELETE_STEMS_DATA_DIR in .env}:/stems
+      # Jobs between Melete and the separator; writable by uid 10001.
+      - ${MELETE_STEMS_JOBS_DIR:?set MELETE_STEMS_JOBS_DIR in .env}:/stems-jobs
+      # The models, downloaded once; writable by uid 10001.
+      - ${MELETE_STEMS_MODELS_DIR:?set MELETE_STEMS_MODELS_DIR in .env}:/models
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_STEMS_DIR: /stems
+      MELETE_STEMS_JOBS: /stems-jobs
+    volumes:
+      - ${MELETE_STEMS_DATA_DIR:?set MELETE_STEMS_DATA_DIR in .env}:/stems
+      - ${MELETE_STEMS_JOBS_DIR:?set MELETE_STEMS_JOBS_DIR in .env}:/stems-jobs

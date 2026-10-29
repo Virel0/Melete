@@ -1,0 +1,65 @@
+# Soulseek through slskd, behind a VPN (docs/DESIGN.md, decisions 56 and 57). Off unless added
+# to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.soulseek.yaml
+# slskd shares the Gluetun container's network, so the Soulseek server and peers only ever see
+# the VPN's address; slskd also stops talking to Soulseek whenever Gluetun says the VPN is down.
+# Nothing here publishes a port: Melete reaches slskd at http://gluetun:5030 inside compose.
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    container_name: melete-gluetun
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # The VPN provider and its credentials (see .env.example): a file of its own, never committed.
+    env_file:
+      - path: ${MELETE_GLUETUN_ENV_FILE:?set MELETE_GLUETUN_ENV_FILE in .env}
+    environment:
+      # Every control-server route needs this key; only slskd has it.
+      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: >-
+        {"auth":"apikey","apikey":"${MELETE_GLUETUN_CONTROL_KEY:?set MELETE_GLUETUN_CONTROL_KEY in .env}"}
+    security_opt:
+      - no-new-privileges:true
+
+  slskd:
+    image: slskd/slskd:0.26.2@sha256:d0963a3e5b16facd295bf4f2156dad0182f246b1b21a032cae12f5494c694843
+    container_name: melete-slskd
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on: [gluetun]
+    # Melete's own user, so it can read and remove what slskd downloads.
+    user: "10001:10001"
+    environment:
+      # The Soulseek account slskd signs in with.
+      SLSKD_SLSK_USERNAME: ${MELETE_SOULSEEK_USERNAME:?set MELETE_SOULSEEK_USERNAME in .env}
+      SLSKD_SLSK_PASSWORD: ${MELETE_SOULSEEK_PASSWORD:?set MELETE_SOULSEEK_PASSWORD in .env}
+      # slskd's own web UI, which otherwise signs in with a default password.
+      SLSKD_USERNAME: ${MELETE_SLSKD_WEB_USERNAME:?set MELETE_SLSKD_WEB_USERNAME in .env}
+      SLSKD_PASSWORD: ${MELETE_SLSKD_WEB_PASSWORD:?set MELETE_SLSKD_WEB_PASSWORD in .env}
+      # Melete's key: enough to search and download, not to administer.
+      SLSKD_API_KEY: "role=ReadWrite;${MELETE_SLSKD_API_KEY:?set MELETE_SLSKD_API_KEY in .env}"
+      SLSKD_DOWNLOADS_DIR: /downloads
+      # Waits for Gluetun to say the VPN is up before signing in to Soulseek.
+      SLSKD_VPN: "true"
+      SLSKD_VPN_GLUETUN_URL: http://127.0.0.1:8000
+      SLSKD_VPN_GLUETUN_API_KEY: ${MELETE_GLUETUN_CONTROL_KEY:?set MELETE_GLUETUN_CONTROL_KEY in .env}
+      # No asking GitHub for a newer version at each start: images are pinned and updated by hand.
+      SLSKD_NO_VERSION_CHECK: "true"
+      # Shares nothing: no shared folder is mounted, and Melete refuses to use an slskd that
+      # shares anything (decision 57).
+    volumes:
+      # slskd's configuration, database and unfinished downloads; writable by uid 10001.
+      - ${MELETE_SLSKD_APP_DIR:?set MELETE_SLSKD_APP_DIR in .env}:/app
+      # Finished downloads; writable by uid 10001. Melete removes each of its own after importing.
+      - ${MELETE_SLSKD_DOWNLOADS_DIR:?set MELETE_SLSKD_DOWNLOADS_DIR in .env}:/downloads
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_SLSKD_URL: http://gluetun:5030
+      MELETE_SLSKD_DOWNLOADS: /slskd-downloads
+    volumes:
+      - ${MELETE_SLSKD_DOWNLOADS_DIR:?set MELETE_SLSKD_DOWNLOADS_DIR in .env}:/slskd-downloads

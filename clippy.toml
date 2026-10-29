@@ -1,0 +1,3 @@
+# Functions longer than this fail the build outside tests (see the lint attributes in
+# src/main.rs): split them into named steps.
+too-many-lines-threshold = 100

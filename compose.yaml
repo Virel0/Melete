@@ -1,0 +1,91 @@
+# First run: create an admin, which prints a generated password:
+#   docker exec melete melete user add <name> --admin
+name: melete
+
+services:
+  melete:
+    build: .
+    image: melete:dev
+    container_name: melete
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      MELETE_LIBRARY_MOVIES: movies:/media/movies
+      MELETE_LIBRARY_SHOWS: shows:/media/shows
+      MELETE_LIBRARY_ANIME: shows,anime:/media/anime
+      MELETE_LIBRARY_MUSIC: music:/media/music
+      # The outside services below can also be set up in the web UI (Settings, Outside
+      # services); a value set in .env wins there and can't be changed from the UI.
+      # Matching music to MusicBrainz (one request a second; no key needed): off unless turned
+      # on, here or in the web UI. Album and track names leave the server.
+      MELETE_MUSICBRAINZ: ${MELETE_MUSICBRAINZ:-}
+      # Lyrics from LRCLIB, for imported albums and for tracks the apps ask about: off unless
+      # MELETE_LYRICS=lrclib.
+      MELETE_LYRICS: ${MELETE_LYRICS:-}
+      # Translating lyrics through a LibreTranslate: off when the address is empty.
+      MELETE_LIBRETRANSLATE_URL: ${MELETE_LIBRETRANSLATE_URL:-}
+      MELETE_LIBRETRANSLATE_API_KEY: ${MELETE_LIBRETRANSLATE_API_KEY:-}
+      # Lyrics' pronunciation in Latin letters: off unless MELETE_LYRICS_ROMANISATION=on.
+      MELETE_LYRICS_ROMANISATION: ${MELETE_LYRICS_ROMANISATION:-}
+      # Once a requested song is in, want its album too: off unless MELETE_SONG_ALBUMS=on.
+      MELETE_SONG_ALBUMS: ${MELETE_SONG_ALBUMS:-}
+      # Which parts each way of reaching Melete opens, and the proxies trusted to name their
+      # clients (docs/REMOTE-ACCESS.md). Empty: every address reaches everything.
+      MELETE_WAYS_IN: ${MELETE_WAYS_IN:-}
+      MELETE_TRUSTED_PROXIES: ${MELETE_TRUSTED_PROXIES:-}
+      # Soulseek through slskd (0.26 or later): its API as this container reaches it, and one of
+      # its API keys. Off when the address is empty.
+      MELETE_SLSKD_URL: ${MELETE_SLSKD_URL:-}
+      MELETE_SLSKD_API_KEY: ${MELETE_SLSKD_API_KEY:-}
+      MELETE_SLSKD_DOWNLOADS: ${MELETE_SLSKD_DOWNLOADS:-}
+      # From .env next to this file (see .env.example); metadata is off when empty.
+      MELETE_TMDB_TOKEN: ${MELETE_TMDB_TOKEN:-}
+      # The language titles and summaries are kept in, such as fr-FR (English when empty).
+      MELETE_METADATA_LANGUAGE: ${MELETE_METADATA_LANGUAGE:-}
+      # How often every library is scanned whole: 6h (the default), 24h, or a time such as 04:00.
+      MELETE_SCAN_SCHEDULE: ${MELETE_SCAN_SCHEDULE:-}
+      # For trackers behind Cloudflare's browser check (Uindex): a FlareSolverr's URL, e.g.
+      # the one Prowlarr uses. Off when empty.
+      MELETE_FLARESOLVERR_URL: ${MELETE_FLARESOLVERR_URL:-}
+      # Downloading through Deluge on the seedbox: off unless MELETE_DOWNLOADS=on.
+      MELETE_DOWNLOADS: ${MELETE_DOWNLOADS:-}
+      MELETE_DELUGE_URL: ${MELETE_DELUGE_URL:-}
+      MELETE_DELUGE_PASSWORD: ${MELETE_DELUGE_PASSWORD:-}
+      # The seedbox's SFTP (port 22 unless set); finished downloads stay on the seedbox until
+      # these are set.
+      MELETE_SEEDBOX_HOST: ${MELETE_SEEDBOX_HOST:-}
+      MELETE_SEEDBOX_PORT: ${MELETE_SEEDBOX_PORT:-}
+      MELETE_SEEDBOX_USER: ${MELETE_SEEDBOX_USER:-}
+      MELETE_SEEDBOX_PASSWORD: ${MELETE_SEEDBOX_PASSWORD:-}
+      MELETE_SEEDBOX_HOST_KEY: ${MELETE_SEEDBOX_HOST_KEY:-}
+      MELETE_SEEDBOX_PATHS: ${MELETE_SEEDBOX_PATHS:-}
+      # Transcode on the NVIDIA GPU (needs nvidia-container-toolkit on the host).
+      MELETE_HWACCEL: nvenc
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    # The host's folders come from .env (see .env.example). Each must be set: an unset one
+    # stops compose rather than letting Docker create it, owned by root.
+    volumes:
+      # Must be writable by uid 10001: sudo install -d -o 10001 -g 10001 <folder>
+      - ${MELETE_CONFIG_DIR:?set MELETE_CONFIG_DIR in .env}:/config
+      # Transcoded segments; also writable by uid 10001.
+      - ${MELETE_TRANSCODE_DIR:?set MELETE_TRANSCODE_DIR in .env}:/transcode
+      # Read-only until automation is enabled, so nothing can write to the library before then;
+      # finished downloads wait on the seedbox meanwhile. Turning it on: drop ":ro" here, and let
+      # uid 10001 write to these folders on the host (new folders and files come out
+      # group-writable).
+      - ${MELETE_MOVIES_DIR:?set MELETE_MOVIES_DIR in .env}:/media/movies:ro
+      - ${MELETE_SHOWS_DIR:?set MELETE_SHOWS_DIR in .env}:/media/shows:ro
+      - ${MELETE_ANIME_DIR:?set MELETE_ANIME_DIR in .env}:/media/anime:ro
+      - ${MELETE_MUSIC_DIR:?set MELETE_MUSIC_DIR in .env}:/media/music:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true

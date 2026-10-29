@@ -1,0 +1,5 @@
+# Pinned exactly. onnxruntime-gpu runs on the CPU too; 1.22.0 finds the base image's CUDA 12
+# (1.31 wants CUDA 13 and falls back to the CPU here).
+onnxruntime-gpu==1.22.0
+opencv-python-headless==4.14.0.94
+numpy==2.2.6

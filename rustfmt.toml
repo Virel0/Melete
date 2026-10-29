@@ -1,0 +1,4 @@
+# The default style for the 2024 edition, written down so editors and rustfmt run on its own
+# (outside cargo, which reads the edition from Cargo.toml) format the same way.
+edition = "2024"
+style_edition = "2024"

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="referrer" content="no-referrer">
+<title>Melete</title>
+<link rel="icon" href="/web/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/web/app.css">
+<link rel="stylesheet" href="/web/library.css">
+<link rel="stylesheet" href="/web/tools.css">
+<link rel="stylesheet" href="/web/shell.css">
+<link rel="stylesheet" href="/web/player.css">
+<link rel="stylesheet" href="/web/manage.css">
+<link rel="stylesheet" href="/web/listen.css">
+<link rel="stylesheet" href="/web/watch.css">
+<script src="/web/app.js" type="module"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="bar" id="bar" hidden>
+  <a class="wordmark" href="#/">Melete</a>
+  <nav class="sides" id="sides" aria-label="Sides">
+    <a href="#/" data-side="watch">Watch</a>
+    <a href="#/music" data-side="listen">Listen</a>
+    <a href="#/admin/movies" data-side="manage" hidden>Manage</a>
+  </nav>
+  <nav class="entries" id="entries" aria-label="Watch"></nav>
+  <div class="bar-end">
+    <button type="button" id="palette-open" class="quiet palette-open" aria-keyshortcuts="Control+K /"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg><span class="label">Search</span><kbd>Ctrl K</kbd></button>
+    <details class="account">
+      <summary><span class="visually-hidden">Account: </span><span id="username" class="clip"></span></summary>
+      <div class="account-menu">
+        <a href="#/settings/account">Your account</a>
+        <a href="#/requests">Requests</a>
+        <a href="#/calendar">Calendar</a>
+        <hr>
+        <button type="button" id="sign-out" class="quiet">Sign out</button>
+      </div>
+    </details>
+  </div>
+</header>
+<div class="frame" id="frame">
+  <nav class="sidebar" id="sidebar" aria-label="Pages" hidden></nav>
+  <div class="frame-main">
+    <div class="fold" id="fold" hidden>
+      <button type="button" id="fold-toggle" class="quiet fold-toggle" aria-expanded="false" aria-controls="fold-menu">Pages</button>
+      <dialog id="fold-menu" class="fold-menu" aria-labelledby="fold-title"></dialog>
+    </div>
+    <main id="main" tabindex="-1">
+      <noscript><p class="status">Melete's web app needs JavaScript.</p></noscript>
+    </main>
+  </div>
+</div>
+<p id="announce" class="visually-hidden" role="status" aria-live="polite"></p>
+</body>
+</html>

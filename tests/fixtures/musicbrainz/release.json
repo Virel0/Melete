@@ -1,0 +1,184 @@
+{
+ "id": "fba5f8fe-c6c8-4511-8562-c9febf482674",
+ "title": "OK Computer",
+ "date": "1997-06-16",
+ "status": "Official",
+ "country": "GB",
+ "release-group": {
+  "id": "b1392450-e666-3926-a536-22c65f834433",
+  "title": "OK Computer",
+  "primary-type": "Album",
+  "secondary-types": [],
+  "first-release-date": "1997-05-21"
+ },
+ "artist-credit": [
+  {
+   "name": "Radiohead",
+   "joinphrase": "",
+   "artist": {
+    "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+    "name": "Radiohead",
+    "sort-name": "Radiohead"
+   }
+  }
+ ],
+ "cover-art-archive": {
+  "darkened": false,
+  "back": true,
+  "front": true,
+  "count": 4,
+  "artwork": true
+ },
+ "media": [
+  {
+   "position": 1,
+   "format": "Cassette",
+   "track-count": 12,
+   "tracks": [
+    {
+     "position": 1,
+     "number": "A1",
+     "title": "Airbag",
+     "length": 284400,
+     "artist-credit": [
+      {
+       "name": "Radiohead",
+       "joinphrase": "",
+       "artist": {
+        "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        "name": "Radiohead",
+        "sort-name": "Radiohead"
+       }
+      }
+     ],
+     "id": "a31f27a1-dfd8-38cc-958a-07f3af52fc25",
+     "recording": {
+      "id": "4a7fea2e-545b-4c63-bc9a-9943cc3a29d7",
+      "title": "Airbag"
+     }
+    },
+    {
+     "position": 2,
+     "number": "A2",
+     "title": "Paranoid Android",
+     "length": 383493,
+     "id": "26ca3f84-46d8-3627-b894-b1eb8599a110",
+     "recording": {
+      "id": "9f9cf187-d6f9-437f-9d98-d59cdbd52757",
+      "title": "Paranoid Android"
+     }
+    },
+    {
+     "position": 3,
+     "number": "A3",
+     "title": "Subterranean Homesick Alien",
+     "length": 267706,
+     "id": "66ee1e73-a67c-3988-9ab5-e74721be5258",
+     "recording": {
+      "id": "bd82738d-163c-4b1a-bfaf-7acffe30e68a",
+      "title": "Subterranean Homesick Alien"
+     }
+    },
+    {
+     "position": 4,
+     "number": "A4",
+     "title": "Exit Music (for a Film)",
+     "length": 264800,
+     "id": "db7b6f2d-18b8-39b2-826d-eb9e82f35f3a",
+     "recording": {
+      "id": "23c3c36b-9449-4484-9040-6ef2125999aa",
+      "title": "Exit Music (for a Film)"
+     }
+    },
+    {
+     "position": 5,
+     "number": "A5",
+     "title": "Let Down",
+     "length": 299266,
+     "id": "5fe3d1b0-2f09-327e-b7e7-9fcff3158a8a",
+     "recording": {
+      "id": "47b02a82-c3bf-4647-b894-dd1c8f608e7f",
+      "title": "Let Down"
+     }
+    },
+    {
+     "position": 6,
+     "number": "A6",
+     "title": "Karma Police",
+     "length": 261626,
+     "id": "944a6d7d-a244-3295-ad6c-1440a52998e8",
+     "recording": {
+      "id": "9e2ad5bc-c6f9-40d2-a36f-3122ee2072a3",
+      "title": "Karma Police"
+     }
+    },
+    {
+     "position": 7,
+     "number": "B1",
+     "title": "Fitter Happier",
+     "length": 117333,
+     "id": "7feb7034-4809-39c0-8576-2ea7a83d118e",
+     "recording": {
+      "id": "5838f978-0822-4e28-874f-e1511324ec3a",
+      "title": "Fitter Happier"
+     }
+    },
+    {
+     "position": 8,
+     "number": "B2",
+     "title": "Electioneering",
+     "length": 230640,
+     "id": "0481f01e-b351-3c42-b851-748fa741ca74",
+     "recording": {
+      "id": "ba0a796c-bd1f-4d4b-85a8-918f217a204a",
+      "title": "Electioneering"
+     }
+    },
+    {
+     "position": 9,
+     "number": "B3",
+     "title": "Climbing Up the Walls",
+     "length": 285200,
+     "id": "52ac1a5e-a231-37b4-a82d-7dbc0c74bd72",
+     "recording": {
+      "id": "c7225576-001e-423c-adc1-58f0985dcb27",
+      "title": "Climbing Up the Walls"
+     }
+    },
+    {
+     "position": 10,
+     "number": "B4",
+     "title": "No Surprises",
+     "length": 228533,
+     "id": "94cede1d-3eb0-3978-8235-3747bb616cc0",
+     "recording": {
+      "id": "980a426e-623e-4ea5-98c7-008d037a0508",
+      "title": "No Surprises"
+     }
+    },
+    {
+     "position": 11,
+     "number": "B5",
+     "title": "Lucky",
+     "length": 259626,
+     "id": "34a59962-7e37-3fd9-8a74-f80528ffa1a0",
+     "recording": {
+      "id": "79047824-f821-4b1a-9893-e0cea1c947dd",
+      "title": "Lucky"
+     }
+    },
+    {
+     "position": 12,
+     "number": "B6",
+     "title": "The Tourist",
+     "length": 324533,
+     "id": "9f537c38-29dc-3114-9ce3-8c99d37e743f",
+     "recording": {
+      "id": "610c0012-6eb4-42a0-b759-3a2532ce0f15",
+      "title": "The Tourist"
+     }
+    }
+   ]
+  }
+ ]
+}

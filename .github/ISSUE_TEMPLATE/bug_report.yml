@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in Melete doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems go through private reporting instead (see SECURITY.md), not here.
+        Leave out real names, addresses, paths, passwords and keys: made-up values are enough.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Press …
+        3. See …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release and image digest, or the commit you built from.
+      placeholder: 0.1.0 (sha256:…)
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Web UI
+        - Video app
+        - Music app
+        - API
+        - Server (scans, downloads, imports, background work)
+        - Docker or install
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant lines from `docker compose logs melete`, with anything personal removed.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Settings that matter (outside services on, GPU or CPU conversions, ways in), and what you tried.

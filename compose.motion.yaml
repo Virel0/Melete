@@ -1,0 +1,49 @@
+# Motion covers made from albums' still covers (docs/DESIGN.md, decision 124). Off unless added
+# to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.motion.yaml
+# and then turned on, from .env (MELETE_MOTION_COVERS=on) or Settings in the web UI.
+# The renderer never sees the library: Melete hands it each cover as a file in the jobs folder,
+# and it answers there. It publishes no port. On its first start it downloads its three models
+# (about 100 MB) from their publishers into MELETE_MOTION_MODELS_DIR, each checked against its
+# SHA-256; nothing else leaves the server. It shares the stem separator's base image.
+
+services:
+  motion:
+    build: ./motion
+    image: melete-motion:dev
+    container_name: melete-motion
+    restart: unless-stopped
+    # Melete's own user: Melete reads, and moves away, what it writes.
+    user: "10001:10001"
+    environment:
+      MOTION_JOBS: /motion-jobs
+      MOTION_MODELS: /models
+      # Depth on the CPU (about two seconds a cover) leaves the GPU to transcoding. For the GPU,
+      # set MELETE_MOTION_DEVICE=gpu and uncomment the reservation below.
+      MOTION_DEVICE: ${MELETE_MOTION_DEVICE:-cpu}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      # Jobs between Melete and the renderer; writable by uid 10001.
+      - ${MELETE_MOTION_JOBS_DIR:?set MELETE_MOTION_JOBS_DIR in .env}:/motion-jobs
+      # The models, downloaded once; writable by uid 10001.
+      - ${MELETE_MOTION_MODELS_DIR:?set MELETE_MOTION_MODELS_DIR in .env}:/models
+    tmpfs:
+      - /tmp
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_MOTION_JOBS: /motion-jobs
+      MELETE_MOTION_COVERS: ${MELETE_MOTION_COVERS:-}
+    volumes:
+      - ${MELETE_MOTION_JOBS_DIR:?set MELETE_MOTION_JOBS_DIR in .env}:/motion-jobs

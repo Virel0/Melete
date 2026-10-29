@@ -1,0 +1,381 @@
+/* Watch's pages, after player.css: the hero, the rows of tiles, and the title page's header and
+   episodes. Tokens are in app.css; the art sits on the stage tokens, dark in both themes. */
+
+/* ---------- The hero ---------- */
+
+/* Full width over the page's padding, art behind, the words lower left on a fade to the stage.
+   Inside it the page's tokens take the stage's values, so buttons and focus rings read on it. */
+.hero {
+  --text: var(--stage-text);
+  --muted: var(--stage-muted);
+  --line-strong: var(--stage-line);
+  --surface-raised: var(--stage-raised);
+  --accent: var(--stage-accent);
+  --accent-ink: var(--stage-accent-ink);
+  color-scheme: dark;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-items: end;
+  min-height: min(34rem, 72vh);
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--stage);
+}
+.hero-art { position: absolute; inset: 0; z-index: -1; }
+.hero-picture { width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.hero-picture.shown { opacity: 1; }
+/* A scrim, so the words keep their contrast over any art. */
+.hero-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to right, var(--stage) 0%, color-mix(in srgb, var(--stage) 72%, transparent) 38%, transparent 72%), /* check-ui: ignore a scrim for the words over art, not decoration */
+    linear-gradient(to top, var(--stage) 0%, transparent 55%); /* check-ui: ignore a scrim for the words over art, not decoration */
+}
+.hero-body {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: min(100%, 38rem);
+  padding: var(--space-8) var(--space-5) var(--space-5);
+}
+.hero-kicker { margin: 0; color: var(--muted); font-size: var(--step--1); font-weight: 600; }
+.hero-kicker:empty { display: none; }
+.hero-title { font-size: var(--step-4); line-height: 1.05; overflow-wrap: anywhere; }
+.hero-logo { max-width: min(22rem, 100%); max-height: 7.5rem; object-fit: contain; object-position: left bottom; }
+.hero-facts { margin: 0; color: var(--muted); font-size: var(--step--1); }
+.hero-logline {
+  margin: 0;
+  max-width: 34rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hero .actions { gap: var(--space-2); }
+.hero-placeholder { min-height: min(34rem, 72vh); margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-5); border-radius: 0; }
+
+/* Buttons with an icon before their words: Play, My List. */
+.hero-play, .my-list { gap: var(--space-2); }
+.hero-play svg, .my-list svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
+.my-list svg.lines { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.my-list .mark { display: inline-flex; }
+.my-list[aria-pressed="true"] { border-color: var(--accent); }
+.hero-play[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
+
+/* Stepping between picks: previous, a dot each (the current one longer as well as brass), next,
+   and Pause. */
+.hero-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-block-start: var(--space-2); }
+.hero-dots { display: flex; }
+.hero-dot { min-height: 0; width: 1.75rem; height: 1.75rem; padding: 0; background: none; border: 0; }
+.hero-dot span { display: block; width: 1.125rem; height: 3px; margin-inline: auto; border-radius: 2px; background: var(--line-strong); }
+.hero-dot[aria-current="true"] span { width: 1.5rem; height: 5px; background: var(--accent); }
+.hero-step svg { width: 1.25rem; height: 1.25rem; }
+.hero-pause { min-height: 2rem; padding-block: 0; margin-inline-start: var(--space-2); font-size: var(--step--1); }
+.hero-pause[aria-pressed="true"] { border-color: var(--accent); }
+
+/* ---------- Rows of tiles ---------- */
+
+.watch-rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); margin-block-start: var(--space-5); }
+.watch-row + .watch-row { margin-block-start: 0; }
+.watch-row .section-head { margin-block-end: var(--space-1); }
+.watch-row h2 { font-size: var(--step-1); }
+/* One row each, scrolled sideways; the room above lets a lifted tile show whole. */
+.watch-shelf {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-1) var(--space-3);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(9.5rem, 38vw);
+  gap: var(--space-4);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--space-1);
+}
+.watch-shelf.wide { grid-auto-columns: min(17rem, 72vw); }
+.watch-shelf > li { min-width: 0; scroll-snap-align: start; }
+
+.tile { position: relative; display: grid; gap: var(--space-2); color: inherit; text-decoration: none; border-radius: var(--radius-m); }
+/* Hover and focus lift a tile a little; it never grows, so nothing beside it moves. */
+.tile:hover, .tile:focus-visible { translate: 0 calc(-1 * var(--space-1)); }
+.tile:hover .clip { text-decoration: underline; }
+@media (prefers-reduced-motion: no-preference) {
+  .tile { transition: translate 0.15s ease; }
+  .hero-picture { transition: opacity 0.4s ease; }
+}
+.tile-art {
+  display: grid;
+  align-items: end;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+.tile-art.wide { aspect-ratio: 16 / 9; }
+.tile-art img { width: 100%; height: 100%; object-fit: cover; }
+.tile-fallback { padding: var(--space-3); font-weight: 600; overflow-wrap: anywhere; }
+/* One badge a tile, an opaque chip so it reads over any art. */
+.tile-badge {
+  position: absolute;
+  inset: var(--space-2) auto auto var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--stage);
+  color: var(--stage-text);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+/* How far through: the bar on its track, so the end shows. */
+.tile-progress { display: block; height: 4px; margin-block-start: calc(-1 * var(--space-1)); border-radius: 2px; overflow: hidden; background: var(--line); }
+.tile-progress span { display: block; height: 100%; background: var(--accent); }
+.tile > .clip, .tile-caption { font-size: var(--step--1); }
+.tile-caption { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.tile-caption > .clip:first-child { flex: 1; }
+.tile-caption > .clip + .clip { max-width: 45%; color: var(--muted); }
+.tile-note { flex: none; color: var(--muted); }
+
+@media (max-width: 40rem) {
+  .hero, .hero-placeholder { margin-inline: calc(-1 * var(--space-4)); margin-block-start: calc(-1 * var(--space-4)); }
+  .hero { min-height: 30rem; }
+  .hero-body { padding: var(--space-7) var(--space-4) var(--space-4); }
+  .hero-title { font-size: var(--step-3); }
+  .hero-logo { max-height: 5rem; }
+  .hero-art::after { background: linear-gradient(to top, var(--stage) 0%, color-mix(in srgb, var(--stage) 80%, transparent) 45%, transparent 85%); } /* check-ui: ignore a scrim for the words over art, not decoration */
+}
+
+/* ---------- Shows, Anime and Movies ---------- */
+
+/* The whole list, after the rows. */
+.watch-rows + .everything, .hero + .everything { margin-block-start: var(--space-7); }
+.everything > h2 { font-size: var(--step-2); }
+
+/* ---------- A title's page ---------- */
+
+/* The page fades from the title's strongest colour at the top to its ground. */
+html.title-tinted {
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--title-tint) var(--fade-amount), var(--bg)) 0, var(--bg) 120vh) no-repeat, var(--bg); /* check-ui: ignore the title's own colour, fading down its page */
+}
+.title-hero { min-height: min(36rem, 75vh); }
+.title-hero .hero-body { width: min(100%, 46rem); }
+.title-overview { margin: 0; max-width: 44rem; }
+/* Play in the title's colour, once it's known; the stage's ink reads on it (title-colour.js). */
+.hero-play.tinted { background: var(--play-colour); border-color: var(--play-colour); color: var(--accent-ink); }
+/* The title header's genres: Listen's pills (listen.css), smaller. */
+.title-hero .pills a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: var(--step--1);
+  text-decoration: none;
+}
+.title-hero .note { margin: 0; color: var(--muted); }
+
+/* Seasons down the left, the chosen one's episodes on the right. */
+.episodes-picker {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: var(--space-5);
+  margin-block-start: var(--space-6);
+}
+.season-list { display: grid; gap: 2px; align-content: start; }
+button.season {
+  display: grid;
+  justify-items: start;
+  justify-content: start;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+  text-align: start;
+  border: 0;
+  border-inline-start: 3px solid transparent;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+button.season small { color: var(--muted); font-size: var(--step--1); font-weight: 400; }
+button.season:hover { background: var(--surface); }
+button.season[aria-pressed="true"] { background: var(--surface); border-inline-start-color: var(--accent); }
+.episode-pane-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-3); }
+.episode-pane-head h2 { font-size: var(--step-1); }
+.episode-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.episode-row { display: flex; align-items: flex-start; gap: var(--space-2); border-radius: var(--radius-m); }
+.episode-row:hover, .episode-row:focus-within { background: var(--surface); }
+.episode-play {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-m);
+}
+.episode-still { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--radius-s); background: var(--surface-raised); }
+.episode-still img { width: 100%; height: 100%; object-fit: cover; }
+.episode-code, .episode-chip {
+  position: absolute;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--stage);
+  color: var(--stage-text);
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.episode-code { inset: var(--space-1) auto auto var(--space-1); }
+.episode-chip { inset: auto var(--space-1) var(--space-1) auto; }
+.episode-chip.on { background: var(--stage-accent); color: var(--stage-accent-ink); }
+.episode-words { display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.episode-name { font-weight: 600; overflow-wrap: anywhere; }
+.episode-play:hover .episode-name { text-decoration: underline; }
+.episode-facts { color: var(--muted); font-size: var(--step--1); }
+.episode-overview {
+  color: var(--muted);
+  font-size: var(--step--1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.episode-mark { flex: none; min-height: 2rem; margin: var(--space-3) var(--space-3) 0 0; padding: var(--space-1) var(--space-3); font-size: var(--step--1); }
+.episode-row.missing .episode-play { opacity: 0.75; }
+
+/* Extras, cast and the collection: links of their own. About, folded. */
+.title-more { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block-start: var(--space-6); }
+.about-section { margin-block-start: var(--space-6); max-width: 60rem; }
+.about summary { cursor: pointer; display: flex; align-items: center; gap: var(--space-2); list-style: none; }
+.about summary::-webkit-details-marker { display: none; }
+/* The fold's mark: pointing right when shut, down when open. */
+.about summary::before { content: ""; flex: none; border: 6px solid transparent; border-inline-start-color: currentColor; translate: 3px 0; }
+.about[open] summary::before { border-inline-start-color: transparent; border-block-start-color: currentColor; translate: 0 3px; }
+.about summary h2 { font-size: var(--step-1); }
+.about h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.about-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; }
+.about-facts > div { display: contents; }
+.about-facts dt { color: var(--muted); }
+.about-facts dd { margin: 0; }
+.about-files .note { flex-basis: 100%; margin: 0; }
+
+@media (max-width: 50rem) {
+  .episodes-picker { grid-template-columns: minmax(0, 1fr); }
+  .season-list { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; padding-block-end: var(--space-2); }
+  button.season { border-inline-start: 0; border-block-end: 3px solid transparent; border-radius: var(--radius-s) var(--radius-s) 0 0; }
+  button.season[aria-pressed="true"] { border-block-end-color: var(--accent); }
+  .episode-play { flex-basis: 100%; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr); gap: var(--space-3); padding: var(--space-2); }
+  .episode-row { flex-wrap: wrap; }
+  .episode-mark { margin: 0 0 var(--space-2) var(--space-2); }
+}
+
+/* ---------- The player ---------- */
+
+/* What floats over the picture, in full screen too: Skip at the lower right, above the
+   video's own controls, and the next episode's card beside it. Only the buttons take clicks. */
+.stage { position: relative; }
+.stage:fullscreen { display: grid; place-items: center; border-radius: 0; }
+.stage:fullscreen video { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; }
+.stage-over {
+  position: absolute;
+  inset: auto var(--space-4) var(--space-8) auto;
+  display: grid;
+  justify-items: end;
+  gap: var(--space-3);
+  max-width: calc(100% - 2 * var(--space-4));
+  pointer-events: none;
+}
+.stage-over > * { pointer-events: auto; }
+.stage .skip-parts { margin: 0; min-height: 0; }
+.skip-parts button {
+  background: var(--stage-text);
+  color: var(--stage);
+  border-color: var(--stage-text);
+  box-shadow: var(--shadow);
+}
+.up-next-card {
+  --text: var(--stage-text);
+  --muted: var(--stage-muted);
+  --line-strong: var(--stage-line);
+  --surface-raised: var(--stage-raised);
+  --accent: var(--stage-accent);
+  --accent-ink: var(--stage-accent-ink);
+  width: min(22rem, 100%);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  background: var(--stage);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+.up-next-card p { margin: 0; }
+.up-next-label { color: var(--muted); font-size: var(--step--1); }
+.up-next-card .up-next-title { font-weight: 600; margin-block: var(--space-1) var(--space-3); overflow-wrap: anywhere; }
+.up-next-card .actions { gap: var(--space-2); }
+
+/* The seek bar's track carries a tick at each chapter and the credits as a band. */
+.scrub-track { position: relative; }
+.scrub-marks { position: absolute; inset: 0; pointer-events: none; }
+.scrub-tick { position: absolute; top: 15%; bottom: 15%; width: 2px; margin-inline-start: -1px; background: var(--text); opacity: 0.7; }
+.scrub-credits { position: absolute; top: 35%; bottom: 35%; background: var(--state-coming); opacity: 0.6; border-radius: 2px; }
+.scrub-preview { min-width: 4rem; }
+
+/* Subtitle chips under the seek bar: the one showing pressed, filled brass. */
+.subtitle-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2) 0; }
+.chip {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: var(--step--1);
+  font-weight: 400;
+}
+.chip:hover { background: var(--surface-raised); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.player-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+@media (max-width: 40rem) {
+  .stage-over { inset: auto var(--space-2) var(--space-7) auto; }
+  .up-next-card { padding: var(--space-2) var(--space-3); }
+}
+
+/* ---------- My List ---------- */
+
+/* Each title with Remove under it, always shown, so it's there for touch and keys too. */
+.my-list-item { display: grid; gap: var(--space-2); align-content: start; }
+.my-list-item > button { justify-self: start; min-height: 2rem; padding: 0 var(--space-3); font-size: var(--step--1); }
+.my-list-grid + .empty-state, .tabs + .status { margin-block-start: var(--space-4); }
+
+/* ---------- Trailers online ---------- */
+
+/* YouTube's player in a dialog over the page, on the stage, the picture 16:9 as wide as fits. */
+.trailer-box { display: contents; }
+.trailer-box svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
+.trailer-box button { gap: var(--space-2); }
+.trailer-dialog {
+  --text: var(--stage-text);
+  --muted: var(--stage-muted);
+  --line-strong: var(--stage-line);
+  --surface-raised: var(--stage-raised);
+  --accent: var(--stage-accent);
+  width: min(64rem, calc(100vw - 2 * var(--space-4)));
+  max-width: none;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  color: var(--text);
+  background: var(--stage);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-m);
+}
+.trailer-dialog::backdrop { background: var(--scrim); }
+.trailer-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-3); }
+.trailer-head h2 { font-size: var(--step-1); overflow-wrap: anywhere; }
+.trailer-frame { aspect-ratio: 16 / 9; background: var(--stage-raised); border-radius: var(--radius-s); overflow: hidden; }
+.trailer-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+.trailer-dialog .note { margin: var(--space-3) 0 0; color: var(--muted); }

@@ -1,0 +1,401 @@
+/* Melete's web UI. Tokens first; components below, and in library.css and tools.css (loaded
+   after this file, in that order), use only these. Dark first, since it's mostly used to pick
+   something to watch in a dim room; light follows the system setting. System fonts: the page
+   makes no outside requests and ships no font files. */
+:root {
+  --bg: #121417;
+  --surface: #1b1e23;
+  --surface-raised: #252930;
+  --line: #343944;
+  --line-strong: #6b7080;
+  --text: #ece9e2;
+  --muted: #a4a29b;
+  --accent: #e3a857;
+  --accent-ink: #121417;
+  --danger: #f09484;
+  --danger-ink: #121417;
+  /* The managing side's states (shell.css draws their marks). Each colour always comes with
+     words and a mark of its own shape, so no state is told by colour alone. */
+  --state-have: #8cc9a0;     /* in the library: a filled circle */
+  --state-coming: #8fbbe8;   /* downloading or on its way: a ring */
+  --state-waiting: #e3a857;  /* waiting for a decision: a diamond */
+  --state-missing: #f09484;  /* missing or failed: a triangle, a square */
+  --state-off: #a4a29b;      /* not monitored: a dash */
+  --state-notyet: #b3b8d6;   /* not out yet: a dashed ring */
+  /* contrast: --text on --bg */
+  /* contrast: --muted on --bg */
+  /* contrast: --muted on --surface */
+  /* contrast: --accent on --bg */
+  /* contrast: --accent-ink on --accent */
+  /* contrast: --danger on --bg */
+  /* contrast: --danger-ink on --danger */
+  /* contrast: --line-strong on --surface ui (borders only) */
+  /* contrast: --state-have on --bg */
+  /* contrast: --state-have on --surface */
+  /* contrast: --state-coming on --bg */
+  /* contrast: --state-coming on --surface */
+  /* contrast: --state-waiting on --surface */
+  /* contrast: --state-missing on --surface */
+  /* contrast: --state-off on --bg */
+  /* contrast: --state-notyet on --bg */
+  /* contrast: --state-notyet on --surface */
+  /* Watch's stage: the dark ground under a title's art (the hero, a title's header), in both
+     themes, as the player's is: backdrops and logos are made to sit on dark. The light theme
+     doesn't change these. */
+  --stage: #121417;
+  --stage-raised: #252930;
+  --stage-line: #6b7080;
+  --stage-text: #ece9e2;
+  --stage-muted: #b4b1a9;
+  --stage-accent: #e3a857;
+  --stage-accent-ink: #121417;
+  /* contrast: --stage-text on --stage */
+  /* contrast: --stage-muted on --stage */
+  /* contrast: --stage-accent on --stage */
+  /* contrast: --stage-accent-ink on --stage-accent */
+  /* contrast: --stage-text on --stage-raised */
+  /* contrast: --stage-line on --stage ui (borders only) */
+
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+  --step-4: 2.75rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* How much of a title's poster colour tints its page (see tint() in title-page.js, which also
+     darkens the colour so text keeps its contrast). */
+  --tint-amount: 12%;
+  /* How much of a title's strongest colour its page starts from at the top, fading to the
+     ground (title-colour.js); small enough that muted words keep 4.5:1 over it. */
+  --fade-amount: 22%;
+
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  /* The page behind a modal (the command palette), dimmed so the dialog is what's read. */
+  --scrim: rgb(0 0 0 / 0.6);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --surface-raised: #ebe9e4;
+    --line: #dcd9d2;
+    --line-strong: #7d7a72;
+    --text: #1b1d21;
+    --muted: #5d5b55;
+    --accent: #8a5a12;
+    --accent-ink: #ffffff;
+    --danger: #a8321f;
+    --danger-ink: #ffffff;
+    --state-have: #2c6a44;
+    --state-coming: #275d92;
+    --state-waiting: #8a5a12;
+    --state-missing: #a8321f;
+    --state-off: #5d5b55;
+    --state-notyet: #4f5577;
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+    --scrim: rgb(27 29 33 / 0.45);
+    --tint-amount: 10%;
+    --fade-amount: 14%;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* The hidden attribute wins over any display set below. */
+[hidden] { display: none !important; }
+
+html {
+  background: color-mix(in oklab, var(--tint, var(--bg)) var(--tint-amount), var(--bg));
+  color: var(--text);
+}
+
+body {
+  margin: 0;
+  font: var(--step-0) / 1.5 var(--font-body);
+  min-height: 100vh;
+}
+
+a { color: inherit; }
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+img { display: block; max-width: 100%; }
+
+h1, h2, h3 { line-height: 1.2; margin: 0; }
+h1 { font-size: var(--step-3); }
+h2 { font-size: var(--step-2); }
+h3 { font-size: var(--step-1); }
+
+button, input, select {
+  font: inherit;
+  color: inherit;
+}
+
+button, .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.6; cursor: progress; }
+button.quiet, .button.quiet {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line-strong);
+  font-weight: 400;
+}
+button.quiet:hover, .button.quiet:hover { background: var(--surface-raised); }
+
+input, select {
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+}
+
+label { display: block; font-weight: 600; margin-block-end: var(--space-1); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: var(--space-4);
+  top: -10rem;
+  padding: var(--space-2) var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  z-index: 2;
+}
+.skip:focus { top: var(--space-2); }
+
+main {
+  padding: var(--space-5);
+  max-width: 100rem;
+  margin-inline: auto;
+}
+main:focus { outline: none; }
+
+.status { color: var(--muted); }
+.error { color: var(--danger); }
+
+.badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+
+.play-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-block: 0 var(--space-4);
+}
+.episodes .play-actions { margin-block: var(--space-3) 0; }
+.episodes .play-actions .button,
+.episodes .play-actions button { min-height: 2rem; padding: var(--space-1) var(--space-3); }
+
+/* Player */
+.back { margin: 0 0 var(--space-3); }
+.player-title { font-size: var(--step-2); }
+.player-episode { margin: var(--space-1) 0 0; color: var(--muted); }
+.stage {
+  margin-block: var(--space-4);
+  background: #000; /* check-ui: ignore video letterboxing is black in every theme */
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+.stage video { display: block; width: 100%; max-height: calc(100vh - 18rem); aspect-ratio: 16 / 9; }
+/* Seek-bar previews: a bar under the video, its picture above the place pointed at. */
+.scrub-wrap { position: relative; margin-block: var(--space-2) 0; }
+.scrub { display: block; width: 100%; margin: 0; accent-color: var(--accent); }
+.scrub-preview {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  transform: translateX(-50%);
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  text-align: center;
+}
+.scrub-picture { background-repeat: no-repeat; border-radius: var(--radius-s); }
+.scrub-time { display: block; margin-block-start: var(--space-1); font-size: var(--step--1); }
+/* Finding subtitles online and offline copies, under the player's choices. */
+.subtitle-search, .offline-copy { margin-block: 0 var(--space-3); }
+.subtitle-search summary, .offline-copy summary { cursor: pointer; }
+.subtitle-search .muted, .offline-copy .muted { color: var(--muted); margin-block: var(--space-2); }
+.offline-download:empty { display: none; }
+.subtitle-results { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.subtitle-results li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.subtitle-results span { overflow-wrap: anywhere; }
+.subtitle-results small { color: var(--muted); }
+.skip-parts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-block-start: var(--space-2); min-height: 2.75rem; }
+.player-options { margin-block: 0; }
+/* Under the video: audio and subtitles on one side, the episodes either side of this one on
+   the other. */
+.player-panel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-5);
+  margin-block-end: var(--space-3);
+}
+.player-panel:empty { display: none; }
+.episode-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.episode-nav:empty { display: none; }
+.resumed { margin-block: 0 var(--space-3); color: var(--muted); }
+.resumed button.link { color: var(--text); }
+.shortcuts { margin-block-start: var(--space-4); color: var(--muted); }
+.shortcuts summary { cursor: pointer; }
+.shortcuts summary:hover { color: var(--text); }
+.shortcuts dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 0; }
+.shortcuts dl > div { display: contents; }
+.shortcuts dd { margin: 0; }
+@media (max-width: 40rem) {
+  /* The picture edge to edge, as phone players have it. */
+  .stage { margin-inline: calc(-1 * var(--space-4)); border-radius: 0; }
+  .player-panel { flex-direction: column; align-items: stretch; }
+  .player-options select { width: 100%; }
+}
+/* No keyboard to speak of. */
+@media (hover: none) and (pointer: coarse) {
+  .shortcuts { display: none; }
+}
+.up-next {
+  margin-block-start: var(--space-4);
+  max-width: 40rem;
+}
+.up-next:empty { display: none; }
+.up-next h2 { font-size: var(--step-1); }
+.up-next p { margin-block: var(--space-2); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+
+button.danger { background: var(--danger); color: var(--danger-ink); }
+
+/* Settings: a side list of sections (Aoide's layout), each a column of groups. */
+.settings {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 48rem);
+  gap: var(--space-6);
+  margin-block-start: var(--space-5);
+}
+.settings-nav ul { list-style: none; margin: 0; padding: 0; position: sticky; top: 5rem; }
+.settings-nav a {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-s);
+  text-decoration: none;
+  color: var(--muted);
+}
+.settings-nav a:hover { color: var(--text); background: var(--surface-raised); }
+.settings-nav a[aria-current="page"] { color: var(--text); background: var(--surface-raised); box-shadow: inset 3px 0 0 var(--accent); }
+.flash {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-m);
+}
+.group {
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+.group + .group { margin-block-start: var(--space-5); }
+.group h2 { font-size: var(--step-1); margin-block-end: var(--space-3); }
+.field { margin-block-end: var(--space-4); }
+.field input { width: min(100%, 24rem); }
+.field .note { margin: 0 0 var(--space-1); }
+.field-error { color: var(--danger); margin: var(--space-1) 0 0; }
+[aria-invalid="true"] { border-color: var(--danger); }
+.check { display: flex; align-items: center; gap: var(--space-2); margin-block-end: var(--space-4); }
+.toolbar .check { margin-block-end: var(--space-2); }
+.check input { min-height: auto; width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
+.check label { font-weight: 400; margin: 0; }
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.form-result { margin: 0; color: var(--muted); }
+.form-result.error { color: var(--danger); }
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-block-end: 1px solid var(--line);
+}
+.rows > li > div:first-child { flex: 1 1 18rem; min-width: 0; }
+.rows p { margin: var(--space-1) 0 0; }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.row-actions .question { flex-basis: 100%; }
+.row-actions .check { flex-basis: 100%; margin: 0; }
+.path { overflow-wrap: anywhere; }
+.secret-box { margin-block-start: var(--space-4); }
+.secret-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.secret { flex: 1 1 16rem; font-family: ui-monospace, monospace; }
+.report-details { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: var(--step--1); background: var(--surface-raised); border-radius: var(--radius-s); }
+.matching .choices { list-style: none; padding: 0; margin: var(--space-2) 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.search-row { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); margin-block-start: var(--space-3); }
+.search-row input.year { width: 6rem; }
+.results { margin-block-start: var(--space-2); }
+select.compact { min-height: 2rem; padding-block: var(--space-1); }
+.plain { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.plain > li + li { margin-block-start: var(--space-1); }
+button.link {
+  min-height: 1.5rem;
+  padding: 0;
+  background: none;
+  color: var(--text);
+  font-weight: 400;
+  text-align: start;
+  text-decoration: underline;
+}
+.search-results { margin-block-start: var(--space-3); }
+.search-results .rows > li.accepted { box-shadow: inset 3px 0 0 var(--accent); padding-inline-start: var(--space-3); }
+progress { accent-color: var(--accent); width: min(16rem, 60%); vertical-align: middle; }
+.badge.state-failed { color: var(--danger); border-color: var(--danger); }
+a.badge { text-decoration: none; color: var(--text); }

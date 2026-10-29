@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so a new advisory or a broken toolchain shows up without a change here.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The toolchain the Dockerfile builds with.
+  RUST_TOOLCHAIN: "1.99"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # Smaller build cache; backtraces keep their line numbers.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - name: Install ffmpeg and shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg shellcheck
+          ffmpeg -hide_banner -version | head -n 1
+
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: check-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            check-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Shell scripts
+        run: |
+          mapfile -d '' scripts < <(git ls-files -z -- '*.sh')
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "No shell scripts."
+            exit 0
+          fi
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+          shellcheck "${scripts[@]}"
+
+      - name: Banned dependencies
+        # OpenSSL and the system's TLS (native-tls) are kept out of the build. aws-lc-rs is
+        # allowed: it is the crypto provider of rustls (HTTPS) and of russh (the seedbox's SFTP).
+        run: |
+          banned='^(openssl|openssl-sys|native-tls) '
+          found=$(cargo tree --locked --target all --edges normal,build,dev --prefix none --format '{p}' \
+            | grep -E "$banned" | cut -d ' ' -f 1 | sort -u || true)
+          if [ -n "$found" ]; then
+            while read -r name; do
+              echo "::error title=Banned dependency::$name is in the dependency tree"
+              cargo tree --locked --target all --edges normal,build,dev --invert "$name"
+            done <<< "$found"
+            exit 1
+          fi
+          echo "Neither OpenSSL nor native-tls is in the dependency tree."
+
+      - name: Size report
+        # Warns only: tests/source_size.rs is what fails a file that grows too long, and clippy
+        # fails a long function outside tests.
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "## Size report"
+            echo
+            echo "Files over 800 lines:"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          git ls-files -z -- '*.rs' '*.js' '*.css' '*.html' '*.py' '*.sh' ':(exclude)src/web/vendor/**' \
+            | xargs -0 wc -l | grep -v ' total$' | sort -rn \
+            | while read -r lines file; do
+                if [ "$lines" -gt 800 ]; then
+                  echo "::warning file=$file,title=Long file::$file has $lines lines (over 800)"
+                  echo "- \`$file\`: $lines lines" >> "$GITHUB_STEP_SUMMARY"
+                fi
+              done
+          {
+            echo
+            echo "Functions over 100 lines:"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          cargo clippy --locked --all-targets --message-format=json -- --force-warn clippy::too_many_lines 2>/dev/null \
+            | jq -r 'select(.reason == "compiler-message") | .message
+                | select(.code.code == "clippy::too_many_lines")
+                | (.spans[] | select(.is_primary)) as $s
+                | "\($s.file_name)\t\($s.line_start)\t\(.message)"' \
+            | sort -u \
+            | while IFS=$'\t' read -r file line message; do
+                echo "::warning file=$file,line=$line,title=Long function::$message"
+                echo "- \`$file:$line\`: $message" >> "$GITHUB_STEP_SUMMARY"
+              done
+
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_AUDIT_VERSION: "0.22.2"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache cargo-audit
+        id: cache-audit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}-rust-${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install cargo-audit
+        if: steps.cache-audit.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-audit --version "$CARGO_AUDIT_VERSION"
+
+      - name: Audit dependencies
+        # Fails on any known vulnerability in Cargo.lock; warnings (unmaintained, yanked) are
+        # listed without failing.
+        run: cargo audit --file Cargo.lock

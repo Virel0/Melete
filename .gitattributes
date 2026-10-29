@@ -1,0 +1,2 @@
+# Migrations are SQLite; GitHub guesses PL/pgSQL from the syntax alone.
+*.sql linguist-language=SQL

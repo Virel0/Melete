@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <atom:link rel="self" type="application/rss+xml" />
+    <title>Prowlarr</title>
+    <item>
+      <title>Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.7.1-FraMeSToR</title>
+      <description />
+      <guid>https://fake.example/t/1</guid>
+      <prowlarrindexer id="1" type="private">Fake Tracker</prowlarrindexer>
+      <comments>https://fake.example/t/1</comments>
+      <pubDate>Sat, 24 Oct 2026 10:00:00 +0000</pubDate>
+      <size>78000000000</size>
+      <link>http://127.0.0.1:19696/1/download?apikey=KEY&amp;link=YkFFRDlMWi9WNHNYVmpReG9yQ2JLZnhsNlBtTUYydWxPbWR6bGFxWEM2V0QydEVERHhyZlBSWGNvbk10M211UGhWR040M25pWm5GbzYzME1sN2RIN3c9PQ&amp;file=Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.7.1-FraMeSToR</link>
+      <category>2045</category>
+      <category>102045</category>
+      <enclosure url="http://127.0.0.1:19696/1/download?apikey=KEY&amp;link=YkFFRDlMWi9WNHNYVmpReG9yQ2JLZnhsNlBtTUYydWxPbWR6bGFxWEM2V0QydEVERHhyZlBSWGNvbk10M211UGhWR040M25pWm5GbzYzME1sN2RIN3c9PQ&amp;file=Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.7.1-FraMeSToR" length="78000000000" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="2045" />
+      <torznab:attr name="category" value="102045" />
+      <torznab:attr name="tag" value="freeleech" />
+      <torznab:attr name="genre" value="" />
+      <torznab:attr name="seeders" value="120" />
+      <torznab:attr name="files" value="0" />
+      <torznab:attr name="grabs" value="0" />
+      <torznab:attr name="peers" value="150" />
+      <torznab:attr name="infohash" value="0123456789abcdef0123456789abcdef01234567" />
+      <torznab:attr name="downloadvolumefactor" value="0" />
+      <torznab:attr name="uploadvolumefactor" value="1" />
+    </item>
+  </channel>
+</rss>

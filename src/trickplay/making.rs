@@ -1,0 +1,195 @@
+//! Making a file's previews with ffmpeg, and the background run that makes them for every file
+//! that needs them.
+
+use super::*;
+
+/// What a run of making previews did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    /// Files whose previews were made.
+    pub made: usize,
+    /// Files ffmpeg couldn't read; looked at again only once they change.
+    pub failed: usize,
+}
+
+/// The ffmpeg command line for a file's previews: keyframes only, one at least `INTERVAL`
+/// after the last, scaled to `WIDTH` by `height`, its time logged (`showinfo`), and tiled into
+/// numbered JPEG sheets in `dir`.
+pub fn args(input: &Path, height: i64, dir: &Path) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = ["-hide_banner", "-nostdin", "-v", "info"]
+        .iter()
+        .map(Into::into)
+        .collect();
+    args.extend(["-skip_frame", "nokey", "-i"].map(Into::into));
+    let mut file = std::ffi::OsString::from("file:");
+    file.push(input);
+    args.push(file);
+    let filters = format!(
+        "select='isnan(prev_selected_t)+gte(t-prev_selected_t,{INTERVAL})',scale={WIDTH}:{height},showinfo,tile={COLUMNS}x{ROWS}"
+    );
+    args.extend(
+        [
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            "-vf",
+            &filters,
+            "-fps_mode",
+            "vfr",
+            "-q:v",
+            "5",
+            "-start_number",
+            "0",
+            "-f",
+            "image2",
+        ]
+        .map(Into::into),
+    );
+    args.push(dir.join("%d.jpg").into());
+    args
+}
+
+/// The times of the pictures `showinfo` logged, in order.
+pub fn logged_times(log: &str) -> Vec<f64> {
+    log.lines()
+        .filter(|l| l.contains("Parsed_showinfo"))
+        .filter_map(|l| {
+            let at = l.split("pts_time:").nth(1)?;
+            at.split_whitespace().next()?.parse().ok()
+        })
+        .collect()
+}
+
+/// The height of a picture `WIDTH` wide in the video's shape, even, as encoders want.
+pub fn picture_height(width: i64, height: i64) -> i64 {
+    let h = (WIDTH as f64 * height as f64 / width as f64 / 2.0).round() as i64 * 2;
+    h.clamp(2, WIDTH * 4)
+}
+
+/// Makes a file's previews into `dir` (made afresh), with its index.
+///
+/// # Errors
+///
+/// ffmpeg's reason when it couldn't read the file, or why the sheets couldn't be written.
+pub async fn make(
+    ffmpeg: &Path,
+    input: &Path,
+    video: (i64, i64),
+    dir: &Path,
+) -> anyhow::Result<Index> {
+    let height = picture_height(video.0, video.1);
+    let _ = tokio::fs::remove_dir_all(dir).await;
+    tokio::fs::create_dir_all(dir).await?;
+    let run = Command::new(ffmpeg)
+        .args(args(input, height, dir))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(MAKE_TIMEOUT, run)
+        .await
+        .context("reading the file's keyframes took over 30 minutes")?
+        .with_context(|| format!("starting {}", ffmpeg.display()))?;
+    let log = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        let reason: String = log
+            .lines()
+            .rev()
+            .find(|l| !l.contains("Parsed_showinfo"))
+            .unwrap_or("ffmpeg failed")
+            .chars()
+            .take(300)
+            .collect();
+        anyhow::bail!("ffmpeg couldn't read it: {reason}");
+    }
+    let times = logged_times(&log);
+    anyhow::ensure!(!times.is_empty(), "ffmpeg found no keyframes");
+    let per_sheet = (COLUMNS * ROWS) as usize;
+    let index = Index {
+        width: WIDTH,
+        height,
+        columns: COLUMNS,
+        rows: ROWS,
+        sheets: times.len().div_ceil(per_sheet) as i64,
+        times,
+    };
+    for sheet in 0..index.sheets {
+        let path = dir.join(format!("{sheet}.jpg"));
+        anyhow::ensure!(path.exists(), "ffmpeg didn't write sheet {sheet}");
+    }
+    tokio::fs::write(dir.join("index.json"), serde_json::to_vec(&index)?).await?;
+    Ok(index)
+}
+
+/// Makes previews for every present video not made yet in its current version, one at a
+/// time, while it's turned on (`MELETE_TRICKPLAY`). A file ffmpeg can't read keeps why, and is
+/// looked at again only once it changes.
+pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyhow::Result<Report> {
+    let mut report = Report::default();
+    loop {
+        if !crate::settings::trickplay(pool).await? {
+            return Ok(report);
+        }
+        let next: Option<(i64, String, String, i64, i64, i64, i64)> = sqlx::query_as(
+            "SELECT f.id, l.path, f.rel_path, f.size, f.modified_at,
+                 json_extract(p.info, '$.video[0].width'), json_extract(p.info, '$.video[0].height')
+             FROM media_files f
+             JOIN libraries l ON l.id = f.library_id
+             JOIN media_probes p ON p.file_id = f.id
+                 AND p.size = f.size AND p.modified_at = f.modified_at
+             LEFT JOIN media_trickplay t ON t.file_id = f.id
+             WHERE f.missing_since IS NULL
+               AND json_extract(p.info, '$.video[0].width') > 0
+               AND json_extract(p.info, '$.video[0].height') > 0
+               AND (t.file_id IS NULL OR t.size <> f.size OR t.modified_at <> f.modified_at)
+             ORDER BY f.id LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await?;
+        let Some((id, library, rel_path, size, modified_at, width, height)) = next else {
+            return Ok(report);
+        };
+        let making = root.join(format!(".making-{id}-{size}-{modified_at}"));
+        let input = Path::new(&library).join(&rel_path);
+        let made = make(ffmpeg, &input, (width, height), &making).await;
+        let error = match made {
+            Ok(_) => {
+                let done = version_dir(root, id, size, modified_at);
+                let _ = tokio::fs::remove_dir_all(&done).await;
+                tokio::fs::rename(&making, &done).await?;
+                report.made += 1;
+                None
+            }
+            Err(err) => {
+                let _ = tokio::fs::remove_dir_all(&making).await;
+                tracing::warn!(
+                    rel_path,
+                    error = format!("{err:#}"),
+                    "couldn't make seek-bar previews"
+                );
+                report.failed += 1;
+                Some(format!("{err:#}"))
+            }
+        };
+        sqlx::query(
+            "INSERT INTO media_trickplay (file_id, size, modified_at, made_at, error)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (file_id) DO UPDATE SET size = excluded.size,
+                 modified_at = excluded.modified_at, made_at = excluded.made_at,
+                 error = excluded.error",
+        )
+        .bind(id)
+        .bind(size)
+        .bind(modified_at)
+        .bind(unix_now())
+        .bind(error)
+        .execute(pool)
+        .await?;
+    }
+}
+
+#[cfg(test)]
+mod tests;

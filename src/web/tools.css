@@ -1,0 +1,331 @@
+/* After app.css and library.css (rule order matters across them): a wanted title's
+   progress, requests, the profile editors, admin and its overviews, the command palette,
+   describing a title, select mode, searching all missing, and the calendar. */
+
+/* A wanted title's progress: its steps in a row, done ones filled, the current one ringed. */
+.progress { margin-block-start: var(--space-2); }
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--step--1);
+  color: var(--muted);
+}
+.steps li { display: flex; align-items: center; gap: var(--space-1); }
+.steps li + li::before {
+  content: "";
+  width: 1.25rem;
+  height: 1px;
+  background: var(--line-strong);
+}
+.steps .label::before {
+  content: "";
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-inline-end: var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.steps li.done { color: var(--text); }
+.steps li.done .label::before { background: var(--accent); border-color: var(--accent); }
+.steps li.current { color: var(--text); font-weight: 600; }
+.steps li.current .label::before { border: 2px solid var(--accent); }
+.steps.failed li { opacity: 0.6; }
+.progress progress { width: min(16rem, 60%); }
+.progress .summary { display: none; margin: 0; font-size: var(--step--1); font-weight: 600; }
+@media (max-width: 40rem) {
+  .progress .steps { display: none; }
+  .progress .summary { display: block; }
+}
+
+
+/* Requests */
+.subgroup + .subgroup { margin-block-start: var(--space-5); }
+.subgroup h3 { font-size: var(--step-0); margin-block-end: var(--space-2); }
+.rows details { margin-block-start: var(--space-2); }
+.rows summary { cursor: pointer; color: var(--muted); }
+.rows summary:hover { color: var(--text); }
+/* A series request's seasons: one line each, name, where it stands, how much is here. */
+.request-seasons { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.request-seasons > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding-block: var(--space-1);
+}
+.request-seasons > li + li { border-block-start: 1px solid var(--line); }
+.request-seasons .season-name { min-width: 5.5rem; font-weight: 600; }
+.request-seasons progress { width: min(8rem, 40%); }
+.request-seasons .season-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
+
+/* Profile and custom format editors */
+.editor h3 { font-size: var(--step-0); margin-block: var(--space-5) var(--space-2); }
+.editor .qualities > li, .editor .scores > li { align-items: center; padding-block: var(--space-2); }
+.editor .qualities .check { margin: 0; }
+.editor .scores label { font-weight: 400; }
+.condition {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+.condition legend { padding-inline: var(--space-2); font-weight: 600; }
+.choices { border: 0; margin: 0 0 var(--space-4); padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-4); }
+.choices legend { padding: 0; margin-block-end: var(--space-2); font-weight: 600; }
+.choices .check { margin-block-end: var(--space-2); }
+.try { margin-block-start: var(--space-3); }
+/* A row opened for changing in place: its form under a small heading. */
+.edit-title { font-size: var(--step-0); margin: 0 0 var(--space-3); }
+
+/* Manage: the header lists the services and the sidebar a service's pages (shell.css). */
+.admin-body { min-width: 0; max-width: 56rem; }
+.admin-body > h1 { margin-block-end: var(--space-4); }
+.badge.waiting { color: var(--text); }
+/* The overview: each area, how it is in words, and what needs attention there. */
+.areas { list-style: none; margin: var(--space-5) 0 0; padding: 0; }
+.areas > li { border-block-end: 1px solid var(--line); padding-block: var(--space-2) var(--space-3); }
+.area-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) 0;
+  text-decoration: none;
+}
+.area-link:hover .area-name { text-decoration: underline; }
+.area-name { font-size: var(--step-1); font-weight: 600; }
+.area-state { color: var(--muted); }
+.area-state.error { color: var(--danger); }
+.finding > div:first-child { flex: 1 1 18rem; }
+.finding .row-actions a { white-space: nowrap; }
+.indexer-rows .error { margin-block-start: var(--space-1); }
+.form-actions + .indexer-rows { margin-block-start: var(--space-3); border-block-start: 1px solid var(--line); }
+
+/* Indexers and System (manage-parts.js): what needs attention as a slim strip over the page,
+   tables whose rows stack on a phone, and on-off switches. */
+.attention {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font-size: var(--step--1);
+}
+.attention h2 { font-size: var(--step--1); }
+.attention ul { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; padding: 0; list-style: none; }
+.attention li { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; }
+.attention a { color: var(--accent); }
+.admin-body:has(table.data) { max-width: 72rem; }
+.admin-content > .toolbar { align-items: center; gap: var(--space-2) var(--space-3); margin-block: 0 var(--space-3); }
+.table-wrap { overflow-x: auto; margin-block: var(--space-3) var(--space-5); }
+table.data { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
+table.data thead th {
+  text-align: start;
+  color: var(--muted);
+  font-weight: 600;
+  padding: var(--space-2);
+  border-block-end: 1px solid var(--line-strong);
+}
+table.data tbody th, table.data td { text-align: start; padding: var(--space-2); vertical-align: middle; }
+table.data tbody th { font-weight: 600; }
+table.data tbody { border-block-end: 1px solid var(--line); }
+table.data .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: end; }
+table.data .row-actions button { min-height: 2.25rem; padding-inline: var(--space-3); }
+.row-more:has(.row-room:empty) { display: none; }
+.row-more td { padding-block: 0 var(--space-3); }
+.row-room form { max-width: 28rem; }
+.row-room .ask p { margin-block: 0 var(--space-2); }
+.why { display: block; color: var(--danger); }
+.switch-box { display: inline-flex; align-items: center; gap: var(--space-2); }
+button.switch {
+  min-height: 2.25rem;
+  padding: var(--space-1);
+  background: transparent;
+  border: 0;
+}
+.switch-track {
+  position: relative;
+  display: block;
+  width: 2.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  width: calc(1.25rem - 6px);
+  height: calc(1.25rem - 6px);
+  border-radius: 50%;
+  background: var(--muted);
+}
+.switch[aria-checked="true"] .switch-track { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"] .switch-track::after { inset-inline-start: calc(100% - 1.25rem + 4px); background: var(--accent-ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .switch-track::after { transition: inset-inline-start 0.15s; }
+}
+/* On a phone each row is a block: its name first, then each cell under its column's name. */
+@media (max-width: 40rem) {
+  table.stacks thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  table.stacks tr { display: grid; gap: var(--space-1); padding-block: var(--space-2); }
+  table.stacks tbody th, table.stacks td { padding: 0; }
+  table.stacks td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+  table.stacks .row-actions { justify-content: start; margin-block-start: var(--space-1); }
+}
+/* System's Status: each area's health, then the room on each disk. */
+.area-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-4); padding-block: var(--space-2); }
+.areas .findings { margin: 0 0 var(--space-2); font-size: var(--step--1); }
+.areas .findings li { margin-block: var(--space-1); }
+.disks .fact-value { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+.disk-bar { display: block; flex: 1 0 100%; height: 0.5rem; background: var(--line); border-radius: var(--radius-s); overflow: hidden; }
+.disk-bar > span { display: block; height: 100%; background: var(--accent); }
+.disk-bar.full > span { background: var(--danger); }
+.task-what { display: block; font-weight: 400; }
+.task-time, table.data td > button, table.data .row-actions button { white-space: nowrap; }
+.user-keys { flex: 1 0 100%; }
+.downloading li { margin-block: var(--space-2); }
+/* A release name read: its parts, then what a profile would do. */
+.try-answer h3 { font-size: var(--step-0); margin-block: var(--space-5) var(--space-2); }
+
+/* The command palette: a box near the top, results under the field, keys at the foot. */
+.palette {
+  width: min(36rem, calc(100% - 2 * var(--space-4)));
+  max-height: min(32rem, 80vh);
+  margin: 12vh auto auto;
+  padding: var(--space-4);
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+.palette[open] { display: flex; }
+.palette::backdrop { background: var(--scrim); }
+.palette input { width: 100%; font-size: var(--step-1); }
+.palette [role="listbox"] { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.palette [role="option"] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.palette [role="option"][aria-selected="true"] { background: var(--surface-raised); box-shadow: inset 3px 0 0 var(--accent); }
+.palette-name { overflow-wrap: anywhere; }
+.palette-kind { flex: none; color: var(--muted); font-size: var(--step--1); }
+.palette-empty { padding: var(--space-3); color: var(--muted); }
+.palette-keys { list-style: none; margin: 0; padding: var(--space-2) 0 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); border-block-start: 1px solid var(--line); color: var(--muted); font-size: var(--step--1); }
+
+/* Home's first-run state. */
+.empty { max-width: 36rem; margin-block: var(--space-7); }
+.empty h2 { margin-block-end: var(--space-3); }
+.empty p { color: var(--muted); }
+.card .meta.error { color: var(--danger); }
+
+/* An area's overview: a few lines of how things stand, each with where to see more. */
+.glance { list-style: none; margin: 0; padding: 0; }
+.glance > li {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-4);
+  align-items: baseline;
+  padding-block: var(--space-3);
+  border-block-end: 1px solid var(--line);
+}
+.fact-label { font-weight: 600; }
+.glance a { white-space: nowrap; }
+@media (max-width: 40rem) {
+  .glance > li { grid-template-columns: 1fr auto; }
+  .fact-value { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Describing a title instead of searching for its name. */
+.describe-box { margin-block: 0 var(--space-5); }
+.describe-box summary { cursor: pointer; color: var(--muted); min-height: 2.5rem; display: flex; align-items: center; }
+.describe-box summary:hover { color: var(--text); }
+.describe { max-width: 40rem; margin-block-start: var(--space-2); }
+.describe-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.describe-row input { flex: 1 1 16rem; }
+.describe .grid { margin-block-start: var(--space-3); }
+
+/* Music: an Unpin button under a pinned card, and the moods. */
+button.small { min-height: 2rem; padding: var(--space-1) var(--space-3); margin-block-start: var(--space-2); }
+.moods { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr)); gap: var(--space-4); }
+.moods > li { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); }
+.moods h3 { margin-block-end: var(--space-2); }
+
+/* Select mode on wanted lists: a box at the start of each row, and a bar for what's ticked
+   that stays at the foot of the screen, above the music bar, while the list scrolls. */
+.rows > li > div.pick:first-child { flex: 0 0 auto; align-self: flex-start; padding-block-start: var(--space-1); }
+.rows > li > .pick + div { flex: 1 1 16rem; min-width: 0; }
+.pick input { width: 1.25rem; height: 1.25rem; min-height: auto; accent-color: var(--accent); }
+.select-bar {
+  position: sticky;
+  bottom: var(--space-3);
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-block-start: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+/* With the music bar showing, the select bar sits above it. */
+body.with-player .select-bar { bottom: calc(var(--player-height, 5rem) + var(--space-1)); }
+
+/* Search all missing: the area's run, how far it's got, and why some weren't fetched. */
+.missing-search progress { width: min(24rem, 100%); }
+.missing-search details { margin-block-start: var(--space-2); }
+.missing-search summary { cursor: pointer; color: var(--muted); min-height: 2rem; }
+.missing-search summary:hover { color: var(--text); }
+.missing-search .row-actions { margin-block-start: var(--space-3); }
+.missing-search .notes { margin: var(--space-2) 0 0; padding-inline-start: var(--space-5); color: var(--muted); font-size: var(--step--1); }
+
+/* The calendar: an agenda of days, or a month grid that scrolls sideways on its own on a
+   phone (positioned, so nothing hidden inside it widens the page). */
+.calendar-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-5); margin-block: var(--space-3) var(--space-5); }
+.calendar-toolbar nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.calendar-toolbar a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.calendar-day { margin-block-end: var(--space-5); }
+.calendar-day h2 { font-size: var(--step-1); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }
+.calendar-entries { list-style: none; margin: 0; padding: 0; }
+.calendar-entry { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; padding-block: var(--space-2); border-block-end: 1px solid var(--line); }
+.calendar-entry .title { font-weight: 600; overflow-wrap: anywhere; }
+.calendar-entry .what { color: var(--muted); font-size: var(--step--1); }
+.badge.state-done { color: var(--accent); border-color: var(--accent); }
+.badge.state-active { color: var(--text); }
+.badge.state-quiet { color: var(--muted); }
+.calendar-month-wrap { position: relative; overflow-x: auto; }
+.calendar-month { border-collapse: collapse; width: 100%; min-width: 56rem; table-layout: fixed; }
+.calendar-month th { color: var(--muted); font-weight: normal; font-size: var(--step--1); text-align: start; padding: var(--space-1) var(--space-2); }
+.calendar-cell { vertical-align: top; border: 1px solid var(--line); padding: var(--space-2); height: 7rem; }
+.calendar-cell.other-month .calendar-date { color: var(--muted); }
+.calendar-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.calendar-date { font-variant-numeric: tabular-nums; margin-block-end: var(--space-1); }
+.calendar-month .calendar-entry { display: block; padding-block: var(--space-1); font-size: var(--step--1); }
+.calendar-month .calendar-entry .what,
+.calendar-month .calendar-entry .badge { display: block; margin-block-start: var(--space-1); width: fit-content; }

@@ -1,0 +1,365 @@
+{
+ "id": "cd3a7281-4071-43d2-b43b-8be4f64644df",
+ "title": "Symphony No. 5",
+ "status": "Official",
+ "date": "2021-09-10",
+ "country": "XW",
+ "release-group": {
+  "id": "8493dfa1-d587-4659-82bd-2c3611a213cd",
+  "title": "Symphony No. 5",
+  "primary-type": "Album",
+  "secondary-types": [],
+  "first-release-date": "2021-09-10"
+ },
+ "artist-credit": [
+  {
+   "name": "Beethoven",
+   "joinphrase": "; ",
+   "artist": {
+    "id": "1f9df192-a621-4f54-8850-2c5373b7eac9",
+    "name": "Ludwig van Beethoven",
+    "sort-name": "Beethoven, Ludwig van"
+   }
+  },
+  {
+   "name": "Wiener Philharmoniker",
+   "joinphrase": ", ",
+   "artist": {
+    "id": "d770374d-05e9-4ed3-a068-3fbd4e6e4dd6",
+    "name": "Wiener Philharmoniker",
+    "sort-name": "Wiener Philharmoniker"
+   }
+  },
+  {
+   "name": "Simon Rattle",
+   "joinphrase": "",
+   "artist": {
+    "id": "80c3bce9-0b54-409c-aa10-3b0c7dbbc597",
+    "name": "Simon Rattle",
+    "sort-name": "Rattle, Simon"
+   }
+  }
+ ],
+ "cover-art-archive": {
+  "front": true
+ },
+ "media": [
+  {
+   "position": 1,
+   "format": "Digital Media",
+   "track-count": 4,
+   "tracks": [
+    {
+     "id": "859da941-ffa4-43fa-88d7-5cc1e81b26f3",
+     "position": 1,
+     "number": "1",
+     "title": "Symphony No. 5 in C Minor, Op. 67: I. Allegro con brio",
+     "length": 444000,
+     "recording": {
+      "id": "2c071d2d-4b90-4253-a248-a22eb0e53ded",
+      "title": "Symphony no. 5 in C minor, op. 67: I. Allegro con brio",
+      "relations": [
+       {
+        "type": "conductor",
+        "target-type": "artist",
+        "direction": "backward",
+        "attributes": [],
+        "artist": {
+         "id": "80c3bce9-0b54-409c-aa10-3b0c7dbbc597",
+         "name": "Simon Rattle",
+         "sort-name": "Rattle, Simon"
+        }
+       },
+       {
+        "type": "performance",
+        "target-type": "work",
+        "direction": "forward",
+        "attributes": [],
+        "work": {
+         "id": "b6f9ecc3-24d1-38ed-b8a0-091f7cd0c6b2",
+         "title": "Symphony no. 5 in C minor, op. 67: I. Allegro con brio",
+         "relations": [
+          {
+           "type": "composer",
+           "target-type": "artist",
+           "direction": "backward",
+           "ordering-key": null,
+           "attributes": [],
+           "artist": {
+            "id": "1f9df192-a621-4f54-8850-2c5373b7eac9",
+            "name": "Ludwig van Beethoven",
+            "sort-name": "Beethoven, Ludwig van"
+           }
+          },
+          {
+           "type": "arrangement",
+           "target-type": "work",
+           "direction": "forward",
+           "ordering-key": null,
+           "attributes": [],
+           "work": {
+            "id": "91851de6-c168-3707-8b96-20c6bf2fdb11",
+            "title": "Symphony no. 5 in C minor, S. 464 no. 5: I. Allegro con brio"
+           }
+          },
+          {
+           "type": "parts",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 1,
+           "attributes": [
+            "movement"
+           ],
+           "work": {
+            "id": "d03bff61-26fc-301b-98ac-4d8e85771cbc",
+            "title": "Symphony no. 5 in C minor, op. 67"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "87c6883d-e0b6-476c-8e57-aab2bd27cf25",
+     "position": 2,
+     "number": "2",
+     "title": "Symphony No. 5 in C Minor, Op. 67: II. Andante con moto",
+     "length": 546000,
+     "recording": {
+      "id": "c2a6e023-24f3-4432-ae39-9c46cb41e910",
+      "title": "Symphony no. 5 in C minor, op. 67: II. Andante con moto",
+      "relations": [
+       {
+        "type": "conductor",
+        "target-type": "artist",
+        "direction": "backward",
+        "attributes": [],
+        "artist": {
+         "id": "80c3bce9-0b54-409c-aa10-3b0c7dbbc597",
+         "name": "Simon Rattle",
+         "sort-name": "Rattle, Simon"
+        }
+       },
+       {
+        "type": "performance",
+        "target-type": "work",
+        "direction": "forward",
+        "attributes": [],
+        "work": {
+         "id": "3bc742da-f67b-36c9-b31e-6ed09fdbdadd",
+         "title": "Symphony no. 5 in C minor, op. 67: II. Andante con moto",
+         "relations": [
+          {
+           "type": "composer",
+           "target-type": "artist",
+           "direction": "backward",
+           "ordering-key": null,
+           "attributes": [],
+           "artist": {
+            "id": "1f9df192-a621-4f54-8850-2c5373b7eac9",
+            "name": "Ludwig van Beethoven",
+            "sort-name": "Beethoven, Ludwig van"
+           }
+          },
+          {
+           "type": "arrangement",
+           "target-type": "work",
+           "direction": "forward",
+           "ordering-key": null,
+           "attributes": [],
+           "work": {
+            "id": "6861fd94-7537-48e1-ab3e-a6f637aed481",
+            "title": "Symphony no. 5 in C minor, S. 464 no. 5: II. Andante con moto"
+           }
+          },
+          {
+           "type": "medley",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 13,
+           "attributes": [],
+           "work": {
+            "id": "ea663ad7-9737-4939-a7da-8517b07a19c3",
+            "title": "Quodlibet for Small Orchestra: Adagio"
+           }
+          },
+          {
+           "type": "parts",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 2,
+           "attributes": [
+            "movement"
+           ],
+           "work": {
+            "id": "d03bff61-26fc-301b-98ac-4d8e85771cbc",
+            "title": "Symphony no. 5 in C minor, op. 67"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "c19fcb4e-5289-4ce5-a16e-c1b5d9d76e24",
+     "position": 3,
+     "number": "3",
+     "title": "Symphony No. 5 in C Minor, Op. 67: III. Allegro",
+     "length": 287000,
+     "recording": {
+      "id": "a29473f9-f0e3-41cb-9bbd-2ff6cb9e7f45",
+      "title": "Symphony no. 5 in C minor, op. 67: III. Allegro -",
+      "relations": [
+       {
+        "type": "conductor",
+        "target-type": "artist",
+        "direction": "backward",
+        "attributes": [],
+        "artist": {
+         "id": "80c3bce9-0b54-409c-aa10-3b0c7dbbc597",
+         "name": "Simon Rattle",
+         "sort-name": "Rattle, Simon"
+        }
+       },
+       {
+        "type": "performance",
+        "target-type": "work",
+        "direction": "forward",
+        "attributes": [],
+        "work": {
+         "id": "5831439d-e776-3b0e-ad34-c1a112d96e6d",
+         "title": "Symphony no. 5 in C minor, op. 67: III. Scherzo. Allegro",
+         "relations": [
+          {
+           "type": "composer",
+           "target-type": "artist",
+           "direction": "backward",
+           "ordering-key": null,
+           "attributes": [],
+           "artist": {
+            "id": "1f9df192-a621-4f54-8850-2c5373b7eac9",
+            "name": "Ludwig van Beethoven",
+            "sort-name": "Beethoven, Ludwig van"
+           }
+          },
+          {
+           "type": "arrangement",
+           "target-type": "work",
+           "direction": "forward",
+           "ordering-key": null,
+           "attributes": [],
+           "work": {
+            "id": "9145caa8-6b3c-4781-be85-817d6046baa2",
+            "title": "Symphony no. 5 in C minor, S. 464 no. 5: III. Scherzo. Allegro"
+           }
+          },
+          {
+           "type": "parts",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 3,
+           "attributes": [
+            "movement"
+           ],
+           "work": {
+            "id": "d03bff61-26fc-301b-98ac-4d8e85771cbc",
+            "title": "Symphony no. 5 in C minor, op. 67"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "47456223-67ed-4d77-83d5-decdc246a4b7",
+     "position": 4,
+     "number": "4",
+     "title": "Symphony No. 5 in C Minor, Op. 67: IV. Allegro - Presto",
+     "length": 639000,
+     "recording": {
+      "id": "84fc96c8-2568-4896-8f71-4a1f8d51f824",
+      "title": "Symphony no. 5 in C minor, op. 67: IV. Allegro - Presto",
+      "relations": [
+       {
+        "type": "conductor",
+        "target-type": "artist",
+        "direction": "backward",
+        "attributes": [],
+        "artist": {
+         "id": "80c3bce9-0b54-409c-aa10-3b0c7dbbc597",
+         "name": "Simon Rattle",
+         "sort-name": "Rattle, Simon"
+        }
+       },
+       {
+        "type": "performance",
+        "target-type": "work",
+        "direction": "forward",
+        "attributes": [],
+        "work": {
+         "id": "7eacabfd-c702-3eb6-8738-322555d6a521",
+         "title": "Symphony no. 5 in C minor, op. 67: IV. Allegro",
+         "relations": [
+          {
+           "type": "composer",
+           "target-type": "artist",
+           "direction": "backward",
+           "ordering-key": null,
+           "attributes": [],
+           "artist": {
+            "id": "1f9df192-a621-4f54-8850-2c5373b7eac9",
+            "name": "Ludwig van Beethoven",
+            "sort-name": "Beethoven, Ludwig van"
+           }
+          },
+          {
+           "type": "arrangement",
+           "target-type": "work",
+           "direction": "forward",
+           "ordering-key": null,
+           "attributes": [],
+           "work": {
+            "id": "66dd99d1-7b15-40c4-8873-c16182e18b64",
+            "title": "Symphony no. 5 in C minor, S. 464 no. 5: IV. Allegro"
+           }
+          },
+          {
+           "type": "medley",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 5,
+           "attributes": [],
+           "work": {
+            "id": "ea663ad7-9737-4939-a7da-8517b07a19c3",
+            "title": "Quodlibet for Small Orchestra: Adagio"
+           }
+          },
+          {
+           "type": "parts",
+           "target-type": "work",
+           "direction": "backward",
+           "ordering-key": 4,
+           "attributes": [
+            "movement"
+           ],
+           "work": {
+            "id": "d03bff61-26fc-301b-98ac-4d8e85771cbc",
+            "title": "Symphony no. 5 in C minor, op. 67"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

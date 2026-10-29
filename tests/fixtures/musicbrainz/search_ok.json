@@ -1,0 +1,255 @@
+{
+ "count": 21,
+ "releases": [
+  {
+   "id": "6a09041b-0f79-3278-88d9-0552dd28d37f",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-07-01",
+   "country": "US",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "1834eae1-741b-3c03-9ca5-0df3decb43ea",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-05-21",
+   "country": "JP",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "4b3d18cc-8937-36f4-8de0-481088be58e6",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-06-17",
+   "country": "CA",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "fba5f8fe-c6c8-4511-8562-c9febf482674",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-06-16",
+   "country": "GB",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "3c8cbdc8-555f-3987-8f03-6baf9488d1b0",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997",
+   "country": "AR",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "425d8db9-88a3-31e2-bd23-b1a967626dd5",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-06-16",
+   "country": "FR",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "30702389-5c67-4438-9ea0-2351c8de0f1d",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "2016-04-01",
+   "country": "XW",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "a64e09a7-2f26-4d7a-8505-f2561ad3299b",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997-06-16",
+   "country": "GB",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "0c324f3a-dcbb-4f09-b33a-c03c676b4044",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "2016-05-13",
+   "country": "XE",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  },
+  {
+   "id": "ab2c2726-a2c4-4f4d-a207-c1985c3f9a1b",
+   "score": 100,
+   "title": "OK Computer",
+   "status": "Official",
+   "date": "1997",
+   "country": "CA",
+   "track-count": 12,
+   "artist-credit": [
+    {
+     "name": "Radiohead",
+     "joinphrase": "",
+     "artist": {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead"
+     }
+    }
+   ],
+   "release-group": {
+    "id": "b1392450-e666-3926-a536-22c65f834433",
+    "title": "OK Computer",
+    "primary-type": "Album",
+    "secondary-types": null
+   }
+  }
+ ]
+}
