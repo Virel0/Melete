@@ -840,7 +840,13 @@
         "description": "The key stops working at once, as when its owner revokes it. The user's other keys and their sessions keep working.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "User id.", "schema": {"type": "integer"}},
-          {"name": "key_id", "in": "path", "required": true, "description": "Key id from the user's key list.", "schema": {"type": "integer"}}
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "description": "Key id from the user's key list.",
+            "schema": {"type": "integer"}
+          }
         ],
         "responses": {
           "204": {"description": "Revoked"},
@@ -2052,13 +2058,7 @@
         "summary": "Mark a season or a whole series watched or unwatched",
         "description": "Every episode file of the season, or of the whole series (specials included) when no season is given, that is present and the caller may see, all at once. Each is marked as marking it alone would: the next play starts from the beginning. Files already as asked are left alone.",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Series id.",
-            "schema": {"type": "integer"}
-          }
+          {"name": "id", "in": "path", "required": true, "description": "Series id.", "schema": {"type": "integer"}}
         ],
         "requestBody": {
           "required": true,
@@ -2069,7 +2069,11 @@
                 "required": ["watched"],
                 "properties": {
                   "watched": {"type": "boolean"},
-                  "season": {"type": "integer", "minimum": 0, "description": "Only this season (0 for specials). Without it, the whole series."}
+                  "season": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Only this season (0 for specials). Without it, the whole series."
+                  }
                 },
                 "additionalProperties": false
               }
@@ -11821,7 +11825,10 @@
         "type": "object",
         "required": ["changed"],
         "properties": {
-          "changed": {"type": "integer", "description": "How many files this changed: marked, unmarked or set back to the start."}
+          "changed": {
+            "type": "integer",
+            "description": "How many files this changed: marked, unmarked or set back to the start."
+          }
         },
         "additionalProperties": false
       },
@@ -15646,7 +15653,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "testable", "needs", "fields"],
+        "required": ["key", "name", "about", "on", "testable", "component", "fields"],
         "properties": {
           "key": {
             "type": "string",
@@ -15681,7 +15688,8 @@
             "type": "boolean",
             "description": "Whether its test (POST /api/v1/settings/services/{key}/test) tries to reach something. False for a setting of Melete's own, which has nothing to connect to."
           },
-          "needs": {
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}},
+          "component": {
             "type": ["object", "null"],
             "description": "The component beside Melete it needs (Auto DJ the stem separator, motion covers their renderer), or null.",
             "required": ["name", "set_up"],
@@ -15693,8 +15701,7 @@
               }
             },
             "additionalProperties": false
-          },
-          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
+          }
         },
         "additionalProperties": false
       },

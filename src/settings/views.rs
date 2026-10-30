@@ -48,14 +48,14 @@ pub struct ServiceView {
     /// connect to.
     pub testable: bool,
     /// The component beside Melete it needs, if any, and whether it's set up.
-    pub needs: Option<Needs>,
+    pub component: Option<Component>,
     /// Its settings, in the order they're shown.
     pub fields: Vec<FieldView>,
 }
 
 /// A component beside Melete that a setting needs, such as Auto DJ the stem separator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Needs {
+pub struct Component {
     /// What it is, as a sentence names it: "stem separator".
     pub name: &'static str,
     /// Whether Melete is set up to reach it (its folders are set). Whether it's running
@@ -64,13 +64,13 @@ pub struct Needs {
 }
 
 /// The component beside Melete that service `key` needs, as `config` sets it up.
-fn needs(config: &Config, key: &str) -> Option<Needs> {
+fn component(config: &Config, key: &str) -> Option<Component> {
     match key {
-        "auto_dj" => Some(Needs {
+        "auto_dj" => Some(Component {
             name: "stem separator",
             set_up: config.stems.is_some(),
         }),
-        "motion_covers" => Some(Needs {
+        "motion_covers" => Some(Component {
             name: "motion cover renderer",
             set_up: config.motion_jobs.is_some(),
         }),
@@ -123,7 +123,7 @@ pub fn views(
             about: service.about,
             on: on(config, service.key),
             testable: crate::service_check::connects(service.key),
-            needs: needs(config, service.key),
+            component: component(config, service.key),
             fields: service
                 .fields
                 .iter()

@@ -139,7 +139,7 @@ export function serviceSection(ctx, s) {
     { class: "subgroup", "aria-labelledby": id },
     h("h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
     h("p", { class: "note" }, s.about),
-    s.needs && h("p", { class: "note" }, s.needs.set_up ? `The ${s.needs.name} is set up.` : `The ${s.needs.name} isn't set up, so this can't run yet.`),
+    s.component && h("p", { class: "note" }, s.component.set_up ? `The ${s.component.name} is set up.` : `The ${s.component.name} isn't set up, so this can't run yet.`),
     saving,
     s.testable && tested,
     extra,

@@ -369,7 +369,7 @@ mod tests {
         let views = views(&config, &HashMap::new(), &env);
         let view = |key: &str| views.iter().find(|s| s.key == key).unwrap();
         assert!(view("tmdb").testable && view("slskd").testable);
-        assert!(view("tmdb").needs.is_none());
+        assert!(view("tmdb").component.is_none());
         for own in [
             "auto_dj",
             "motion_covers",
@@ -380,15 +380,15 @@ mod tests {
             assert!(!view(own).testable, "{own}");
         }
         assert_eq!(
-            view("auto_dj").needs,
-            Some(Needs {
+            view("auto_dj").component,
+            Some(Component {
                 name: "stem separator",
                 set_up: false
             })
         );
         assert_eq!(
-            view("motion_covers").needs,
-            Some(Needs {
+            view("motion_covers").component,
+            Some(Component {
                 name: "motion cover renderer",
                 set_up: true
             })
