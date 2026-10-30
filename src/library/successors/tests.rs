@@ -281,7 +281,8 @@ async fn signing_in_while_a_large_scan_finds_successors_waits_its_turn() {
     .execute(&pool)
     .await
     .unwrap();
-    crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
+    let password = crate::auth::generate_password().unwrap();
+    crate::auth::create_user(&pool, "alice", password.clone(), false)
         .await
         .unwrap();
 
@@ -304,7 +305,7 @@ async fn signing_in_while_a_large_scan_finds_successors_waits_its_turn() {
     });
     held.await.unwrap();
     let body = serde_json::json!({
-        "username": "alice", "password": "alice-password", "device_name": "Living room iPad",
+        "username": "alice", "password": password, "device_name": "Living room iPad",
     });
     let request = Request::post("/api/v1/auth/login")
         .header("content-type", "application/json")
