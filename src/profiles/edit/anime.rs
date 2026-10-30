@@ -117,6 +117,8 @@ fn anime_profile(source: &str, scores: Vec<ScoreInput>) -> ProfileInput {
     };
     ProfileInput {
         source: source.into(),
+        // Anime series are Anime's; anime films stay with the movies.
+        service: (source == "sonarr").then(|| "anime".into()),
         name: "Anime".into(),
         upgrade_allowed: true,
         cutoff: "2160p".into(),

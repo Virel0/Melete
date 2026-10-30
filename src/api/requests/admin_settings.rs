@@ -81,13 +81,15 @@ pub(super) async fn set_defaults(
         }
     }
     if let Some(id) = body.profile_id {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM quality_profiles WHERE id = ?)")
-                .bind(id)
-                .fetch_one(&state.pool)
-                .await?;
-        if !exists {
-            return Err(bad("there's no such quality profile"));
+        // Each service's requests take one of its own profiles: Anime's never one of Series'.
+        match crate::profiles::service::of_profile(&state.pool, id).await? {
+            None => return Err(bad("there's no such quality profile")),
+            Some(service) if service != kind => {
+                return Err(bad(&format!(
+                    "profile {id} is one of {service}'s, not {kind}'s"
+                )));
+            }
+            Some(_) => {}
         }
     }
     if let Some(id) = body.music_profile_id {
