@@ -216,6 +216,15 @@ async fn refetch_stale(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyhow::R
     let (mut done, mut in_a_row) = (0, 0);
     for id in releases {
         match mb.release(&id).await {
+            // Merged into another since: as when it's gone, it keeps what it has.
+            Ok(release) if release.id != id => {
+                sqlx::query(
+                    "UPDATE mb_releases SET with_works = 1, with_track_credits = 1 WHERE id = ?",
+                )
+                .bind(&id)
+                .execute(pool)
+                .await?;
+            }
             Ok(release) => {
                 in_a_row = 0;
                 let mut tx = pool.begin().await?;
@@ -663,6 +672,59 @@ pub(crate) mod tests {
                 )),
                 None
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_album_tagged_with_a_merged_release_matches_the_one_it_joined() {
+        let pool = seeded().await;
+        sqlx::query("UPDATE music_albums SET mb_release_id = ? WHERE id = 1")
+            .bind(testing::MERGED)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (mb, _log) = testing::start(0).await;
+        let report = match_pending(&pool, &mb).await.unwrap();
+        assert_eq!(report.errors, 0);
+        let matched: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT match_status, match_method, match_release_id FROM music_albums WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            matched,
+            (
+                Some("matched".into()),
+                Some("tags".into()),
+                Some(testing::SURVIVOR.into())
+            ),
+            "the surviving id is stored, so later runs ask for it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cached_release_since_merged_isnt_fetched_again_and_again() {
+        let pool = seeded().await;
+        let (mb, log) = testing::start(0).await;
+        match_pending(&pool, &mb).await.unwrap();
+        // As if matched to the merged id before MusicBrainz merged it, cached without works.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO mb_releases (id, release_group_id, title, artist_credit, fetched_at)
+                 VALUES ('{merged}', 'g', 'OK Computer', '[]', 0);
+             UPDATE music_albums SET match_release_id = '{merged}' WHERE id = 1;",
+            merged = testing::MERGED
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        match_pending(&pool, &mb).await.unwrap();
+        let before = log.lock().unwrap().len();
+        match_pending(&pool, &mb).await.unwrap();
+        assert_eq!(
+            log.lock().unwrap().len(),
+            before,
+            "asked once, not every run"
         );
     }
 
