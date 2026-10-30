@@ -8571,7 +8571,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What needs attention in each admin area",
-        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Worked out from the database when asked, and from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU); nothing outside the server is contacted.",
+        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), and from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs); nothing outside the server is contacted.",
         "responses": {
           "200": {
             "description": "OK",
@@ -8607,7 +8607,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "The background tasks, how they last went and when they run next",
-        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between.",
+        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between. TMDB matching (tmdb-matching) runs after each scan and when asked, while TMDB is set up; its result counts the titles matched and those that need a match, and says in plain words what went wrong (TMDB refused the token, asked for fewer requests, or no request went through).",
         "responses": {
           "200": {
             "description": "OK",
@@ -8638,6 +8638,7 @@
             "schema": {
               "enum": [
                 "library",
+                "tmdb-matching",
                 "music-matching",
                 "music-analysis",
                 "segments",
@@ -16486,6 +16487,10 @@
               "backup_failed",
               "backup_old",
               "disk_nearly_full",
+              "tmdb_off",
+              "tmdb_refused",
+              "tmdb_failing",
+              "titles_unmatched",
               "runtime_checks_failed"
             ],
             "description": "Stable, for apps to act on."
@@ -16583,6 +16588,7 @@
           "name": {
             "enum": [
               "library",
+              "tmdb-matching",
               "music-matching",
               "music-analysis",
               "segments",
