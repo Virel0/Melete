@@ -1,7 +1,7 @@
 // Manage → Indexers → Try a release name: how Melete reads a name an indexer lists, and, with a
 // quality profile chosen, whether that profile would take it and why. Nothing is searched for
 // or grabbed; Melete has no free search of the indexers on purpose, as a grab must be a result
-// for a wanted title.
+// for a wanted title. A release turned down in a search links here with its name and profile.
 
 import { field } from "/web/forms.js";
 import { SignedOut, api, h, languageName, seasonName } from "/web/lib.js";
@@ -81,7 +81,13 @@ export async function releaseTry(ctx) {
   const existing = field("try-existing", "File already on disk (optional)", h("input", { autocomplete: "off", spellcheck: "false" }), "Its name, to see whether the release would replace it. Needs a profile.");
   const answer = h("div", { class: "try-answer", role: "status" });
   const button = h("button", { type: "submit" }, "Read the name");
-  const formEl = h("form", { novalidate: true }, name.box, profile.box, existing.box, h("div", { class: "form-actions" }, button));
+  // An example to try with one click: it fills the name in and reads it.
+  const example = h("button", { type: "button", class: "quiet" }, "Try an example");
+  example.addEventListener("click", () => {
+    name.input.value = EXAMPLE;
+    formEl.requestSubmit();
+  });
+  const formEl = h("form", { novalidate: true }, name.box, profile.box, existing.box, h("div", { class: "form-actions" }, button, example));
   formEl.addEventListener("submit", async (event) => {
     event.preventDefault();
     name.clear();
@@ -120,9 +126,34 @@ export async function releaseTry(ctx) {
       button.disabled = false;
     }
   });
+  // Opened from a release that was turned down: its name, and the profile that judged it.
+  const asked = ctx.params?.get("name");
+  if (asked) {
+    name.input.value = asked;
+    const judgedBy = ctx.params.get("profile");
+    if (judgedBy && profiles.some((p) => String(p.id) === judgedBy)) profile.input.value = judgedBy;
+    // Read once the page is drawn: a form not in the page can't be submitted.
+    setTimeout(() => formEl.isConnected && formEl.requestSubmit());
+  }
   return [
+    h(
+      "p",
+      {},
+      "Paste a release name from an indexer to see how Melete reads it: title, year, season and episode, quality, source, codec, audio, release group and the custom formats it matches. Choose a profile to see whether it would take the release, and why. Useful when a release you expected was turned down.",
+    ),
     h("p", { class: "note" }, "Nothing is searched for or grabbed. To find releases for a title, search for it from its page or the wanted list."),
     formEl,
     answer,
   ];
 }
+
+// A link from a release that was turned down to this page, with its name and the profile that
+// judged it filled in. None for music, which this page doesn't read.
+export function tryLink(r, profileId) {
+  if (r.source === "soulseek" || !profileId) return null;
+  const params = new URLSearchParams({ name: r.title, profile: String(profileId) });
+  return h("a", { href: `#/admin/indexers/try?${params}`, "aria-label": `Try ${r.title} in Try a release name` }, "Try this name");
+}
+
+// A release name as indexers list them, to try the page with.
+const EXAMPLE = "Some.Film.2021.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.7.1-GROUP";

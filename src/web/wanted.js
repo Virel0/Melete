@@ -5,6 +5,7 @@
 import { confirmInline, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, number, plural, seasonName, size } from "/web/lib.js";
 import { searchMissing } from "/web/wanted-missing.js";
+import { tryLink } from "/web/release-try.js";
 
 const PAGE = 50;
 
@@ -75,7 +76,7 @@ export function searchResults(search, ctx) {
         r.source === "soulseek" ? [" ", h("span", { class: "badge" }, "Soulseek")] : null,
         h("p", { class: "note" }, facts.join(", ") + "."),
         d.formats?.length ? h("p", { class: "note" }, `Formats: ${d.formats.map((f) => `${f.name} ${f.score > 0 ? "+" : ""}${f.score}`).join(", ")}.`) : null,
-        r.accepted ? null : h("p", { class: "note" }, `Turned down: ${(d.rejections ?? d.reasons ?? []).join("; ")}`),
+        r.accepted ? null : h("p", { class: "note" }, `Turned down: ${(d.rejections ?? d.reasons ?? []).join("; ")}. `, tryLink(r, search.profile_id)),
       ),
       h(
         "div",
