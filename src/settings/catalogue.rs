@@ -294,7 +294,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "openrouter",
         name: "AI features (OpenRouter)",
-        about: "Finding movies and series by describing them, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; nothing about the library or who asked. OpenRouter is asked to use only providers that don't keep or train on it. Each search costs a little on the OpenRouter account; each user may make 30 an hour.",
+        about: "Finding movies and series by describing them, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; nothing about the library or who asked. With AI picks on, \"Featured for you\" and titles like one are chosen there too: for each person, the titles they finished or are watching recently (about 15) with their year and up to three genres, and candidate titles from the library they may see, each with its year, up to three genres and a premise of about 12 words. Never a name, an account, a file path or anything else about the household. OpenRouter is asked to use only providers that don't keep or train on it. Each search costs a little on the OpenRouter account; each user may make 30 an hour. Picks are kept and made again at most once a day for each person while what they watch stays the same, and titles like one once a week.",
         fields: &[
             field(
                 "MELETE_OPENROUTER_KEY",
@@ -307,6 +307,12 @@ pub const SERVICES: &[Service] = &[
                 "Model",
                 "An OpenRouter model id. Empty: openrouter/auto, which picks one for each request.",
                 Input::Text,
+            ),
+            field(
+                "MELETE_AI_PICKS",
+                "AI picks",
+                "\"Featured for you\" and titles like one, chosen by the model. Off by default: each person's recent viewing goes to OpenRouter, as above.",
+                Input::Toggle { on: "on" },
             ),
         ],
     },

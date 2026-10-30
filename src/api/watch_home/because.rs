@@ -27,11 +27,13 @@ const WAIT_RECOMMENDED: Duration = Duration::from_secs(5);
 /// recommends, and when they were fetched.
 pub(super) type Recommended = Arc<Mutex<HashMap<(bool, i64), (Instant, Arc<Vec<i64>>)>>>;
 
-/// What the rows need beyond the database: TMDB, when it's set up, and what it recommended.
+/// What the rows need beyond the database: TMDB, when it's set up, and what it recommended;
+/// and OpenRouter, for AI picks.
 #[derive(Clone, Default)]
 pub(super) struct Outside {
     pub tmdb: Option<Arc<tmdb::Client>>,
     pub recommended: Recommended,
+    pub ai: Option<Arc<crate::ai::Client>>,
 }
 
 /// A title finished, and what likeness is measured by.
@@ -54,24 +56,52 @@ pub(super) async fn rows(
     access: &Access,
 ) -> Result<Vec<(TitleRef, Vec<Entry>)>, ApiError> {
     let finished = finished(pool, me, access).await?;
-    let mut seeds = Vec::new();
-    for title in &finished {
-        seeds.push(seed(pool, *title).await?);
-    }
     let discovery = outside.tmdb.is_some() && crate::settings::discovery(pool).await?;
-    let recommended = join_all(
+    let alike = join_all(
         finished
             .iter()
-            .zip(&seeds)
-            .map(|(title, seed)| recommendations(outside, discovery, title.series, seed.tmdb_id)),
+            .map(|title| like(pool, outside, discovery, me, access, *title)),
     )
     .await;
     let mut rows = Vec::new();
-    for ((title, seed), recommended) in finished.iter().zip(&seeds).zip(recommended) {
-        let alike = alike(pool, me, access, *title, seed, &recommended).await?;
-        rows.push((*title, alike.into_iter().map(Entry::plain).collect()));
+    for (title, alike) in finished.into_iter().zip(alike) {
+        let entries = alike?.into_iter().map(|(t, _)| Entry::plain(t)).collect();
+        rows.push((title, entries));
     }
     Ok(rows)
+}
+
+/// The present titles the user may see and hasn't watched that are like `title`, most alike
+/// first, each with the AI's reason when it chose them: with AI picks on, the AI's once they're
+/// made; otherwise by Melete's own likeness, TMDB's recommendations blended in when
+/// `discovery` is on.
+pub(super) async fn like(
+    pool: &SqlitePool,
+    outside: &Outside,
+    discovery: bool,
+    me: i64,
+    access: &Access,
+    title: TitleRef,
+) -> Result<Vec<(TitleRef, Option<String>)>, ApiError> {
+    if let Some(picks) = super::picks::like(pool, outside, me, access, title).await? {
+        return Ok(picks.into_iter().map(|(t, r)| (t, Some(r))).collect());
+    }
+    own_like(pool, outside, discovery, me, access, title).await
+}
+
+/// Like [`like`], by Melete's own likeness alone (and TMDB's with `discovery`).
+pub(super) async fn own_like(
+    pool: &SqlitePool,
+    outside: &Outside,
+    discovery: bool,
+    me: i64,
+    access: &Access,
+    title: TitleRef,
+) -> Result<Vec<(TitleRef, Option<String>)>, ApiError> {
+    let seed = seed(pool, title).await?;
+    let recommended = recommendations(outside, discovery, title.series, seed.tmdb_id).await;
+    let alike = alike(pool, me, access, title, &seed, &recommended).await?;
+    Ok(alike.into_iter().map(|t| (t, None)).collect())
 }
 
 /// The titles the user finished most recently, newest first, each once.
