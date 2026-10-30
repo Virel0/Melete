@@ -47,6 +47,8 @@ export async function artistPage(id, ctx) {
   show("Artist", loading("the artist"));
   const artist = await api(`/music/artists/${id}`);
   if (!ctx.current()) return;
+  // An old address of an artist that joined another answers as that one: say its own.
+  if (String(artist.id) !== String(id)) history.replaceState(history.state, "", `#/music/artists/${artist.id}`);
   const guest = artist.appears_on_list;
   show(
     artist.name,
