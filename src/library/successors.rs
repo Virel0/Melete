@@ -36,6 +36,29 @@ pub async fn carry_progress(
     .rows_affected())
 }
 
+/// Each new file of a scan and a missing file of the same movie, or of exactly the same
+/// episodes: (new, old, whether the two are the same size and time). Movies and episodes are
+/// matched apart, so each side finds the missing files through its own index
+/// (`media_files_movie`, `media_files_series`) instead of comparing every new file with every
+/// file in the library.
+const PAIRS: &str = "
+    SELECT n.id, o.id, o.size = n.size AND o.modified_at = n.modified_at
+    FROM media_files n JOIN media_files o ON o.library_id = n.library_id AND o.id <> n.id
+    WHERE n.library_id = ?1 AND n.first_seen_generation = ?2 AND n.missing_since IS NULL
+      AND o.missing_since IS NOT NULL
+      AND (o.seen_generation = ?2 - 1 OR (?3 IS NOT NULL AND o.missing_since = ?4))
+      AND n.movie_id IS NOT NULL AND o.movie_id = n.movie_id
+    UNION ALL
+    SELECT n.id, o.id, o.size = n.size AND o.modified_at = n.modified_at
+    FROM media_files n JOIN media_files o ON o.library_id = n.library_id AND o.id <> n.id
+    WHERE n.library_id = ?1 AND n.first_seen_generation = ?2 AND n.missing_since IS NULL
+      AND o.missing_since IS NOT NULL
+      AND (o.seen_generation = ?2 - 1 OR (?3 IS NOT NULL AND o.missing_since = ?4))
+      AND n.season IS NOT NULL AND o.series_id = n.series_id AND o.season = n.season
+      AND o.episode = n.episode
+      AND coalesce(o.episode_end, o.episode) = coalesce(n.episode_end, n.episode)
+    ORDER BY 1";
+
 /// After a scan of `library_id` (generation `generation`, at `now`, of one title folder when
 /// `scope` names it) has stored what it found and marked what it didn't: each file first seen in
 /// it takes over the progress of the one file of the same movie, or of exactly the same
@@ -49,24 +72,13 @@ pub(super) async fn carry_renamed(
     library_id: i64,
     (generation, now, scope): (i64, i64, Option<&str>),
 ) -> sqlx::Result<usize> {
-    let pairs: Vec<(i64, i64, bool)> = sqlx::query_as(
-        "SELECT n.id, o.id, o.size = n.size AND o.modified_at = n.modified_at
-         FROM media_files n JOIN media_files o ON o.library_id = n.library_id AND o.id <> n.id
-         WHERE n.library_id = ?1 AND n.first_seen_generation = ?2 AND n.missing_since IS NULL
-           AND o.missing_since IS NOT NULL
-           AND (o.seen_generation = ?2 - 1 OR (?3 IS NOT NULL AND o.missing_since = ?4))
-           AND ((n.movie_id IS NOT NULL AND o.movie_id = n.movie_id)
-                OR (n.season IS NOT NULL AND o.series_id = n.series_id AND o.season = n.season
-                    AND o.episode = n.episode
-                    AND coalesce(o.episode_end, o.episode) = coalesce(n.episode_end, n.episode)))
-         ORDER BY n.id",
-    )
-    .bind(library_id)
-    .bind(generation)
-    .bind(scope)
-    .bind(now)
-    .fetch_all(&mut *tx)
-    .await?;
+    let pairs: Vec<(i64, i64, bool)> = sqlx::query_as(PAIRS)
+        .bind(library_id)
+        .bind(generation)
+        .bind(scope)
+        .bind(now)
+        .fetch_all(&mut *tx)
+        .await?;
     let mut carried = 0;
     for (i, &(new, old, same_file)) in pairs.iter().enumerate() {
         let alone = pairs
