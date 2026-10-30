@@ -140,6 +140,8 @@ pub struct Kept {
     pub oidc: Arc<crate::oidc::Pending>,
     /// Each user's AI searches in the last hour.
     pub ai_searches: Arc<ai::Searches>,
+    /// What AI picks may spend: each user's calls in the last hour, and those running.
+    pub ai_budget: Arc<crate::ai::Budget>,
 }
 
 /// Every route the server answers, keeping nothing from an API built before.

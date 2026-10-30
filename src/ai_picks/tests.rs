@@ -112,7 +112,7 @@ async fn off_by_default_nothing_is_sent() {
         like(&pool, Some(&client), title, me, &everything)
             .await
             .unwrap(),
-        None
+        Like::Off
     );
     turn_on(&pool).await;
     let served = for_viewer(&pool, None, me, &everything).await.unwrap();
@@ -295,16 +295,137 @@ async fn titles_like_one_are_made_once_for_those_who_see_the_same() {
         "most like it first, then newest"
     );
     let client = Arc::new(client);
-    let child_sees = like(&pool, Some(&client), watched, child, &limited)
+    let Like::Made(child_sees) = like(&pool, Some(&client), watched, child, &limited)
         .await
         .unwrap()
-        .unwrap();
+    else {
+        panic!("not made");
+    };
     assert_eq!(child_sees[0].title.id, 2);
     // Those who see everything got Late, which the child never sees, nor is it sent for them.
-    let all_see = like(&pool, Some(&client), watched, me, &everything)
+    let Like::Made(all_see) = like(&pool, Some(&client), watched, me, &everything)
         .await
         .unwrap()
-        .unwrap();
+    else {
+        panic!("not made");
+    };
     assert_eq!(all_see[0].title.id, 5);
     assert_eq!(fake.seen.lock().unwrap().len(), 2, "kept a week");
+}
+
+#[tokio::test]
+async fn a_title_not_matched_on_tmdb_never_leaves_even_when_watched() {
+    let (pool, me, everything, _, _) = library().await;
+    turn_on(&pool).await;
+    // Unmatched's only name is its folder's.
+    sqlx::query(
+        "INSERT INTO playback_progress (user_id, file_id, position_seconds, watched, play_count,
+             updated_at) VALUES (?, 4, 0, 1, 1, 30)",
+    )
+    .bind(me)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (fake, api) = fake::start().await;
+    *fake.content.lock().unwrap() = r#"{"picks": []}"#.into();
+    let client = fake::client(&api);
+    make_for_viewer(&pool, &client, me, &everything)
+        .await
+        .unwrap();
+    let (body, told) = told(&fake, 0);
+    assert_eq!(titles_told(&told["watched"]), ["Watched"]);
+    assert!(!body.to_string().contains("Unmatched"), "{body}");
+}
+
+/// Asks for titles like `title` until the call started for it is over, as it fails.
+async fn tried(pool: &SqlitePool, client: &Arc<Client>, title: Title, user: i64) -> Like {
+    sqlx::query("UPDATE ai_similar SET tried_at = 0, error = NULL")
+        .execute(pool)
+        .await
+        .unwrap();
+    let answer = like(pool, Some(client), title, user, &Access::everything())
+        .await
+        .unwrap();
+    if answer == Like::Making {
+        for _ in 0..200 {
+            let kept = similar_row(pool, title, "").await.unwrap().unwrap();
+            if kept.error.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // The place is let go just after the failure is kept.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    answer
+}
+
+#[tokio::test]
+async fn each_user_starts_at_most_30_calls_an_hour_retries_included() {
+    let (pool, me, _, other, _) = library().await;
+    turn_on(&pool).await;
+    let (fake, api) = fake::start().await;
+    *fake.status.lock().unwrap() = 500;
+    let client = Arc::new(fake::client(&api));
+    let calm = Title {
+        series: false,
+        id: 2,
+    };
+    for n in 0..crate::ai::STARTS_PER_HOUR {
+        assert_eq!(
+            tried(&pool, &client, calm, me).await,
+            Like::Making,
+            "call {n}"
+        );
+    }
+    assert_eq!(tried(&pool, &client, calm, me).await, Like::Limited);
+    assert_eq!(fake.seen.lock().unwrap().len(), crate::ai::STARTS_PER_HOUR);
+    // Someone else still may.
+    assert_eq!(tried(&pool, &client, calm, other).await, Like::Making);
+    assert_eq!(
+        fake.seen.lock().unwrap().len(),
+        crate::ai::STARTS_PER_HOUR + 1
+    );
+}
+
+#[tokio::test]
+async fn at_most_two_calls_run_at_once_and_the_rest_wait() {
+    let (pool, me, everything, _, _) = library().await;
+    turn_on(&pool).await;
+    let (fake, api) = fake::start().await;
+    *fake.content.lock().unwrap() = r#"{"picks": []}"#.into();
+    *fake.delay_ms.lock().unwrap() = 500;
+    let client = Arc::new(fake::client(&api));
+    let title = |id| Title { series: false, id };
+    let ask = |id| like(&pool, Some(&client), title(id), me, &everything);
+    assert_eq!(ask(1).await.unwrap(), Like::Making);
+    assert_eq!(ask(2).await.unwrap(), Like::Making);
+    assert_eq!(ask(3).await.unwrap(), Like::Busy, "two are running");
+    // A viewer's own picks wait their turn too.
+    let served = for_viewer(&pool, Some(&client), me, &everything)
+        .await
+        .unwrap();
+    assert_eq!(served.status, Status::Busy);
+    assert!(
+        viewer_row(&pool, me).await.unwrap().is_none(),
+        "nothing claimed"
+    );
+    for _ in 0..100 {
+        if similar_row(&pool, title(2), "")
+            .await
+            .unwrap()
+            .unwrap()
+            .made_at
+            .is_some()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        ask(3).await.unwrap(),
+        Like::Making,
+        "their places are free again"
+    );
 }

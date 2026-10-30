@@ -83,7 +83,7 @@ pub(super) async fn like(
     access: &Access,
     title: TitleRef,
 ) -> Result<Vec<(TitleRef, Option<String>)>, ApiError> {
-    if let Some(picks) = super::picks::like(pool, outside, me, access, title).await? {
+    if let (_, Some(picks)) = super::picks::like(pool, outside, me, access, title).await? {
         return Ok(picks.into_iter().map(|(t, r)| (t, Some(r))).collect());
     }
     own_like(pool, outside, discovery, me, access, title).await

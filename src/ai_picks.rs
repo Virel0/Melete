@@ -11,16 +11,18 @@
 //!
 //! Picks are kept, served at once, and worked out again in the background: a viewer's when what
 //! they watched changes or after a day, titles like one after a week. Making them starts at most
-//! every 10 minutes for each, which also bounds what it costs. New picks take the old ones'
-//! place only once they're made, never while someone reads them. Off, not set up or failing,
-//! there are none, and the answer says why.
+//! every 10 minutes for each; each user may start at most 30 calls an hour, retries included,
+//! and the server runs at most 2 at once (`crate::ai::Budget`), so what it costs stays bounded
+//! however often anyone asks. New picks take the old ones' place only once they're made, never
+//! while someone reads them. Off, not set up, over the limits or failing, there are none, and
+//! the answer says why.
 
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
 
 use crate::access::Access;
-use crate::ai::Client;
+use crate::ai::{Client, Refusal};
 use crate::db::unix_now;
 
 mod gather;
@@ -68,6 +70,10 @@ pub enum Status {
     NoHistory,
     /// Being made for the first time.
     Working,
+    /// Not made: the viewer started as many AI calls as they may this hour.
+    Limited,
+    /// Not made: the server is running as many AI calls as it may just now.
+    Busy,
     /// Made; these are them.
     Ready,
     /// Making them failed, and there are none from before; why.
@@ -124,23 +130,25 @@ pub async fn for_viewer(
     let key = history_key(&watched);
     let kept = viewer_row(pool, user).await?;
     let now = unix_now();
-    let due = kept
-        .as_ref()
-        .is_none_or(|k| k.history != key || k.made_at.is_none_or(|at| now - at >= PICKS_FOR));
-    if due && claim_viewer(pool, user, &key, now - TRY_EVERY).await? {
-        let (pool, client, access) = (pool.clone(), client.clone(), access.clone());
-        tokio::spawn(async move {
-            if let Err(err) = make_for_viewer(&pool, &client, user, &access).await {
-                tracing::warn!(error = format!("{err:#}"), "AI picks couldn't be made");
-            }
-        });
+    let due = kept.as_ref().is_none_or(|k| {
+        (k.history != key || k.made_at.is_none_or(|at| now - at >= PICKS_FOR))
+            && k.tried_at <= now - TRY_EVERY
+    });
+    let mut refused = None;
+    if due {
+        let (owned, client_owned, access_owned) = (pool.clone(), client.clone(), access.clone());
+        let job = async move { make_for_viewer(&owned, &client_owned, user, &access_owned).await };
+        let claim = claim_viewer(pool, user, &key, now - TRY_EVERY);
+        refused = start(client, user, claim, job).await?;
     }
     let kept = viewer_row(pool, user).await?.unwrap_or_default();
     let picks = still_there(pool, Some(user), access, &kept.picks).await?;
-    let status = match (&kept.made_at, &kept.error) {
-        (Some(_), _) => Status::Ready,
-        (None, Some(error)) => Status::Failed(error.clone()),
-        (None, None) => Status::Working,
+    let status = match (&kept.made_at, &kept.error, refused) {
+        (Some(_), _, _) => Status::Ready,
+        (None, _, Some(Refusal::Limited)) => Status::Limited,
+        (None, _, Some(Refusal::Busy)) => Status::Busy,
+        (None, Some(error), None) => Status::Failed(error.clone()),
+        (None, None, None) => Status::Working,
     };
     Ok(Served {
         status,
@@ -179,43 +187,80 @@ pub async fn make_for_viewer(
     }
 }
 
-/// Titles like `title` from the AI, best first, that `access` sees and `user` hasn't watched;
-/// None while AI picks are off or not set up, or until they've been made (they're started in
-/// the background), so the caller goes by Melete's own likeness. Made once for everyone who
-/// sees the same titles.
+/// Starts `job` in the background when the budget has a place for one more of `user`'s calls
+/// and `claim` says this call may make it (nobody started it in the last few minutes); the call
+/// counts against the user only then. Returns why it wasn't started, when the budget refused.
+async fn start(
+    client: &Client,
+    user: i64,
+    claim: impl std::future::Future<Output = sqlx::Result<bool>>,
+    job: impl std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+) -> anyhow::Result<Option<Refusal>> {
+    let place = match client.budget().place(user) {
+        Ok(place) => place,
+        Err(refusal) => return Ok(Some(refusal)),
+    };
+    if claim.await? {
+        client.budget().started(user);
+        tokio::spawn(async move {
+            // The place is held until the call is over.
+            let _place = place;
+            if let Err(err) = job.await {
+                tracing::warn!(error = format!("{err:#}"), "AI picks couldn't be made");
+            }
+        });
+    }
+    Ok(None)
+}
+
+/// Titles like one as they stand for a user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Like {
+    /// AI picks are off or not set up: go by Melete's own likeness.
+    Off,
+    /// The AI's, best first, that the user may see and hasn't watched.
+    Made(Vec<Pick>),
+    /// Being made; go by Melete's own likeness meanwhile.
+    Making,
+    /// Not made: the user started as many AI calls as they may this hour.
+    Limited,
+    /// Not made: the server is running as many AI calls as it may just now.
+    Busy,
+}
+
+/// Titles like `title` from the AI, best first, that `access` sees and `user` hasn't watched,
+/// once they've been made (they're started in the background, within the budget); until then
+/// the caller goes by Melete's own likeness, as it does while AI picks are off. Made once for
+/// everyone who sees the same titles.
 pub async fn like(
     pool: &SqlitePool,
     client: Option<&Arc<Client>>,
     title: Title,
     user: i64,
     access: &Access,
-) -> anyhow::Result<Option<Vec<Pick>>> {
+) -> anyhow::Result<Like> {
     let (true, Some(client)) = (on(pool).await?, client) else {
-        return Ok(None);
+        return Ok(Like::Off);
     };
     let seen = access.key();
     let kept = similar_row(pool, title, &seen).await?;
     let now = unix_now();
-    let due = kept
-        .as_ref()
-        .is_none_or(|k| k.made_at.is_none_or(|at| now - at >= SIMILAR_FOR));
-    if due && claim_similar(pool, title, &seen, now - TRY_EVERY).await? {
-        let (pool, client, access) = (pool.clone(), client.clone(), access.clone());
-        tokio::spawn(async move {
-            if let Err(err) = make_like(&pool, &client, title, &access).await {
-                tracing::warn!(
-                    error = format!("{err:#}"),
-                    "AI titles like one couldn't be made"
-                );
-            }
-        });
+    let due = kept.as_ref().is_none_or(|k| {
+        k.made_at.is_none_or(|at| now - at >= SIMILAR_FOR) && k.tried_at <= now - TRY_EVERY
+    });
+    let mut refused = None;
+    if due {
+        let (owned, client_owned, access_owned) = (pool.clone(), client.clone(), access.clone());
+        let job = async move { make_like(&owned, &client_owned, title, &access_owned).await };
+        let claim = claim_similar(pool, title, &seen, now - TRY_EVERY);
+        refused = start(client, user, claim, job).await?;
     }
-    match kept.filter(|k| k.made_at.is_some()) {
-        Some(kept) => Ok(Some(
-            still_there(pool, Some(user), access, &kept.picks).await?,
-        )),
-        None => Ok(None),
-    }
+    Ok(match (kept.filter(|k| k.made_at.is_some()), refused) {
+        (Some(kept), _) => Like::Made(still_there(pool, Some(user), access, &kept.picks).await?),
+        (None, Some(Refusal::Limited)) => Like::Limited,
+        (None, Some(Refusal::Busy)) => Like::Busy,
+        (None, None) => Like::Making,
+    })
 }
 
 /// Makes the titles like `title` for those who see what `access` sees, now, and keeps them.

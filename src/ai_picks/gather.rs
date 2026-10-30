@@ -39,14 +39,14 @@ fn genres(json: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// A title's name, year and genres, from TMDB's details when it's matched, else its
-/// folder's name. `m` and `s` stand for the movie and the series rows.
-const DETAILS: &str = "coalesce(tm.title, ts.name, m.parsed_title, s.parsed_title) AS title,
-     coalesce(tm.year, ts.year, m.parsed_year, s.parsed_year) AS year,
+/// A title's name, year and genres, from TMDB's details only: a name read from a folder or a
+/// file never leaves the server. `tm` and `ts` stand for the movie's and the series' details.
+const DETAILS: &str = "coalesce(tm.title, ts.name) AS title, coalesce(tm.year, ts.year) AS year,
      coalesce(tm.genres, ts.genres) AS genres";
 
-/// The titles a viewer finished or is watching that they may see, most recent first, an
-/// episode counting as its series.
+/// The titles matched on TMDB that a viewer finished or is watching and may see, most recent
+/// first, an episode counting as its series. One not matched is left out: all there is to
+/// tell of it is its folder's or file's name, which never leaves the server.
 pub(super) async fn history(
     pool: &SqlitePool,
     user: i64,
@@ -62,7 +62,7 @@ pub(super) async fn history(
          LEFT JOIN tmdb_movies tm ON tm.tmdb_id = m.match_tmdb_id
          LEFT JOIN tmdb_series ts ON ts.tmdb_id = s.match_tmdb_id
          WHERE p.user_id = ?1 AND (p.watched = 1 OR p.position_seconds > 0) AND {}
-           AND (f.movie_id IS NOT NULL OR f.series_id IS NOT NULL)
+           AND (tm.tmdb_id IS NOT NULL OR ts.tmdb_id IS NOT NULL)
          GROUP BY f.movie_id, f.series_id
          ORDER BY max(p.updated_at) DESC LIMIT ?2",
         access.file_sql("f")
