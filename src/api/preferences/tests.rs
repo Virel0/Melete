@@ -10,7 +10,8 @@ use crate::auth::{self, TokenKind};
 use crate::db;
 
 async fn token(pool: &SqlitePool, name: &str) -> String {
-    let user = auth::create_user(pool, name, format!("{name}-password"), false)
+    let password = auth::generate_password().unwrap();
+    let user = auth::create_user(pool, name, password, false)
         .await
         .unwrap()
         .unwrap();
