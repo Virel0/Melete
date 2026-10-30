@@ -1,14 +1,17 @@
-// Your account: password, languages, playback, signing in through an identity provider, sessions and API
-// keys, and Quick Connect for signing in another device. Every user has this page.
+// Your account: password, two-factor sign-in, languages, playback, signing in through an
+// identity provider, sessions and API keys, and Quick Connect for signing in another device.
+// Every user has this page.
 
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
 import { playbackGroup } from "/web/playback-prefs.js";
 import { SignedOut, announce, api, h, oidcOutcome } from "/web/lib.js";
+import { signInChanges, twoFactorGroup } from "/web/two-factor.js";
 
 export async function account(ctx) {
-  const [tokens, provider, link, languages, playback] = await Promise.all([
+  const [tokens, twoFactor, provider, link, languages, playback] = await Promise.all([
     api("/auth/tokens"),
+    api("/me/two-factor"),
     api("/auth/oidc"),
     api("/auth/oidc/link"),
     languagesGroup(),
@@ -25,10 +28,11 @@ export async function account(ctx) {
 
   return [
     group("Password", password),
+    twoFactorGroup(twoFactor, ctx),
     languages,
     playback,
     linking,
-    group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list),
+    group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list, signInChanges(twoFactor.changes)),
     group("Quick Connect", h("p", { class: "note" }, "Sign in a TV or a new device without typing your password on it: choose Quick Connect there and enter the code it shows."), ...quick),
     group("New API key", ...key),
   ];
