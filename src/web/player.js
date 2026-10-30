@@ -5,7 +5,7 @@
 
 import { SignedOut, announce, api, clock, episodeLabel, h, loading, show } from "/web/lib.js";
 import { SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
-import { playerKeys, shortcutsHelp } from "/web/player-keys.js";
+import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
@@ -73,8 +73,9 @@ export async function playerPage(fileId, params, ctx) {
   const where = { seriesId, seasonNumber, episodeNumber, season, episode, title };
   const episodes = episodeLinks(where, ctx);
   const upNext = upNextPanel(video, where, episodes.after, { ctx, report: reports.report, backHref, heading, credits: segments?.credits });
-  const { stage, fullscreen, onKey } = framed(s, { segments, episodes, upNext, pickSubtitles });
+  const { stage, fullscreen, onKey, onFullscreen } = framed(s, { segments, episodes, upNext, pickSubtitles });
   document.addEventListener("keydown", onKey);
+  document.addEventListener("fullscreenchange", onFullscreen);
 
   ctx.onLeave(() => {
     reports.report(true);
@@ -82,6 +83,7 @@ export async function playerPage(fileId, params, ctx) {
     upNext.cancel();
     removeEventListener("pagehide", reports.onHide);
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener("fullscreenchange", onFullscreen);
     detach(s);
     video.load();
   });
@@ -118,13 +120,13 @@ export async function playerPage(fileId, params, ctx) {
 // together; and the keys, with C for the next subtitles and N for the next episode.
 function framed(s, { segments, episodes, upNext, pickSubtitles }) {
   const stage = h("div", { class: "stage" }, s.video, h("div", { class: "stage-over" }, skipButtons(s.video, segments), upNext.card));
-  const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.());
+  const { fullscreen, onFullscreen } = stageFullscreen(s.video, stage);
   const onKey = playerKeys(s.video, {
     subtitles: () => nextSubtitle(pickSubtitles),
     next: () => episodes.after.then((n) => (n ? (location.hash = episodeHref(s.seriesId, n)) : announce("There's no next episode."))),
     fullscreen,
   });
-  return { stage, fullscreen, onKey };
+  return { stage, fullscreen, onKey, onFullscreen };
 }
 
 // The file, how to play it, its subtitles, and the movie or series and season it belongs to.
@@ -148,7 +150,8 @@ async function fetchPlaying(fileId, movieId, seriesId, seasonNumber) {
 
 // The video element, with the text subtitles as WebVTT tracks.
 function videoWithTracks(streamBase, textTracks) {
-  // Full screen is the stage's (the page's button and F), so Skip and the next episode come too.
+  // Full screen is the stage's (the page's button, F and a double-click), so Skip and the next
+  // episode come too.
   const video = h("video", { controls: true, playsinline: true, preload: "metadata", controlslist: "nofullscreen" });
   for (const t of textTracks) {
     video.append(

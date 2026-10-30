@@ -93,12 +93,14 @@ mod stems;
 mod subtitles;
 mod tasks;
 mod tmdb;
+mod tmdb_status;
 mod torznab;
 mod track_artists;
 mod track_picks;
 mod transcode;
 mod transfer;
 mod trickplay;
+mod two_factor;
 mod upgrades;
 mod want;
 mod wanted_edit;
@@ -339,6 +341,7 @@ fn spawn_background_jobs(
         },
     ));
     tokio::spawn(background::work_out_works(pool.clone()));
+    tokio::spawn(background::match_on_request(pool.clone(), tmdb.clone()));
     tokio::spawn(backup::daily(pool.clone(), config.data_dir.clone()));
     tokio::spawn(background::read_lyrics(pool.clone()));
     tokio::spawn(background::find_segments(

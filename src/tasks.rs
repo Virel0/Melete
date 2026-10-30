@@ -23,11 +23,16 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 15] = [
+pub const TASKS: [Task; 16] = [
     Task {
         name: "library",
-        what: "scans the libraries on their schedule and imported folders at once, matches titles on TMDB and refreshes their ratings, probes files, deals with replaced files and the trash (run now: a whole scan)",
+        what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
         wake: Some(jobs::request_rescan),
+    },
+    Task {
+        name: "tmdb-matching",
+        what: "matches new titles on TMDB and refreshes the details, ratings, cast and trailers it has for them, after each scan (run now: without a scan)",
+        wake: Some(|| jobs::TMDB.notify_one()),
     },
     Task {
         name: "music-matching",
@@ -109,6 +114,20 @@ struct Runs {
     finished_at: Option<i64>,
     result: Option<String>,
     next_at: Option<i64>,
+    progress: Vec<Progress>,
+}
+
+/// How far one step of a running task has got, such as probing files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Progress {
+    /// The step, in plain words.
+    pub what: &'static str,
+    /// Items done so far.
+    pub done: usize,
+    /// Items in this run.
+    pub total: usize,
+    /// Of those done, the ones that failed.
+    pub failed: usize,
 }
 
 static RUNS: LazyLock<Mutex<HashMap<&'static str, Runs>>> = LazyLock::new(Default::default);
@@ -131,6 +150,17 @@ pub fn failed() -> Option<String> {
     Some("failed; the server's log says why".into())
 }
 
+/// Notes a task that runs in this server but only when asked, so it's shown as ready before its
+/// first run. What's known of earlier runs is kept.
+pub fn ready(name: &'static str) {
+    runs().entry(name).or_default();
+}
+
+/// Notes a task that no longer runs in this server, as when its service was turned off.
+pub fn inactive(name: &'static str) {
+    runs().remove(name);
+}
+
 /// Notes a task starting.
 pub fn started(name: &'static str) {
     let mut all = runs();
@@ -148,6 +178,16 @@ pub fn ran(name: &'static str, started_at: i64, result: String) {
     task.started_at = Some(started_at);
     task.finished_at = Some(unix_now());
     task.result = Some(result);
+}
+
+/// Notes how far the step `what` of a running task has got, or with `None` that it's over. A
+/// task this server hasn't started isn't shown running for it.
+pub fn progress(name: &'static str, what: &'static str, now: Option<Progress>) {
+    let mut all = runs();
+    if let Some(task) = all.get_mut(name) {
+        task.progress.retain(|p| p.what != what);
+        task.progress.extend(now);
+    }
 }
 
 /// Notes a task finishing, how it went (`None` for fine), and when it runs next on its own.
@@ -182,6 +222,8 @@ pub struct TaskView {
     pub next_at: Option<i64>,
     /// Whether it can be run now from here.
     pub can_run: bool,
+    /// How far each of its steps running now has got; empty when none is.
+    pub progress: Vec<Progress>,
 }
 
 /// Every task, in [`TASKS`]' order.
@@ -201,6 +243,7 @@ pub fn list() -> Vec<TaskView> {
                 result: runs.result,
                 next_at: runs.next_at,
                 can_run: task.wake.is_some(),
+                progress: runs.progress,
             }
         })
         .collect()
