@@ -170,6 +170,21 @@ mod tests {
         assert_eq!(get("MELETE_SLSKD_URL"), None);
     }
 
+    /// `.env.example` is copied as it is, and a value in `.env` locks a setting in the web UI: it
+    /// may only leave the UI's settings empty or commented out.
+    #[test]
+    fn the_env_example_leaves_the_uis_settings_to_the_ui() {
+        let pinned: Vec<&str> = include_str!("../.env.example")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| line.split_once('='))
+            .filter(|(name, value)| known(name.trim()).is_some() && !value.trim().is_empty())
+            .map(|(name, _)| name)
+            .collect();
+        assert!(pinned.is_empty(), "set in .env.example: {pinned:?}");
+    }
+
     #[tokio::test]
     async fn saves_what_holds_together_and_refuses_the_rest() {
         let pool = db::open_in_memory().await;

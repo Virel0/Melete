@@ -73,10 +73,12 @@ export function episodeLinks(where, ctx) {
   const [before, after] = where.seriesId && where.episode ? [quiet(false), quiet(true)] : [Promise.resolve(null), Promise.resolve(null)];
   Promise.all([before, after]).then(([b, a]) => {
     if (!ctx.current()) return;
-    nav.replaceChildren(
-      b ? h("a", { class: "button quiet", href: episodeHref(where.seriesId, b), rel: "prev" }, `Previous: ${episodeLabel(b.season, b.episode.episode)}`) : null,
-      a ? h("a", { class: "button quiet", href: episodeHref(where.seriesId, a), rel: "next" }, `Next: ${episodeLabel(a.season, a.episode.episode)}`) : null,
-    );
+    // The DOM's replaceChildren writes a null as the text "null": the missing ones are left out.
+    const links = [
+      b && h("a", { class: "button quiet", href: episodeHref(where.seriesId, b), rel: "prev" }, `Previous: ${episodeLabel(b.season, b.episode.episode)}`),
+      a && h("a", { class: "button quiet", href: episodeHref(where.seriesId, a), rel: "next" }, `Next: ${episodeLabel(a.season, a.episode.episode)}`),
+    ];
+    nav.replaceChildren(...links.filter(Boolean));
   });
   return { nav, after };
 }
