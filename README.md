@@ -85,8 +85,9 @@ Melete serves its own web UI, and two native apps are built against its API:
 
 ## Install with Docker Compose
 
-You need Docker with the Compose plugin. Melete runs as uid 10001 with a read-only root
-filesystem and no capabilities.
+You need Docker with the Compose plugin. Melete runs as uid 10001, or a user you choose (see
+[Running as another user](#running-as-another-user)), with a read-only root filesystem and no
+capabilities.
 
 1. Clone this repository on the server, or check out a release's tag (`git checkout v0.1.0`).
 2. Copy `.env.example` to `.env` next to `compose.yaml` and set the folders. Each must exist;
@@ -103,7 +104,8 @@ filesystem and no capabilities.
    MELETE_MUSIC_DIR=/path/to/music
    ```
 
-   The config and transcode folders must be writable by uid 10001:
+   The config and transcode folders must be writable by Melete's user, uid 10001 unless you
+   choose another, and the libraries readable by it:
 
    ```sh
    sudo install -d -o 10001 -g 10001 /path/to/melete/config /path/to/melete/transcode
@@ -186,11 +188,37 @@ lists for it:
 The separator and the renderer are built from this repository (`stems/`, `motion/`). Their
 models are downloaded from their publishers on first start, never shipped.
 
+### Running as another user
+
+Melete runs as uid and gid 10001, its image's own user, unless `MELETE_USER` in `.env` names
+another. Many libraries already belong to a user of their own, often uid 1000; instead of
+changing the ownership of a large or network-mounted library, run Melete as that user:
+
+```sh
+MELETE_USER=1000:1000
+```
+
+Nothing in the image depends on uid 10001: it has no home folder to write to, and writes only to
+the folders compose mounts. Melete's user, whichever it is, needs:
+
+- to read the libraries (read on files, read and execute on folders), and to write to them once
+  automation is on;
+- to read and write the config and transcode folders;
+- to read and write the folders of the optional containers (`.env.example` lists them). The
+  stem separator, the motion cover renderer and slskd run as the same user, so each can read
+  what the other writes.
+
+A share whose top folder gives nothing to others (mode `770`, or anything without read and
+execute for "other") can't be read at all by a user outside its owner and group. The fix is to
+run Melete as that owner, or as a user in that group (`MELETE_USER=10001:<the share's gid>`),
+not to change the library's permissions.
+
 ### Turning on automation
 
 Library mounts are read-only (`:ro`) in `compose.yaml`. Melete can search and decide with them
-read-only, but importing needs write access: drop `:ro` from a library's mount and let uid
-10001 write to that folder on the host. Until then, finished downloads wait on the seedbox.
+read-only, but importing needs write access: drop `:ro` from a library's mount and let
+Melete's user write to that folder on the host. Until then, finished downloads wait on the
+seedbox.
 
 ## Backups and restore
 
