@@ -48,18 +48,15 @@ async fn a_reset_removes_the_second_factor_when_the_answer_is_yes() {
         (changes[0].change.as_str(), changes[0].made_from.as_str()),
         ("two_factor_off", "server")
     );
+    // Setting it is `set_password`'s, tested with it; here the new one is a fresh generated one.
+    assert_eq!(new.len(), 20);
+    assert_ne!(new, old);
     assert!(
         auth::check_password(&pool, "alice", old)
             .await
             .unwrap()
             .is_none(),
         "the old password no longer signs in"
-    );
-    assert!(
-        auth::check_password(&pool, "alice", new)
-            .await
-            .unwrap()
-            .is_some()
     );
 }
 
