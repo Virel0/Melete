@@ -1,7 +1,7 @@
 // The command palette: Ctrl+K (⌘K on a Mac) or / opens it anywhere, and typing finds a
-// page, a setting or a title in the library. It's a modal dialog: focus goes into it and stays
-// there, Escape closes it, and focus goes back to where it was. Arrow keys move through the
-// results, Enter opens one.
+// page, a setting, or a title, artist or song in the library (what the user may see of it).
+// It's a modal dialog: focus goes into it and stays there, Escape closes it, and focus goes
+// back to where it was. Arrow keys move through the results, Enter opens one.
 
 import { SignedOut, api, h } from "/web/lib.js";
 
@@ -143,7 +143,7 @@ function paletteParts(me) {
     "aria-autocomplete": "list",
     autocomplete: "off",
     spellcheck: "false",
-    placeholder: me.is_admin ? "A page, setting or title" : "A page or title",
+    placeholder: me.is_admin ? "A page, setting, title, artist or song" : "A page, title, artist or song",
   });
   const results = h("ul", { id: "palette-results", role: "listbox", "aria-label": "Results" });
   const said = h("p", { class: "visually-hidden", role: "status" });
@@ -214,17 +214,27 @@ function findTitles(pal) {
   pal.typing = setTimeout(async () => {
     const mine = ++pal.asking;
     const query = new URLSearchParams({ q, limit: "4" });
+    // Music is left out quietly for someone the server keeps it from.
+    const music = (path) => api(path).catch((err) => {
+      if (err instanceof SignedOut) throw err;
+      return { items: [] };
+    });
     try {
-      const [movies, series, albums] = await Promise.all([
+      const [movies, series, artists, albums, songs] = await Promise.all([
         api(`/movies?${query}`),
         api(`/series?${query}`),
-        api(`/music/albums?${query}`).catch(() => ({ items: [] })),
+        music(`/music/artists?${query}`),
+        music(`/music/albums?${query}`),
+        music(`/music/tracks?${query}&q_in=track&sort=title`),
       ]);
       if (mine !== pal.asking || !dialog.open) return;
       pal.titles = [
         ...movies.items.map((m) => ({ name: m.year ? `${m.title} (${m.year})` : m.title, href: `#/movies/${m.id}`, kind: "Movie" })),
         ...series.items.map((s) => ({ name: s.year ? `${s.title} (${s.year})` : s.title, href: `#/series/${s.id}`, kind: "Series" })),
+        ...(artists.items ?? []).map((a) => ({ name: a.name, href: `#/music/artists/${a.id}`, kind: "Artist" })),
         ...(albums.items ?? []).map((a) => ({ name: `${a.title} by ${a.artist}`, href: `#/music/albums/${a.id}`, kind: "Album" })),
+        // A song opens its album with the song picked out, ready to play.
+        ...(songs.items ?? []).map((t) => ({ name: `${t.title} by ${t.artist}, from ${t.album}`, href: `#/music/albums/${t.album_id}?track=${t.id}`, kind: "Song" })),
       ];
       draw(pal);
     } catch (err) {
