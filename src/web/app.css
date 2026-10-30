@@ -348,6 +348,8 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 .group h2 { font-size: var(--step-1); margin-block-end: var(--space-3); }
 .field { margin-block-end: var(--space-4); }
 .field input { width: min(100%, 24rem); }
+/* A select is as wide as its longest choice: on a phone it wraps inside the group instead. */
+.field select { max-width: 100%; }
 .field .note { margin: 0 0 var(--space-1); }
 .field-error { color: var(--danger); margin: var(--space-1) 0 0; }
 [aria-invalid="true"] { border-color: var(--danger); }
