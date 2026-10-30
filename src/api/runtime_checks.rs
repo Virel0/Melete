@@ -95,7 +95,8 @@ mod tests {
     async fn says_where_a_title_stands_and_takes_the_override() {
         let pool = crate::rss::tests::setup().await;
         let dune = crate::rss::tests::want_dune(&pool).await;
-        let user = auth::create_user(&pool, "admin", "admin-password".into(), true)
+        let password = auth::generate_password().unwrap();
+        let user = auth::create_user(&pool, "admin", password, true)
             .await
             .unwrap()
             .unwrap();
