@@ -3852,7 +3852,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Ask for a movie, a series or one of its seasons, an artist, an album or a song",
-        "description": "Movies and series are looked up on TMDB, music on MusicBrainz (a song asked for by title and artist isn't). It joins the wanted list once an admin approves it; at once for an admin, a user whose requests are let through, or something already wanted (approved by no one, so its requester can follow it). An artist counts as wanted already only when it's followed whole, for new releases too. One that's let through but can't be placed (several libraries and nothing set) stays asked for, for an admin to place. One approved by the requester's standing is searched for at once, as an admin's approval is. An admin may choose what an approver chooses (`library_id`, `profile_id` or `music_profile_id`), whether it's monitored, whether it's searched for at once (`search_now`), and a series' `seasons`; it's still a request, approved at once. A choice that doesn't fit (a library or profile of another kind, seasons for anything but a series, monitoring a song) is refused before anything is kept, as is anyone else choosing. A title wanted already keeps its library and profile; the seasons and monitoring chosen still apply.",
+        "description": "Movies and series are looked up on TMDB, music on MusicBrainz (a song asked for by title and artist isn't). It joins the wanted list once an admin approves it; at once for an admin, a user whose requests are let through, or something already wanted (approved by no one, so its requester can follow it). An artist counts as wanted already only when it's followed whole, for new releases too. One that's let through but can't be placed (several libraries and nothing set) stays asked for, for an admin to place. One approved by the requester's standing is searched for at once, as an admin's approval is. An admin may choose what an approver chooses (`library_id`, `profile_id` or `music_profile_id`), whether it's monitored, whether it's searched for at once (`search_now`), and a series' `seasons`; it's still a request, approved at once. A choice that doesn't fit (a library or profile of another kind, seasons for anything but a series, monitoring a song) is refused before anything is kept, as is anyone else choosing. A title wanted already keeps its library and profile; the seasons and monitoring chosen still apply. Asking again for something your approved request led to, once it's been taken off the wanted list, asks with that same request again: it's approved at once or waits as a new one would (`created_at` is now), and if an admin's choice can't place it, it stays as it was.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewRequest"}}}
@@ -3868,7 +3868,7 @@
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "409": {
-            "description": "You've asked for it already, or TMDB or MusicBrainz isn't set up",
+            "description": "You've asked for it already (and it's waiting, or still on the wanted list), or TMDB or MusicBrainz isn't set up",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
