@@ -26,10 +26,12 @@ export async function api(path, { method = "GET", body, keepalive = false } = {}
   }
   if (response.status === 204) return null;
   const data = await response.json().catch(() => null);
-  if (response.status === 401 && path !== "/auth/web-login") throw new SignedOut();
+  // Signing in answers 401 for a wrong password or code, and when it needs a code.
+  if (response.status === 401 && !path.startsWith("/auth/web-login")) throw new SignedOut();
   if (!response.ok) {
     throw Object.assign(new Error(data?.error ?? `Melete answered ${response.status}.`), {
       status: response.status,
+      data,
     });
   }
   return data;

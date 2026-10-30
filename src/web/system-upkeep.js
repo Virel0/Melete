@@ -3,7 +3,7 @@
 // (Deluge and the seedbox, set up here; Soulseek is under Indexers).
 
 import { group, when } from "/web/forms.js";
-import { SignedOut, announce, api, h, size } from "/web/lib.js";
+import { SignedOut, announce, api, h, number, size } from "/web/lib.js";
 import { currentHealth } from "/web/health.js";
 import { emptyState, stateLabel } from "/web/page-parts.js";
 import { ago, attentionStrip, rowTable } from "/web/manage-parts.js";
@@ -37,8 +37,15 @@ const RUN_THERE = {
 
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+// How far a running task's steps have got, a line each: "Probing files: 1,200 of 5,000, 3 failed".
+function taskProgress(t) {
+  if (!t.progress?.length) return null;
+  const line = (p) => `${sentence(p.what)}: ${number.format(p.done)} of ${number.format(p.total)}${p.failed ? `, ${number.format(p.failed)} failed` : ""}`;
+  return t.progress.map((p) => h("span", { class: "note task-progress" }, line(p)));
+}
+
 function taskState(t) {
-  if (t.running) return stateLabel("coming", "Running");
+  if (t.running) return h("span", {}, stateLabel("coming", "Running"), taskProgress(t));
   if (!t.active) return stateLabel("off", "Off: its service is off");
   if (t.result?.startsWith("failed")) return stateLabel("failed", sentence(t.result));
   if (t.result) return stateLabel("have", sentence(t.result));

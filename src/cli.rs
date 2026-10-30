@@ -3,12 +3,14 @@
 
 use anyhow::bail;
 
-use crate::{aoide, auth, backup};
+use crate::{aoide, auth, backup, two_factor};
 
 pub(crate) const USAGE: &str = "usage:
   melete                                  run the server
   melete user add <name> [--admin]        create a user with a generated password
-  melete user reset-password <name>       set a new generated password and sign the user out everywhere
+  melete user reset-password <name> [--remove-second-factor | --keep-second-factor]
+                                          set a new generated password and sign the user out everywhere;
+                                          asks whether to remove their second factor, when they have one
   melete backup                           copy the database into the data folder's backups
   melete restore [<copy>]                 list the copies, or put one in place of the database, with
                                           Melete stopped (docker compose run --rm melete melete restore <copy>)
@@ -36,15 +38,27 @@ pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> any
             println!("Created {role} {name}. Password: {password}");
             println!("Sign in and change it with PUT /api/v1/me/password.");
         }
-        ["user", "reset-password", name] => {
-            let Some(user) = auth::find_user(pool, name).await? else {
-                bail!("no user named {name:?}");
+        ["user", "reset-password", name, flags @ ..] => {
+            let Some(second_factor) = SecondFactor::from_flags(flags) else {
+                bail!("{USAGE}");
             };
-            let password = auth::generate_password()?;
-            auth::set_password(pool, user.id, password.clone(), None).await?;
+            let (user, password, second_factor) =
+                reset_password(pool, name, second_factor, ask_on_terminal).await?;
             println!("New password for {}: {password}", user.username);
             println!("All of their sessions and API keys were signed out.");
             println!("A sign-in lockout already running ends within 15 minutes.");
+            match second_factor {
+                Outcome::NoneOn => {}
+                Outcome::Removed => println!(
+                    "Their two-factor sign-in was removed: the password alone signs in now."
+                ),
+                Outcome::Kept => {
+                    println!(
+                        "Their two-factor sign-in stays on: signing in still asks for a code."
+                    );
+                    println!("To remove it, run this again with --remove-second-factor.");
+                }
+            }
         }
         ["import", "aoide", rest @ ..] => aoide::import::run(pool, rest).await?,
         ["backup"] => {
@@ -61,6 +75,92 @@ pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> any
         _ => bail!("{USAGE}"),
     }
     Ok(())
+}
+
+/// What `user reset-password` does about a second factor the user has on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SecondFactor {
+    /// Remove it too: the way back for a lost device.
+    Remove,
+    /// Leave it on.
+    Keep,
+    /// Ask, when there's someone at a terminal to answer.
+    Ask,
+}
+
+/// What `user reset-password` did about a second factor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The user had none on.
+    NoneOn,
+    /// It was removed.
+    Removed,
+    /// It stays on.
+    Kept,
+}
+
+impl SecondFactor {
+    /// What the command line's flags say; None for flags it doesn't take.
+    fn from_flags(flags: &[&str]) -> Option<Self> {
+        match flags {
+            [] => Some(Self::Ask),
+            ["--remove-second-factor"] => Some(Self::Remove),
+            ["--keep-second-factor"] => Some(Self::Keep),
+            _ => None,
+        }
+    }
+}
+
+/// Sets a new password for `name` and signs them out everywhere; with a second factor on,
+/// removes it too when told to or when `ask` says yes. Asked before anything changes, so one
+/// run does both. Answers the user, their new password and what happened to the second factor.
+pub(crate) async fn reset_password(
+    pool: &sqlx::SqlitePool,
+    name: &str,
+    second_factor: SecondFactor,
+    ask: impl FnOnce() -> anyhow::Result<bool>,
+) -> anyhow::Result<(auth::User, String, Outcome)> {
+    let Some(user) = auth::find_user(pool, name).await? else {
+        bail!("no user named {name:?}");
+    };
+    let has_one = two_factor::is_on(pool, user.id).await?;
+    let remove = has_one
+        && match second_factor {
+            SecondFactor::Remove => true,
+            SecondFactor::Keep => false,
+            SecondFactor::Ask => ask()?,
+        };
+    let password = auth::generate_password()?;
+    auth::set_password(pool, user.id, password.clone(), None).await?;
+    let outcome = if remove {
+        two_factor::remove(pool, user.id, two_factor::MadeFrom::Server).await?;
+        Outcome::Removed
+    } else if has_one {
+        Outcome::Kept
+    } else {
+        Outcome::NoneOn
+    };
+    Ok((user, password, outcome))
+}
+
+/// Asks on the terminal whether to remove the user's second factor; no when nobody is there to
+/// answer (`docker exec` without `-it`).
+fn ask_on_terminal() -> anyhow::Result<bool> {
+    use std::io::{BufRead, IsTerminal, Write};
+    let stdin = std::io::stdin();
+    if !stdin.is_terminal() {
+        return Ok(false);
+    }
+    print!("They have two-factor sign-in on. Remove it too, for a lost device? [y/N] ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    stdin.lock().read_line(&mut answer)?;
+    Ok(says_yes(&answer))
+}
+
+/// Whether a typed answer is yes; anything else, an empty line included, is no.
+fn says_yes(answer: &str) -> bool {
+    matches!(answer.trim(), "y" | "Y" | "yes" | "Yes")
 }
 
 /// Runs `melete restore [<copy>]` when that's the command, saying whether it was. It never
@@ -133,3 +233,6 @@ fn say_restored(data_dir: &std::path::Path, restored: &backup::restore::Restored
     }
     println!("Start Melete again to use it.");
 }
+
+#[cfg(test)]
+mod tests;

@@ -198,10 +198,8 @@ function draw() {
     );
   });
   const after = entries.length - queue.position() - 1;
-  queueBody.replaceChildren(
-    ...groups.filter(Boolean),
-    after ? h("button", { type: "button", class: "quiet small", onclick: () => queue.clearAfter() }, "Clear the rest") : null,
-  );
+  const clear = after ? h("button", { type: "button", class: "quiet small", onclick: () => queue.clearAfter() }, "Clear the rest") : null;
+  queueBody.replaceChildren(...[...groups, clear].filter(Boolean));
 }
 
 document.addEventListener("melete:queue", () => panel.open && draw());
