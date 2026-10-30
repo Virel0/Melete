@@ -3,7 +3,12 @@
 
 use super::*;
 use crate::db::unix_now;
-use crate::two_factor::{self, Confirmed, MadeFrom};
+use crate::two_factor::{self, Confirmed, MadeFrom, Stage};
+
+/// `reason` on a 403 or 401 whose code was wrong, for an app to point at the code field.
+const WRONG_CODE: &str = "wrong_code";
+/// `reason` on a 403 whose password was wrong, for an app to point at the password field.
+const WRONG_PASSWORD: &str = "wrong_password";
 
 /// The limiter's key for a user's codes, wherever they're typed. Per user rather than per
 /// address: whoever is guessing already has the password, and more addresses mustn't buy
@@ -64,7 +69,13 @@ async fn finish(
         return Err(too_many_codes());
     }
     if !two_factor::take_code(&state.pool, user_id, &body.code, now).await? {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "wrong code"));
+        // In the user's own record, so someone whose password got out can tell.
+        two_factor::record_wrong_code(&state.pool, user_id, now).await?;
+        return Err(ApiError::reasoned(
+            StatusCode::UNAUTHORIZED,
+            WRONG_CODE,
+            "wrong code",
+        ));
     }
     state.limiter.succeeded(&key);
     let Some(device) = two_factor::finish_challenge(&state.pool, &body.challenge, now).await?
@@ -116,7 +127,11 @@ async fn check_own_password(
         .await?
         .is_none()
     {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "password is wrong"));
+        return Err(ApiError::reasoned(
+            StatusCode::FORBIDDEN,
+            WRONG_PASSWORD,
+            "password is wrong",
+        ));
     }
     state.limiter.succeeded(&key);
     Ok(())
@@ -147,12 +162,25 @@ pub(super) struct CodeOnly {
 }
 
 /// Turns the second factor on with a first code from the secret setup gave. Nothing is signed
-/// out.
+/// out. Only a code checked against a waiting setup counts against the user's codes: a confirm
+/// with nothing to confirm mustn't lock their code step at sign-in.
 pub(super) async fn confirm(
     State(state): State<AppState>,
     Extension(current): Extension<CurrentUser>,
     Json(body): Json<CodeOnly>,
 ) -> Result<StatusCode, ApiError> {
+    let nothing_waiting = || {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "no setup is waiting for a code; start again",
+        )
+    };
+    let already_on = || ApiError::new(StatusCode::CONFLICT, "two-factor sign-in is on already");
+    match two_factor::stage(&state.pool, current.user.id).await? {
+        Stage::Off => return Err(nothing_waiting()),
+        Stage::On => return Err(already_on()),
+        Stage::Waiting => {}
+    }
     let key = code_key(current.user.id);
     if !state.limiter.begin(&key) {
         return Err(too_many_codes());
@@ -162,18 +190,14 @@ pub(super) async fn confirm(
             state.limiter.succeeded(&key);
             Ok(StatusCode::NO_CONTENT)
         }
-        Confirmed::WrongCode => Err(ApiError::new(
+        Confirmed::WrongCode => Err(ApiError::reasoned(
             StatusCode::FORBIDDEN,
+            WRONG_CODE,
             "wrong code; check the app shows Melete's newest code and the device's clock is right",
         )),
-        Confirmed::NothingWaiting => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "no setup is waiting for a code; start again",
-        )),
-        Confirmed::AlreadyOn => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "two-factor sign-in is on already",
-        )),
+        // Changed since it was looked at, by another request of theirs.
+        Confirmed::NothingWaiting => Err(nothing_waiting()),
+        Confirmed::AlreadyOn => Err(already_on()),
     }
 }
 
@@ -202,7 +226,11 @@ pub(super) async fn turn_off(
         return Err(too_many_codes());
     }
     if !two_factor::take_code(&state.pool, user_id, &body.code, unix_now()).await? {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "wrong code"));
+        return Err(ApiError::reasoned(
+            StatusCode::FORBIDDEN,
+            WRONG_CODE,
+            "wrong code",
+        ));
     }
     state.limiter.succeeded(&key);
     two_factor::remove(&state.pool, user_id, MadeFrom::Account).await?;

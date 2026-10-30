@@ -195,7 +195,7 @@
         "tags": ["Accounts"],
         "x-melete-access": "public",
         "summary": "Finish signing in with a second-factor code",
-        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
+        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Each wrong code here is added to the user's own record (`GET /me/two-factor`), without where it came from. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -207,8 +207,8 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginResponse"}}}
           },
           "401": {
-            "description": "Wrong code; the challenge stays usable while it lasts",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
           },
           "410": {
             "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
@@ -240,8 +240,8 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
           },
           "401": {
-            "description": "Wrong code; the challenge stays usable while it lasts",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
           },
           "410": {
             "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
@@ -319,7 +319,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Whether your two-factor sign-in is on",
-        "description": "With your latest changes to it, newest first, made from your account or on the server's command line. Never the secret.",
+        "description": "With your latest changes to it, newest first: turning it on or off, from your account or on the server's command line, and wrong codes typed at sign-in (counted together within an hour of the last; where they were typed from isn't kept), so you can tell if your password is known. Never the secret.",
         "responses": {
           "200": {
             "description": "OK",
@@ -347,8 +347,8 @@
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Wrong password",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong password (`reason`: `wrong_password`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
           },
           "409": {
             "description": "Two-factor sign-in is on already: turn it off first",
@@ -369,7 +369,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Turn two-factor sign-in on with a first code",
-        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`.",
+        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string", "description": "Six digits."}}}}}
@@ -378,8 +378,8 @@
           "204": {"description": "On"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Wrong code",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong code (`reason`: `wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
           },
           "409": {
             "description": "No setup is waiting for a code, or it's on already",
@@ -409,8 +409,8 @@
           "204": {"description": "Off"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Wrong password or code",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong password (`reason`: `wrong_password`) or code (`wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
           },
           "409": {
             "description": "Two-factor sign-in is off already",
@@ -10629,6 +10629,16 @@
           "new_password": {"type": "string", "minLength": 8, "maxLength": 1024}
         }
       },
+      "Refusal": {
+        "type": "object",
+        "required": ["error", "reason"],
+        "properties": {
+          "error": {"type": "string"},
+          "reason": {"enum": ["wrong_password", "wrong_code"], "description": "Which was wrong, for an app to point at the right field."}
+        },
+        "additionalProperties": false,
+        "description": "An error that also says which of the request's secrets was wrong."
+      },
       "SecondFactorNeeded": {
         "type": "object",
         "required": ["error", "second_factor", "challenge", "expires_in"],
@@ -10659,11 +10669,12 @@
             "description": "The 20 latest, newest first.",
             "items": {
               "type": "object",
-              "required": ["change", "made_from", "at"],
+              "required": ["change", "made_from", "at", "count"],
               "properties": {
-                "change": {"enum": ["two_factor_on", "two_factor_off"]},
-                "made_from": {"enum": ["account", "server"], "description": "The user's account, or the server's command line."},
-                "at": {"type": "integer", "description": "Unix seconds."}
+                "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
+                "made_from": {"enum": ["account", "server", "sign_in"], "description": "The user's account, the server's command line, or signing in (wrong codes)."},
+                "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
+                "count": {"type": "integer", "minimum": 1, "description": "1, except for wrong codes counted together."}
               }
             }
           }

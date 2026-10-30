@@ -28,13 +28,18 @@ CREATE TABLE sign_in_challenges (
 CREATE INDEX sign_in_challenges_expiry ON sign_in_challenges (expires_at);
 
 -- Changes to how a user signs in, for their own record: turning the second factor on or off,
--- from their account or from the server's command line.
+-- from their account or from the server's command line, and wrong codes typed at sign-in
+-- (counted together within an hour; where they came from isn't kept).
 CREATE TABLE account_changes (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    change TEXT NOT NULL CHECK (change IN ('two_factor_on', 'two_factor_off')),
-    made_from TEXT NOT NULL CHECK (made_from IN ('account', 'server')),
-    at INTEGER NOT NULL
+    change TEXT NOT NULL
+        CHECK (change IN ('two_factor_on', 'two_factor_off', 'wrong_sign_in_code')),
+    made_from TEXT NOT NULL CHECK (made_from IN ('account', 'server', 'sign_in')),
+    -- When; for wrong codes, the latest.
+    at INTEGER NOT NULL,
+    -- 1, except for wrong codes counted together.
+    count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 1 AND (count = 1 OR change = 'wrong_sign_in_code'))
 ) STRICT;
 
 CREATE INDEX account_changes_user ON account_changes (user_id, at);

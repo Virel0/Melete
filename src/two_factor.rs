@@ -16,14 +16,14 @@ use crate::auth::User;
 use crate::db::unix_now;
 
 mod challenges;
+mod record;
 pub mod totp;
 
 pub use challenges::*;
+pub use record::*;
 
 /// The name an authenticator app shows the account under, before the username.
 const ISSUER: &str = "Melete";
-/// Account changes kept in a user's record as it's shown.
-const CHANGES_SHOWN: i64 = 20;
 
 /// Whether a user has the second factor on, and since when.
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -74,15 +74,29 @@ impl MadeFrom {
     }
 }
 
-/// One change to how a user signs in, for their record.
-#[derive(Debug, Serialize, PartialEq, Eq, sqlx::FromRow)]
-pub struct Change {
-    /// `two_factor_on` or `two_factor_off`.
-    pub change: String,
-    /// `account` or `server`.
-    pub made_from: String,
-    /// When, Unix seconds.
-    pub at: i64,
+/// Where a user's second factor stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    /// None, not even a setup waiting.
+    Off,
+    /// Setup waits for its first code.
+    Waiting,
+    /// Sign-in asks for a code.
+    On,
+}
+
+/// Where the user's second factor stands.
+pub async fn stage(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Stage> {
+    let row: Option<Option<i64>> =
+        sqlx::query_scalar("SELECT confirmed_at FROM two_factor WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(match row {
+        None => Stage::Off,
+        Some(None) => Stage::Waiting,
+        Some(Some(_)) => Stage::On,
+    })
 }
 
 /// Whether sign-in with a password asks this user for a code.
@@ -107,18 +121,6 @@ pub async fn status(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Status> {
         on: on_since.is_some(),
         on_since,
     })
-}
-
-/// The user's latest changes to how they sign in, newest first.
-pub async fn changes(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Change>> {
-    sqlx::query_as(
-        "SELECT change, made_from, at FROM account_changes WHERE user_id = ?
-         ORDER BY at DESC, id DESC LIMIT ?",
-    )
-    .bind(user_id)
-    .bind(CHANGES_SHOWN)
-    .fetch_all(pool)
-    .await
 }
 
 /// A new secret for `user`, replacing one still waiting for its first code. None when the
@@ -245,23 +247,6 @@ pub async fn remove(pool: &SqlitePool, user_id: i64, from: MadeFrom) -> sqlx::Re
     }
     tx.commit().await?;
     Ok(was_on)
-}
-
-async fn record(
-    tx: &mut sqlx::SqliteConnection,
-    user_id: i64,
-    change: &str,
-    from: MadeFrom,
-    at: i64,
-) -> sqlx::Result<()> {
-    sqlx::query("INSERT INTO account_changes (user_id, change, made_from, at) VALUES (?, ?, ?, ?)")
-        .bind(user_id)
-        .bind(change)
-        .bind(from.as_str())
-        .bind(at)
-        .execute(tx)
-        .await?;
-    Ok(())
 }
 
 #[cfg(test)]

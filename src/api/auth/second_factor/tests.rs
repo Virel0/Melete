@@ -418,3 +418,128 @@ async fn every_new_route_refuses_a_caller_without_a_token_or_challenge() {
     let answer = post(&app, OFF, Some(key), both).await;
     assert_eq!(answer.status, StatusCode::FORBIDDEN);
 }
+
+/// How a password changes: by its owner, by an admin, or on the server's command line.
+#[derive(Debug, Clone, Copy)]
+enum NewPassword {
+    Owner,
+    Admin,
+    CommandLine,
+}
+
+#[tokio::test]
+async fn a_new_password_ends_sign_ins_waiting_for_their_code() {
+    for how in [
+        NewPassword::Owner,
+        NewPassword::Admin,
+        NewPassword::CommandLine,
+    ] {
+        let (pool, app) = setup().await;
+        let session = token(&app).await;
+        let secret = turn_on(&pool, &app, &session).await;
+        // Someone with the old password gets as far as the code.
+        let waiting = challenge(&app, LOGIN).await;
+        match how {
+            NewPassword::Owner => {
+                let change = json!({ "current_password": alice(), "new_password": wrong() });
+                let answer = send(&app, "PUT", "/api/v1/me/password", Some(&session), change).await;
+                assert_eq!(answer.status, StatusCode::NO_CONTENT, "{}", answer.body);
+            }
+            NewPassword::Admin => {
+                let admin = auth::create_user(&pool, "carol", wrong(), true)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let (_, admin) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
+                    .await
+                    .unwrap();
+                let answer =
+                    post(&app, "/api/v1/users/1/password", Some(&admin), Value::Null).await;
+                assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
+            }
+            NewPassword::CommandLine => {
+                let keep = crate::cli::SecondFactor::Keep;
+                crate::cli::reset_password(&pool, "alice", keep, || unreachable!())
+                    .await
+                    .unwrap();
+            }
+        }
+        let answer = post(&app, FINISH, None, finishing(&waiting, &code(&secret))).await;
+        assert_eq!(answer.status, StatusCode::GONE, "{how:?}: {}", answer.body);
+        assert!(answer.body.get("token").is_none());
+    }
+}
+
+#[tokio::test]
+async fn confirming_with_nothing_to_confirm_doesnt_count_as_a_wrong_code() {
+    let (pool, app) = setup().await;
+    let session = token(&app).await;
+    for _ in 0..6 {
+        let answer = post(&app, CONFIRM, Some(&session), json!({ "code": "000000" })).await;
+        assert_eq!(answer.status, StatusCode::CONFLICT, "nothing waiting");
+    }
+    let secret = turn_on(&pool, &app, &session).await;
+    for _ in 0..6 {
+        let answer = post(&app, CONFIRM, Some(&session), json!({ "code": "000000" })).await;
+        assert_eq!(answer.status, StatusCode::CONFLICT, "on already");
+    }
+    // The code step at sign-in isn't locked by any of that.
+    let waiting = challenge(&app, LOGIN).await;
+    let answer = post(&app, FINISH, None, finishing(&waiting, &code(&secret))).await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
+}
+
+#[tokio::test]
+async fn refusals_say_whether_the_password_or_the_code_was_wrong() {
+    let (pool, app) = setup().await;
+    let session = token(&app).await;
+    let reason = |answer: &Answer| answer.body["reason"].as_str().unwrap_or("none").to_owned();
+    let refused = |status, why: &str| (status, why.to_owned());
+    let answer = post(&app, SETUP, Some(&session), json!({ "password": wrong() })).await;
+    let wrong_password = refused(StatusCode::FORBIDDEN, "wrong_password");
+    assert_eq!((answer.status, reason(&answer)), wrong_password);
+    assert_documented("Refusal", &answer.body);
+    let answer = post(&app, SETUP, Some(&session), json!({ "password": alice() })).await;
+    let secret = from_base32(answer.body["secret"].as_str().unwrap());
+    let answer = post(&app, CONFIRM, Some(&session), json!({ "code": "000000" })).await;
+    let wrong_code = refused(StatusCode::FORBIDDEN, "wrong_code");
+    assert_eq!((answer.status, reason(&answer)), wrong_code);
+    let answer = post(
+        &app,
+        CONFIRM,
+        Some(&session),
+        json!({ "code": code(&secret) }),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::NO_CONTENT);
+    forget_last_code(&pool).await;
+    let off = |password: &str, code: &str| json!({ "password": password, "code": code });
+    let answer = post(&app, OFF, Some(&session), off(&wrong(), &code(&secret))).await;
+    assert_eq!((answer.status, reason(&answer)), wrong_password);
+    let answer = post(&app, OFF, Some(&session), off(alice(), "000000")).await;
+    assert_eq!((answer.status, reason(&answer)), wrong_code);
+    let waiting = challenge(&app, LOGIN).await;
+    let answer = post(&app, FINISH, None, finishing(&waiting, "000000")).await;
+    let at_sign_in = refused(StatusCode::UNAUTHORIZED, "wrong_code");
+    assert_eq!((answer.status, reason(&answer)), at_sign_in);
+}
+
+#[tokio::test]
+async fn wrong_codes_at_sign_in_show_in_the_users_record_without_where_from() {
+    let (pool, app) = setup().await;
+    let session = token(&app).await;
+    turn_on(&pool, &app, &session).await;
+    let waiting = challenge(&app, LOGIN).await;
+    for _ in 0..2 {
+        let answer = post(&app, FINISH, None, finishing(&waiting, "000000")).await;
+        assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
+    }
+    let status = get(&app, STATUS, &session).await;
+    let newest = &status.body["changes"][0];
+    assert_eq!(newest["change"], "wrong_sign_in_code");
+    assert_eq!(newest["made_from"], "sign_in");
+    assert_eq!(newest["count"], 2);
+    assert_eq!(status.body["changes"][1]["count"], 1, "turning it on");
+    let keys: Vec<&String> = newest.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["at", "change", "count", "made_from"], "no address");
+}
