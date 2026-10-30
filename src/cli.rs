@@ -155,7 +155,12 @@ fn ask_on_terminal() -> anyhow::Result<bool> {
     std::io::stdout().flush()?;
     let mut answer = String::new();
     stdin.lock().read_line(&mut answer)?;
-    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
+    Ok(says_yes(&answer))
+}
+
+/// Whether a typed answer is yes; anything else, an empty line included, is no.
+fn says_yes(answer: &str) -> bool {
+    matches!(answer.trim(), "y" | "Y" | "yes" | "Yes")
 }
 
 /// Runs `melete restore [<copy>]` when that's the command, saying whether it was. It never
