@@ -20,6 +20,7 @@ function input(service, f) {
     const el = h("div", { class: "check" }, box, h("label", { for: id }, f.label));
     return {
       box: h("div", { class: "field" }, el, note ? h("p", { class: "note", id: `${id}-hint` }, note) : null),
+      input: box,
       clear() {},
       fail() {},
       read: () => (fixed ? undefined : box.checked ? f.input.toggle.on : "off"),
@@ -72,8 +73,27 @@ function values(inputs) {
   return out;
 }
 
-// One service's settings, test and save; Indexers → Soulseek shows slskd's.
-export function serviceSection(ctx, s) {
+// Why a feature can't be turned on while the service it needs is off.
+const NEEDS_WHY = {
+  tmdb: "Needs TMDB's API Read Access Token, which isn't set. Set it above and save TMDB, then this can be turned on.",
+};
+
+// A feature whose service is off: its settings shown as they are, but nothing to change, save
+// or test until that one is set up; `why` is the paragraph saying so.
+function blocked(inputs, saving, test, why) {
+  for (const [, i] of inputs) {
+    i.input.disabled = true;
+    i.input.setAttribute("aria-describedby", [why.id, i.input.getAttribute("aria-describedby")].filter(Boolean).join(" "));
+    i.read = () => undefined;
+  }
+  saving.querySelector("button[type=submit]").hidden = true;
+  test.hidden = true;
+}
+
+// One service's settings, test and save; Indexers → Soulseek shows slskd's. A feature that only
+// works with another service (`needed`) is drawn under that one's, a heading lower, and is
+// blocked while that one is off; `features` are the ones drawn under this one.
+export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
   const inputs = s.fields.map((f) => [f.name, input(s, f)]);
   const tested = h("p", { class: "form-result", role: "status" });
   const test = h("button", { type: "button", class: "quiet" }, "Test connection");
@@ -131,14 +151,23 @@ export function serviceSection(ctx, s) {
     }
   }
   const id = `service-${s.key}`;
+  const why = needed && !needed.on ? h("p", { class: "note", id: `${id}-needs` }, NEEDS_WHY[needed.key] ?? `Needs ${needed.name}, which is off. Set it up above, then this can be turned on.`) : null;
+  if (why) blocked(inputs, saving, test, why);
   return h(
     "section",
-    { class: "subgroup", "aria-labelledby": id },
-    h("h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
+    { class: needed ? "subgroup feature" : "subgroup", "aria-labelledby": id },
+    h(needed ? "h4" : "h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
     h("p", { class: "note" }, s.about),
+    why,
     saving,
     tested,
     extra,
+    features.length
+      ? [
+          h("p", { class: "note" }, `Features that use ${s.name}, each with its own switch:`),
+          features.map((f) => serviceSection(ctx, f, { needed: s })),
+        ]
+      : null,
   );
 }
 
@@ -172,7 +201,8 @@ export async function services(ctx) {
         " keeps the old values).",
       ),
       moved.map((s) => h("p", { class: "note" }, `${s.name} is set up under `, h("a", { href: ELSEWHERE[s.key].href }, ELSEWHERE[s.key].name), ".")),
-      ...all.filter((s) => !ELSEWHERE[s.key]).map((s) => serviceSection(ctx, s)),
+      // A feature that needs another service is drawn under that one, not on its own.
+      ...all.filter((s) => !ELSEWHERE[s.key] && !s.needs).map((s) => serviceSection(ctx, s, { features: all.filter((f) => f.needs === s.key) })),
     ),
   ];
 }
