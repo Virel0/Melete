@@ -649,3 +649,108 @@ async fn a_series_is_below_its_cutoff_when_a_monitored_episode_is() {
         assert_eq!(searched, unmet, "episode {episode}");
     }
 }
+
+fn poster_of<D>(titles: &[Title<D>], name: &str) -> Option<String> {
+    let t = titles.iter().find(|t| t.title == name).unwrap();
+    t.poster.clone()
+}
+
+#[tokio::test]
+async fn posters_are_a_folders_own_else_tmdbs() {
+    let pool = fixture().await;
+    sqlx::raw_sql(
+        "UPDATE tmdb_movies SET poster_path = '/p12.jpg' WHERE tmdb_id = 12;
+         INSERT INTO movies (id, library_id, rel_path, parsed_title, parsed_year, seen_generation,
+                 match_tmdb_id, match_status, local_poster_key) VALUES
+             (1, 1, 'On Disk (2001)', 'On Disk', 2001, 1, 10, 'matched', '/local-ondisk.jpg'),
+             (3, 1, 'Nobody Wants (1980)', 'Nobody Wants', 1980, 1, NULL, 'unmatched',
+              '/local-nobody.jpg'),
+             (4, 1, 'Bare (1990)', 'Bare', 1990, 1, NULL, 'unmatched', NULL);
+         INSERT INTO wanted_movies (id, tmdb_id, title, year, monitored, library_id, movie_id,
+                 source, added_at) VALUES
+             (1, 10, 'On Disk', 2001, 1, 1, 1, 'manual', 5),
+             (3, 12, 'Out', 1999, 1, 1, NULL, 'manual', 7);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    file(&pool, 1, "On Disk (2001)/a.mkv", 1, Some(1)).await;
+    file(&pool, 1, "Nobody Wants (1980)/b.mkv", 1, Some(3)).await;
+    file(&pool, 1, "Bare (1990)/c.mkv", 1, Some(4)).await;
+    let titles = movies(&pool).await.unwrap();
+    // The folder's own poster comes before TMDB's, as Watch's lists have it.
+    assert_eq!(
+        poster_of(&titles, "On Disk").as_deref(),
+        Some("/api/v1/artwork/w342/local-ondisk.jpg")
+    );
+    assert_eq!(
+        poster_of(&titles, "Nobody Wants").as_deref(),
+        Some("/api/v1/artwork/w342/local-nobody.jpg")
+    );
+    // Wanted and not in the library: TMDB's.
+    assert_eq!(
+        poster_of(&titles, "Out").as_deref(),
+        Some("/api/v1/artwork/w342/p12.jpg")
+    );
+    assert_eq!(poster_of(&titles, "Bare"), None);
+
+    let pool = series_fixture().await;
+    sqlx::raw_sql(
+        "UPDATE series SET local_poster_key = '/local-' || id || '.jpg' WHERE id IN (1, 7);
+         UPDATE tmdb_series SET poster_path = '/s' || tmdb_id || '.jpg';",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let shows = series(&pool, false).await.unwrap();
+    assert_eq!(
+        poster_of(&shows, "Complete Show").as_deref(),
+        Some("/api/v1/artwork/w342/local-1.jpg")
+    );
+    assert_eq!(
+        poster_of(&shows, "Plain Show").as_deref(),
+        Some("/api/v1/artwork/w342/local-7.jpg")
+    );
+    assert_eq!(
+        poster_of(&shows, "Future Show").as_deref(),
+        Some("/api/v1/artwork/w342/s102.jpg")
+    );
+}
+
+#[tokio::test]
+async fn an_artists_picture_is_one_of_their_albums_covers() {
+    let pool = fixture().await;
+    sqlx::raw_sql(
+        "INSERT INTO music_artists (id, key, name, mb_artist_id) VALUES
+             (1, 'radiohead', 'Radiohead', 'mb-rh'), (2, 'bjork', 'Björk', NULL),
+             (3, 'nocover', 'No Cover', NULL);
+         INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+                 cover_file, seen_generation) VALUES
+             (1, 4, 'k1', 'Pablo Honey', 1, 'Radiohead', 'Radiohead/Pablo Honey', NULL, 1),
+             (2, 4, 'k2', 'OK Computer', 1, 'Radiohead', 'Radiohead/OK Computer', 'cover.jpg', 1),
+             (3, 4, 'k3', 'Debut', 2, 'Björk', 'Björk/Debut', NULL, 1),
+             (4, 4, 'k4', 'Nothing', 3, 'No Cover', 'No Cover/Nothing', NULL, 1);
+         INSERT INTO music_tracks (library_id, rel_path, size, modified_at, first_seen_generation,
+                 seen_generation, album_id, tagged, title, has_picture) VALUES
+             (4, 'Radiohead/Pablo Honey/01.flac', 30, 50, 1, 1, 1, 1, 'You', 0),
+             (4, 'Radiohead/OK Computer/01.flac', 30, 50, 1, 1, 2, 1, 'Airbag', 0),
+             (4, 'Björk/Debut/01.flac', 20, 60, 1, 1, 3, 1, 'Human Behaviour', 1),
+             (4, 'No Cover/Nothing/01.flac', 20, 60, 1, 1, 4, 1, 'Silence', 0);
+         INSERT INTO wanted_artists (id, mb_artist_id, name, monitored, monitor_new, library_id,
+                 source, added_at) VALUES (1, 'mb-rh', 'Radiohead', 1, 'all', 4, 'manual', 0);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let titles = artists(&pool).await.unwrap();
+    // A cover file in the folder, or a picture in a track.
+    assert_eq!(
+        poster_of(&titles, "Radiohead").as_deref(),
+        Some("/api/v1/music/albums/2/cover")
+    );
+    assert_eq!(
+        poster_of(&titles, "Björk").as_deref(),
+        Some("/api/v1/music/albums/3/cover")
+    );
+    assert_eq!(poster_of(&titles, "No Cover"), None);
+}

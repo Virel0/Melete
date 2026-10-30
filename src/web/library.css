@@ -241,6 +241,8 @@ section + section { margin-block-start: var(--space-7); }
 /* The track playing now. */
 .tracks li.playing .track-play,
 .tracks li.playing .number { color: var(--accent); }
+/* The track a search led to. */
+.tracks li.found { background: var(--surface-raised); box-shadow: inset 3px 0 0 var(--accent); }
 
 /* A work's recordings side by side: movements down, recordings across, scrolled
    sideways in its own box when there are more than fit. */

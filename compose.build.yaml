@@ -1,0 +1,10 @@
+# Building Melete from this repository instead of running a published release. Off unless added
+# to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.build.yaml
+# then `docker compose up -d --build` builds the checked-out source (a while the first time) and
+# runs it. MELETE_IMAGE is ignored meanwhile.
+
+services:
+  melete:
+    build: .
+    image: melete:dev

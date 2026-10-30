@@ -47,6 +47,8 @@ export async function artistPage(id, ctx) {
   show("Artist", loading("the artist"));
   const artist = await api(`/music/artists/${id}`);
   if (!ctx.current()) return;
+  // An old address of an artist that joined another answers as that one: say its own.
+  if (String(artist.id) !== String(id)) history.replaceState(history.state, "", `#/music/artists/${artist.id}`);
   const guest = artist.appears_on_list;
   show(
     artist.name,
@@ -211,7 +213,8 @@ function albumHead(album, queue) {
   return head;
 }
 
-export async function albumPage(id, ctx) {
+// `found`: a track's id, from a search, to pick out and put focus on, so Enter plays it.
+export async function albumPage(id, ctx, found = null) {
   show("Album", loading("the album"));
   const album = await api(`/music/albums/${id}`);
   if (!ctx.current()) return;
@@ -225,4 +228,14 @@ export async function albumPage(id, ctx) {
   );
   show(album.title, albumHead(album, queue), tracks);
   markPlaying(tracks, ctx);
+  const row = found && tracks.querySelector(`[data-track="${CSS.escape(found)}"]`);
+  if (row) {
+    row.classList.add("found");
+    // After the page is in place: the router puts focus on the page and scrolls it to the top.
+    setTimeout(() => {
+      if (!ctx.current()) return;
+      row.querySelector(".track-play")?.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "center" });
+    });
+  }
 }
