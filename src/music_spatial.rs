@@ -82,7 +82,9 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
     .fetch_all(pool)
     .await?;
     let mut report = Report::default();
+    let pace = crate::jobs::pace::Pace::start("library", "probing music files", pending.len());
     for (id, root, rel_path, size, modified_at) in pending {
+        let item = pace.item();
         let result = probe::probe(ffprobe, &Path::new(&root).join(&rel_path)).await;
         let (codec, profile, channels, layout, duration, error) = match result {
             Ok(info) => {
@@ -104,6 +106,7 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
             Err(ProbeError::Failed(reason)) => {
                 tracing::warn!(rel_path, reason, "ffprobe rejected a music file");
                 report.failed += 1;
+                item.failed();
                 (None, None, None, None, None, Some(reason))
             }
             Err(err @ (ProbeError::TimedOut | ProbeError::Unreadable(_))) => {
@@ -138,6 +141,7 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
         .execute(pool)
         .await?;
     }
+    pace.finish();
     Ok(report)
 }
 
