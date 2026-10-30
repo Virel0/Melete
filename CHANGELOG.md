@@ -7,7 +7,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
-Everything built so far, before the first release.
+## [0.1.0] - 2026-10-29
+
+The first release.
 
 ### Added
 
@@ -75,4 +77,5 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/commits/main
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
