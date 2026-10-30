@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+mod matching;
+
+use matching::*;
+
 /// The admin areas. Anime comes last, after the areas apps knew before it had one of its own,
 /// so theirs keep their places in the answer.
 pub const AREAS: [&str; 7] = [
@@ -31,7 +35,7 @@ pub struct Finding {
     /// Stable, for apps to act on: no_indexers, indexers_all_off, indexers_off,
     /// indexer_failed, requests_waiting, downloads_failed, follow_failed, files_missing,
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
-    /// disk_nearly_full.
+    /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -102,9 +106,19 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
     backups(pool, crate::db::unix_now(), &mut found).await?;
     disks(pool, &mut found).await?;
     opensubtitles_used_up(pool, &mut found).await?;
+    tmdb_off(pool, &mut found).await?;
+    titles_to_match(pool, &mut found).await?;
     Ok(Health {
         areas: by_area(found),
     })
+}
+
+/// Adds a problem to System that's known outside the database (the transcoder's, TMDB
+/// matching's), first.
+pub fn system_problem(health: &mut Health, finding: Finding) {
+    if let Some(system) = health.areas.iter_mut().find(|a| a.area == "system") {
+        system.findings.insert(0, finding);
+    }
 }
 
 /// Adds to System that video conversions use the CPU because the GPU failed its test encode,
@@ -117,9 +131,7 @@ pub fn gpu_unavailable(health: &mut Health, reason: &str) {
         count: 0,
         id: None,
     };
-    if let Some(system) = health.areas.iter_mut().find(|a| a.area == "system") {
-        system.findings.insert(0, finding);
-    }
+    system_problem(health, finding);
 }
 
 /// No indexers, every one turned off, or some turned off; the ones searched, by id.
@@ -722,5 +734,73 @@ mod tests {
         disks(&pool, &mut found).await.unwrap();
         let roomy = crate::disk::space(folder.path()).unwrap();
         assert_eq!(found.0.is_empty(), !roomy.nearly_full());
+    }
+
+    #[tokio::test]
+    async fn titles_to_match_are_noted_under_their_service_and_tmdb_off_under_system() {
+        let pool = db::open_in_memory().await;
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path, category)
+             VALUES (1, 'Films', 'movies', '/no/such/m', NULL),
+                    (2, 'Shows', 'shows', '/no/such/s', NULL),
+                    (3, 'Anime', 'shows', '/no/such/a', 'anime');
+             INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
+                 match_status, match_method, missing_since)
+             VALUES (1, 1, 'A', 'A', 0, 'unmatched', 'search', NULL),
+                    (2, 1, 'B', 'B', 0, 'ambiguous', 'search', NULL),
+                    (3, 1, 'C', 'C', 0, 'unmatched', 'manual', NULL),
+                    (4, 1, 'D', 'D', 0, 'unmatched', 'search', 5),
+                    (5, 1, 'E', 'E', 0, 'matched', 'search', NULL),
+                    (6, 1, 'F', 'F', 0, NULL, NULL, NULL);
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                 match_status, match_method)
+             VALUES (1, 2, 'G', 'G', 0, 'matched', 'search'),
+                    (2, 3, 'H', 'H', 0, 'ambiguous', 'search');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let health = check(&pool).await.unwrap();
+        let said = |area: &str| {
+            of(&health, area)
+                .iter()
+                .map(|f| (f.level, f.code, f.count))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said("movies"), [(Level::Note, "titles_unmatched", 2)]);
+        assert_eq!(
+            of(&health, "movies")[0].message,
+            "2 titles need a match: TMDB couldn't settle them."
+        );
+        assert_eq!(said("anime"), [(Level::Note, "titles_unmatched", 1)]);
+        assert!(said("series").is_empty());
+        assert_eq!(said("system"), [(Level::Note, "tmdb_off", 0)]);
+        assert!(
+            of(&health, "system")[0]
+                .message
+                .contains("Outside services")
+        );
+
+        // With a token, TMDB isn't said to be off.
+        sqlx::query(
+            "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_TMDB_TOKEN', 't', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let health = check(&pool).await.unwrap();
+        assert!(of(&health, "system").is_empty());
+    }
+
+    #[tokio::test]
+    async fn tmdb_off_says_nothing_without_a_video_library() {
+        let pool = db::open_in_memory().await;
+        sqlx::query("INSERT INTO libraries (name, kind, path) VALUES ('Music', 'music', '/no/m')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut found = Found::default();
+        tmdb_off(&pool, &mut found).await.unwrap();
+        assert!(found.0.is_empty());
     }
 }

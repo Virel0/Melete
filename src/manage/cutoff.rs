@@ -11,47 +11,51 @@ use crate::search::{OnDisk, Read};
 
 /// The quality profiles titles are decided with, each loaded once per list.
 pub(crate) struct Profiles {
-    app: App,
-    by_name: HashMap<String, i64>,
-    sources: HashMap<i64, String>,
+    by_name: HashMap<(String, String), i64>,
+    services: HashMap<i64, String>,
     loaded: HashMap<i64, Option<Loaded>>,
 }
 
 impl Profiles {
-    /// The profiles of `app`'s kind of title.
+    /// The profiles of `app`'s kind of title, by their service and name.
     pub(crate) async fn new(pool: &SqlitePool, app: App) -> anyhow::Result<Self> {
         let rows: Vec<(i64, String, String)> =
-            sqlx::query_as("SELECT id, source, name FROM quality_profiles")
+            sqlx::query_as("SELECT id, service, name FROM quality_profiles WHERE source = ?")
+                .bind(app.as_str())
                 .fetch_all(pool)
                 .await?;
-        let by_name = rows
-            .iter()
-            .filter(|(_, source, _)| source == app.as_str())
-            .map(|(id, _, name)| (name.clone(), *id))
-            .collect();
         Ok(Profiles {
-            app,
-            by_name,
-            sources: rows
+            by_name: rows
+                .iter()
+                .map(|(id, service, name)| ((service.clone(), name.clone()), *id))
+                .collect(),
+            services: rows
                 .into_iter()
-                .map(|(id, source, _)| (id, source))
+                .map(|(id, service, _)| (id, service))
                 .collect(),
             loaded: HashMap::new(),
         })
     }
 
-    /// The profile a wanted title is decided with, chosen as searches choose it: one chosen in
-    /// Melete for its kind, else the one its arr named. None when neither is here, or its
-    /// custom formats don't load (searches would refuse it too).
+    /// The profile an arr's name means for `service`, as searches read it: the service's own,
+    /// else for anime Series' (Sonarr shares its profiles).
+    fn named(&self, service: &str, name: &str) -> Option<i64> {
+        let of = |service: &str| self.by_name.get(&(service.into(), name.into())).copied();
+        of(service).or_else(|| (service == "anime").then(|| of("series")).flatten())
+    }
+
+    /// The profile a wanted title of `service` is decided with, chosen as searches choose it:
+    /// one chosen in Melete for its service, else the one its arr named. None when neither is
+    /// here, or its custom formats don't load (searches would refuse it too).
     pub(crate) async fn get(
         &mut self,
         pool: &SqlitePool,
-        id: Option<i64>,
-        name: Option<&str>,
+        service: &str,
+        (id, name): (Option<i64>, Option<&str>),
     ) -> anyhow::Result<Option<&Loaded>> {
         let chosen = id
-            .filter(|id| self.sources.get(id).is_some_and(|s| s == self.app.as_str()))
-            .or_else(|| name.and_then(|n| self.by_name.get(n).copied()));
+            .filter(|id| self.services.get(id).is_some_and(|s| s == service))
+            .or_else(|| name.and_then(|n| self.named(service, n)));
         let Some(id) = chosen else {
             return Ok(None);
         };
