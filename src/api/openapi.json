@@ -117,7 +117,7 @@
         "tags": ["Accounts"],
         "x-melete-access": "public",
         "summary": "Sign in with username and password",
-        "description": "Returns a session token for this device. It lasts until it is signed out, the password changes, or it goes unused for 90 days. Five attempts per username and address lock that pair for 15 minutes; a wrong password and an unknown username get the same reply.",
+        "description": "Returns a session token for this device. It lasts until it is signed out, the password changes, or it goes unused for 90 days. Five attempts per username and address lock that pair for 15 minutes; a wrong password and an unknown username get the same reply. For a user with two-factor sign-in on, a right password answers 401 with a `SecondFactorNeeded` challenge and no token: finish with the code at `/auth/login/second-factor`. A wrong password is answered as for anyone else.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -133,8 +133,14 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
-            "description": "Wrong username or password",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong username or password (`Error`), or a right password from a user with two-factor sign-in on (`SecondFactorNeeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [{"$ref": "#/components/schemas/Error"}, {"$ref": "#/components/schemas/SecondFactorNeeded"}]
+                }
+              }
+            }
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"},
@@ -150,7 +156,7 @@
         "tags": ["Accounts"],
         "x-melete-access": "public",
         "summary": "Sign in to a cookie, for the web UI",
-        "description": "Like `/auth/login`, with the same lockouts, but the session token goes into the `melete_session` cookie instead of the body (HttpOnly, SameSite=Strict, `Secure` when the request's Origin is https). It lasts as long as a session can go unused, 90 days.",
+        "description": "Like `/auth/login`, with the same lockouts, but the session token goes into the `melete_session` cookie instead of the body (HttpOnly, SameSite=Strict, `Secure` when the request's Origin is https). It lasts as long as a session can go unused, 90 days. With two-factor sign-in on, a right password answers 401 with a `SecondFactorNeeded` challenge and sets no cookie: finish at `/auth/web-login/second-factor`.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -166,13 +172,85 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
-            "description": "Wrong username or password",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong username or password (`Error`), or a right password from a user with two-factor sign-in on (`SecondFactorNeeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [{"$ref": "#/components/schemas/Error"}, {"$ref": "#/components/schemas/SecondFactorNeeded"}]
+                }
+              }
+            }
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"},
           "429": {
             "description": "Locked out for now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish signing in with a second-factor code",
+        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Each wrong code here is added to the user's own record (`GET /me/two-factor`), without where it came from. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/auth/web-login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish the web UI's sign-in with a second-factor code",
+        "description": "Like `/auth/login/second-factor`, for a challenge from `/auth/web-login`: the session goes into the `melete_session` cookie, as `/auth/web-login` would have set it. A challenge from one route doesn't finish at the other.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in; the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -230,6 +308,118 @@
           "422": {"$ref": "#/components/responses/Unprocessable"},
           "429": {
             "description": "Too many wrong passwords",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Whether your two-factor sign-in is on",
+        "description": "With your latest changes to it, newest first: turning it on or off, from your account or on the server's command line, and wrong codes typed at sign-in (counted together within an hour of the last; where they were typed from isn't kept), so you can tell if your password is known. Never the secret.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorStatus"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/me/two-factor/setup": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Start setting up two-factor sign-in",
+        "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}}}
+        },
+        "responses": {
+          "200": {
+            "description": "The secret, until confirmed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorSetup"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is on already: turn it off first",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/confirm": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in on with a first code",
+        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string", "description": "Six digits."}}}}}
+        },
+        "responses": {
+          "204": {"description": "On"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong code (`reason`: `wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "No setup is waiting for a code, or it's on already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/off": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in off",
+        "description": "Needs your password and a current code. Nothing is signed out. Without the device for codes, an admin removes it on the server with `melete user reset-password <name>`, which sets a new password too.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "required": ["password", "code"], "properties": {"password": {"type": "string"}, "code": {"type": "string", "description": "Six digits."}}}}}
+        },
+        "responses": {
+          "204": {"description": "Off"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`) or code (`wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is off already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -10495,6 +10685,67 @@
           "current_password": {"type": "string"},
           "new_password": {"type": "string", "minLength": 8, "maxLength": 1024}
         }
+      },
+      "Refusal": {
+        "type": "object",
+        "required": ["error", "reason"],
+        "properties": {
+          "error": {"type": "string"},
+          "reason": {"enum": ["wrong_password", "wrong_code"], "description": "Which was wrong, for an app to point at the right field."}
+        },
+        "additionalProperties": false,
+        "description": "An error that also says which of the request's secrets was wrong."
+      },
+      "SecondFactorNeeded": {
+        "type": "object",
+        "required": ["error", "second_factor", "challenge", "expires_in"],
+        "properties": {
+          "error": {"type": "string", "description": "Says a code is needed, for an app that doesn't know this step to show."},
+          "second_factor": {"const": "totp", "description": "What the code is: six digits from an authenticator app."},
+          "challenge": {"type": "string", "description": "Starts with m2f_. Finishes the sign-in once, with the code."},
+          "expires_in": {"type": "integer", "description": "Seconds the challenge lasts: 300."}
+        },
+        "additionalProperties": false
+      },
+      "SecondFactorRequest": {
+        "type": "object",
+        "required": ["challenge", "code"],
+        "properties": {
+          "challenge": {"type": "string"},
+          "code": {"type": "string", "description": "Six digits; spaces around them are ignored."}
+        }
+      },
+      "TwoFactorStatus": {
+        "type": "object",
+        "required": ["on", "on_since", "changes"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Signing in with the password asks for a code."},
+          "on_since": {"type": ["integer", "null"], "description": "Unix seconds; null while it's off."},
+          "changes": {
+            "type": "array",
+            "description": "The 20 latest, newest first.",
+            "items": {
+              "type": "object",
+              "required": ["change", "made_from", "at", "count"],
+              "properties": {
+                "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
+                "made_from": {"enum": ["account", "server", "sign_in"], "description": "The user's account, the server's command line, or signing in (wrong codes)."},
+                "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
+                "count": {"type": "integer", "minimum": 1, "description": "1, except for wrong codes counted together."}
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TwoFactorSetup": {
+        "type": "object",
+        "required": ["secret", "uri"],
+        "properties": {
+          "secret": {"type": "string", "description": "160 bits in base32 (no padding), to type into an authenticator app."},
+          "uri": {"type": "string", "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"}
+        },
+        "additionalProperties": false
       },
       "TokenInfo": {
         "type": "object",
