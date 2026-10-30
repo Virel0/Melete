@@ -154,6 +154,14 @@ pub(super) fn wanting_routes(
             },
         ))
         .merge(rss::routes(pool.clone(), tmdb.clone(), downloads.clone()))
+        .merge(wrong_file::routes(
+            pool.clone(),
+            crate::fulfil::Sources {
+                tmdb: tmdb.clone(),
+                slskd: None,
+                pipeline: downloads.clone(),
+            },
+        ))
         .merge(downloads::routes(pool.clone(), downloads, slskd.clone()))
         .merge(lists::routes(pool.clone(), list_sources))
 }
