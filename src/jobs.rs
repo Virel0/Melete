@@ -36,6 +36,9 @@ pub static TRICKPLAY: Notify = Notify::const_new();
 /// Wakes the fetching of subtitles new imports lack (after a scan and probe).
 pub static IMPORT_SUBTITLES: Notify = Notify::const_new();
 
+/// Wakes TMDB matching on its own, without a scan (an admin running it from Tasks).
+pub static TMDB: Notify = Notify::const_new();
+
 /// Wakes the look for followed artists' new albums.
 pub static FOLLOW: Notify = Notify::const_new();
 

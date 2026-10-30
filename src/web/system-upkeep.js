@@ -13,6 +13,7 @@ import { serviceSection } from "/web/services.js";
 
 const TASKS = {
   library: "Library scans",
+  "tmdb-matching": "TMDB matching",
   "music-matching": "Music matching",
   "music-analysis": "Music analysis",
   segments: "Intros and credits",
@@ -53,8 +54,10 @@ const soon = (unix, next = false) => {
 };
 
 export async function systemTasks(ctx) {
-  const first = await api("/admin/system/tasks");
+  const [first, found] = await Promise.all([api("/admin/system/tasks"), currentHealth(true)]);
   if (!ctx.current()) return [];
+  // What TMDB matching's runs and setup say needs fixing, above the list.
+  const strip = attentionStrip((found.system ?? []).filter((f) => f.code?.startsWith("tmdb_")), "#/admin/system/tasks");
   const table = h("div");
   let polling = false;
   const draw = (tasks) => table.replaceChildren(rowTable(["Task", "State", "Last finished", "Next", ""], tasks.map((t) => taskRow(t, refresh, ctx))));
@@ -74,10 +77,11 @@ export async function systemTasks(ctx) {
   draw(first);
   if (first.some((t) => t.running)) refresh().catch(() => {});
   return [
+    strip,
     h(
       "p",
       { class: "note" },
-      "What Melete does in the background, as seen since the server started. A failed run says only that it failed; the server's log says why, since the reason can name an address. Runs never overlap.",
+      "What Melete does in the background, as seen since the server started. A failed run says only that it failed, or for TMDB matching what went wrong in a few plain words; the server's log says why, since the reason can name an address. Runs never overlap.",
     ),
     table,
   ];
