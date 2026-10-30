@@ -73,7 +73,12 @@ pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Res
         "flaresolverr" => match &config.flaresolverr {
             None => wrong("There's no address to test yet."),
             Some(url) => match flaresolverr::Client::new(url)?.ready().await {
-                Ok(()) => ok("FlareSolverr is ready."),
+                Ok(solver @ flaresolverr::Solver::FlareSolverr(_)) => {
+                    ok(format!("{solver} is ready."))
+                }
+                Ok(flaresolverr::Solver::Compatible) => ok(
+                    "A FlareSolverr-compatible solver answered. It doesn't list its sessions, so whether it gets past a check shows on the first search through it.",
+                ),
                 Err(why) => wrong(why),
             },
         },
@@ -337,6 +342,24 @@ mod tests {
         );
         let gone = config(&[("MELETE_LIBRETRANSLATE_URL", "http://127.0.0.1:9".to_owned())]);
         assert!(!said("translation", &gone).await.ok);
+    }
+
+    #[tokio::test]
+    async fn flaresolverr_says_which_solver_answers() {
+        use crate::flaresolverr::testing::{Plays, start_as};
+        let at = |url: String| config(&[("MELETE_FLARESOLVERR_URL", url)]);
+        let (flaresolverr, _) = start_as(Plays::FlareSolverr(Some("3.3.21")), "").await;
+        assert_eq!(
+            said("flaresolverr", &at(flaresolverr)).await,
+            ok("FlareSolverr 3.3.21 is ready.")
+        );
+        let (byparr, _) = start_as(Plays::Byparr, "").await;
+        assert_eq!(
+            said("flaresolverr", &at(byparr)).await,
+            ok(
+                "A FlareSolverr-compatible solver answered. It doesn't list its sessions, so whether it gets past a check shows on the first search through it."
+            )
+        );
     }
 
     #[tokio::test]
