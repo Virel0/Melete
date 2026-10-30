@@ -37,7 +37,7 @@ pub(crate) fn place(partial: &Path, target: &Path) -> Result<(), Stop> {
 /// [`place`] for others: moves `from` to `to`, never replacing what's at `to`.
 pub(crate) fn move_without_replacing(from: &Path, to: &Path) -> Result<(), String> {
     place(from, to).map_err(|stop| match stop {
-        Stop::Retry(why) | Stop::Fail(why) | Stop::NotTheTitle(why) => why,
+        Stop::Retry(why) | Stop::Fail(why) | Stop::NotTheTitle(why) | Stop::Held(why) => why,
     })
 }
 

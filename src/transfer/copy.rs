@@ -31,14 +31,7 @@ pub(super) async fn copy_all(
         .connect()
         .await
         .map_err(|err| Stop::Retry(err.to_string()))?;
-    let dir = plan.dir.clone();
-    // The folders this copy makes, deepest first, so a download held back takes them away again.
-    let created: Vec<PathBuf> = dir
-        .ancestors()
-        .take_while(|d| *d != plan.root && !d.exists())
-        .map(Path::to_path_buf)
-        .collect();
-    blocking(move || create_dirs(&dir)).await?;
+    make_dirs(pool, id, &plan.dir).await?;
     let db = |err: sqlx::Error| Stop::Retry(format!("the database: {err}"));
     let placed: String = sqlx::query_scalar("SELECT placed FROM downloads WHERE id = ?")
         .bind(id)
@@ -52,8 +45,7 @@ pub(super) async fn copy_all(
             "" => plan.dir.clone(),
             folder => {
                 let dir = plan.dir.join(folder);
-                let create = dir.clone();
-                blocking(move || create_dirs(&create)).await?;
+                make_dirs(pool, id, &dir).await?;
                 dir
             }
         };
@@ -63,7 +55,7 @@ pub(super) async fn copy_all(
     }
     if let Some(check) = check {
         say(pool, id, "checking how long it runs").await?;
-        verify::check_staged(pool, id, check, &staged, created).await?;
+        verify::check_staged(check, &staged).await?;
     }
     place_all(pool, id, staged, placed).await
 }

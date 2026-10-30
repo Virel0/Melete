@@ -715,6 +715,32 @@ async fn tracks_are_listed_by_their_ids() {
 }
 
 #[tokio::test]
+async fn an_artist_that_joined_another_answers_as_that_one() {
+    let f = fixture(None).await;
+    // Gone has no album in the library: an address that leads nowhere until it joins Radiohead.
+    let (status, _) = json_of(&f, "/api/v1/music/artists/3").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE music_artists SET merged_into = 1 WHERE id = 3")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let (status, joined) = json_of(&f, "/api/v1/music/artists/3").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (joined["id"].as_i64(), &joined["name"]),
+        (Some(1), &json!("Radiohead"))
+    );
+    assert_eq!(joined["albums"], 2);
+    // A pin of the old address shows the artist it joined.
+    let Ok(by_id) = artists_by_id(&f.pool, &crate::access::Access::everything(), &[3, 2]).await
+    else {
+        panic!("couldn't read the artists");
+    };
+    assert_eq!(by_id[&3]["id"], 1);
+    assert_eq!(by_id[&2]["name"], "Portishead");
+}
+
+#[tokio::test]
 async fn songs_are_found_by_their_own_title_and_artist() {
     let f = fixture(None).await;
     crate::search_keys::fill(&f.pool).await.unwrap();

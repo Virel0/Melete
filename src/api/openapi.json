@@ -4688,6 +4688,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artist, their albums and the albums they appear on",
+        "description": "An artist known only by name whose albums joined the one MusicBrainz artist of the same name (one of their albums tagged with MusicBrainz ids, another not) answers as that artist, so old links and pins still lead somewhere: the answer's `id` is the artist's now.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Artist id.", "schema": {"type": "integer"}}
         ],
@@ -12152,7 +12153,7 @@
           },
           "minimum_availability": {
             "enum": ["announced", "in_cinemas", "released"],
-            "description": "How far out a film must be before its releases are taken: any time, from its cinema release, or from its digital or disc release. Whatever this says, a WEB release before the film's digital release, a disc release before its disc release and a cinema recording before its cinema release are refused as most likely fakes. Radarr profiles only; series profiles keep released and don't use it."
+            "description": "How far out a film must be before its releases are taken: any time, from its cinema release, or from its digital, disc or TV release. Whatever this says, a WEB or TV release before the film's digital or TV release, a disc release before its disc release and a cinema recording before its cinema release are refused as most likely fakes, when that date is known. Radarr profiles only; series profiles keep released and don't use it."
           },
           "origin": {
             "enum": ["imported", "melete"],
