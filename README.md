@@ -238,8 +238,23 @@ docker compose run --rm melete melete restore <copy>     # checks it, keeps the 
 docker compose start melete
 ```
 
-The backups hold everything in the database, including secrets set from the web UI. Back up
-the data folder somewhere only you can read.
+The backups hold everything in the database. The secrets in it (keys and passwords of outside
+services set from the web UI, indexers' API keys, two-factor sign-in, and search results'
+download links, which can carry an indexer's key or a tracker's passkey) are sealed with the
+key in the data folder's `secrets.key`, which Melete makes at its first start and no backup
+holds. A backup alone reveals no secret, and without that file it can't give them back:
+
+- Back up `secrets.key` apart from the database copies, somewhere only you can read, and keep
+  it for as long as you keep the copies.
+- When Melete starts and the key is missing, or isn't the one the secrets were sealed with,
+  it stops and says which secrets it can't read. Put the key back; or, with Melete stopped, run
+  `docker compose run --rm melete melete secrets clear` to clear the services' secrets,
+  indexers' keys and search results' links (then enter the secrets and keys again in Settings,
+  and search again), and
+  `docker compose run --rm melete melete user reset-password <name> --remove-second-factor`
+  for each user whose two-factor sign-in it names.
+
+Secrets set in `.env` stay in `.env`, not in the database.
 
 ## Privacy
 
@@ -276,7 +291,10 @@ outside Melete, except a YouTube trailer a viewer chooses to play when trailers 
   only as SHA-256 hashes), watch progress, play history, likes, playlists, requests, the wanted
   lists, download history, release decisions, diagnostics reports apps send about themselves
   (anything in them that looks like a secret is removed before it's kept), settings, and the
-  keys and passwords of outside services set from the web UI.
+  keys and passwords of outside services set from the web UI, indexers' API keys, two-factor
+  secrets and search results' download links, sealed (AES-256-GCM) with the key in
+  `secrets.key`.
+- `secrets.key`: the key those secrets are sealed with, readable by Melete's user alone.
 - Caches: artwork, fetched subtitles, seek-bar previews and motion covers.
 - Database backups in `backups/`.
 - Converted segments and offline copies in the transcode folder. An offline copy is deleted 7

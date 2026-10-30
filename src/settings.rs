@@ -27,15 +27,27 @@ fn known(name: &str) -> Option<&'static Field> {
         .find(|f| f.name == name)
 }
 
+/// Whether a setting is a secret: sealed where it's stored, and never shown back.
+pub fn is_secret(name: &str) -> bool {
+    known(name).is_some_and(|f| f.input == Input::Secret)
+}
+
 /// One setting as it stands: the environment's, else what's stored.
 pub async fn value(pool: &SqlitePool, name: &str) -> sqlx::Result<Option<String>> {
     if let Some(set) = std::env::var(name).ok().filter(|v| !v.trim().is_empty()) {
         return Ok(Some(set));
     }
-    sqlx::query_scalar("SELECT value FROM settings WHERE name = ?")
+    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE name = ?")
         .bind(name)
         .fetch_optional(pool)
-        .await
+        .await?;
+    match stored {
+        Some(value) if is_secret(name) => {
+            let sealing = crate::secrets::sealing(pool).await?;
+            crate::secrets::from_store(sealing, &crate::secrets::setting(name), &value).map(Some)
+        }
+        other => Ok(other),
+    }
 }
 
 /// Whether lyrics' pronunciation is on (`MELETE_LYRICS_ROMANISATION`); off by default.
@@ -96,7 +108,26 @@ pub async fn stored(pool: &SqlitePool) -> sqlx::Result<HashMap<String, String>> 
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT name, value FROM settings")
         .fetch_all(pool)
         .await?;
-    Ok(rows.into_iter().collect())
+    let sealing = crate::secrets::sealing(pool).await?;
+    rows.into_iter()
+        .map(|(name, value)| {
+            let value = if is_secret(&name) {
+                crate::secrets::from_store(sealing, &crate::secrets::setting(&name), &value)?
+            } else {
+                value
+            };
+            Ok((name, value))
+        })
+        .collect()
+}
+
+/// What to store for a setting's value: a secret sealed, in a database that keeps them sealed.
+fn to_store(sealing: bool, name: &str, value: &str) -> sqlx::Result<String> {
+    if is_secret(name) {
+        crate::secrets::to_store(sealing, &crate::secrets::setting(name), value)
+    } else {
+        Ok(value.to_owned())
+    }
 }
 
 /// The value each setting takes: the environment's, else what's stored for one the UI sets.

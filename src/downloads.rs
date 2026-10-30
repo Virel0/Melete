@@ -312,6 +312,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn with_secrets_sealed_a_releases_link_is_kept_sealed_and_still_grabs() {
+        let pool = db::open_in_memory().await;
+        let base = indexer().await;
+        let ids = releases(&pool, &[format!("{base}/t?apikey=k"), format!("{base}/t")]).await;
+        crate::secrets::startup::switch(&pool, crate::secrets::key().unwrap())
+            .await
+            .unwrap();
+        let kept: String =
+            sqlx::query_scalar("SELECT download_url FROM release_decisions WHERE id = ?")
+                .bind(ids[0])
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(kept.starts_with("sealed:v1:") && !kept.contains("apikey"));
+        let (p, _) = pipeline().await;
+        let download = grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(download.infohash.as_deref(), Some(MOVIE_HASH));
+    }
+
+    #[tokio::test]
     async fn never_grabs_a_blocklisted_release_under_any_name() {
         let pool = db::open_in_memory().await;
         let base = indexer().await;

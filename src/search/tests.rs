@@ -411,6 +411,37 @@ async fn checks_titles_decides_and_keeps_every_result() {
 }
 
 #[tokio::test]
+async fn with_secrets_sealed_keys_are_sent_whole_and_links_kept_sealed() {
+    let pool = setup().await;
+    let id = want_dune(&pool, "4K Preferred").await;
+    let log = indexers(
+        &pool,
+        feed(&["Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.TrueHD.Atmos.7.1-FraMeSToR"]),
+    )
+    .await;
+    // The indexers' keys were stored plain; the switch seals them.
+    crate::secrets::startup::switch(&pool, crate::secrets::key().unwrap())
+        .await
+        .unwrap();
+    let client = torznab::Client::new().unwrap();
+    search(&pool, &client, None, Target::Movie(id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        log.lock().unwrap()[0].contains("apikey=secret-key"),
+        "the key is sent as it was entered"
+    );
+    let (link, guid): (String, String) =
+        sqlx::query_as("SELECT download_url, guid FROM release_decisions LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(link.starts_with("sealed:v1:") && !link.contains("secret-key"));
+    assert!(guid.starts_with("sealed:v1:") && !guid.contains("passkey"));
+}
+
+#[tokio::test]
 async fn compares_against_the_file_on_disk() {
     let pool = setup().await;
     sqlx::query(

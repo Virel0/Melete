@@ -14,6 +14,9 @@ pub(crate) const USAGE: &str = "usage:
   melete backup                           copy the database into the data folder's backups
   melete restore [<copy>]                 list the copies, or put one in place of the database, with
                                           Melete stopped (docker compose run --rm melete melete restore <copy>)
+  melete secrets clear                    with Melete stopped, clear the stored secrets the data folder's
+                                          secrets.key can't open (services' settings, indexers' keys, search links), to
+                                          enter them again
   melete seedbox host-key <host> [port]   show the key a seedbox presents, to pin it (sends nothing)
   melete import aoide <aoide-sync.db> [--user <jellyfin-id>=<name>]... [--skip-user <jellyfin-id>]... [--apply]
                                           import the Jellyfin aoide-sidecar's sync data (a dry run without --apply)";
@@ -71,8 +74,67 @@ pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> any
                 copy.bytes
             );
             println!("It's kept until you remove it.");
+            say_key_apart(&data_dir);
         }
+        ["secrets", "clear"] => clear_secrets(pool).await?,
         _ => bail!("{USAGE}"),
+    }
+    Ok(())
+}
+
+/// Says that a copy holds secrets sealed with the key file, which it doesn't hold.
+fn say_key_apart(data_dir: &std::path::Path) {
+    println!(
+        "Its secrets (services' keys and passwords, indexers' keys, two-factor sign-in, search links) are sealed with {}, which no copy holds: keep that file, and back it up apart from the database.",
+        data_dir.join(crate::secrets::KEY_FILE).display()
+    );
+}
+
+/// `melete secrets clear`: clears the stored secrets the key can't open, with no server
+/// running, and says what was cleared and what's left to do.
+async fn clear_secrets(pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
+    let data_dir = crate::config::Config::data_dir_from_env();
+    let _lock = backup::restore::lock(&data_dir)?;
+    let cleared = crate::secrets::recovery::clear(pool, &data_dir).await?;
+    let key = data_dir.join(crate::secrets::KEY_FILE);
+    if cleared.is_empty() {
+        println!(
+            "Every stored secret opens with {}: nothing was cleared.",
+            key.display()
+        );
+        return Ok(());
+    }
+    if !cleared.settings.is_empty() {
+        let names: Vec<&str> = cleared.settings.iter().map(|(n, _)| n.as_str()).collect();
+        println!("Cleared these settings: {}.", names.join(", "));
+        println!("Enter them again in Settings, Outside services.");
+    }
+    if !cleared.indexers.is_empty() {
+        let names: Vec<&str> = cleared
+            .indexers
+            .iter()
+            .map(|(_, n, _)| n.as_str())
+            .collect();
+        println!("Cleared the keys of these indexers: {}.", names.join(", "));
+        println!(
+            "Import them from Prowlarr again, or remove a feed you added and add it again with its key."
+        );
+    }
+    if !cleared.links.is_empty() {
+        println!(
+            "Cleared the download links of {} search results; search again to grab them.",
+            cleared.links.len()
+        );
+    }
+    if !cleared.two_factor.is_empty() {
+        let names: Vec<&str> = cleared.two_factor.iter().map(|(n, _)| n.as_str()).collect();
+        println!(
+            "The two-factor sign-in of these users can't be read either: {}.",
+            names.join(", ")
+        );
+        println!(
+            "Remove it for each with: melete user reset-password <name> --remove-second-factor"
+        );
     }
     Ok(())
 }
@@ -231,6 +293,11 @@ fn say_restored(data_dir: &std::path::Path, restored: &backup::restore::Restored
             "The copy is from an older version: when Melete starts it copies it again, then applies the newer migrations."
         );
     }
+    println!(
+        "Its stored secrets open only with the {} they were sealed with: keep it in {} (it isn't in any copy), or Melete won't start and says which secrets it can't read.",
+        crate::secrets::KEY_FILE,
+        data_dir.display()
+    );
     println!("Start Melete again to use it.");
 }
 

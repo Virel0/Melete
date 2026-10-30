@@ -359,6 +359,9 @@ pub(crate) async fn store(
     .bind(rss_sync_id)
     .fetch_one(&mut *tx)
     .await?;
+    let sealing = crate::secrets::sealing(&mut *tx).await?;
+    let link =
+        |what, link: &Option<String>| crate::secrets::link_to_store(sealing, what, link.as_deref());
     for (indexer_id, item, decision) in decided {
         sqlx::query(
             "INSERT INTO release_decisions (search_id, indexer_id, title, size, seeders, peers,
@@ -373,8 +376,8 @@ pub(crate) async fn store(
         .bind(item.peers)
         .bind(item.published)
         .bind(&item.infohash)
-        .bind(&item.download_url)
-        .bind(&item.guid)
+        .bind(link(crate::secrets::DOWNLOAD_URL, &item.download_url)?)
+        .bind(link(crate::secrets::GUID, &item.guid)?)
         .bind(decision.accepted)
         .bind(serde_json::to_string(&decision)?)
         .execute(&mut *tx)

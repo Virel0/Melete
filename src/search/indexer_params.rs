@@ -21,6 +21,7 @@ pub(crate) async fn enabled_indexers(pool: &SqlitePool) -> anyhow::Result<Vec<In
     )
     .fetch_all(pool)
     .await?;
+    let sealing = crate::secrets::sealing(pool).await?;
     rows.into_iter()
         .map(
             |Row {
@@ -37,7 +38,11 @@ pub(crate) async fn enabled_indexers(pool: &SqlitePool) -> anyhow::Result<Vec<In
                     id,
                     name,
                     url,
-                    api_key,
+                    api_key: crate::secrets::from_store(
+                        sealing,
+                        crate::secrets::INDEXER_KEY,
+                        &api_key,
+                    )?,
                     kind: torznab::Kind::parse(&kind).ok_or_else(|| {
                         anyhow::anyhow!("indexer {id} is of an unknown kind {kind:?}")
                     })?,

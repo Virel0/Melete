@@ -30,7 +30,9 @@ pub async fn grab(
     let Some(link) = row.download_url.as_deref() else {
         return Ok(Err(Refused::NoLink));
     };
-    let (torrent, hash) = match fetch_torrent(fetcher, link).await? {
+    let sealing = crate::secrets::sealing(pool).await?;
+    let link = crate::secrets::from_store(sealing, crate::secrets::DOWNLOAD_URL, link)?;
+    let (torrent, hash) = match fetch_torrent(fetcher, &link).await? {
         Ok(fetched) => fetched,
         Err(refused) => return Ok(Err(refused)),
     };

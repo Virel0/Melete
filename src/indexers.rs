@@ -1,7 +1,7 @@
 //! Torrent indexers: imported from Prowlarr, each reached through Prowlarr's own
 //! Torznab feed for it, with Prowlarr's API key, or Melete's own: The Pirate Bay, Nyaa
-//! and AnimeTosho, reached directly. A key is stored (searches need it) and never leaves this
-//! module except to `torznab`.
+//! and AnimeTosho, reached directly. A key is stored sealed (searches need it) and never leaves
+//! this module except to `torznab`.
 
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -9,7 +9,7 @@ use sqlx::SqlitePool;
 use crate::arr::{ArrClient, ProwlarrCategory};
 use crate::db::unix_now;
 use crate::import::RefusedToEmpty;
-use crate::torznab;
+use crate::{secrets, torznab};
 
 /// What an import from Prowlarr did.
 #[derive(Debug, Serialize)]
@@ -52,6 +52,8 @@ pub async fn import_prowlarr(
         }
     }
     let mut kept = Vec::new();
+    let sealing = secrets::sealing(&mut *tx).await?;
+    let key = secrets::to_store(sealing, secrets::INDEXER_KEY, client.key())?;
     for indexer in &torrent {
         let mut categories = Vec::new();
         flatten(&indexer.capabilities.categories, &mut categories);
@@ -75,7 +77,7 @@ pub async fn import_prowlarr(
         )
         .bind(&indexer.name)
         .bind(format!("{}/{}/api", client.base(), indexer.id))
-        .bind(client.key())
+        .bind(&key)
         .bind(indexer.enable)
         .bind(serde_json::to_string(&categories)?)
         .bind(serde_json::to_string(&lower(
@@ -269,6 +271,8 @@ pub async fn test(
     let Some((url, api_key, kind, categories)) = row else {
         return Ok(None);
     };
+    let sealing = secrets::sealing(pool).await?;
+    let api_key = secrets::from_store(sealing, secrets::INDEXER_KEY, &api_key)?;
     let endpoint = torznab::Endpoint {
         url: &url,
         api_key: &api_key,
@@ -464,7 +468,11 @@ pub async fn add_torznab(
     )
     .bind(name)
     .bind(url)
-    .bind(api_key)
+    .bind(secrets::to_store(
+        secrets::sealing(pool).await?,
+        secrets::INDEXER_KEY,
+        api_key,
+    )?)
     .bind(serde_json::to_string(&caps.categories)?)
     .bind(serde_json::to_string(&caps.movie_search)?)
     .bind(serde_json::to_string(&caps.tv_search)?)
@@ -546,6 +554,30 @@ mod own_tests {
                 .unwrap(),
             Err(NotAddedOwn::Already(id))
         );
+    }
+
+    #[tokio::test]
+    async fn with_secrets_sealed_a_feeds_key_is_kept_sealed_and_sent_whole() {
+        let pool = db::open_in_memory().await;
+        secrets::startup::switch(&pool, secrets::key().unwrap())
+            .await
+            .unwrap();
+        let client = torznab::Client::new().unwrap();
+        let (url, asked) = feed(CAPS).await;
+        let id = add_torznab(&pool, &client, "Mine", &url, "the-key")
+            .await
+            .unwrap()
+            .unwrap();
+        let key: String = sqlx::query_scalar("SELECT api_key FROM indexers WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(key.starts_with("sealed:v1:") && !key.contains("the-key"));
+        asked.lock().unwrap().clear();
+        let _ = test(&pool, &client, id).await.unwrap().unwrap();
+        let asked = asked.lock().unwrap();
+        assert!(asked[0].contains("apikey=the-key"), "{asked:?}");
     }
 
     #[tokio::test]
