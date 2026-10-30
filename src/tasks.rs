@@ -23,11 +23,16 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 15] = [
+pub const TASKS: [Task; 16] = [
     Task {
         name: "library",
-        what: "scans the libraries on their schedule and imported folders at once, matches titles on TMDB and refreshes their ratings, probes files, deals with replaced files and the trash (run now: a whole scan)",
+        what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
         wake: Some(jobs::request_rescan),
+    },
+    Task {
+        name: "tmdb-matching",
+        what: "matches new titles on TMDB and refreshes the details, ratings, cast and trailers it has for them, after each scan (run now: without a scan)",
+        wake: Some(|| jobs::TMDB.notify_one()),
     },
     Task {
         name: "music-matching",
@@ -143,6 +148,17 @@ pub fn scheduled(name: &'static str, next_in: Duration) {
 /// log has it.
 pub fn failed() -> Option<String> {
     Some("failed; the server's log says why".into())
+}
+
+/// Notes a task that runs in this server but only when asked, so it's shown as ready before its
+/// first run. What's known of earlier runs is kept.
+pub fn ready(name: &'static str) {
+    runs().entry(name).or_default();
+}
+
+/// Notes a task that no longer runs in this server, as when its service was turned off.
+pub fn inactive(name: &'static str) {
+    runs().remove(name);
 }
 
 /// Notes a task starting.
