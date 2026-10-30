@@ -109,10 +109,11 @@ pub(super) async fn cover(
         keep(&state.covers, &cached, &bytes).await;
         return image(bytes);
     }
-    // The Cover Art Archive's, for a matched release group that has one.
-    let (Some(coverart), Some(group), true) =
-        (&state.coverart, &row.release_group, row.archive_cover)
-    else {
+    // The Cover Art Archive's, for a matched release group that has one. The id names cache
+    // files, so only a real MusicBrainz id (hex and dashes) is used.
+    let group = row.release_group.as_deref();
+    let group = group.filter(|g| crate::library::tags::is_mbid(g));
+    let (Some(coverart), Some(group), true) = (&state.coverart, group, row.archive_cover) else {
         return Err(no_cover());
     };
     let cached = state.covers.join(format!("rg-{group}.img"));

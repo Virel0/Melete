@@ -446,6 +446,24 @@ async fn the_archive_is_asked_once_for_a_missing_cover_and_never_when_off() {
 }
 
 #[tokio::test]
+async fn a_release_group_that_isnt_a_musicbrainz_id_never_names_a_cache_file() {
+    let (archive, log) = coverart::testing::start().await;
+    let f = fixture(Some(Arc::new(archive))).await;
+    // A cached image outside the covers cache, and a folder whose name a stored id could climb
+    // out through.
+    let cache = f.covers.path().join("music");
+    std::fs::create_dir_all(cache.join("rg-x")).unwrap();
+    std::fs::write(f.covers.path().join("outside.img"), b"\xff\xd8\xff outside").unwrap();
+    sqlx::query("UPDATE music_albums SET match_release_group_id = 'x/../../outside' WHERE id = 3")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let status = get(&f, "/api/v1/music/albums/3/cover", None).await.status();
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(log.lock().unwrap().is_empty(), "the archive isn't asked");
+}
+
+#[tokio::test]
 async fn motion_covers_are_served_with_byte_ranges() {
     let f = fixture(None).await;
     let part = get(&f, "/api/v1/music/albums/1/motion", Some("bytes=0-99")).await;
