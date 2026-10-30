@@ -4243,6 +4243,82 @@
         }
       }
     },
+    "/api/v1/runtime-checks/{kind}/{id}": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "How a wanted title's downloads fared in the running-time check",
+        "description": "How many of its downloads were held back since the last import or override (their running time didn't match TMDB's, or couldn't be read), the latest with their reasons, and whether Melete has stopped searching for it by itself (after 3).",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-checks/{kind}/{id}/right": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Say a wanted title's runtime is right after all",
+        "description": "From now, while TMDB's runtime for it stays what it is, a movie's downloads are checked against how long its last held-back download ran (or not checked, when that couldn't be read), and a series' aren't checked. The count starts again and Melete searches for it by itself again.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/trash/{id}/restore": {
       "post": {
         "tags": ["Admin"],
@@ -13296,6 +13372,36 @@
         },
         "additionalProperties": false
       },
+      "RuntimeCheckStatus": {
+        "type": "object",
+        "required": ["failures", "stopped", "reasons", "overridden", "override_seconds"],
+        "properties": {
+          "failures": {"type": "integer", "description": "Downloads held back since the last import or override."},
+          "stopped": {"type": "boolean", "description": "Whether Melete has stopped searching for it by itself (3 or more)."},
+          "reasons": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/RuntimeCheckFailure"},
+            "description": "The latest held-back downloads (up to 5), newest last."
+          },
+          "overridden": {"type": "boolean", "description": "Whether an admin's \"the runtime is right after all\" holds now (TMDB's runtime is what it was then)."},
+          "override_seconds": {
+            "type": ["number", "null"],
+            "description": "While the override holds, the running time a movie's downloads are checked against; null when nothing is checked."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuntimeCheckFailure": {
+        "type": "object",
+        "required": ["at", "download_id", "release", "reason"],
+        "properties": {
+          "at": {"type": "integer", "description": "Unix seconds."},
+          "download_id": {"type": "integer"},
+          "release": {"type": "string"},
+          "reason": {"type": "string", "description": "Why it was held back, in words."}
+        },
+        "additionalProperties": false
+      },
       "TrashedFile": {
         "type": "object",
         "required": [
@@ -16133,7 +16239,8 @@
               "opensubtitles_used_up",
               "backup_failed",
               "backup_old",
-              "disk_nearly_full"
+              "disk_nearly_full",
+              "runtime_checks_failed"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -16141,7 +16248,7 @@
           "count": {"type": "integer", "description": "How many things it's about."},
           "id": {
             "type": ["integer", "null"],
-            "description": "The indexer (indexer_failed) or library (files_missing, files_unparsed, disk_nearly_full) it's about."
+            "description": "The indexer (indexer_failed), library (files_missing, files_unparsed, disk_nearly_full) or wanted movie or series (runtime_checks_failed: GET /api/v1/runtime-checks/{kind}/{id}) it's about."
           }
         }
       },

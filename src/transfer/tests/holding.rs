@@ -200,3 +200,51 @@ async fn a_failure_after_copying_leaves_no_part_files() {
         "the video's part file is gone"
     );
 }
+
+#[tokio::test]
+async fn after_three_failed_checks_it_stops_searching_until_the_runtime_is_said_right() {
+    let r = rig().await;
+    let wanted = r.want_movie(None).await;
+    r.runtime(wanted, 170).await;
+    let sources = crate::fulfil::Sources::default();
+    let film = clip(92 * 60);
+    let mut said = Vec::new();
+    for n in 1..=3 {
+        let release = format!("Some.Movie.2024.1080p.WEB-DL-GRP{n}");
+        let files = r.seed(&[(&format!("{release}/{release}.mkv"), film.clone())]);
+        let id = r.movie_download(wanted, &release, &files).await;
+        bring_home(&r.pool, &r.seedbox, Some(&fixes()), &sources, id)
+            .await
+            .unwrap();
+        let (state, message, ..) = r.state(id).await;
+        assert_eq!(state, "failed");
+        said.push(message.unwrap());
+    }
+    assert!(said[1].ends_with("downloads are off, so it wasn't searched for again"));
+    assert!(
+        said[2].ends_with(
+            "3 downloads of it didn't pass the running-time check, so Melete has stopped searching for it by itself; if its runtime is right after all, an admin can say so on its page"
+        ),
+        "{}",
+        said[2]
+    );
+
+    // An admin says the runtime is right: the next one, as long as the last, is placed.
+    let title = crate::search::Title::Movie(wanted);
+    crate::runtime_checks::say_right(&r.pool, title)
+        .await
+        .unwrap();
+    let release = "Some.Movie.2024.1080p.WEB-DL-GRP4";
+    let files = r.seed(&[(&format!("{release}/{release}.mkv"), film)]);
+    let id = r.movie_download(wanted, release, &files).await;
+    bring_home(&r.pool, &r.seedbox, Some(&fixes()), &sources, id)
+        .await
+        .unwrap();
+    let (state, message, ..) = r.state(id).await;
+    assert_eq!(state, "imported", "{message:?}");
+    let now = crate::runtime_checks::status(&r.pool, title)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((now.failures, now.overridden), (0, true));
+}
