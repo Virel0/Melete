@@ -474,6 +474,18 @@ mod tests {
     }
 
     #[test]
+    fn the_palette_finds_artists_and_songs_and_a_song_opens_its_album() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let palette = module("palette.js");
+        assert!(palette.contains("music(`/music/artists?${query}`)"));
+        assert!(palette.contains("music(`/music/tracks?${query}&q_in=track&sort=title`)"));
+        assert!(palette.contains("#/music/albums/${t.album_id}?track=${t.id}"));
+        assert!(module("music.js").contains(r#"albumPage(id, ctx, params.get("track"))"#));
+        assert!(module("music-album.js").contains(r#"row.classList.add("found")"#));
+        assert!(module("music-album.js").contains(r#"row.querySelector(".track-play")?.focus("#));
+    }
+
+    #[test]
     fn full_screen_belongs_to_the_stage_however_it_is_asked_for() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
         // The video's own button stays off where browsers honour that, a double-click on the
