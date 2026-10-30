@@ -68,14 +68,14 @@ export async function releaseTry(ctx) {
   const profiles = await api("/profiles");
   if (!ctx.current()) return [];
   const name = field("try-release", "Release name", h("input", { autocomplete: "off", spellcheck: "false" }), "As an indexer lists it, e.g. Some.Film.2021.1080p.WEB-DL.DDP5.1.H.264-GROUP.");
-  const forKind = (source, label) => {
-    const mine = profiles.filter((p) => p.source === source);
+  const forKind = (service, label) => {
+    const mine = profiles.filter((p) => p.service === service);
     return mine.length ? h("optgroup", { label }, mine.map((p) => h("option", { value: p.id }, p.name))) : null;
   };
   const profile = field(
     "try-profile",
     "Quality profile (optional)",
-    h("select", {}, h("option", { value: "" }, "None: only read the name"), forKind("radarr", "Movies"), forKind("sonarr", "Series")),
+    h("select", {}, h("option", { value: "" }, "None: only read the name"), forKind("movies", "Movies"), forKind("series", "Series"), forKind("anime", "Anime")),
     "Choose one to see whether it would take this release, and why.",
   );
   const existing = field("try-existing", "File already on disk (optional)", h("input", { autocomplete: "off", spellcheck: "false" }), "Its name, to see whether the release would replace it. Needs a profile.");

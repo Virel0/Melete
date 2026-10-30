@@ -2320,6 +2320,16 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Quality profiles",
+        "description": "Every quality profile, or one Manage service's: Movies has Radarr's, and Series and Anime each have their own, though both score Sonarr's custom formats.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Only this service's profiles.",
+            "schema": {"enum": ["movies", "series", "anime"]}
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -2328,6 +2338,10 @@
                 "schema": {"type": "array", "items": {"$ref": "#/components/schemas/QualityProfile"}}
               }
             }
+          },
+          "400": {
+            "description": "service isn't movies, series or anime",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"}
@@ -4327,7 +4341,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Choose the quality profile a wanted series is searched and grabbed with",
-        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one.",
+        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one. The profile must be one of the series' own service's (its `service`: Anime's for an anime series, Series' for the rest); another is refused (422).",
         "parameters": [
           {
             "name": "id",
@@ -4373,7 +4387,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Make the anime quality profile",
-        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source.",
+        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source. The series one is Anime's (service anime); the movies one is Movies'.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4386,7 +4400,7 @@
                   "apply_to_anime": {
                     "type": "boolean",
                     "default": false,
-                    "description": "For sonarr: also choose it for every wanted series Sonarr calls anime."
+                    "description": "For sonarr: also choose it for every wanted series under Anime (wanted as anime, or in a library with the anime category)."
                   }
                 }
               }
@@ -12070,6 +12084,7 @@
         "required": [
           "id",
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -12086,6 +12101,10 @@
           "source": {
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series (the app it was imported from, or the kind of titles it's for)."
+          },
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr. Series and Anime have profiles of their own; a series takes one of its own service's."
           },
           "name": {"type": "string"},
           "upgrade_allowed": {"type": "boolean"},
@@ -12738,6 +12757,7 @@
         "type": "object",
         "required": [
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -12753,7 +12773,11 @@
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series; it can't change later."
           },
-          "name": {"type": "string", "description": "1-100 characters, unique for its source."},
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr (Series and Anime have profiles of their own); it can't change later. A client that predates it may leave it out: a new profile is then movies' or series', and a change keeps the profile's."
+          },
+          "name": {"type": "string", "description": "1-100 characters, unique within its service."},
           "upgrade_allowed": {"type": "boolean"},
           "cutoff": {"type": "string", "description": "The name of an allowed item: upgrades stop there."},
           "min_format_score": {"type": "integer"},

@@ -97,9 +97,13 @@ export function searchResults(search, ctx) {
 
 // ---------- Wanted movies and series ----------
 
+// A wanted series' service: anime when wanted as anime or its library has the anime category.
+const seriesService = (w, libraries) =>
+  w.series_type === "anime" || libraries.find((l) => l.name === w.library)?.category === "anime" ? "anime" : "series";
+
 export async function wantedList(ctx, kind) {
   const movies = kind === "movies";
-  const [all, profiles, runs] = await Promise.all([api(`/wanted/${kind}`), api("/profiles"), api("/missing-searches")]);
+  const [all, profiles, runs, libraries] = await Promise.all([api(`/wanted/${kind}`), api("/profiles"), api("/missing-searches"), api("/libraries")]);
   if (!ctx.current()) return [];
   const app = movies ? "Radarr" : "Sonarr";
   // What the list's parts share: the kind of title, its own app's name, profiles and noun.
@@ -109,7 +113,9 @@ export async function wantedList(ctx, kind) {
     movies,
     all,
     app,
-    own: profiles.filter((p) => p.source === (movies ? "radarr" : "sonarr")),
+    // Series and Anime each have their own profiles; a series wanted as anime, or going to a
+    // library with the anime category, is Anime's (the server checks the choice).
+    ownFor: (w) => profiles.filter((p) => p.service === (movies ? "movies" : seriesService(w, libraries))),
     noun: movies ? ["movie", "movies"] : ["series", "series"],
     filter: h("input", { id: "wanted-filter", type: "search", autocomplete: "off" }),
     list: h("ul", { class: "rows" }),
@@ -301,12 +307,12 @@ function rowActions(w, page, profileNote) {
 
 // The title's quality profile: its app's own, or one of Melete's, saved as soon as it's picked.
 function profilePicker(w, page) {
-  const { ctx, kind, app, own } = page;
+  const { ctx, kind, app, ownFor } = page;
   const profile = h(
     "select",
     { id: `profile-${w.id}`, class: "compact" },
     h("option", { value: "" }, w.quality_profile ? `${app}'s: ${w.quality_profile}` : `${app}'s (none)`),
-    own.map((p) => h("option", { value: p.id, selected: p.id === w.profile_id }, p.name)),
+    ownFor(w).map((p) => h("option", { value: p.id, selected: p.id === w.profile_id }, p.name)),
   );
   const profileNote = h("span", { class: "note", role: "status" });
   profile.addEventListener("change", async () => {

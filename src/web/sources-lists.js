@@ -205,15 +205,25 @@ function listForm({ prefix, list = null, kind: only = null, libraries, profiles,
   const monitored = h("input", { type: "checkbox", id: `${prefix}-monitored`, checked: list ? list.monitored : true });
   const monitoredBox = { box: h("div", { class: "check" }, monitored, h("label", { for: `${prefix}-monitored` }, "Monitored: searched for, and grabbed when downloads are on")), clear() {} };
 
+  // The profiles of the service the list's titles go to: a series list into a library with the
+  // anime category adds Anime's series, which take Anime's.
+  const followLibrary = () => {
+    const k = kind.value;
+    const chosen = libraries.find((l) => String(l.id) === library.value);
+    const service = k === "movies" ? "movies" : chosen?.category === "anime" ? "anime" : "series";
+    const keep = profile.value || list?.quality_profile;
+    const profs = profiles.filter((p) => p.service === service);
+    profile.replaceChildren(...profs.map((p) => h("option", { value: p.name, selected: p.name === keep }, p.name)));
+  };
   const follow = () => {
     const k = kind.value;
     const libs = libraries.filter((l) => l.kind === (k === "movies" ? "movies" : "shows"));
     library.replaceChildren(...libs.map((l) => h("option", { value: l.id, selected: l.id === list?.library_id }, l.name)));
-    const profs = profiles.filter((p) => p.source === (k === "movies" ? "radarr" : "sonarr"));
-    profile.replaceChildren(...profs.map((p) => h("option", { value: p.name, selected: p.name === list?.quality_profile }, p.name)));
+    followLibrary();
     seasonsField.box.hidden = k !== "series";
   };
   kind.addEventListener("change", follow);
+  library.addEventListener("change", followLibrary);
   provider.addEventListener("change", () => {
     listField.box.querySelector(".note").textContent = LIST_HINTS[provider.value];
   });

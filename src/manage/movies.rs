@@ -204,7 +204,7 @@ async fn movie_cutoff(
         return Ok(None);
     }
     let Some(profile) = profiles
-        .get(pool, w.profile_id, w.arr_profile.as_deref())
+        .get(pool, "movies", (w.profile_id, w.arr_profile.as_deref()))
         .await?
     else {
         return Ok(None);

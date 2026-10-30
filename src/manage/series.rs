@@ -58,6 +58,8 @@ struct WantedRow {
     original_language: Option<String>,
     library: Option<String>,
     category: Option<String>,
+    /// Series or anime, as the managed lists place it.
+    service: String,
     poster_path: Option<String>,
     /// Whether TMDB's episode list is here.
     known: bool,
@@ -87,6 +89,11 @@ pub(super) const WANTED: &str = "
            w.profile_id, coalesce(p.name, w.quality_profile) AS profile,
            w.quality_profile AS arr_profile, w.original_language, l.name AS library,
            l.category, t.poster_path,
+           CASE WHEN w.series_type = 'anime'
+                     OR coalesce((SELECT sl.category FROM series s
+                                  JOIN libraries sl ON sl.id = s.library_id
+                                  WHERE s.id = w.series_id), l.category) = 'anime'
+                THEN 'anime' ELSE 'series' END AS service,
            EXISTS (SELECT 1 FROM tmdb_episodes e WHERE e.series_tmdb_id = t.tmdb_id) AS known
     FROM wanted_series w
     LEFT JOIN libraries l ON l.id = w.library_id
