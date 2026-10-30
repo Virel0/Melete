@@ -335,7 +335,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "discovery",
         name: "Trending and similar titles",
-        about: "Rows of what's trending on TMDB and of titles like one being looked at, and the films of a franchise that aren't in the library, each marked playable, requested or available to request. Only which chart (today's or this week's), a title's TMDB id or a collection's TMDB id leaves the server, never anything about the household. Needs TMDB.",
+        about: "Rows of what's trending on TMDB and of titles like one being looked at, and the films of a franchise that aren't in the library, each marked playable, requested or available to request. Only which chart (today's or this week's), a title's TMDB id or a collection's TMDB id leaves the server, never anything about the household.",
         fields: &[
             field(
                 "MELETE_DISCOVERY",
@@ -346,7 +346,7 @@ pub const SERVICES: &[Service] = &[
             field(
                 "MELETE_DISCOVERY_POSTERS",
                 "Show posters of titles not in the library",
-                "Fetched once from TMDB's image server and cached: only those a list showed, at one size, for 30 days, 2000 at most.",
+                "Fetched once by the server from TMDB's image server, which sees the poster's file name and the server's address, and cached: only those a list showed, at one size, for 30 days, 2000 at most.",
                 Input::Toggle { on: "on" },
             ),
         ],
@@ -354,7 +354,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "trailers",
         name: "Trailers online",
-        about: "A trailer for titles without one in their folder, played through YouTube's embedded player. The server asks TMDB for each library title's list of videos, by the TMDB id it already uses (one more request a title, again whenever its details are refreshed); nothing goes to YouTube from the server. Nothing loads from YouTube until someone presses play: then that viewer's own browser or device loads the trailer from youtube-nocookie.com (YouTube's privacy-enhanced mode, no cookies before playback), so Google sees that device and that one trailer, never the library. Off, no video lists are asked for and no player is offered. Needs TMDB.",
+        about: "A trailer for titles without one in their folder, played through YouTube's embedded player. The server asks TMDB for each library title's list of videos, by the TMDB id it already uses (one more request a title, again whenever its details are refreshed); nothing goes to YouTube from the server. Nothing loads from YouTube until someone presses play: then that viewer's own browser or device loads the trailer from youtube-nocookie.com (YouTube's privacy-enhanced mode, no cookies before playback), so Google sees that device and that one trailer, never the library. Off, no video lists are asked for and no player is offered.",
         fields: &[field(
             "MELETE_TRAILERS_ONLINE",
             "Show trailers from YouTube",
