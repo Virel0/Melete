@@ -8,7 +8,8 @@ pub(super) struct ProfileChoice {
     pub(super) profile_id: Option<i64>,
 }
 
-/// Sets the profile a wanted title is searched and grabbed with; re-imports keep it.
+/// Sets the profile a wanted title is searched and grabbed with; re-imports keep it. The profile
+/// must be for the title's service: an anime series takes one of Anime's, never one of Series'.
 pub(super) async fn choose_profile(
     pool: &SqlitePool,
     table: &str,
@@ -17,11 +18,15 @@ pub(super) async fn choose_profile(
     choice: ProfileChoice,
 ) -> Result<StatusCode, ApiError> {
     if let Some(profile_id) = choice.profile_id {
-        let kind: Option<String> =
-            sqlx::query_scalar("SELECT source FROM quality_profiles WHERE id = ?")
+        let kind: Option<(String, String)> =
+            sqlx::query_as("SELECT source, service FROM quality_profiles WHERE id = ?")
                 .bind(profile_id)
                 .fetch_optional(pool)
                 .await?;
+        let wanted_service = match source {
+            "sonarr" => crate::profiles::service::of_wanted_series(pool, id).await?,
+            _ => "movies".into(),
+        };
         match kind {
             None => {
                 return Err(ApiError::new(
@@ -29,10 +34,18 @@ pub(super) async fn choose_profile(
                     "no such quality profile",
                 ));
             }
-            Some(kind) if kind != source => {
+            Some((kind, _)) if kind != source => {
                 return Err(ApiError::new(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     format!("that profile is for {kind} titles; this one needs a {source} profile"),
+                ));
+            }
+            Some((_, service)) if service != wanted_service => {
+                return Err(ApiError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!(
+                        "that profile is one of {service}'s; this series needs one of {wanted_service}'s"
+                    ),
                 ));
             }
             Some(_) => {}
