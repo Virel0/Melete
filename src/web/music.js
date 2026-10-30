@@ -1,5 +1,5 @@
 // Listen's pages, by address: Home (where `#/music` opens), Albums, Artists, Songs, Genres,
-// Composers, Works and Radio, Liked songs and Playlists, and the pages of an album, an artist, a
+// Composers, Works and Radio, Liked songs, Liked albums and Playlists, and the pages of an album, an artist, a
 // genre, a composer, a work and a playlist. Built like the rest of the page: DOM nodes and textContent only, lists paged with
 // "Show more" (music-list.js), what's shown kept in the URL.
 
@@ -7,7 +7,7 @@ import { h, plural } from "/web/lib.js";
 import { albumPage, artistPage } from "/web/music-album.js";
 import { genreList, genrePage, songList } from "/web/music-browse.js";
 import { homePage } from "/web/music-home.js";
-import { likedPage } from "/web/music-liked.js";
+import { likedAlbumsPage, likedPage } from "/web/music-liked.js";
 import { playlistPage } from "/web/music-playlist.js";
 import { playlistsPage } from "/web/music-playlists.js";
 import { genreFilter, pagedList } from "/web/music-list.js";
@@ -45,6 +45,7 @@ export function musicPage(parts, params, ctx) {
   if (section === "genres") return id ? genrePage(decodeURIComponent(id), ctx) : genreList(ctx);
   if (section === "radio" && !id) return radioPage(ctx);
   if (section === "liked" && !id) return likedPage(ctx);
+  if (section === "liked-albums" && !id) return likedAlbumsPage(ctx);
   if (section === "playlists") return id ? playlistPage(decodeURIComponent(id), ctx) : playlistsPage(params, ctx);
   if (section === "composers") return id ? one && composerPage(id, ctx) : composerList(params, ctx);
   if (section === "works") return id ? one && workPage(id, ctx) : workList(params, ctx);

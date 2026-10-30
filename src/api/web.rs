@@ -741,6 +741,20 @@ mod tests {
         let liked = module("music-liked.js");
         assert!(liked.contains(r#"api("/music/likes")"#));
         assert!(liked.contains("emptyState(LIKES_CLOSED)"));
+        // Albums are liked on their page and listed on a page of their own.
+        assert!(
+            music.contains(r#"section === "liked-albums" && !id) return likedAlbumsPage(ctx);"#)
+        );
+        assert!(
+            module("sides.js")
+                .contains(r##"{ name: "Liked albums", href: "#/music/liked-albums""##)
+        );
+        assert!(liked.contains(r#"show("Liked albums", title, emptyState(LIKES_CLOSED))"#));
+        assert!(module("music-album.js").contains("seesAllMusic() ? albumLike(album) : null"));
+        let actions = module("music-actions.js");
+        assert!(actions.contains(
+            r#"api(`/music/albums/${album.id}/like`, { method: want ? "PUT" : "DELETE" })"#
+        ));
         let list = module("music-playlists.js");
         assert!(list.contains("emptyState(PLAYLISTS_CLOSED)"));
         assert!(list.contains("all.filter((p) => p.folder === folder)"));

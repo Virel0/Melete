@@ -57,6 +57,35 @@ function likeButton(track, mark, said) {
   return button;
 }
 
+// Like for an album, on its page: an album's like is its own (`/music/albums/{id}/like`), and
+// likes none of its tracks.
+export function albumLike(album) {
+  const said = h("span", { class: "note", role: "status" });
+  const button = h("button", { type: "button", class: "quiet like" });
+  const draw = () => {
+    button.replaceChildren(icon(album.liked ? "liked" : "like"), "Like");
+    button.setAttribute("aria-pressed", String(Boolean(album.liked)));
+  };
+  button.addEventListener("click", async () => {
+    if (!hold(button)) return;
+    said.textContent = "";
+    const want = !album.liked;
+    try {
+      await api(`/music/albums/${album.id}/like`, { method: want ? "PUT" : "DELETE" });
+      album.liked = want;
+      draw();
+      said.textContent = want ? `You like ${album.title}.` : `${album.title} is no longer liked.`;
+    } catch (err) {
+      if (err instanceof SignedOut) throw err;
+      said.textContent = err.status === 403 ? LIKES_CLOSED : `Couldn't change it: ${err.message}`;
+    } finally {
+      release(button);
+    }
+  });
+  draw();
+  return [button, said];
+}
+
 // The strip's contents, made when it first opens.
 function stripBody(track, entry, mark, onAlbum) {
   const said = h("p", { class: "note", role: "status" });

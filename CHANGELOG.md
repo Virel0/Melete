@@ -7,6 +7,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- Albums can be liked. An album's like is a sync record of its own (`album_likes`), so it
+  reaches Aoide's apps the way a song's does. The web has Like on an album's page and a Liked
+  albums page.
+
 ## [0.1.0] - 2026-10-29
 
 The first release.

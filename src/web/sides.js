@@ -58,12 +58,13 @@ export function listenEntries() {
   ];
 }
 
-// What's the listener's own: their liked songs and playlists. The sidebar lists them under the
+// What's the listener's own: their liked songs and albums, and playlists. The sidebar lists them under the
 // sections; the header doesn't, so on a narrow screen the menu button opens them.
 function yoursEntries() {
   const section = (key) => ({ parts }) => parts[0] === "music" && parts[1] === key;
   return [
     { name: "Liked songs", href: "#/music/liked", here: section("liked") },
+    { name: "Liked albums", href: "#/music/liked-albums", here: section("liked-albums") },
     { name: "Playlists", href: "#/music/playlists", here: section("playlists") },
   ];
 }

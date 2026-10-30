@@ -1,9 +1,9 @@
 // An artist's page, with their albums and the ones they appear on, and an album's: its cover on
-// the album's own colours, what its files are, Play, Shuffle, Start radio, Add to playlist and
-// Pin, then its tracks by disc, each with its actions (music-actions.js).
+// the album's own colours, what its files are, Play, Shuffle, Start radio, Like, Add to playlist
+// and Pin, then its tracks by disc, each with its actions (music-actions.js).
 
 import { SignedOut, api, h, loading, metaRow, number, plural, runtime, show } from "/web/lib.js";
-import { trackActions } from "/web/music-actions.js";
+import { albumLike, trackActions } from "/web/music-actions.js";
 import { SPATIAL, albumCard, artistCounts, markPlaying, pinControl, trackRow } from "/web/music-parts.js";
 import { albumQueue, looseQueue, play, shufflePlay } from "/web/music-play.js";
 import { playlistPicker } from "/web/music-playlist-pick.js";
@@ -181,6 +181,7 @@ function albumActions(album, queue) {
       h("button", { type: "button", onclick: () => play(queue) }, "Play"),
       h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle"),
       radioButton(() => albumSeed(album.id), album.title),
+      seesAllMusic() ? albumLike(album) : null,
       seesAllMusic() ? pick : null,
       pinControl("album", album.id, album.title),
     ),

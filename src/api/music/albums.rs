@@ -101,6 +101,26 @@ impl AlbumRow {
     }
 }
 
+/// Present albums by id that `access` lets the user see, as the music API shows them; other
+/// ids are left out.
+pub(in super::super) async fn albums_by_id(
+    pool: &SqlitePool,
+    access: &Access,
+    shown: Shown,
+    ids: &[i64],
+) -> sqlx::Result<std::collections::HashMap<i64, Value>> {
+    let rows: Vec<AlbumRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {ALBUM_COLUMNS} FROM music_albums a
+         LEFT JOIN mb_releases r ON r.id = a.match_release_id
+         WHERE a.missing_since IS NULL AND a.id IN (SELECT value FROM json_each(?)) AND {}",
+        access.album_sql("a")
+    )))
+    .bind(serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.iter().map(|r| (r.id, r.to_json(shown))).collect())
+}
+
 #[derive(Deserialize)]
 pub(super) struct AlbumQuery {
     /// Part of the title or artist; case, accents, spaces and punctuation aside.
@@ -211,6 +231,13 @@ pub(super) async fn album(
     }
     let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
     let mut body = row.to_json(shown);
+    let liked = crate::aoide::likes::liked(
+        &state.pool,
+        crate::aoide::likes::Kind::Album,
+        current.user.id,
+    )
+    .await?;
+    body["liked"] = json!(liked.iter().any(|(album, _)| *album == Some(id)));
     body["motion_cover_generation"] = json!(crate::motion::status(&state.pool, id).await?);
     body["library"] = json!(library);
     body["genres"] = json!(genres);

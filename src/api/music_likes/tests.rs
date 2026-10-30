@@ -55,7 +55,7 @@ async fn fixture() -> Fixture {
     .await
     .unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let app = routes(pool.clone())
+    let app = routes(pool.clone(), false)
         .merge(crate::api::aoide::routes(pool.clone(), dir.path().into()))
         .merge(crate::api::music::routes(
             pool.clone(),
@@ -161,12 +161,13 @@ fn liked_on_device(ops: &[Value]) -> Vec<String> {
         })
         .collect();
     let mut liked: Vec<String> = likes::fold(
+        Kind::Track,
         rows.iter()
             .map(|(e, o, p)| (e.as_str(), o.as_str(), p.as_str())),
     )
     .into_iter()
     .filter(|r| r.liked && !r.deleted)
-    .map(|r| r.jellyfin_id)
+    .map(|r| r.item_id)
     .collect();
     liked.sort();
     liked
@@ -253,7 +254,7 @@ async fn a_device_like_shows_on_the_web_and_a_web_like_reaches_the_device() {
     // Someone else sees none of it.
     let bob = session(&f, "bob").await;
     let (_, body) = call(&f, &bob, "GET", "/api/v1/music/likes", None).await;
-    assert_eq!(body, json!({ "tracks": [] }));
+    assert_eq!(body, json!({ "tracks": [], "albums": [] }));
     assert!(pull(&f, &bob, 0).await.0.is_empty());
 }
 
@@ -282,4 +283,96 @@ async fn a_like_of_a_track_gone_from_the_library_keeps_its_key() {
     // Unliking what was never liked is nothing to do.
     let (status, _) = call(&f, &web, "DELETE", "/api/v1/music/tracks/99/like", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn an_album_like_reaches_the_device_and_shows_on_the_web() {
+    let f = fixture().await;
+    let phone = session(&f, "alice").await;
+    let web = session(&f, "alice").await;
+    let (status, _) = call(&f, &web, "PUT", "/api/v1/music/albums/1/like", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The phone pulls a row of its own entity, naming the album as the apps do.
+    let (ops, cursor) = pull(&f, &phone, 0).await;
+    assert_eq!(ops.len(), 1);
+    assert_eq!(
+        (&ops[0]["entity"], &ops[0]["operation"]),
+        (&json!("album_likes"), &json!("upsert"))
+    );
+    let row = &ops[0]["payload"];
+    assert_eq!(
+        (
+            &row["albumId"],
+            &row["contentKey"],
+            &row["liked"],
+            &row["deleted"]
+        ),
+        (
+            &json!("1"),
+            &json!("bjork|post"),
+            &json!(true),
+            &json!(false)
+        )
+    );
+    assert_eq!(row["id"], ops[0]["entityId"]);
+    assert!(row.get("jellyfinId").is_none());
+
+    // The web sees it on the list and on the album, and no track is liked by it.
+    let (_, body) = call(&f, &web, "GET", "/api/v1/music/likes", None).await;
+    assert_eq!(body["tracks"], json!([]));
+    assert_eq!(body["albums"][0]["album"]["id"], 1);
+    assert_eq!(body["albums"][0]["content_key"], "bjork|post");
+    let (_, album) = call(&f, &web, "GET", "/api/v1/music/albums/1", None).await;
+    assert_eq!(album["liked"], true);
+    assert!(
+        album["track_list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["liked"] == false)
+    );
+
+    // Unliking deletes the same row.
+    let (status, _) = call(&f, &web, "DELETE", "/api/v1/music/albums/1/like", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (ops, _) = pull(&f, &phone, cursor).await;
+    assert_eq!(
+        (
+            &ops[0]["operation"],
+            &ops[0]["entityId"],
+            &ops[0]["payload"]["deleted"]
+        ),
+        (&json!("delete"), &row["id"], &json!(true))
+    );
+    let (_, album) = call(&f, &web, "GET", "/api/v1/music/albums/1", None).await;
+    assert_eq!(album["liked"], false);
+
+    let (status, body) = call(&f, &web, "PUT", "/api/v1/music/albums/99/like", None).await;
+    assert_eq!(
+        (status, &body["error"]),
+        (StatusCode::NOT_FOUND, &json!("no such album"))
+    );
+}
+
+#[tokio::test]
+async fn a_device_album_like_is_accepted_and_shown() {
+    let f = fixture().await;
+    let phone = session(&f, "alice").await;
+    let op = json!({ "opId": "op-1", "entity": "album_likes", "entityId": "A", "operation": "upsert",
+        "payload": { "id": "A", "albumId": "1", "contentKey": "bjork|post", "liked": true,
+                     "updatedAt": 2000, "deleted": false, "originDevice": "phone" },
+        "createdAt": 2000 });
+    let (status, pushed) = call(
+        &f,
+        &phone,
+        "POST",
+        "/aoide/sync/push",
+        Some(json!({ "deviceId": "phone", "ops": [op] })),
+    )
+    .await;
+    assert_eq!((status, &pushed["rejected"]), (StatusCode::OK, &json!([])));
+    let (_, body) = call(&f, &phone, "GET", "/api/v1/music/likes", None).await;
+    assert_eq!(body["albums"][0]["album"]["id"], 1);
+    assert_eq!(body["albums"][0]["liked_at"], 2);
 }
