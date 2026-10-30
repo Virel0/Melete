@@ -1,16 +1,18 @@
-// Your account: password, languages, signing in through an identity provider, sessions and API
+// Your account: password, languages, playback, signing in through an identity provider, sessions and API
 // keys, and Quick Connect for signing in another device. Every user has this page.
 
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
+import { playbackGroup } from "/web/playback-prefs.js";
 import { SignedOut, announce, api, h, oidcOutcome } from "/web/lib.js";
 
 export async function account(ctx) {
-  const [tokens, provider, link, languages] = await Promise.all([
+  const [tokens, provider, link, languages, playback] = await Promise.all([
     api("/auth/tokens"),
     api("/auth/oidc"),
     api("/auth/oidc/link"),
     languagesGroup(),
+    playbackGroup(),
   ]);
   if (!ctx.current()) return [];
 
@@ -24,6 +26,7 @@ export async function account(ctx) {
   return [
     group("Password", password),
     languages,
+    playback,
     linking,
     group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list),
     group("Quick Connect", h("p", { class: "note" }, "Sign in a TV or a new device without typing your password on it: choose Quick Connect there and enter the code it shows."), ...quick),
