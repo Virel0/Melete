@@ -1297,3 +1297,5 @@ async fn me_says_whether_the_user_sees_every_music_library() {
         .unwrap();
     assert_eq!(sees(viewer).await, json!(true));
 }
+
+mod during_scan;

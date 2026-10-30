@@ -255,3 +255,32 @@ async fn files_known_already_count_from_the_first_of_theirs() {
     );
     assert!((added[6].1 - now).abs() < 60, "never later than now");
 }
+
+/// Finding the files that took others' places looks each one's predecessors up by index: a
+/// join on the library compares every new file with every file of it, which over a large first
+/// scan kept the database locked for longer than anything else waits.
+#[tokio::test]
+async fn successors_are_looked_up_by_index() {
+    let pool = db::open_in_memory().await;
+    let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {}",
+        super::SUCCESSORS
+    )))
+    .bind(1)
+    .bind(2)
+    .bind(None::<&str>)
+    .bind(0)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let plan: Vec<String> = plan.into_iter().map(|row| row.3).collect();
+    let predecessors: Vec<&String> = plan.iter().filter(|step| step.contains(" o ")).collect();
+    assert_eq!(predecessors.len(), 2, "{plan:#?}");
+    for step in predecessors {
+        assert!(
+            step.contains("media_files_movie (movie_id=?)")
+                || step.contains("media_files_series (series_id=? AND season=? AND episode=?)"),
+            "{plan:#?}"
+        );
+    }
+}
