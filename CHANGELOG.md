@@ -20,6 +20,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   request hands over to the player's stage, so Skip and the next episode come along.
 - Manage's library pages show each title's own poster, as Watch does, and an album cover for
   each artist, instead of empty boxes.
+- An artist with some albums tagged with MusicBrainz ids and some not is listed once. Their old
+  address and pins lead to the artist they joined.
 
 ## [0.1.0] - 2026-10-29
 
