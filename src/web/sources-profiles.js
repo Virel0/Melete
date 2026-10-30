@@ -18,7 +18,7 @@ export async function profiles(ctx) {
   page.back = (message) => (message ? ctx.reload(message) : showList(page));
 
   const imports = sources.map((source) => importForm(ctx, source));
-  const anime = animeForm(ctx, sources);
+  const animePlace = ctx.service ? ANIME_PROFILE[ctx.service.key] : { title: "Anime profile", sources };
 
   const one = sources.length === 1;
   const formatsPart = group(
@@ -28,22 +28,26 @@ export async function profiles(ctx) {
   );
   // A Manage service shows its profiles and its custom formats as pages of their own
   // (`ctx.only`: "profiles" or "formats").
+  // Series and Anime each have their own profiles, though both score Sonarr's formats.
+  const services = ctx.service ? [ctx.service.key] : ["movies", "series", "anime"];
   const parts = [
-    ...sources.map((source) => group(source === "radarr" ? "Movie profiles" : "Series profiles", ...profileList(page, source))),
+    ...services.map((service) => group(PROFILES_OF[service], ...profileList(page, service))),
     formatsPart,
-    group(
-      "Anime profile",
-      h("p", { class: "note" }, "1080p, upgraded to 2160p when there is one; dual Japanese and English audio first, then English, then Japanese with English subtitles. Raws are refused."),
-      anime,
-    ),
+    animePlace
+      ? group(
+          animePlace.title,
+          h("p", { class: "note" }, "1080p, upgraded to 2160p when there is one; dual Japanese and English audio first, then English, then Japanese with English subtitles. Raws are refused."),
+          animeForm(ctx, animePlace.sources),
+        )
+      : null,
     ...sources.map((source, i) =>
       group(
         `Import from ${appName(source)}`,
-        h("p", { class: "note" }, i === 0 || one ? `Makes Melete's copies of ${appName(source)}'s profiles and formats match it. Profiles made or edited here are left alone.` : "The same, for Sonarr's."),
+        h("p", { class: "note" }, i === 0 || one ? `Makes Melete's copies of ${appName(source)}'s profiles and formats match it. Profiles made or edited here are left alone.` : "The same, for Sonarr's.", source === "sonarr" ? " Each of Sonarr's profiles goes where its series are: to Anime when only anime series name it, to Series otherwise, and to both when both do." : null),
         imports[i],
       ),
     ),
-  ];
+  ].filter(Boolean);
   page.listParts = ctx.only === "formats" ? [formatsPart] : ctx.only === "profiles" ? parts.filter((p) => p !== formatsPart) : parts;
   page.view.replaceChildren(...page.listParts);
   return [page.view];
@@ -62,12 +66,16 @@ function open(page, from, editor) {
   editor.scrollIntoView({ block: "start" });
 }
 
-// One kind's profiles, with New profile under them.
-function profileList(page, source) {
+// Each service's list of profiles, by its heading.
+const PROFILES_OF = { movies: "Movie profiles", series: "Series profiles", anime: "Anime profiles" };
+
+// One service's profiles, with New profile under them.
+function profileList(page, service) {
   const { ctx, all, formats } = page;
-  const items = all.filter((p) => p.source === source);
-  const make = h("button", { type: "button", class: "quiet" }, `New profile for ${FOR[source]}`);
-  make.addEventListener("click", () => open(page, make, profileEditor({ profile: blankProfile(source), formats, done: page.back, ctx })));
+  const source = service === "movies" ? "radarr" : "sonarr";
+  const items = all.filter((p) => p.service === service);
+  const make = h("button", { type: "button", class: "quiet" }, `New profile for ${service}`);
+  make.addEventListener("click", () => open(page, make, profileEditor({ profile: blankProfile(source, service), formats, done: page.back, ctx })));
   if (!items.length) return [h("p", { class: "status" }, `None yet. Make one, or import ${appName(source)}'s below.`), h("div", { class: "form-actions" }, make)];
   const list = h(
     "ul",
@@ -166,7 +174,7 @@ function formatList(page, source) {
         }),
       )
     : h("p", { class: "status" }, `None for ${FOR[source]} yet.`);
-  return h("div", { class: "subgroup" }, h("h3", {}, source === "radarr" ? "For movies" : "For series"), list, h("div", { class: "form-actions" }, make));
+  return h("div", { class: "subgroup" }, h("h3", {}, source === "radarr" ? "For movies" : "For series and anime"), list, h("div", { class: "form-actions" }, make));
 }
 
 // Importing Radarr's or Sonarr's profiles and custom formats.
@@ -182,7 +190,16 @@ function importForm(ctx, source) {
   });
 }
 
-// Making the anime profile, for series or movies, and choosing it for Sonarr's anime.
+// Where each service offers the anime profile: Anime for its series, with the choice of giving
+// it to every anime series; Movies for anime films, which have no such choice; Series not at
+// all, since anime series are Anime's. Outside a service (Settings), for either kind.
+const ANIME_PROFILE = {
+  anime: { title: "Anime profile", sources: ["sonarr"] },
+  movies: { title: "Anime profile for anime films", sources: ["radarr"] },
+  series: null,
+};
+
+// Making the anime profile, for Anime's series or for movies, and choosing it for every anime series.
 function animeForm(ctx, sources) {
   const animeFor = h("select", { id: "anime-source" }, sources.includes("sonarr") ? h("option", { value: "sonarr" }, "Series") : null, sources.includes("radarr") ? h("option", { value: "radarr" }, "Movies") : null);
   const applyBox = h("input", { type: "checkbox", id: "anime-apply" });
@@ -190,7 +207,7 @@ function animeForm(ctx, sources) {
     [
       // In an area there's one kind, so there's nothing to choose.
       sources.length > 1 ? { box: h("div", { class: "field" }, h("label", { for: "anime-source" }, "For"), animeFor), clear() {} } : null,
-      sources.includes("sonarr") ? { box: h("div", { class: "check" }, applyBox, h("label", { for: "anime-apply" }, "Also choose it for every wanted series Sonarr calls anime")), clear() {} } : null,
+      sources.includes("sonarr") ? { box: h("div", { class: "check" }, applyBox, h("label", { for: "anime-apply" }, "Also choose it for every wanted anime series")), clear() {} } : null,
     ].filter(Boolean),
     "Make the anime profile",
     async () => {

@@ -140,7 +140,7 @@ function toolbar(v, panel, said) {
 function editPanel(v, said) {
   const { t, kind } = v;
   const id = "title-profile";
-  const pick = h("select", { id }, h("option", { value: "" }, kind.profiles.source ? "The one the arr names, if any" : "The one Lidarr names, if any"), v.profiles.map((p) => h("option", { value: String(p.id), selected: p.id === t.profile_id }, p.name)));
+  const pick = h("select", { id }, h("option", { value: "" }, kind.profiles.service ? "The one the arr names, if any" : "The one Lidarr names, if any"), v.profiles.map((p) => h("option", { value: String(p.id), selected: p.id === t.profile_id }, p.name)));
   const save = h("button", { type: "submit" }, "Save");
   const result = h("p", { class: "form-result", role: "status" });
   const form = h("form", { class: "edit-title-form", novalidate: true }, h("h2", { class: "part", tabindex: "-1" }, "Edit"), h("div", { class: "field" }, h("label", { for: id }, "Profile"), pick), h("div", { class: "form-actions" }, save, result));
