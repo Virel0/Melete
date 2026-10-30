@@ -25,13 +25,17 @@ use crate::db::unix_now;
 use crate::deluge::TorrentFile;
 use crate::downloads::Pipeline;
 use crate::library::{AUDIO_EXTENSIONS, COVER_NAMES, IMAGE_EXTENSIONS};
+use crate::search::Target;
 use crate::seedbox::{Connection, Seedbox};
 
+mod again;
 mod copy;
 mod destination;
 mod picking;
 mod place;
+mod verify;
 
+pub use again::*;
 pub use copy::*;
 pub(crate) use destination::*;
 pub(crate) use picking::*;
@@ -58,6 +62,9 @@ pub(crate) enum Stop {
     Retry(String),
     /// Won't fix itself; the download is marked failed.
     Fail(String),
+    /// It doesn't run as long as the title it's for, or how long it runs can't be read: it's
+    /// held back (nothing placed, its part files gone), marked failed and blocklisted.
+    NotTheTitle(String),
 }
 
 impl From<std::io::Error> for Stop {
@@ -71,10 +78,27 @@ impl From<std::io::Error> for Stop {
     }
 }
 
-/// Copies finished downloads home for as long as the server runs.
+/// [`work_with`] without TMDB.
+#[cfg(test)]
 pub async fn work(pool: SqlitePool, pipeline: Arc<Pipeline>, fixes: Arc<Fixes>) {
+    work_with(pool, pipeline, fixes, None).await;
+}
+
+/// Copies finished downloads home for as long as the server runs, searching again (with TMDB
+/// when it's set up) for a title whose download proved not to be it.
+pub async fn work_with(
+    pool: SqlitePool,
+    pipeline: Arc<Pipeline>,
+    fixes: Arc<Fixes>,
+    tmdb: Option<Arc<crate::tmdb::Client>>,
+) {
     let Some(seedbox) = pipeline.seedbox.as_ref() else {
         return;
+    };
+    let sources = crate::fulfil::Sources {
+        tmdb,
+        slskd: None,
+        pipeline: Some(pipeline.clone()),
     };
     // A transfer cut off by a restart starts again, resuming its files.
     if let Err(err) =
@@ -89,7 +113,7 @@ pub async fn work(pool: SqlitePool, pipeline: Arc<Pipeline>, fixes: Arc<Fixes>) 
     loop {
         match next_due(&pool).await {
             Ok(Some(id)) => {
-                if let Err(err) = transfer(&pool, seedbox, Some(&fixes), id).await {
+                if let Err(err) = bring_home(&pool, seedbox, Some(&fixes), &sources, id).await {
                     // Don't leave it "transferring" until the next restart.
                     let _ = sqlx::query(
                         "UPDATE downloads SET state = 'completed', next_attempt_at = ? WHERE id = ? AND state = 'transferring'",
@@ -137,10 +161,26 @@ struct Row {
     wanted_movie_id: Option<i64>,
     wanted_series_id: Option<i64>,
     season: Option<i64>,
+    episode: Option<i64>,
     wanted_album_id: Option<i64>,
     save_path: Option<String>,
     files: Option<String>,
     attempts: i64,
+}
+
+impl Row {
+    /// The search the download was for: its movie, or its season or episode.
+    fn target(&self) -> Option<Target> {
+        match (self.wanted_movie_id, self.wanted_series_id, self.season) {
+            (Some(id), _, _) => Some(Target::Movie(id)),
+            (None, Some(id), Some(season)) => Some(Target::Series {
+                id,
+                season,
+                episode: self.episode,
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// Where a download goes and what's copied.
@@ -162,27 +202,38 @@ pub(crate) struct Planned {
     pub(crate) name: String,
 }
 
-/// Copies one finished download home, fixes an album's tracks when `fixes` is given, and
-/// records how it went.
+/// Copies one finished download home, checks a movie or episode runs as long as the title
+/// (with `fixes`' ffprobe) before it's put in place, fixes an album's tracks when `fixes` is
+/// given, and records how it went. Returns the title to search for again when the download
+/// proved not to be it.
 pub async fn transfer(
     pool: &SqlitePool,
     seedbox: &Seedbox,
     fixes: Option<&Fixes>,
     id: i64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<Target>> {
     let row: Option<Row> = sqlx::query_as(
-        "SELECT title, wanted_movie_id, wanted_series_id, season, wanted_album_id, save_path, files,
-                attempts
+        "SELECT title, wanted_movie_id, wanted_series_id, season, episode, wanted_album_id,
+                save_path, files, attempts
          FROM downloads WHERE id = ? AND state = 'completed'",
     )
     .bind(id)
     .fetch_optional(pool)
     .await?;
-    let Some(row) = row else { return Ok(()) };
+    let Some(row) = row else { return Ok(None) };
     let plan = match plan(pool, seedbox, &row).await? {
         Ok(plan) => plan,
-        Err(stop) => return finish(pool, id, row.attempts, Err(stop)).await,
+        Err(stop) => {
+            finish(pool, id, row.attempts, Err(stop)).await?;
+            return Ok(None);
+        }
     };
+    let check = verify::expected(pool, &row)
+        .await?
+        .map(|expected| verify::Check {
+            expected,
+            ffprobe: fixes.map(|f| f.tools.ffprobe.clone()),
+        });
     let claimed = sqlx::query(
         "UPDATE downloads SET state = 'transferring', message = 'connecting to the seedbox', updated_at = ?
          WHERE id = ? AND state = 'completed'",
@@ -193,22 +244,24 @@ pub async fn transfer(
     .await?
     .rows_affected();
     if claimed == 0 {
-        return Ok(());
+        return Ok(None);
     }
-    let outcome = match copy_all(pool, seedbox, id, &plan).await {
+    let outcome = match copy_all(pool, seedbox, id, &plan, check.as_ref()).await {
         Ok(()) => match (row.wanted_album_id, fixes) {
             (Some(album), Some(fixes)) => fix(pool, fixes, id, album, &plan).await,
             _ => Ok("in the library".to_owned()),
         },
         Err(stop) => Err(stop),
     };
+    let not_the_title = matches!(outcome, Err(Stop::NotTheTitle(_)));
     finish(
         pool,
         id,
         row.attempts,
         outcome.map(|note| (plan.dir.clone(), note)),
     )
-    .await
+    .await?;
+    Ok(not_the_title.then(|| row.target()).flatten())
 }
 
 /// Fixes the album's tracks just placed ([`album_fix`]), and only those, before the download
@@ -283,6 +336,19 @@ pub(crate) async fn finish(
             )
             .bind(now + wait)
             .bind(format!("{why}; trying again in {} minutes", wait / 60))
+            .bind(now)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        }
+        Err(Stop::NotTheTitle(why)) => {
+            crate::blocklist::add(pool, crate::blocklist::From::Download(id)).await?;
+            sqlx::query(
+                "UPDATE downloads SET state = 'failed', message = ?, updated_at = ? WHERE id = ?",
+            )
+            .bind(format!(
+                "not put in the library, as it may be another title: {why}; the release is blocklisted"
+            ))
             .bind(now)
             .bind(id)
             .execute(pool)

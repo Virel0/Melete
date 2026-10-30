@@ -204,10 +204,11 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
                 pool.clone(),
                 pipeline.clone(),
             )));
-            tasks.push(tokio::spawn(transfer::work(
+            tasks.push(tokio::spawn(transfer::work_with(
                 pool.clone(),
                 pipeline.clone(),
                 built.fixes.clone(),
+                built.tmdb.clone(),
             )));
         }
         None => tracing::info!("downloads are off; MELETE_DOWNLOADS=on turns them on"),
