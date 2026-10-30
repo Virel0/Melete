@@ -2188,7 +2188,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `latest_shows`, `latest_anime` and `latest_movies` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Nothing leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `because_you_watched` (one row for each of the 3 titles you finished most recently, newest first, an episode counting as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_shows`, `latest_anime` and `latest_movies` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, and the decade; a title has to share a collection, a genre or a person. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
         "responses": {
           "200": {
             "description": "OK",
@@ -11971,10 +11971,22 @@
       },
       "WatchHomeRow": {
         "type": "object",
-        "required": ["key", "items"],
+        "required": ["key", "seed", "items"],
         "properties": {
           "key": {
-            "enum": ["continue_watching", "next_up", "favourites", "latest_shows", "latest_anime", "latest_movies"]
+            "enum": ["continue_watching", "next_up", "favourites", "because_you_watched", "latest_shows", "latest_anime", "latest_movies"],
+            "description": "`because_you_watched` comes up to three times, one row for each title in its `seed`; every other key once at most."
+          },
+          "seed": {
+            "type": ["object", "null"],
+            "required": ["kind", "id", "title"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The movie's or series' id."},
+              "title": {"type": "string"}
+            },
+            "additionalProperties": false,
+            "description": "For `because_you_watched`: the title the row's titles are like, one you finished (an episode counts as its series). Null for every other row."
           },
           "items": {
             "type": "array",

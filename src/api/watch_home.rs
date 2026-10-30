@@ -1,6 +1,6 @@
 //! The Watch home in one request, as `/music/home` is for music: the hero's picks, then rows of
-//! titles (continue watching, next up, favourites, and the newest shows, anime and movies), each
-//! title with
+//! titles (continue watching, next up, favourites, "because you watched …" for the titles the
+//! user finished most recently, and the newest shows, anime and movies), each title with
 //! what a tile, a spotlight or the hero shows of it. A row with nothing in it is left out.
 //!
 //! Only what the user may see is there (`crate::access`).
@@ -26,6 +26,7 @@ use super::media::{Exclusions, anime_sql};
 use super::title_artwork::{ArtworkState, extras};
 use crate::access::Access;
 
+mod because;
 mod cards;
 
 use cards::*;
@@ -39,19 +40,38 @@ const HERO: usize = 8;
 struct HomeState {
     pool: SqlitePool,
     artwork: ArtworkState,
+    outside: because::Outside,
 }
 
 /// The Watch home route, for everyone signed in. `artwork` works out the hero's textless
-/// backdrops, logos and focal points.
+/// backdrops, logos and focal points, with TMDB when it's set up, which also recommends titles
+/// like those the user finished while trending and similar titles are on.
 pub(super) fn routes(pool: SqlitePool, artwork: ArtworkState) -> Router {
+    let tmdb = artwork.tmdb();
+    routes_with(pool, artwork, tmdb)
+}
+
+fn routes_with(
+    pool: SqlitePool,
+    artwork: ArtworkState,
+    tmdb: Option<Arc<crate::tmdb::Client>>,
+) -> Router {
     let auth = AppState {
         pool: pool.clone(),
         limiter: Arc::default(),
     };
+    let outside = because::Outside {
+        tmdb,
+        recommended: Arc::default(),
+    };
     Router::new()
         .route("/api/v1/home", get(home))
         .route_layer(middleware::from_fn_with_state(auth, require_user))
-        .with_state(HomeState { pool, artwork })
+        .with_state(HomeState {
+            pool,
+            artwork,
+            outside,
+        })
 }
 
 /// A title in a row: which one, and what the row says about it beyond the title itself.
@@ -87,6 +107,7 @@ async fn home(
     let shows = latest_series(pool, access, false).await?;
     let anime = latest_series(pool, access, true).await?;
     let movies = latest_movies(pool, access).await?;
+    let because = because::rows(pool, &state.outside, me, access).await?;
 
     // The hero: what's being watched first, then the newest of everything.
     let mut newest: Vec<&(TitleRef, i64)> = shows.iter().chain(&anime).chain(&movies).collect();
@@ -111,7 +132,9 @@ async fn home(
     let wanted: Vec<TitleRef> = hero
         .iter()
         .chain(rows.iter().flat_map(|(_, entries)| entries))
+        .chain(because.iter().flat_map(|(_, entries)| entries))
         .map(|e| e.title)
+        .chain(because.iter().map(|(seed, _)| *seed))
         .collect();
     let mut cards = Cards::load(pool, me, access, &wanted).await?;
     // The hero's artwork as a title's details give it, picked and worked out if it's due.
@@ -129,14 +152,38 @@ async fn home(
     let item = |e: &Entry| cards.item(e);
     Ok(Json(json!({
         "hero": hero.iter().filter_map(item).collect::<Vec<_>>(),
-        "rows": rows
-            .iter()
-            .filter_map(|(key, entries)| {
-                let items: Vec<Value> = entries.iter().filter_map(item).collect();
-                (!items.is_empty()).then(|| json!({ "key": key, "items": items }))
-            })
-            .collect::<Vec<_>>(),
+        "rows": rows_json(&cards, &rows, &because),
     })))
+}
+
+/// The rows as the answer gives them, the "because you watched" ones after the user's own
+/// (continue watching, next up, favourites); each left out when nothing in it is there to
+/// show, and a "because you watched" one also when its title isn't.
+fn rows_json(
+    cards: &Cards,
+    rows: &[(&str, Vec<Entry>)],
+    because: &[(TitleRef, Vec<Entry>)],
+) -> Vec<Value> {
+    let row = |key: &str, seed: Value, entries: &[Entry]| {
+        let items: Vec<Value> = entries.iter().filter_map(|e| cards.item(e)).collect();
+        (!items.is_empty()).then(|| json!({ "key": key, "seed": seed, "items": items }))
+    };
+    let alike = || {
+        because.iter().filter_map(|(title, entries)| {
+            let card = cards.item(&Entry::plain(*title))?;
+            let seed = json!({ "kind": card["kind"], "id": card["id"], "title": card["title"] });
+            row("because_you_watched", seed, entries)
+        })
+    };
+    let (own, rest): (Vec<_>, Vec<_>) = rows
+        .iter()
+        .partition(|(key, _)| matches!(*key, "continue_watching" | "next_up" | "favourites"));
+    let draw = |(key, entries): &&(&str, Vec<Entry>)| row(key, Value::Null, entries);
+    own.iter()
+        .filter_map(draw)
+        .chain(alike())
+        .chain(rest.iter().filter_map(draw))
+        .collect()
 }
 
 fn plain(titles: &[(TitleRef, i64)]) -> Vec<Entry> {
