@@ -29,6 +29,7 @@ use crate::search::Target;
 use crate::seedbox::{Connection, Seedbox};
 
 mod again;
+mod cleanup;
 mod copy;
 mod destination;
 mod picking;
@@ -36,6 +37,7 @@ mod place;
 mod verify;
 
 pub use again::*;
+use cleanup::*;
 pub use copy::*;
 pub(crate) use destination::*;
 pub(crate) use picking::*;
@@ -65,6 +67,10 @@ pub(crate) enum Stop {
     /// It doesn't run as long as the title it's for, or how long it runs can't be read: it's
     /// held back (nothing placed, its part files gone), marked failed and blocklisted.
     NotTheTitle(String),
+    /// Not the title, but an earlier try already put some of its files in the library: nothing
+    /// more is placed, those stay, and it's marked failed and blocklisted for an admin to check,
+    /// without searching again.
+    Held(String),
 }
 
 impl From<std::io::Error> for Stop {
@@ -254,6 +260,13 @@ pub async fn transfer(
         Err(stop) => Err(stop),
     };
     let not_the_title = matches!(outcome, Err(Stop::NotTheTitle(_)));
+    // What won't be retried leaves no part files, and no empty folders it made.
+    if matches!(
+        outcome,
+        Err(Stop::Fail(_) | Stop::NotTheTitle(_) | Stop::Held(_))
+    ) {
+        clean_up(pool, id).await;
+    }
     finish(
         pool,
         id,
@@ -341,14 +354,20 @@ pub(crate) async fn finish(
             .execute(pool)
             .await?;
         }
-        Err(Stop::NotTheTitle(why)) => {
+        Err(stop @ (Stop::NotTheTitle(_) | Stop::Held(_))) => {
             crate::blocklist::add(pool, crate::blocklist::From::Download(id)).await?;
+            let message = match stop {
+                Stop::Held(why) => format!(
+                    "nothing more put in the library, as it may be another title: {why}; the release is blocklisted"
+                ),
+                Stop::NotTheTitle(why) | Stop::Retry(why) | Stop::Fail(why) => format!(
+                    "not put in the library, as it may be another title: {why}; the release is blocklisted"
+                ),
+            };
             sqlx::query(
                 "UPDATE downloads SET state = 'failed', message = ?, updated_at = ? WHERE id = ?",
             )
-            .bind(format!(
-                "not put in the library, as it may be another title: {why}; the release is blocklisted"
-            ))
+            .bind(message)
             .bind(now)
             .bind(id)
             .execute(pool)

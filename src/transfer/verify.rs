@@ -171,14 +171,13 @@ fn unreadable(name: &str, why: &str) -> Stop {
     Stop::NotTheTitle(format!("couldn't read how long {name} runs ({why})"))
 }
 
-/// A movie matches when its longest video does (extras beside the film), or all of them together
-/// do (a film in parts).
+/// A movie matches when its longest video does on its own: extras may sit beside the film, but
+/// videos never add up to it (a film in parts is held back).
 fn movie_matches(durations: &[(&str, f64)], film: f64, longer_cut: bool) -> Result<(), Stop> {
     let Some(&(name, longest)) = durations.iter().max_by(|a, b| a.1.total_cmp(&b.1)) else {
         return Ok(());
     };
-    let all: f64 = durations.iter().map(|(_, s)| s).sum();
-    if movie_fits(longest, film, longer_cut) || movie_fits(all, film, longer_cut) {
+    if movie_fits(longest, film, longer_cut) {
         return Ok(());
     }
     Err(Stop::NotTheTitle(format!(
@@ -189,8 +188,9 @@ fn movie_matches(durations: &[(&str, f64)], film: f64, longer_cut: bool) -> Resu
 }
 
 /// Each video whose episodes are known, by its own name or else the release's when it's the
-/// only video, must run as long as they do together. A video whose episodes or their runtimes
-/// aren't known isn't judged.
+/// only video, must run as long as they do together; one whose runtimes TMDB lacks isn't judged.
+/// Among several videos, one whose name says no episode of the season is held back: it can't be
+/// told apart from another film.
 fn episodes_match(
     durations: &[(&str, f64)],
     season: i64,
@@ -201,7 +201,12 @@ fn episodes_match(
     for &(name, seconds) in durations {
         let parsed = release::parse(name).episodes;
         let Some(episodes) = episodes_of(&parsed, release, season, only) else {
-            continue;
+            if only {
+                continue;
+            }
+            return Err(Stop::NotTheTitle(format!(
+                "{name}'s name doesn't say which episode of season {season} it is, so it can't be checked"
+            )));
         };
         let Some(expected) = episodes
             .iter()
@@ -255,15 +260,10 @@ fn episodes_of<'a>(
     .filter(|e| !e.is_empty())
 }
 
-/// Checks the copied videos run as long as the title; one that doesn't is held back: its part
-/// files deleted, and the folders this copy made if that leaves them empty.
-pub(super) async fn check_staged(
-    pool: &SqlitePool,
-    id: i64,
-    check: &Check,
-    staged: &[Staged],
-    created: Vec<PathBuf>,
-) -> Result<(), Stop> {
+/// Checks the copied videos run as long as the title. When one doesn't and an earlier try already
+/// put some of the download's files in the library, it's held for an admin, naming them: nothing
+/// more is placed, and what's there stays until someone looks.
+pub(super) async fn check_staged(check: &Check, staged: &[Staged]) -> Result<(), Stop> {
     let videos: Vec<Video> = staged
         .iter()
         .filter(|s| has_extension(&s.name, VIDEO))
@@ -272,46 +272,19 @@ pub(super) async fn check_staged(
             path: s.partial.as_deref().unwrap_or(&s.target),
         })
         .collect();
-    let checked = self::check(check, &videos).await;
-    if let Err(Stop::NotTheTitle(_)) = &checked {
-        hold_back(pool, id, staged, created).await;
-    }
-    checked
-}
-
-/// Deletes a held-back download's part files and the empty folders its copy made; what it can't
-/// is logged (scans skip part files).
-async fn hold_back(pool: &SqlitePool, id: i64, staged: &[Staged], created: Vec<PathBuf>) {
-    let partials: Vec<String> = staged
+    let placed: Vec<String> = staged
         .iter()
-        .filter_map(|s| s.partial.as_ref())
-        .map(|p| p.to_string_lossy().into_owned())
+        .filter(|s| s.partial.is_none())
+        .map(|s| s.target.display().to_string())
         .collect();
-    match delete_partials(pool, id, &partials).await {
-        Ok((_, left)) if !left.is_empty() => {
-            tracing::warn!(
-                download = id,
-                ?left,
-                "left a held-back download's part files"
-            );
-        }
-        Ok(_) => {}
-        Err(err) => tracing::warn!(
-            download = id,
-            error = format!("{err:#}"),
-            "couldn't delete a held-back download's part files"
-        ),
+    match self::check(check, &videos).await {
+        Err(Stop::NotTheTitle(why)) if !placed.is_empty() => Err(Stop::Held(format!(
+            "{why}; an earlier try already put {} in the library, so it's held for an admin to check {}",
+            placed.join(", "),
+            if placed.len() == 1 { "it" } else { "them" }
+        ))),
+        checked => checked,
     }
-    // Only empty folders go: remove_dir fails on anything else.
-    let _ = blocking(move || {
-        for dir in created {
-            if std::fs::remove_dir(&dir).is_err() {
-                break;
-            }
-        }
-        Ok(())
-    })
-    .await;
 }
 
 #[cfg(test)]

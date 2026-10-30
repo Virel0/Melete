@@ -7,7 +7,7 @@ use crate::profiles::{self, App};
 use crate::rss::tests::{indexer, releases, want_dune};
 
 /// A `seconds`-long video, tiny and quick to make: 32x32 black at one frame a second.
-fn clip(seconds: u32) -> Vec<u8> {
+pub(super) fn clip(seconds: u32) -> Vec<u8> {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("clip.mkv");
     let status = std::process::Command::new("ffmpeg")
@@ -30,7 +30,7 @@ fn clip(seconds: u32) -> Vec<u8> {
     std::fs::read(path).unwrap()
 }
 
-fn fixes() -> Fixes {
+pub(super) fn fixes() -> Fixes {
     Fixes {
         tools: crate::sound::Tools {
             ffmpeg: "ffmpeg".into(),
@@ -43,7 +43,7 @@ fn fixes() -> Fixes {
 
 impl Rig {
     /// A finished download of `title` for wanted movie `movie`, holding `files`.
-    async fn movie_download(&self, movie: i64, title: &str, files: &str) -> i64 {
+    pub(super) async fn movie_download(&self, movie: i64, title: &str, files: &str) -> i64 {
         sqlx::query_scalar(
             "INSERT INTO downloads (infohash, title, wanted_movie_id, decision, state, save_path,
                  files, added_at, updated_at, completed_at)
@@ -60,7 +60,7 @@ impl Rig {
     }
 
     /// TMDB's runtime for the wanted movie, in minutes.
-    async fn runtime(&self, movie: i64, minutes: i64) {
+    pub(super) async fn runtime(&self, movie: i64, minutes: i64) {
         sqlx::query(
             "INSERT INTO tmdb_movies (tmdb_id, title, runtime_minutes, fetched_at)
              SELECT tmdb_id, title, ?, 0 FROM wanted_movies WHERE id = ?",
@@ -72,7 +72,7 @@ impl Rig {
         .unwrap();
     }
 
-    async fn blocklisted(&self) -> Vec<String> {
+    pub(super) async fn blocklisted(&self) -> Vec<String> {
         sqlx::query_scalar("SELECT title FROM blocklist ORDER BY id")
             .fetch_all(&self.pool)
             .await
@@ -80,7 +80,7 @@ impl Rig {
     }
 
     /// What's in the movies library besides the marker that it's mounted.
-    fn movies(&self) -> Vec<String> {
+    pub(super) fn movies(&self) -> Vec<String> {
         tree(&self.local.path().join("movies"))
             .into_iter()
             .filter(|f| f != ".keep")
