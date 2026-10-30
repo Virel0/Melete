@@ -42,6 +42,10 @@ async fn health(State(state): State<HealthState>) -> Result<Json<Health>, ApiErr
     if let Some(reason) = state.transcoder.as_ref().and_then(|t| t.gpu_problem()) {
         admin_health::gpu_unavailable(&mut health, &reason);
     }
+    // TMDB matching's runs since startup are known to its task, not the database.
+    if let Some(finding) = crate::tmdb_status::finding(&crate::tmdb_status::current()) {
+        admin_health::system_problem(&mut health, finding);
+    }
     Ok(Json(health))
 }
 

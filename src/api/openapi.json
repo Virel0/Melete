@@ -2510,6 +2510,16 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Quality profiles",
+        "description": "Every quality profile, or one Manage service's: Movies has Radarr's, and Series and Anime each have their own, though both score Sonarr's custom formats.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Only this service's profiles.",
+            "schema": {"enum": ["movies", "series", "anime"]}
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -2518,6 +2528,10 @@
                 "schema": {"type": "array", "items": {"$ref": "#/components/schemas/QualityProfile"}}
               }
             }
+          },
+          "400": {
+            "description": "service isn't movies, series or anime",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"}
@@ -4517,7 +4531,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Choose the quality profile a wanted series is searched and grabbed with",
-        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one.",
+        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one. The profile must be one of the series' own service's (its `service`: Anime's for an anime series, Series' for the rest); another is refused (422).",
         "parameters": [
           {
             "name": "id",
@@ -4563,7 +4577,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Make the anime quality profile",
-        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source.",
+        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source. The series one is Anime's (service anime); the movies one is Movies'.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4576,7 +4590,7 @@
                   "apply_to_anime": {
                     "type": "boolean",
                     "default": false,
-                    "description": "For sonarr: also choose it for every wanted series Sonarr calls anime."
+                    "description": "For sonarr: also choose it for every wanted series under Anime (wanted as anime, or in a library with the anime category)."
                   }
                 }
               }
@@ -8495,7 +8509,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What needs attention in each admin area",
-        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Worked out from the database when asked, and from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU); nothing outside the server is contacted.",
+        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), and from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs); nothing outside the server is contacted.",
         "responses": {
           "200": {
             "description": "OK",
@@ -8531,7 +8545,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "The background tasks, how they last went and when they run next",
-        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between.",
+        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between. TMDB matching (tmdb-matching) runs after each scan and when asked, while TMDB is set up; its result counts the titles matched and those that need a match, and says in plain words what went wrong (TMDB refused the token, asked for fewer requests, or no request went through).",
         "responses": {
           "200": {
             "description": "OK",
@@ -8562,6 +8576,7 @@
             "schema": {
               "enum": [
                 "library",
+                "tmdb-matching",
                 "music-matching",
                 "music-analysis",
                 "segments",
@@ -12492,6 +12507,7 @@
         "required": [
           "id",
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -12508,6 +12524,10 @@
           "source": {
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series (the app it was imported from, or the kind of titles it's for)."
+          },
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr. Series and Anime have profiles of their own; a series takes one of its own service's."
           },
           "name": {"type": "string"},
           "upgrade_allowed": {"type": "boolean"},
@@ -13160,6 +13180,7 @@
         "type": "object",
         "required": [
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -13175,7 +13196,11 @@
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series; it can't change later."
           },
-          "name": {"type": "string", "description": "1-100 characters, unique for its source."},
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr (Series and Anime have profiles of their own); it can't change later. A client that predates it may leave it out: a new profile is then movies' or series', and a change keeps the profile's."
+          },
+          "name": {"type": "string", "description": "1-100 characters, unique within its service."},
           "upgrade_allowed": {"type": "boolean"},
           "cutoff": {"type": "string", "description": "The name of an allowed item: upgrades stop there."},
           "min_format_score": {"type": "integer"},
@@ -16069,7 +16094,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "fields"],
+        "required": ["key", "name", "about", "on", "needs", "fields"],
         "properties": {
           "key": {
             "type": "string",
@@ -16099,7 +16124,12 @@
           },
           "name": {"type": "string"},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
-          "on": {"type": "boolean", "description": "Whether it's in use as things stand."},
+          "on": {"type": "boolean", "description": "Whether it's in use as things stand: never while the service it needs is off."},
+          "needs": {
+            "type": ["string", "null"],
+            "enum": ["tmdb", null],
+            "description": "The service it only works with, by key (trending and similar titles and trailers online need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
+          },
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
         },
         "additionalProperties": false
@@ -16538,7 +16568,11 @@
               "opensubtitles_used_up",
               "backup_failed",
               "backup_old",
-              "disk_nearly_full"
+              "disk_nearly_full",
+              "tmdb_off",
+              "tmdb_refused",
+              "tmdb_failing",
+              "titles_unmatched"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -16635,6 +16669,7 @@
           "name": {
             "enum": [
               "library",
+              "tmdb-matching",
               "music-matching",
               "music-analysis",
               "segments",
