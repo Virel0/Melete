@@ -4653,6 +4653,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artist, their albums and the albums they appear on",
+        "description": "An artist known only by name whose albums joined the one MusicBrainz artist of the same name (one of their albums tagged with MusicBrainz ids, another not) answers as that artist, so old links and pins still lead somewhere: the answer's `id` is the artist's now.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Artist id.", "schema": {"type": "integer"}}
         ],
