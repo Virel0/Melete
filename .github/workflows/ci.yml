@@ -44,10 +44,23 @@ jobs:
           rustc --version
 
       - name: Install ffmpeg and shellcheck
+        # The ffmpeg the container ships (jellyfin-ffmpeg, from Jellyfin's repository, the same
+        # version as the Dockerfile's): the transcoding tests depend on its options and on how it
+        # cuts segments, which older builds do differently. The key file must hold exactly one
+        # key, the Jellyfin Team's.
+        env:
+          JELLYFIN_KEY_FINGERPRINT: 4918AABC486CA052358D778D49023CD01DE21A7B
         run: |
+          curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key -o "$RUNNER_TEMP/jellyfin.asc"
+          gpg --show-keys --with-colons "$RUNNER_TEMP/jellyfin.asc" \
+            | awk -F: '/^pub/ { keys++ } /^fpr/ && !fpr { fpr = $10 } END { exit !(keys == 1 && fpr == ENVIRON["JELLYFIN_KEY_FINGERPRINT"]) }'
+          sudo gpg --dearmor -o /usr/share/keyrings/jellyfin.gpg "$RUNNER_TEMP/jellyfin.asc"
+          echo "deb [signed-by=/usr/share/keyrings/jellyfin.gpg] https://repo.jellyfin.org/ubuntu noble main" \
+            | sudo tee /etc/apt/sources.list.d/jellyfin.list > /dev/null
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg shellcheck
-          ffmpeg -hide_banner -version | head -n 1
+          sudo apt-get install -y --no-install-recommends jellyfin-ffmpeg8=8.1.3-1-noble shellcheck
+          echo /usr/lib/jellyfin-ffmpeg >> "$GITHUB_PATH"
+          /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -version | head -n 1
 
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
