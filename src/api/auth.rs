@@ -19,10 +19,12 @@ use super::ApiError;
 pub(super) use super::bad_request;
 use crate::auth::{self, LoginLimiter, Scope, TokenKind, User};
 use crate::quick_connect::{self, LookupError, Poll, QuickConnect, StartError};
+use crate::two_factor;
 use crate::ways_in::{ClientAddr, Opens, Part};
 
 mod account;
 mod quick;
+mod second_factor;
 mod signing_in;
 mod users;
 
@@ -65,7 +67,15 @@ struct QuickState {
 pub fn routes(state: AppState, quick: Arc<QuickConnect>) -> Router {
     let public = Router::new()
         .route("/api/v1/auth/login", post(login))
-        .route("/api/v1/auth/web-login", post(web_login));
+        .route("/api/v1/auth/web-login", post(web_login))
+        .route(
+            "/api/v1/auth/login/second-factor",
+            post(second_factor::login_code),
+        )
+        .route(
+            "/api/v1/auth/web-login/second-factor",
+            post(second_factor::web_login_code),
+        );
     let quick = QuickState {
         auth: state.clone(),
         quick,
@@ -84,6 +94,13 @@ pub fn routes(state: AppState, quick: Arc<QuickConnect>) -> Router {
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/me", get(me))
         .route("/api/v1/me/password", put(change_password))
+        .route("/api/v1/me/two-factor", get(second_factor::status))
+        .route("/api/v1/me/two-factor/setup", post(second_factor::setup))
+        .route(
+            "/api/v1/me/two-factor/confirm",
+            post(second_factor::confirm),
+        )
+        .route("/api/v1/me/two-factor/off", post(second_factor::turn_off))
         .route("/api/v1/auth/tokens", get(list_tokens))
         .route("/api/v1/auth/tokens/{id}", delete(revoke_token))
         .route("/api/v1/auth/keys", post(create_key))
