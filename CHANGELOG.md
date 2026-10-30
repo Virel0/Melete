@@ -13,6 +13,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   neighbour, nor does the music queue, the AI search or a Soulseek download's Remove.
 - Double-clicking the picture takes the player full screen, and the video's own full-screen
   request hands over to the player's stage, so Skip and the next episode come along.
+- Manage's library pages show each title's own poster, as Watch does, and an album cover for
+  each artist, instead of empty boxes.
 
 ## [0.1.0] - 2026-10-29
 

@@ -16355,7 +16355,7 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {"type": ["string", "null"], "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."},
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16432,7 +16432,7 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {"type": ["string", "null"], "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."},
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16513,7 +16513,7 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {"type": ["string", "null"], "description": "A picture for the artist: the cover (GET /api/v1/music/albums/{id}/cover) of the first of their albums on disk that has one of its own, in its folder or in a track. Null when none has."},
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
