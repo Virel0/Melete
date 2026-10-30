@@ -8772,7 +8772,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What happened to the service's titles, newest first",
-        "description": "Searched (a search made for it: by hand, for a request, or searching everything missing or below its cutoff; an RSS sync's are kept with the sync), grabbed, imported, failed, upgraded (a file a confirmed upgrade replaced, put in the trash), taken off the wanted list (by hand or by an import that no longer lists it), blocklisted, an extra (a trailer, a featurette) found in its folder, and a file renamed or replaced by another tool (taking an old one's place, as a scan finds it). The database writes each where the thing is recorded, so nothing that grabs, imports or removes can miss it. A title's history is kept by the id imports know it by, so it outlasts being taken off and put back. Kept a year.",
+        "description": "Searched (a search made for it: by hand, for a request, or searching everything missing or below its cutoff; an RSS sync's are kept with the sync), grabbed, imported, failed, upgraded (a file a confirmed upgrade replaced, put in the trash), taken off the wanted list (by hand or by an import that no longer lists it), blocklisted, an extra (a trailer, a featurette) found in its folder, a file renamed or replaced by another tool (taking an old one's place, as a scan finds it), and an imported torrent removed from Deluge (when Outside services → Deluge says to; `message` says whether its data went too). The database writes each where the thing is recorded, so nothing that grabs, imports or removes can miss it. A title's history is kept by the id imports know it by, so it outlasts being taken off and put back. Kept a year.",
         "parameters": [
           {
             "name": "service",
@@ -8796,7 +8796,8 @@
                 "taken_off",
                 "blocklisted",
                 "extra_found",
-                "renamed"
+                "renamed",
+                "removed_from_deluge"
               ]
             }
           },
@@ -16892,7 +16893,8 @@
               "taken_off",
               "blocklisted",
               "extra_found",
-              "renamed"
+              "renamed",
+              "removed_from_deluge"
             ]
           },
           "title": {
@@ -16909,7 +16911,7 @@
           },
           "message": {
             "type": ["string", "null"],
-            "description": "The latest word on it: a search's result count, a download's source, why it failed, what replaced a file, an extra's kind, or the file a renamed one took the place of."
+            "description": "The latest word on it: a search's result count, a download's source, why it failed, what replaced a file, an extra's kind, the file a renamed one took the place of, or whether a torrent removed from Deluge took its data with it."
           }
         },
         "additionalProperties": false

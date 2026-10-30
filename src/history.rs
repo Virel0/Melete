@@ -7,7 +7,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 /// The kinds of event.
-pub const KINDS: [&str; 9] = [
+pub const KINDS: [&str; 10] = [
     "searched",
     "grabbed",
     "imported",
@@ -17,6 +17,7 @@ pub const KINDS: [&str; 9] = [
     "blocklisted",
     "extra_found",
     "renamed",
+    "removed_from_deluge",
 ];
 
 /// A managed service, as its history is kept: its name there, and which wanted titles are its

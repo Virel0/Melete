@@ -1,5 +1,6 @@
 // A title's history on its Manage page: what happened to it, newest first (searched, grabbed,
-// imported, failed, upgraded, taken off, blocklisted, an extra found, a file renamed), and its
+// imported, failed, upgraded, taken off, blocklisted, an extra found, a file renamed, removed
+// from Deluge once imported), and its
 // searches still kept, each of whose results can be shown again without searching.
 
 import { when } from "/web/forms.js";
@@ -18,6 +19,7 @@ export const EVENTS = {
   blocklisted: ["Blocklisted", "failed"],
   extra_found: ["Extra found", "have"],
   renamed: ["Renamed or replaced", "off"],
+  removed_from_deluge: ["Removed from Deluge", "off"],
 };
 
 const PAGE = 25;

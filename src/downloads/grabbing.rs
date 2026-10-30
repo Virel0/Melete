@@ -142,8 +142,9 @@ async fn add_to_deluge(
     Ok(Ok((hash, message)))
 }
 
-/// Records the download, with what it would replace in the library; None when another grab of
-/// the same torrent recorded it first.
+/// Records the download, with what it would replace in the library, and whether Melete added it
+/// to Deluge (no `message` saying it was there already); None when another grab of the same
+/// torrent recorded it first.
 async fn insert_download(
     pool: &SqlitePool,
     row: &ReleaseRow,
@@ -162,8 +163,8 @@ async fn insert_download(
     let now = unix_now();
     let id: Option<i64> = sqlx::query_scalar(
         "INSERT INTO downloads (infohash, title, wanted_movie_id, wanted_series_id, wanted_album_id,
-             season, episode, decision, state, message, added_at, updated_at, replaces)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?)
+             season, episode, decision, state, message, added_at, updated_at, replaces, added_here)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?, ?)
          ON CONFLICT (infohash) DO NOTHING
          RETURNING id",
     )
@@ -179,6 +180,7 @@ async fn insert_download(
     .bind(now)
     .bind(now)
     .bind(serde_json::to_string(&replaces)?)
+    .bind(message.is_none())
     .fetch_optional(pool)
     .await?;
     Ok(id)
