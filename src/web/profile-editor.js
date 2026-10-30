@@ -17,7 +17,8 @@ export const QUALITIES = [
   "WEBDL-2160p", "WEBRip-2160p", "Bluray-2160p", "Remux-2160p", "BR-DISK", "Raw-HD",
 ];
 
-export const FOR = { radarr: "movies", sonarr: "series" };
+// Whose titles each app's custom formats are for: Series and Anime share Sonarr's.
+export const FOR = { radarr: "movies", sonarr: "series and anime" };
 
 // A whole number, or null when the box doesn't hold one.
 function whole(input) {
@@ -29,9 +30,10 @@ function whole(input) {
 // ---------- Profiles ----------
 
 // A profile to start a new one from: every quality, none allowed yet.
-export function blankProfile(source) {
+export function blankProfile(source, service = source === "radarr" ? "movies" : "series") {
   return {
     source,
+    service,
     name: "",
     upgrade_allowed: true,
     cutoff: "",
@@ -48,7 +50,7 @@ export function blankProfile(source) {
 // custom formats there are; `done(message)` goes back to the list, null for unchanged.
 export function profileEditor({ profile, formats, done, ctx }) {
   const editing = profile.id !== undefined;
-  const name = field(uid("profile-name"), "Name", h("input", { value: profile.name, autocomplete: "off" }), "Unique among the profiles for " + FOR[profile.source] + ".");
+  const name = field(uid("profile-name"), "Name", h("input", { value: profile.name, autocomplete: "off" }), "Unique among the profiles for " + profile.service + ".");
   const upgrades = check(uid("profile-upgrades"), "Upgrade files until they reach the cutoff", profile.upgrade_allowed);
   const q = qualityEditor(profile);
   const scores = scoreFields(profile);
@@ -59,7 +61,7 @@ export function profileEditor({ profile, formats, done, ctx }) {
   const formEl = h(
     "form",
     { novalidate: true, class: "editor" },
-    h("h2", {}, editing ? `Edit ${profile.name}` : `New profile for ${FOR[profile.source]}`),
+    h("h2", {}, editing ? `Edit ${profile.name}` : `New profile for ${profile.service}`),
     editing && profile.origin === "imported" ? h("p", { class: "note" }, "Once saved here it's Melete's own: importing from " + (profile.source === "radarr" ? "Radarr" : "Sonarr") + " again leaves it alone.") : null,
     name.box,
     h("h3", {}, "Qualities"),
@@ -273,6 +275,7 @@ function readProfile(profile, { name, upgrades, q, scores, scoreInputs, foot }) 
   const { minScore, cutoffScore, stepScore, language } = scores;
   const body = {
     source: profile.source,
+    service: profile.service,
     name: name.input.value.trim(),
     upgrade_allowed: upgrades.box.checked,
     cutoff: q.cutoff.value,

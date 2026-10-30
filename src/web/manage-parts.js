@@ -145,7 +145,7 @@ export const KINDS = {
   movies: {
     list: "/manage/movies",
     wanted: "/wanted/movies",
-    profiles: { path: "/profiles", source: "radarr" },
+    profiles: { path: "/profiles", service: "movies" },
     area: "movies",
     upgrades: true,
     one: "movie",
@@ -155,7 +155,7 @@ export const KINDS = {
   series: {
     list: "/manage/series",
     wanted: "/wanted/series",
-    profiles: { path: "/profiles", source: "sonarr" },
+    profiles: { path: "/profiles", service: "series" },
     area: "series",
     upgrades: true,
     one: "series",
@@ -165,7 +165,7 @@ export const KINDS = {
   anime: {
     list: "/manage/anime",
     wanted: "/wanted/series",
-    profiles: { path: "/profiles", source: "sonarr" },
+    profiles: { path: "/profiles", service: "anime" },
     area: "series",
     upgrades: true,
     one: "series",
@@ -184,10 +184,10 @@ export const KINDS = {
   },
 };
 
-// The profiles a service's titles can be given: [{ id, name }].
+// The profiles a service's titles can be given: [{ id, name }]. Series and Anime each have their own.
 export async function profilesFor(kind) {
   const all = await api(kind.profiles.path);
-  return all.filter((p) => !kind.profiles.source || p.source === kind.profiles.source);
+  return all.filter((p) => !kind.profiles.service || p.service === kind.profiles.service);
 }
 
 const STEP = { downloading: "Downloading", transferring: "Copying home", importing: "Placing in the library" };
