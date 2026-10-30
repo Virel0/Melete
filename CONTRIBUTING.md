@@ -41,8 +41,8 @@ functions into named steps, and use `expect` with the reason a value can't be mi
 raising its limit.
 
 Docker or startup changes also need the container run: start it with `docker compose`, with
-an override file that points every mounted folder at a scratch folder (never your real
-library), check the logs for `scan finished` and that `/api/v1/libraries` answers, then stop
+`compose.build.yaml` so it runs your build, and an override file that points every mounted
+folder at a scratch folder (never your real library), check the logs for `scan finished` and that `/api/v1/libraries` answers, then stop
 it. Try it with a large fake library: some failures only show up at scale.
 
 ## Rules

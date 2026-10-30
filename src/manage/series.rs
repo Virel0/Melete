@@ -58,6 +58,8 @@ struct WantedRow {
     original_language: Option<String>,
     library: Option<String>,
     category: Option<String>,
+    /// Series or anime, as the managed lists place it.
+    service: String,
     poster_path: Option<String>,
     /// Whether TMDB's episode list is here.
     known: bool,
@@ -75,6 +77,8 @@ struct LibraryRow {
     title: String,
     year: Option<i64>,
     poster_path: Option<String>,
+    /// The folder's own poster, by its artwork name.
+    local_poster: Option<String>,
     library: String,
     category: Option<String>,
     size: Option<i64>,
@@ -87,6 +91,11 @@ pub(super) const WANTED: &str = "
            w.profile_id, coalesce(p.name, w.quality_profile) AS profile,
            w.quality_profile AS arr_profile, w.original_language, l.name AS library,
            l.category, t.poster_path,
+           CASE WHEN w.series_type = 'anime'
+                     OR coalesce((SELECT sl.category FROM series s
+                                  JOIN libraries sl ON sl.id = s.library_id
+                                  WHERE s.id = w.series_id), l.category) = 'anime'
+                THEN 'anime' ELSE 'series' END AS service,
            EXISTS (SELECT 1 FROM tmdb_episodes e WHERE e.series_tmdb_id = t.tmdb_id) AS known
     FROM wanted_series w
     LEFT JOIN libraries l ON l.id = w.library_id
@@ -96,7 +105,8 @@ pub(super) const WANTED: &str = "
 pub(super) const LIBRARY: &str = "
     SELECT s.id, s.match_tmdb_id, s.arr_tmdb_id, s.tmdb_id, s.tvdb_id, s.arr_tvdb_id, s.imdb_id,
            coalesce(t.name, s.parsed_title) AS title, coalesce(t.year, s.parsed_year) AS year,
-           t.poster_path, l.name AS library, l.category, f.size, f.first
+           t.poster_path, s.local_poster_key AS local_poster, l.name AS library, l.category,
+           f.size, f.first
     FROM series s
     JOIN libraries l ON l.id = s.library_id
     LEFT JOIN tmdb_series t ON t.tmdb_id = s.match_tmdb_id
@@ -357,11 +367,16 @@ fn wanted_title(w: WantedRow, ctx: Context) -> Title<SeriesDetail> {
         monitored: w.monitored && (missing > 0 || monitored.upcoming > 0 || !seasons.is_empty()),
     };
     let shown = shown(folders);
+    // The folder's own poster, else the wanted series' TMDB one, else the folder's.
+    let poster_path = shown
+        .and_then(|s| s.local_poster.clone())
+        .or(w.poster_path)
+        .or_else(|| shown.and_then(|s| s.poster_path.clone()));
     Title {
         wanted_id: Some(w.id),
         title: w.title,
         year: w.year,
-        poster: poster(w.poster_path),
+        poster: poster(poster_path),
         state: facts.state(),
         monitored: w.monitored,
         wanted: true,
@@ -392,7 +407,7 @@ fn library_title(show: &LibraryRow, episodes: usize) -> Title<SeriesDetail> {
         wanted_id: None,
         title: show.title.clone(),
         year: show.year,
-        poster: poster(show.poster_path.clone()),
+        poster: poster(show.local_poster.clone().or(show.poster_path.clone())),
         state: State::InLibrary,
         monitored: false,
         wanted: false,

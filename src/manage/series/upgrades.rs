@@ -49,7 +49,7 @@ pub(super) async fn series_cutoff(
         return Ok((None, Vec::new()));
     };
     let Some(profile) = profiles
-        .get(pool, w.profile_id, w.arr_profile.as_deref())
+        .get(pool, &w.service, (w.profile_id, w.arr_profile.as_deref()))
         .await?
     else {
         return Ok((None, Vec::new()));

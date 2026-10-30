@@ -36,23 +36,26 @@ pub async fn carry_progress(
     .rows_affected())
 }
 
-/// The files first seen in a scan, each with a file of the same title that went missing in it
-/// (see [`carry_renamed`]). A movie's file and an episode's are found apart, each through its
-/// own index: read as one join on the library, it compared every new file with every file of
-/// the library, which over thousands of files held the scan's write lock for seconds.
-pub(super) const SUCCESSORS: &str = "
+/// Each new file of a scan and a missing file of the same movie, or of exactly the same
+/// episodes: (new, old, whether the two are the same size and time). Movies and episodes are
+/// matched apart, so each side finds the missing files through its own index
+/// (`media_files_movie`, `media_files_series`) instead of comparing every new file with every
+/// file in the library.
+const PAIRS: &str = "
     SELECT n.id, o.id, o.size = n.size AND o.modified_at = n.modified_at
-    FROM media_files n JOIN media_files o ON o.movie_id = n.movie_id
+    FROM media_files n JOIN media_files o ON o.library_id = n.library_id AND o.id <> n.id
     WHERE n.library_id = ?1 AND n.first_seen_generation = ?2 AND n.missing_since IS NULL
-      AND o.library_id = n.library_id AND o.id <> n.id AND o.missing_since IS NOT NULL
+      AND o.missing_since IS NOT NULL
       AND (o.seen_generation = ?2 - 1 OR (?3 IS NOT NULL AND o.missing_since = ?4))
+      AND n.movie_id IS NOT NULL AND o.movie_id = n.movie_id
     UNION ALL
     SELECT n.id, o.id, o.size = n.size AND o.modified_at = n.modified_at
-    FROM media_files n JOIN media_files o
-        ON o.series_id = n.series_id AND o.season = n.season AND o.episode = n.episode
+    FROM media_files n JOIN media_files o ON o.library_id = n.library_id AND o.id <> n.id
     WHERE n.library_id = ?1 AND n.first_seen_generation = ?2 AND n.missing_since IS NULL
-      AND o.library_id = n.library_id AND o.id <> n.id AND o.missing_since IS NOT NULL
+      AND o.missing_since IS NOT NULL
       AND (o.seen_generation = ?2 - 1 OR (?3 IS NOT NULL AND o.missing_since = ?4))
+      AND n.season IS NOT NULL AND o.series_id = n.series_id AND o.season = n.season
+      AND o.episode = n.episode
       AND coalesce(o.episode_end, o.episode) = coalesce(n.episode_end, n.episode)
     ORDER BY 1";
 
@@ -69,7 +72,7 @@ pub(super) async fn carry_renamed(
     library_id: i64,
     (generation, now, scope): (i64, i64, Option<&str>),
 ) -> sqlx::Result<usize> {
-    let pairs: Vec<(i64, i64, bool)> = sqlx::query_as(SUCCESSORS)
+    let pairs: Vec<(i64, i64, bool)> = sqlx::query_as(PAIRS)
         .bind(library_id)
         .bind(generation)
         .bind(scope)

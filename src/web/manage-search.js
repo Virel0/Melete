@@ -6,6 +6,7 @@
 import { when } from "/web/forms.js";
 import { SignedOut, announce, api, h, number, plural, size } from "/web/lib.js";
 import { stateLabel } from "/web/page-parts.js";
+import { tryLink } from "/web/release-try.js";
 
 // What a search for `what` asks: `path` and `body` for POST, `label` for the words.
 // Search: the best accepted, not blocklisted result is grabbed; says what happened in `said`.
@@ -81,17 +82,17 @@ export function results(ctx, search, label) {
             { class: "data releases" },
             h("caption", { class: "visually-hidden" }, `Results for ${label}, accepted first`),
             h("thead", {}, h("tr", {}, ["Release", "Quality", "Size", "Seeders", "Score", "Indexer", "Action"].map((c) => h("th", { scope: "col", class: ["Size", "Seeders", "Score"].includes(c) ? "r" : null }, c)))),
-            h("tbody", {}, search.releases.map((r) => releaseRow(ctx, r, names))),
+            h("tbody", {}, search.releases.map((r) => releaseRow(ctx, r, names, search.profile_id))),
           ),
         )
       : h("p", { class: "status" }, "No indexer had anything for it."),
   );
 }
 
-function releaseRow(ctx, r, names) {
+function releaseRow(ctx, r, names, profileId) {
   const d = r.decision;
   const cell = (label, content, cls) => h("td", { "data-label": label, class: cls }, content);
-  const why = r.accepted ? null : h("p", { class: "why" }, `Can't be grabbed: ${(d.rejections ?? d.reasons ?? []).join("; ") || "turned down"}.`);
+  const why = r.accepted ? null : h("p", { class: "why" }, `Can't be grabbed: ${(d.rejections ?? d.reasons ?? []).join("; ") || "turned down"}. `, tryLink(r, profileId));
   const formats = d.formats?.length ? h("p", { class: "note" }, `Formats: ${d.formats.map((f) => `${f.name} ${f.score > 0 ? "+" : ""}${f.score}`).join(", ")}.`) : null;
   const actions = releaseActions(ctx, r);
   return h(

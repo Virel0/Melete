@@ -30,7 +30,7 @@ services:
     network_mode: "service:gluetun"
     depends_on: [gluetun]
     # Melete's own user, so it can read and remove what slskd downloads.
-    user: "10001:10001"
+    user: "${MELETE_USER:-10001:10001}"
     environment:
       # The Soulseek account slskd signs in with.
       SLSKD_SLSK_USERNAME: ${MELETE_SOULSEEK_USERNAME:?set MELETE_SOULSEEK_USERNAME in .env}
@@ -50,9 +50,9 @@ services:
       # Shares nothing: no shared folder is mounted, and Melete refuses to use an slskd that
       # shares anything (decision 57).
     volumes:
-      # slskd's configuration, database and unfinished downloads; writable by uid 10001.
+      # slskd's configuration, database and unfinished downloads; writable by Melete's user.
       - ${MELETE_SLSKD_APP_DIR:?set MELETE_SLSKD_APP_DIR in .env}:/app
-      # Finished downloads; writable by uid 10001. Melete removes each of its own after importing.
+      # Finished downloads; writable by Melete's user. Melete removes each of its own after importing.
       - ${MELETE_SLSKD_DOWNLOADS_DIR:?set MELETE_SLSKD_DOWNLOADS_DIR in .env}:/downloads
     security_opt:
       - no-new-privileges:true
