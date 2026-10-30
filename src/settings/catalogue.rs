@@ -173,7 +173,7 @@ pub const SERVICES: &[Service] = &[
             field(
                 "MELETE_SLSKD_API_KEY",
                 "API key",
-                "One of the keys in slskd's web.authentication.api_keys.",
+                "One of the keys in slskd's web.authentication.api_keys, with the ReadWrite role and no more.",
                 Input::Secret,
             ),
             field(

@@ -154,6 +154,9 @@ Each is added through `COMPOSE_FILE` in `.env`, for example
 lists for it:
 
 - `compose.soulseek.yaml`: slskd behind a Gluetun VPN, for Soulseek searches and downloads.
+  Melete's key for slskd's API needs the ReadWrite role and no more (`role=ReadWrite`, as this
+  file sets it): enough to search and download, not to administer slskd. If you run slskd
+  some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.motion.yaml`: the motion cover renderer.
 
