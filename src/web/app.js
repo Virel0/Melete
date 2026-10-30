@@ -10,6 +10,7 @@ import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { musicPage } from "/web/music.js";
 import { setMusicAccess } from "/web/music-access.js";
+import { codeStep } from "/web/two-factor.js";
 import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
@@ -105,6 +106,14 @@ function signIn(message) {
       });
       startSession(answer.user);
     } catch (err) {
+      if (err.data?.second_factor) {
+        const step = codeStep({ challenge: err.data.challenge, signedIn: startSession, restart: signIn });
+        form.replaceWith(step.form);
+        // What the password form said ("Signed out.") is past; so is the provider's button.
+        said?.remove();
+        otherWay.hidden = true;
+        return step.focus();
+      }
       error.textContent = err.status === 401 ? "Wrong username or password." : err.message;
       password.setAttribute("aria-describedby", "sign-in-error");
       password.select();
@@ -114,13 +123,14 @@ function signIn(message) {
     }
   });
   const otherWay = h("div", { class: "other-way" });
+  const said = message ? h("p", { class: "status", role: "status" }, message) : null;
   show(
     "Sign in",
     h(
       "div",
       { class: "sign-in" },
       h("h1", {}, "Melete"),
-      message ? h("p", { class: "status", role: "status" }, message) : null,
+      said,
       form,
       otherWay,
     ),

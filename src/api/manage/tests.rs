@@ -227,3 +227,65 @@ async fn histories_and_past_searches_are_for_admins_and_checked() {
         }
     }
 }
+
+#[tokio::test]
+async fn each_title_carries_its_documented_poster() {
+    let pool = db::open_in_memory().await;
+    sqlx::raw_sql(
+        "INSERT INTO libraries (id, name, kind, path, category) VALUES
+             (1, 'Films', 'movies', '/m', NULL), (2, 'Shows', 'shows', '/s', NULL),
+             (3, 'Music', 'music', '/music', NULL);
+         INSERT INTO movies (id, library_id, rel_path, parsed_title, parsed_year, seen_generation,
+                 local_poster_key) VALUES (1, 1, 'Alien (1979)', 'Alien', 1979, 1, '/local-a.jpg');
+         INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                 local_poster_key) VALUES (1, 2, 'Show', 'Show', 1, '/local-s.jpg');
+         INSERT INTO media_files (library_id, rel_path, size, modified_at, movie_id, series_id,
+                 season, episode, first_seen_generation, seen_generation) VALUES
+             (1, 'Alien (1979)/Alien.mkv', 5, 0, 1, NULL, NULL, NULL, 1, 1),
+             (2, 'Show/S01E01.mkv', 5, 0, NULL, 1, 1, 1, 1, 1);
+         INSERT INTO music_artists (id, key, name) VALUES (1, 'band', 'Band');
+         INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+                 cover_file, seen_generation) VALUES
+             (1, 3, 'k1', 'First', 1, 'Band', 'Band/First', 'cover.jpg', 1);
+         INSERT INTO music_tracks (library_id, rel_path, size, modified_at, first_seen_generation,
+                 seen_generation, album_id, tagged, title) VALUES
+             (3, 'Band/First/01.flac', 5, 0, 1, 1, 1, 1, 'One');",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let admin = auth::create_user(&pool, "alice", auth::generate_password().unwrap(), true)
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, token) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
+        .await
+        .unwrap();
+    let f = Fixture {
+        app: routes(pool),
+        admin: token,
+        viewer: String::new(),
+    };
+    let spec: Value = serde_json::from_str(crate::api::OPENAPI).unwrap();
+    for (list, schema, poster) in [
+        ("movies", "ManagedMovie", "/api/v1/artwork/w342/local-a.jpg"),
+        (
+            "series",
+            "ManagedSeries",
+            "/api/v1/artwork/w342/local-s.jpg",
+        ),
+        ("artists", "ManagedArtist", "/api/v1/music/albums/1/cover"),
+    ] {
+        let (status, body) = get(&f, &format!("/api/v1/manage/{list}"), &f.admin).await;
+        assert_eq!(status, StatusCode::OK, "{list}");
+        assert_eq!(body["items"][0]["poster"], poster, "{list}");
+        let documented = &spec["components"]["schemas"][schema];
+        let required = documented["required"].as_array().unwrap();
+        assert!(required.iter().any(|r| r == "poster"), "{schema}");
+        assert_eq!(
+            documented["properties"]["poster"]["type"],
+            serde_json::json!(["string", "null"]),
+            "{schema}"
+        );
+    }
+}

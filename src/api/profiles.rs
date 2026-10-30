@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router, middleware};
@@ -81,8 +81,31 @@ async fn import_sonarr(
     import(&pool, App::Sonarr, connection).await
 }
 
-async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Profile>>, ApiError> {
-    Ok(Json(profiles::list(&pool).await?))
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListQuery {
+    /// Only this Manage service's profiles: movies, series or anime.
+    service: Option<String>,
+}
+
+async fn list(
+    State(pool): State<SqlitePool>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<Profile>>, ApiError> {
+    if let Some(service) = &query.service
+        && !profiles::service::SERVICES.contains(&service.as_str())
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "service is movies, series or anime",
+        ));
+    }
+    let all = profiles::list(&pool).await?;
+    Ok(Json(
+        all.into_iter()
+            .filter(|p| query.service.as_ref().is_none_or(|s| *s == p.service))
+            .collect(),
+    ))
 }
 
 fn not_found() -> ApiError {
@@ -187,10 +210,14 @@ async fn anime_preset(
         .await?
         .map_err(|r| refused("quality profile", r))?;
     if request.apply_to_anime && request.source == "sonarr" {
-        sqlx::query("UPDATE wanted_series SET profile_id = ? WHERE series_type = 'anime'")
-            .bind(id)
-            .execute(&pool)
-            .await?;
+        // Every series under Anime: wanted as anime, or in a library with the anime category.
+        sqlx::query(
+            "UPDATE wanted_series SET profile_id = ? WHERE id IN
+                 (SELECT wanted_id FROM title_event_titles WHERE kind = 'series' AND service = 'anime')",
+        )
+        .bind(id)
+        .execute(&pool)
+        .await?;
     }
     let profile = profiles::get(&pool, id).await?.ok_or_else(not_found)?;
     Ok((StatusCode::CREATED, Json(profile)))
@@ -873,5 +900,102 @@ mod tests {
                 .any(|c| c["name"] == "Mine"),
             "not removed as stale"
         );
+    }
+
+    #[tokio::test]
+    async fn series_and_anime_each_have_their_own_profiles() {
+        let f = fixture().await;
+        let profile = |service: Option<&str>| {
+            let mut body = json!({
+                "source": "sonarr", "name": "HD-1080p", "upgrade_allowed": true,
+                "cutoff": "WEBDL-1080p", "min_format_score": 0, "cutoff_format_score": 0,
+                "min_upgrade_format_score": 1, "language": null, "formats": [],
+                "items": [{ "name": "WEBDL-1080p", "qualities": ["WEBDL-1080p"], "allowed": true }]
+            });
+            if let Some(service) = service {
+                body["service"] = json!(service);
+            }
+            body
+        };
+        // One for Anime, then one of the same name for Series: names are kept apart by service.
+        let (status, anime) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile(Some("anime"))),
+        )
+        .await;
+        assert_eq!(
+            (status, anime["service"].as_str()),
+            (StatusCode::CREATED, Some("anime"))
+        );
+        let (status, series) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile(None)),
+        )
+        .await;
+        assert_eq!(
+            (status, series["service"].as_str()),
+            (StatusCode::CREATED, Some("series"))
+        );
+        let (status, _) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile(Some("anime"))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "one HD-1080p for Anime");
+
+        let ids = |list: Value| -> Vec<Value> {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["id"].clone())
+                .collect()
+        };
+        let (_, under_series) =
+            send(&f, "GET", "/api/v1/profiles?service=series", &f.admin, None).await;
+        assert_eq!(
+            ids(under_series),
+            [series["id"].clone()],
+            "Anime's isn't Series'"
+        );
+        let (_, under_anime) =
+            send(&f, "GET", "/api/v1/profiles?service=anime", &f.admin, None).await;
+        assert_eq!(ids(under_anime), [anime["id"].clone()]);
+        let (status, _) = send(&f, "GET", "/api/v1/profiles?service=music", &f.admin, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // A profile keeps its service: a change that names another is refused, one that leaves
+        // it out keeps it.
+        let uri = format!("/api/v1/profiles/{}", anime["id"]);
+        let (status, _) = send(&f, "PUT", &uri, &f.admin, Some(profile(Some("series")))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, kept) = send(&f, "PUT", &uri, &f.admin, Some(profile(None))).await;
+        assert_eq!(
+            (status, kept["service"].as_str()),
+            (StatusCode::OK, Some("anime"))
+        );
+        // Sonarr's profiles are Series' or Anime's, Radarr's Movies'.
+        let mut wrong = profile(Some("movies"));
+        wrong["name"] = json!("Other");
+        let (status, _) = send(&f, "POST", "/api/v1/profiles", &f.admin, Some(wrong)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // The anime preset for series is Anime's.
+        let (_, preset) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles/presets/anime",
+            &f.admin,
+            Some(json!({ "source": "sonarr" })),
+        )
+        .await;
+        assert_eq!(preset["service"], "anime");
     }
 }

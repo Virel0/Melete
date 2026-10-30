@@ -323,15 +323,14 @@ async fn signing_in_while_a_large_scan_finds_successors_waits_its_turn() {
     scanning.await.unwrap();
 }
 
-/// Finding the files that took others' places looks each one's predecessors up by index: a
-/// join on the library compares every new file with every file of it, which over a large first
-/// scan kept the database locked for longer than anything else waits.
 #[tokio::test]
-async fn successors_are_looked_up_by_index() {
+async fn missing_files_are_found_by_the_movie_and_episode_indexes() {
+    // Searching each new file's library alone compared it with every file there: on a large
+    // first scan that's quadratic.
     let pool = db::open_in_memory().await;
-    let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    let rows: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "EXPLAIN QUERY PLAN {}",
-        super::SUCCESSORS
+        super::PAIRS
     )))
     .bind(1)
     .bind(2)
@@ -340,14 +339,17 @@ async fn successors_are_looked_up_by_index() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    let plan: Vec<String> = plan.into_iter().map(|row| row.3).collect();
-    let predecessors: Vec<&String> = plan.iter().filter(|step| step.contains(" o ")).collect();
-    assert_eq!(predecessors.len(), 2, "{plan:#?}");
-    for step in predecessors {
-        assert!(
-            step.contains("media_files_movie (movie_id=?)")
-                || step.contains("media_files_series (series_id=? AND season=? AND episode=?)"),
-            "{plan:#?}"
-        );
-    }
+    let plan: Vec<&str> = rows.iter().map(|r| r.3.as_str()).collect();
+    let plan = plan.join("\n");
+    assert!(
+        plan.contains("SEARCH o USING INDEX media_files_movie (movie_id=?)"),
+        "{plan}"
+    );
+    assert!(
+        plan.contains(
+            "SEARCH o USING INDEX media_files_series (series_id=? AND season=? AND episode=?)"
+        ),
+        "{plan}"
+    );
+    assert!(!plan.contains("SCAN"), "{plan}");
 }
