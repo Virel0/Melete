@@ -15905,7 +15905,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "fields"],
+        "required": ["key", "name", "about", "on", "needs", "fields"],
         "properties": {
           "key": {
             "type": "string",
@@ -15935,7 +15935,12 @@
           },
           "name": {"type": "string"},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
-          "on": {"type": "boolean", "description": "Whether it's in use as things stand."},
+          "on": {"type": "boolean", "description": "Whether it's in use as things stand: never while the service it needs is off."},
+          "needs": {
+            "type": ["string", "null"],
+            "enum": ["tmdb", null],
+            "description": "The service it only works with, by key (trending and similar titles and trailers online need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
+          },
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
         },
         "additionalProperties": false
