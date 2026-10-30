@@ -73,10 +73,17 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
     .await?;
     let mut report = Report::default();
     let mut in_a_row = 0;
+    let pace = crate::jobs::pace::Pace::start(
+        "music-matching",
+        "matching albums on MusicBrainz",
+        albums.len(),
+    );
     for album in albums {
+        let item = pace.item();
         let outcome = match decide(mb, &album).await {
             Ok(outcome) => outcome,
             Err(err) => {
+                item.failed();
                 report.errors += 1;
                 in_a_row += 1;
                 tracing::warn!(album = album.title, error = %err, "couldn't match an album");
@@ -92,6 +99,11 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
         let mut tx = pool.begin().await?;
         store_outcome(&mut tx, &album, outcome, now, &mut report).await?;
         tx.commit().await?;
+    }
+    if in_a_row < MAX_ERRORS_IN_A_ROW {
+        pace.finish();
+    } else {
+        drop(pace);
     }
     // Releases cached before works, or tracks' artist credits, were kept are fetched again for
     // them, after new albums, and not when MusicBrainz is failing.
