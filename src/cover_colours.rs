@@ -259,7 +259,9 @@ async fn cover(
             .map_err(|err| anyhow::anyhow!(err))?;
         return Ok(picture.map(|(bytes, _)| (format!("tag:{rel_path}:{size}:{modified}"), bytes)));
     }
-    // The Cover Art Archive's, only when the music API has fetched it already.
+    // The Cover Art Archive's, only when the music API has fetched it already. The release group
+    // names a file, so only a MusicBrainz id may.
+    let group = group.filter(|g| crate::library::tags::is_mbid(g));
     if let (Some(group), true) = (group, archive)
         && let Ok(bytes) = tokio::fs::read(covers.join(format!("rg-{group}.img"))).await
     {
@@ -533,7 +535,9 @@ mod tests {
         image(&covers.path().join("archive.png"), "0xf0f0e8", "0x202020");
         std::fs::rename(
             covers.path().join("archive.png"),
-            covers.path().join("rg-group.img"),
+            covers
+                .path()
+                .join("rg-5b11f4ce-a62d-471e-81fc-a69a8278c7da.img"),
         )
         .unwrap();
         sqlx::query("INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', ?)")
@@ -543,12 +547,12 @@ mod tests {
             .unwrap();
         sqlx::raw_sql(
             r#"INSERT INTO mb_releases (id, release_group_id, title, artist_credit, cover_front, fetched_at)
-                   VALUES ('rel', 'group', 'Three', '[]', 1, 0);
+                   VALUES ('rel', '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'Three', '[]', 1, 0);
                INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation,
                    cover_file, match_release_id, match_release_group_id) VALUES
                    (1, 1, 'k1', 'One', 'Alder', 'a', 1, 'a/cover.png', NULL, NULL),
                    (2, 1, 'k2', 'Two', 'Alder', 'b', 1, 'b/cover.png', NULL, NULL),
-                   (3, 1, 'k3', 'Three', 'Alder', 'c', 1, NULL, 'rel', 'group'),
+                   (3, 1, 'k3', 'Three', 'Alder', 'c', 1, NULL, 'rel', '5b11f4ce-a62d-471e-81fc-a69a8278c7da'),
                    (4, 1, 'k4', 'Four', 'Alder', 'd', 1, NULL, NULL, NULL);"#,
         )
         .execute(&pool)
@@ -591,7 +595,13 @@ mod tests {
 
         // A new cover is measured again; one that can't be read keeps why.
         image(&root.join("a/cover.png"), "0x400010", "0xffffff");
-        std::fs::write(covers.path().join("rg-group.img"), b"not a picture").unwrap();
+        std::fs::write(
+            covers
+                .path()
+                .join("rg-5b11f4ce-a62d-471e-81fc-a69a8278c7da.img"),
+            b"not a picture",
+        )
+        .unwrap();
         let report = measure_pending(&pool, ffmpeg, covers.path()).await.unwrap();
         assert_eq!(
             report,
@@ -613,8 +623,44 @@ mod tests {
         );
 
         // A cover gone takes its colours with it.
-        std::fs::remove_file(covers.path().join("rg-group.img")).unwrap();
+        std::fs::remove_file(
+            covers
+                .path()
+                .join("rg-5b11f4ce-a62d-471e-81fc-a69a8278c7da.img"),
+        )
+        .unwrap();
         measure_pending(&pool, ffmpeg, covers.path()).await.unwrap();
         assert_eq!(colours_of(&pool, 3).await, None);
+    }
+
+    /// The release group names a cache file, so one that isn't a MusicBrainz id names none, even
+    /// when a file of that name is there.
+    #[tokio::test]
+    async fn a_release_group_that_isnt_a_musicbrainz_id_names_no_cache_file() {
+        let pool = crate::db::open_in_memory().await;
+        let library = tempfile::tempdir().unwrap();
+        let covers = tempfile::tempdir().unwrap();
+        image(&covers.path().join("archive.png"), "0xf0f0e8", "0x202020");
+        std::fs::rename(
+            covers.path().join("archive.png"),
+            covers.path().join("rg-group.img"),
+        )
+        .unwrap();
+        sqlx::query("INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', ?)")
+            .bind(library.path().to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            r#"INSERT INTO mb_releases (id, release_group_id, title, artist_credit, cover_front, fetched_at)
+                   VALUES ('rel', 'group', 'Three', '[]', 1, 0);
+               INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation,
+                   cover_file, match_release_id, match_release_group_id) VALUES
+                   (3, 1, 'k3', 'Three', 'Alder', 'c', 1, NULL, 'rel', 'group');"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(current(&pool, covers.path(), 3).await.unwrap(), None);
     }
 }
