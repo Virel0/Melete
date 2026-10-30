@@ -713,3 +713,40 @@ async fn tracks_are_listed_by_their_ids() {
         assert_eq!(json_of(&f, &bad).await.0, StatusCode::BAD_REQUEST, "{bad}");
     }
 }
+
+#[tokio::test]
+async fn songs_are_found_by_their_own_title_and_artist() {
+    let f = fixture(None).await;
+    crate::search_keys::fill(&f.pool).await.unwrap();
+    let songs = |q: &str| format!("/api/v1/music/tracks?q_in=track&q={q}");
+    // An album's name finds its tracks in the full search, but not as songs.
+    let (_, all) = json_of(&f, "/api/v1/music/tracks?q=computer").await;
+    assert_eq!(titles(&all), ["Airbag", "Paranoid Android"]);
+    let (_, none) = json_of(&f, &songs("computer")).await;
+    assert_eq!(none["total"], 0);
+    let (_, airbag) = json_of(&f, &songs("AIRBAG")).await;
+    assert_eq!(titles(&airbag), ["Airbag"]);
+    // The artist counts, the album's own when the track names none.
+    let (_, radiohead) = json_of(&f, &songs("radiohead")).await;
+    assert_eq!(
+        titles(&radiohead),
+        ["Airbag", "Paranoid Android", "Everything"]
+    );
+    let (_, folded) = json_of(&f, &songs("radio%20head")).await;
+    assert_eq!(folded["total"], 3, "spaces aside, as search keys have it");
+    let bad = "/api/v1/music/tracks?q=x&q_in=album";
+    assert_eq!(json_of(&f, bad).await.0, StatusCode::BAD_REQUEST);
+
+    // Someone who may see no music library finds no song and no artist.
+    sqlx::raw_sql(
+        "INSERT INTO user_access (user_id, all_libraries, max_age, updated_at)
+             SELECT id, 0, NULL, 0 FROM users WHERE username = 'u';",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, hidden) = json_of(&f, &songs("airbag")).await;
+    assert_eq!(hidden["total"], 0);
+    let (_, artists) = json_of(&f, "/api/v1/music/artists?q=radiohead").await;
+    assert_eq!(artists["total"], 0);
+}
