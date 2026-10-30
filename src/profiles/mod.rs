@@ -293,6 +293,9 @@ pub struct Profile {
     pub min_upgrade_format_score: i64,
     /// The audio language wanted: a language code or "original"; None or "any" for any.
     pub language: Option<String>,
+    /// For a movie profile, how far out a film must be before its releases are taken:
+    /// "announced", "in_cinemas" or "released".
+    pub minimum_availability: String,
     /// "imported" from Radarr or Sonarr, or "melete" when made or edited here (re-imports
     /// leave those alone).
     pub origin: String,
@@ -336,13 +339,14 @@ struct ProfileRow {
     min_upgrade_format_score: i64,
     language: Option<String>,
     origin: String,
+    minimum_availability: String,
 }
 
 /// Every quality profile, both apps', by app then name.
 pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Profile>> {
     let rows: Vec<ProfileRow> = sqlx::query_as(
         "SELECT id, source, name, upgrade_allowed, cutoff, min_format_score, cutoff_format_score,
-                min_upgrade_format_score, language, origin
+                min_upgrade_format_score, language, origin, minimum_availability
          FROM quality_profiles ORDER BY source, name",
     )
     .fetch_all(pool)
@@ -358,7 +362,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Profile>> {
 pub async fn get(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<Profile>> {
     let row: Option<ProfileRow> = sqlx::query_as(
         "SELECT id, source, name, upgrade_allowed, cutoff, min_format_score, cutoff_format_score,
-                min_upgrade_format_score, language, origin
+                min_upgrade_format_score, language, origin, minimum_availability
          FROM quality_profiles WHERE id = ?",
     )
     .bind(id)
@@ -410,6 +414,7 @@ async fn fill(pool: &SqlitePool, row: ProfileRow) -> anyhow::Result<Profile> {
         cutoff_format_score: row.cutoff_format_score,
         min_upgrade_format_score: row.min_upgrade_format_score,
         language: row.language,
+        minimum_availability: row.minimum_availability,
         origin: row.origin,
         items: items.into_iter().map(|(_, item)| item).collect(),
         formats: formats

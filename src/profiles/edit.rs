@@ -59,6 +59,11 @@ pub struct ProfileInput {
     pub min_upgrade_format_score: i64,
     /// The audio language wanted: a language code or "original"; None or "any" for any.
     pub language: Option<String>,
+    /// For a movie profile, how far out a film must be before its releases are taken:
+    /// "announced", "in_cinemas" or "released". Left out, a new profile waits until a film is
+    /// released and a changed one keeps its setting.
+    #[serde(default)]
+    pub minimum_availability: Option<String>,
     /// Lowest first.
     pub items: Vec<ItemInput>,
     /// Scores for custom formats of the same source; any other scores 0.
