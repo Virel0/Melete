@@ -31,7 +31,8 @@ RUN apt-get update \
     && apt-get purge -y curl gnupg \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/jellyfin.asc /root/.gnupg \
-    && useradd --system --uid 10001 --no-create-home melete \
+    && groupadd --system --gid 10001 melete \
+    && useradd --system --uid 10001 --gid melete --no-create-home melete \
     && install -d -o melete -g melete /config /transcode
 COPY --from=build /src/target/release/melete /usr/local/bin/melete
 # The root filesystem is read-only; fontconfig (for burned-in subtitles) caches here instead.

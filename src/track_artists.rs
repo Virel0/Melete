@@ -235,6 +235,8 @@ struct ArtistRow {
     mb_artist_id: Option<String>,
     /// Artist of an album in the library now.
     present: bool,
+    /// The MusicBrainz artist of the same name whose albums this name-only one's joined.
+    merged_into: Option<i64>,
 }
 
 /// The artist rows, to link credits to.
@@ -243,6 +245,8 @@ struct Artists {
     rows: HashMap<i64, ArtistRow>,
     by_id: HashMap<String, i64>,
     by_name: HashMap<String, Vec<i64>>,
+    /// Rows keyed by a MusicBrainz id, by name folded as search keys fold it.
+    by_folded: HashMap<String, Vec<i64>>,
 }
 
 impl Artists {
@@ -265,11 +269,21 @@ impl Artists {
         let named = self.by_name.entry(row.name.to_lowercase()).or_default();
         named.push(row.id);
         named.sort_unstable();
+        if row.key.starts_with("mb:") {
+            let folded = crate::search_keys::fold(&row.name);
+            self.by_folded.entry(folded).or_default().push(row.id);
+        }
         self.rows.insert(row.id, row);
     }
 
-    /// The row a credit is, if there's one already.
+    /// The row a credit is, if there's one already: for a name-only artist that joined the
+    /// MusicBrainz artist of the same name, that one.
     fn find(&self, credit: &Credit, album_artist: Option<(i64, &str)>) -> Option<i64> {
+        let id = self.found(credit, album_artist)?;
+        Some(self.rows.get(&id).and_then(|r| r.merged_into).unwrap_or(id))
+    }
+
+    fn found(&self, credit: &Credit, album_artist: Option<(i64, &str)>) -> Option<i64> {
         let lower = credit.name.to_lowercase();
         let album = album_artist
             .filter(|(_, name)| name.to_lowercase() == lower)
@@ -302,6 +316,21 @@ impl Artists {
         let key = format!("name:{lower}");
         rows.iter().find(|r| r.key == key).map(|r| r.id)
     }
+
+    /// The one MusicBrainz artist a name without an id stands for, spelled another way (case,
+    /// accents, spaces and punctuation aside), when there's exactly one.
+    fn folded(&self, credit: &Credit) -> Option<i64> {
+        if credit.mb_artist_id.is_some() {
+            return None;
+        }
+        match self
+            .by_folded
+            .get(&crate::search_keys::fold(&credit.name))?[..]
+        {
+            [only] => Some(only),
+            _ => None,
+        }
+    }
 }
 
 /// Works out every present track's artists and stores them, replacing what was there; returns
@@ -330,7 +359,8 @@ pub async fn refresh(pool: &SqlitePool) -> anyhow::Result<usize> {
     let rows: Vec<ArtistRow> = sqlx::query_as(
         "SELECT ar.id, ar.key, ar.name, ar.mb_artist_id,
              EXISTS (SELECT 1 FROM music_albums a
-                 WHERE a.artist_id = ar.id AND a.missing_since IS NULL) AS present
+                 WHERE a.artist_id = ar.id AND a.missing_since IS NULL) AS present,
+             ar.merged_into
          FROM music_artists ar ORDER BY ar.id",
     )
     .fetch_all(pool)
@@ -400,7 +430,8 @@ async fn link(
                 if credit.mb_artist_id.is_some() != with_id {
                     continue;
                 }
-                *id = match artists.find(credit, album_artist(track)) {
+                let found = artists.find(credit, album_artist(track));
+                *id = match found.or_else(|| artists.folded(credit)) {
                     Some(found) => found,
                     None => insert_artist(&mut *tx, &mut artists, credit).await?,
                 };
@@ -438,6 +469,7 @@ async fn insert_artist(
         name: name.to_owned(),
         mb_artist_id: credit.mb_artist_id.clone(),
         present: false,
+        merged_into: None,
     });
     Ok(id)
 }

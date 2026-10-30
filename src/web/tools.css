@@ -198,6 +198,7 @@ button.switch {
 .disk-bar > span { display: block; height: 100%; background: var(--accent); }
 .disk-bar.full > span { background: var(--danger); }
 .task-what { display: block; font-weight: 400; }
+.task-progress { display: block; }
 .task-time, table.data td > button, table.data .row-actions button { white-space: nowrap; }
 .user-keys { flex: 1 0 100%; }
 .downloading li { margin-block: var(--space-2); }
