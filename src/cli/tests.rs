@@ -2,12 +2,19 @@ use super::*;
 use crate::db;
 use crate::two_factor::totp;
 
-/// Alice, with her second factor on.
-async fn alice_with_a_second_factor(pool: &sqlx::SqlitePool) -> i64 {
-    let user = auth::create_user(pool, "alice", "a-long-password".into(), false)
+/// A user named `name` with a generated password, and their id.
+async fn user(pool: &sqlx::SqlitePool, name: &str) -> (auth::User, String) {
+    let password = auth::generate_password().unwrap();
+    let user = auth::create_user(pool, name, password.clone(), false)
         .await
         .unwrap()
         .unwrap();
+    (user, password)
+}
+
+/// Alice, with her second factor on, and her password.
+async fn alice_with_a_second_factor(pool: &sqlx::SqlitePool) -> (i64, String) {
+    let (user, password) = user(pool, "alice").await;
     let setup = two_factor::start_setup(pool, &user).await.unwrap().unwrap();
     let secret = totp::tests::from_base32(&setup.secret);
     let now = crate::db::unix_now();
@@ -15,25 +22,26 @@ async fn alice_with_a_second_factor(pool: &sqlx::SqlitePool) -> i64 {
     two_factor::confirm(pool, user.id, &code, now)
         .await
         .unwrap();
-    user.id
+    (user.id, password)
 }
 
-fn never_asked(_: &str) -> anyhow::Result<bool> {
+fn never_asked() -> anyhow::Result<bool> {
     panic!("asked when it shouldn't be")
 }
 
 #[tokio::test]
 async fn a_reset_removes_the_second_factor_when_the_answer_is_yes() {
     let pool = db::open_in_memory().await;
-    let id = alice_with_a_second_factor(&pool).await;
-    let mut asked_about = None;
-    reset_password(&pool, "alice", SecondFactor::Ask, |name| {
-        asked_about = Some(name.to_owned());
+    let (id, old) = alice_with_a_second_factor(&pool).await;
+    let mut asked = false;
+    let (user, new, outcome) = reset_password(&pool, "alice", SecondFactor::Ask, || {
+        asked = true;
         Ok(true)
     })
     .await
     .unwrap();
-    assert_eq!(asked_about.as_deref(), Some("alice"));
+    assert!(asked);
+    assert_eq!((user.id, outcome), (id, Outcome::Removed));
     assert!(!two_factor::is_on(&pool, id).await.unwrap());
     let changes = two_factor::changes(&pool, id).await.unwrap();
     assert_eq!(
@@ -41,41 +49,49 @@ async fn a_reset_removes_the_second_factor_when_the_answer_is_yes() {
         ("two_factor_off", "server")
     );
     assert!(
-        auth::check_password(&pool, "alice", "a-long-password".into())
+        auth::check_password(&pool, "alice", old)
             .await
             .unwrap()
             .is_none(),
-        "the password was reset"
+        "the old password no longer signs in"
+    );
+    assert!(
+        auth::check_password(&pool, "alice", new)
+            .await
+            .unwrap()
+            .is_some()
     );
 }
 
 #[tokio::test]
 async fn a_reset_keeps_the_second_factor_when_the_answer_is_no_or_the_flag_says_so() {
     let pool = db::open_in_memory().await;
-    let id = alice_with_a_second_factor(&pool).await;
-    reset_password(&pool, "alice", SecondFactor::Ask, |_| Ok(false))
+    let (id, _) = alice_with_a_second_factor(&pool).await;
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Ask, || Ok(false))
         .await
         .unwrap();
+    assert_eq!(outcome, Outcome::Kept);
     assert!(two_factor::is_on(&pool, id).await.unwrap());
-    reset_password(&pool, "alice", SecondFactor::Keep, never_asked)
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Keep, never_asked)
         .await
         .unwrap();
+    assert_eq!(outcome, Outcome::Kept);
     assert!(two_factor::is_on(&pool, id).await.unwrap());
-    reset_password(&pool, "alice", SecondFactor::Remove, never_asked)
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Remove, never_asked)
         .await
         .unwrap();
+    assert_eq!(outcome, Outcome::Removed);
     assert!(!two_factor::is_on(&pool, id).await.unwrap());
 }
 
 #[tokio::test]
 async fn a_reset_asks_nothing_of_a_user_without_one() {
     let pool = db::open_in_memory().await;
-    auth::create_user(&pool, "bob", "a-long-password".into(), false)
+    user(&pool, "bob").await;
+    let (_, _, outcome) = reset_password(&pool, "bob", SecondFactor::Ask, never_asked)
         .await
         .unwrap();
-    reset_password(&pool, "bob", SecondFactor::Ask, never_asked)
-        .await
-        .unwrap();
+    assert_eq!(outcome, Outcome::NoneOn);
     assert!(
         reset_password(&pool, "nobody", SecondFactor::Ask, never_asked)
             .await

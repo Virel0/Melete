@@ -42,7 +42,23 @@ pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> any
             let Some(second_factor) = SecondFactor::from_flags(flags) else {
                 bail!("{USAGE}");
             };
-            reset_password(pool, name, second_factor, ask_on_terminal).await?;
+            let (user, password, second_factor) =
+                reset_password(pool, name, second_factor, ask_on_terminal).await?;
+            println!("New password for {}: {password}", user.username);
+            println!("All of their sessions and API keys were signed out.");
+            println!("A sign-in lockout already running ends within 15 minutes.");
+            match second_factor {
+                Outcome::NoneOn => {}
+                Outcome::Removed => println!(
+                    "Their two-factor sign-in was removed: the password alone signs in now."
+                ),
+                Outcome::Kept => {
+                    println!(
+                        "Their two-factor sign-in stays on: signing in still asks for a code."
+                    );
+                    println!("To remove it, run this again with --remove-second-factor.");
+                }
+            }
         }
         ["import", "aoide", rest @ ..] => aoide::import::run(pool, rest).await?,
         ["backup"] => {
@@ -72,6 +88,17 @@ pub(crate) enum SecondFactor {
     Ask,
 }
 
+/// What `user reset-password` did about a second factor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The user had none on.
+    NoneOn,
+    /// It was removed.
+    Removed,
+    /// It stays on.
+    Kept,
+}
+
 impl SecondFactor {
     /// What the command line's flags say; None for flags it doesn't take.
     fn from_flags(flags: &[&str]) -> Option<Self> {
@@ -86,13 +113,13 @@ impl SecondFactor {
 
 /// Sets a new password for `name` and signs them out everywhere; with a second factor on,
 /// removes it too when told to or when `ask` says yes. Asked before anything changes, so one
-/// run does both.
+/// run does both. Answers the user, their new password and what happened to the second factor.
 pub(crate) async fn reset_password(
     pool: &sqlx::SqlitePool,
     name: &str,
     second_factor: SecondFactor,
-    ask: impl FnOnce(&str) -> anyhow::Result<bool>,
-) -> anyhow::Result<()> {
+    ask: impl FnOnce() -> anyhow::Result<bool>,
+) -> anyhow::Result<(auth::User, String, Outcome)> {
     let Some(user) = auth::find_user(pool, name).await? else {
         bail!("no user named {name:?}");
     };
@@ -101,32 +128,30 @@ pub(crate) async fn reset_password(
         && match second_factor {
             SecondFactor::Remove => true,
             SecondFactor::Keep => false,
-            SecondFactor::Ask => ask(&user.username)?,
+            SecondFactor::Ask => ask()?,
         };
     let password = auth::generate_password()?;
     auth::set_password(pool, user.id, password.clone(), None).await?;
-    println!("New password for {}: {password}", user.username);
-    println!("All of their sessions and API keys were signed out.");
-    println!("A sign-in lockout already running ends within 15 minutes.");
-    if remove {
+    let outcome = if remove {
         two_factor::remove(pool, user.id, two_factor::MadeFrom::Server).await?;
-        println!("Their two-factor sign-in was removed: the password alone signs in now.");
+        Outcome::Removed
     } else if has_one {
-        println!("Their two-factor sign-in stays on: signing in still asks for a code.");
-        println!("To remove it, run this again with --remove-second-factor.");
-    }
-    Ok(())
+        Outcome::Kept
+    } else {
+        Outcome::NoneOn
+    };
+    Ok((user, password, outcome))
 }
 
-/// Asks on the terminal whether to remove `username`'s second factor; no when nobody is there
-/// to answer (`docker exec` without `-it`).
-fn ask_on_terminal(username: &str) -> anyhow::Result<bool> {
+/// Asks on the terminal whether to remove the user's second factor; no when nobody is there to
+/// answer (`docker exec` without `-it`).
+fn ask_on_terminal() -> anyhow::Result<bool> {
     use std::io::{BufRead, IsTerminal, Write};
     let stdin = std::io::stdin();
     if !stdin.is_terminal() {
         return Ok(false);
     }
-    print!("{username} has two-factor sign-in on. Remove it too, for a lost device? [y/N] ");
+    print!("They have two-factor sign-in on. Remove it too, for a lost device? [y/N] ");
     std::io::stdout().flush()?;
     let mut answer = String::new();
     stdin.lock().read_line(&mut answer)?;

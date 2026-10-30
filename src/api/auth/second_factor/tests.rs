@@ -53,9 +53,28 @@ async fn get(app: &Router, uri: &str, token: &str) -> Answer {
     send(app, "GET", uri, Some(token), Value::Null).await
 }
 
+/// Passwords made when the tests run, rather than written in them.
+static ALICE: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| auth::generate_password().unwrap());
+static BOB: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| auth::generate_password().unwrap());
+
+fn alice() -> &'static str {
+    &ALICE
+}
+
+fn bob() -> &'static str {
+    &BOB
+}
+
+/// A password that isn't anyone's.
+fn wrong() -> String {
+    auth::generate_password().unwrap()
+}
+
 async fn setup() -> (SqlitePool, Router) {
     let pool = db::open_in_memory().await;
-    for (name, password) in [("alice", "alice-password"), ("bob", "bob-password")] {
+    for (name, password) in [("alice", alice()), ("bob", bob())] {
         auth::create_user(&pool, name, password.into(), false)
             .await
             .unwrap();
@@ -69,7 +88,7 @@ fn login(password: &str) -> Value {
 }
 
 async fn token(app: &Router) -> String {
-    let answer = post(app, LOGIN, None, login("alice-password")).await;
+    let answer = post(app, LOGIN, None, login(alice())).await;
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
     answer.body["token"].as_str().unwrap().to_owned()
 }
@@ -89,7 +108,7 @@ async fn forget_last_code(pool: &SqlitePool) {
 
 /// Turns alice's second factor on through the API, and answers her secret.
 async fn turn_on(pool: &SqlitePool, app: &Router, token: &str) -> Vec<u8> {
-    let password = json!({ "password": "alice-password" });
+    let password = json!({ "password": alice() });
     let answer = post(app, SETUP, Some(token), password).await;
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
     let secret = from_base32(answer.body["secret"].as_str().unwrap());
@@ -102,7 +121,7 @@ async fn turn_on(pool: &SqlitePool, app: &Router, token: &str) -> Vec<u8> {
 
 /// A sign-in's challenge, after a right password at `route`.
 async fn challenge(app: &Router, route: &str) -> String {
-    let answer = post(app, route, None, login("alice-password")).await;
+    let answer = post(app, route, None, login(alice())).await;
     assert_eq!(answer.status, StatusCode::UNAUTHORIZED, "{}", answer.body);
     assert_eq!(answer.body["second_factor"], "totp");
     assert_eq!(answer.body["expires_in"], 300);
@@ -139,7 +158,7 @@ async fn a_right_password_gives_a_challenge_and_the_code_a_session() {
     let secret = turn_on(&pool, &app, &before).await;
 
     // A wrong password is answered as ever, with nothing about a second factor.
-    let wrong = post(&app, LOGIN, None, login("guess-word")).await;
+    let wrong = post(&app, LOGIN, None, login(&wrong())).await;
     assert_eq!(wrong.status, StatusCode::UNAUTHORIZED);
     assert_eq!(wrong.body, json!({ "error": "wrong username or password" }));
 
@@ -241,11 +260,11 @@ async fn wrong_codes_are_limited_like_wrong_passwords() {
         "even the right code"
     );
     // Codes count per user, wherever they're typed: turning it off is locked too.
-    let off = json!({ "password": "alice-password", "code": code(&secret) });
+    let off = json!({ "password": alice(), "code": code(&secret) });
     let answer = post(&app, OFF, Some(&before), off).await;
     assert_eq!(answer.status, StatusCode::TOO_MANY_REQUESTS);
     // Someone else's sign-in is untouched.
-    let bob = json!({ "username": "bob", "password": "bob-password", "device_name": "tv" });
+    let bob = json!({ "username": "bob", "password": bob(), "device_name": "tv" });
     assert_eq!(post(&app, LOGIN, None, bob).await.status, StatusCode::OK);
 }
 
@@ -268,12 +287,12 @@ async fn turning_it_on_needs_the_password_and_a_first_code_and_signs_nothing_out
     );
     assert_documented("TwoFactorStatus", &status.body);
 
-    let wrong = json!({ "password": "not-her-password" });
+    let wrong = json!({ "password": wrong() });
     assert_eq!(
         post(&app, SETUP, Some(&session), wrong).await.status,
         StatusCode::FORBIDDEN
     );
-    let password = json!({ "password": "alice-password" });
+    let password = json!({ "password": alice() });
     let answer = post(&app, SETUP, Some(&session), password.clone()).await;
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(answer.headers[header::CACHE_CONTROL], "no-store");
@@ -291,7 +310,7 @@ async fn turning_it_on_needs_the_password_and_a_first_code_and_signs_nothing_out
         !status.body.to_string().contains(&encoded),
         "never shown again"
     );
-    let plain = post(&app, LOGIN, None, login("alice-password")).await;
+    let plain = post(&app, LOGIN, None, login(alice())).await;
     assert_eq!(
         plain.status,
         StatusCode::OK,
@@ -331,25 +350,13 @@ async fn turning_it_off_needs_the_password_and_a_code_and_is_recorded() {
     let session = token(&app).await;
     let secret = turn_on(&pool, &app, &session).await;
     let off = |password: &str, code: &str| json!({ "password": password, "code": code });
-    let answer = post(&app, OFF, Some(&session), off("alice-password", "000000")).await;
+    let answer = post(&app, OFF, Some(&session), off(alice(), "000000")).await;
     assert_eq!(answer.status, StatusCode::FORBIDDEN);
-    let answer = post(&app, OFF, Some(&session), off("not-hers", &code(&secret))).await;
+    let answer = post(&app, OFF, Some(&session), off(&wrong(), &code(&secret))).await;
     assert_eq!(answer.status, StatusCode::FORBIDDEN);
-    let answer = post(
-        &app,
-        OFF,
-        Some(&session),
-        off("alice-password", &code(&secret)),
-    )
-    .await;
+    let answer = post(&app, OFF, Some(&session), off(alice(), &code(&secret))).await;
     assert_eq!(answer.status, StatusCode::NO_CONTENT, "{}", answer.body);
-    let answer = post(
-        &app,
-        OFF,
-        Some(&session),
-        off("alice-password", &code(&secret)),
-    )
-    .await;
+    let answer = post(&app, OFF, Some(&session), off(alice(), &code(&secret))).await;
     assert_eq!(answer.status, StatusCode::CONFLICT);
 
     let status = get(&app, STATUS, &session).await;
@@ -383,9 +390,9 @@ async fn every_new_route_refuses_a_caller_without_a_token_or_challenge() {
     let (pool, app) = setup().await;
     let session = token(&app).await;
     turn_on(&pool, &app, &session).await;
-    let password = json!({ "password": "alice-password" });
+    let password = json!({ "password": alice() });
     let code = json!({ "code": "123456" });
-    let both = json!({ "password": "alice-password", "code": "123456" });
+    let both = json!({ "password": alice(), "code": "123456" });
     let answer = send(&app, "GET", STATUS, None, Value::Null).await;
     assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
     for (route, body) in [(SETUP, password), (CONFIRM, code), (OFF, both.clone())] {
