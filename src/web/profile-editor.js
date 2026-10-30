@@ -69,10 +69,11 @@ export function profileEditor({ profile, formats, done, ctx }) {
     h("div", { class: "field" }, h("label", { for: q.cutoff.id }, "Cutoff"), h("p", { class: "note" }, "Upgrades stop once a file is this good."), q.cutoff, q.cutoffError),
     upgrades.el,
     h("h3", {}, "Custom format scores"),
-    ofKind.length ? h("ul", { class: "rows scores" }, scoreInputs.map((s) => s.el)) : h("p", { class: "status" }, `No custom formats for ${FOR[profile.source]} yet.`),
-    minScore.box,
-    cutoffScore.box,
-    stepScore.box,
+    formatsAbout(profile.source, ofKind.length),
+    ofKind.length ? h("ul", { class: "rows scores" }, scoreInputs.map((s) => s.el)) : null,
+    // Without formats every release scores 0, so the score boxes would do nothing; they keep
+    // their values, hidden, until there are formats.
+    h("div", { hidden: !ofKind.length }, minScore.box, cutoffScore.box, stepScore.box),
     language?.box,
     availability?.box,
     foot.el,
@@ -240,9 +241,9 @@ const AVAILABILITY = [
 // profile.
 function scoreFields(profile) {
   const number = (label, value, hint) => field(uid("profile-score"), label, h("input", { value: String(value), inputmode: "numeric", class: "year", autocomplete: "off" }), hint);
-  const minScore = number("Lowest format score taken", profile.min_format_score, "Releases whose custom formats add up to less are turned down.");
-  const cutoffScore = number("Upgrade until this format score", profile.cutoff_format_score, "A file at the cutoff quality scoring this much isn't upgraded.");
-  const stepScore = number("Score an upgrade must gain", profile.min_upgrade_format_score, "At the same quality, how much more a release must score to replace a file. At least 1.");
+  const minScore = number("Lowest format score taken", profile.min_format_score, "Releases whose custom formats add up to less are turned down. For example, 0 turns down releases scoring below 0.");
+  const cutoffScore = number("Upgrade until this format score", profile.cutoff_format_score, "A file at the cutoff quality scoring this much isn't upgraded. For example, 100 stops upgrading once a file at the cutoff quality scores 100.");
+  const stepScore = number("Score an upgrade must gain", profile.min_upgrade_format_score, "At the same quality, how much more a release must score to replace a file. For example, 10 only replaces a file with a release scoring at least 10 more. At least 1.");
   const language =
     profile.source === "radarr"
       ? field(uid("profile-language"), "Audio language", h("input", { value: profile.language ?? "", autocomplete: "off", class: "year" }), "A two-letter code (en, ja…), original for the film's own, or any.")
@@ -253,6 +254,21 @@ function scoreFields(profile) {
       ? field(uid("profile-availability"), "Take a film's releases", h("select", {}, AVAILABILITY.map(([value, label]) => h("option", { value, selected: value === wanted }, label))), "Before then its releases are turned down. Whatever this says, a WEB or disc release before the film is out that way is refused as a likely fake.")
       : null;
   return { minScore, cutoffScore, stepScore, language, availability };
+}
+
+// What custom formats are and where they're made: the whole section while there are none, a
+// line over the scores once there are. The link stays in the service the page is in.
+function formatsAbout(source, count) {
+  const here = location.hash.match(/^#\/admin\/(movies|series|anime)\//)?.[1] ?? (source === "radarr" ? "movies" : "series");
+  const app = source === "radarr" ? "Radarr" : "Sonarr";
+  const what = "Custom formats are rules that match parts of a release name, such as x265, HDR, Dolby Vision or a release group, and give each match a score. A release scores the sum of the formats it matches.";
+  if (count) return h("p", { class: "note" }, `${what} Each format's score for this profile:`);
+  return h(
+    "div",
+    {},
+    h("p", { class: "note" }, `${what} There are none for ${FOR[source]} yet, so every release scores 0; the score settings appear once there are some.`),
+    h("p", { class: "note" }, h("a", { href: `#/admin/${here}/formats` }, "Make custom formats"), `, or import ${app}'s with its profiles from the Profiles page.`),
+  );
 }
 
 // A score box for each custom format of the profile's kind.

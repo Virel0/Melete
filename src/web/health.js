@@ -31,6 +31,11 @@ const WHERE = {
   backup_old: () => "#/admin/system/backups",
   gpu_unavailable: () => "#/admin/system/tasks",
   opensubtitles_used_up: () => "#/admin/system/services",
+  tmdb_off: () => "#/admin/system/services",
+  tmdb_refused: () => "#/admin/system/services",
+  tmdb_failing: () => "#/admin/system/services",
+  // Each service has its own Needs a match.
+  titles_unmatched: (area) => `#/admin/${area}/match`,
 };
 
 // Every area's findings, as { movies: [{ level, code, text, href, count }], … }.
