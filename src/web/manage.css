@@ -37,6 +37,7 @@
   z-index: 2;
 }
 .selected-count { margin: 0; font-weight: 600; }
+.selection-hint { flex-basis: 100%; margin: 0; }
 
 /* Posters: each with its name, year and state under it. */
 .library-grid { margin-block-start: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(8rem, 40vw), 1fr)); }
