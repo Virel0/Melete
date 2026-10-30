@@ -215,14 +215,18 @@ pub(crate) async fn profile_for(
     target: Target,
     wanted: &Wanted,
 ) -> anyhow::Result<Result<Loaded, Refused>> {
-    let app = match target {
-        Target::Movie(_) => App::Radarr,
-        Target::Series { .. } => App::Sonarr,
+    let (app, service) = match target {
+        Target::Movie(_) => (App::Radarr, "movies".to_owned()),
+        Target::Series { id, .. } => (
+            App::Sonarr,
+            profiles::service::of_wanted_series(pool, id).await?,
+        ),
     };
-    // A profile chosen in Melete; it's always for this kind of title (checked when chosen).
+    // A profile chosen in Melete; it's for this title's service (checked when chosen; one
+    // chosen before the title moved between Series and Anime is passed over).
     if let Some(id) = wanted.profile_id
         && let Some(profile) = profiles::load(pool, id).await?
-        && profile.profile.source == app.as_str()
+        && profile.profile.service == service
     {
         return Ok(Ok(profile));
     }
@@ -231,12 +235,7 @@ pub(crate) async fn profile_for(
             "the title has no quality profile".into(),
         )));
     };
-    let profile_id: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM quality_profiles WHERE source = ? AND name = ?")
-            .bind(app.as_str())
-            .bind(profile_name)
-            .fetch_optional(pool)
-            .await?;
+    let profile_id = profiles::service::named(pool, &service, profile_name).await?;
     Ok(match profile_id {
         Some(id) => profiles::load(pool, id).await?,
         None => None,
