@@ -37,7 +37,7 @@ export async function decide(ctx) {
       "select",
       { id: `approve-profile-${r.id}`, class: "compact" },
       h("option", { value: "" }, "As set under Where they go"),
-      (music ? musicProfiles : profiles.filter((p) => p.source === (r.kind === "movie" ? "radarr" : "sonarr"))).map((p) =>
+      (music ? musicProfiles : profiles.filter((p) => p.service === r.service)).map((p) =>
         h("option", { value: p.id }, p.name),
       ),
     );
@@ -177,7 +177,7 @@ export async function settings(ctx) {
   const forms = DEFAULTS.filter(([kind]) => !ctx.requestsService || kind === ctx.requestsService).map(([kind, name, libraryKind]) => {
     const now = set.defaults.find((d) => d.kind === kind) ?? {};
     const music = kind === "music";
-    const choices = music ? musicProfiles : profiles.filter((p) => p.source === (kind === "movies" ? "radarr" : "sonarr"));
+    const choices = music ? musicProfiles : profiles.filter((p) => p.service === kind);
     const fits = music ? null : fitting(libraryKind, kind === "anime" ? "anime" : null);
     const fallback = fits
       ? `${fits.name}, the ${kind === "anime" ? "anime library" : "one without a category"}`

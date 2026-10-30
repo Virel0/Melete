@@ -89,12 +89,20 @@ pub(super) async fn check(
     if !["all", "latest", "none"].contains(&input.monitor_seasons.as_str()) {
         return Ok(Err("monitor_seasons is all, latest or none".into()));
     }
-    let library: Option<String> = sqlx::query_scalar("SELECT kind FROM libraries WHERE id = ?")
-        .bind(input.library_id)
-        .fetch_optional(pool)
-        .await?;
+    let library: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT kind, category FROM libraries WHERE id = ?")
+            .bind(input.library_id)
+            .fetch_optional(pool)
+            .await?;
     let wanted_library = if series { "shows" } else { "movies" };
-    match library {
+    // A series list into a library with the anime category adds Anime's series, which take
+    // Anime's profiles.
+    let service = match &library {
+        Some((_, Some(category))) if series && category == "anime" => "anime",
+        _ if series => "series",
+        _ => "movies",
+    };
+    match library.map(|(kind, _)| kind) {
         None => return Ok(Err("no such library".into())),
         Some(kind) if kind != wanted_library => {
             return Ok(Err(format!(
@@ -104,16 +112,15 @@ pub(super) async fn check(
         }
         Some(_) => {}
     }
-    let source = if series { "sonarr" } else { "radarr" };
-    let profile: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM quality_profiles WHERE source = ? AND name = ?")
-            .bind(source)
-            .bind(&input.quality_profile)
-            .fetch_optional(pool)
-            .await?;
+    let profile = crate::profiles::service::named(pool, service, &input.quality_profile).await?;
     if profile.is_none() {
+        let whose = match service {
+            "anime" => "Anime",
+            "series" => "sonarr",
+            _ => "radarr",
+        };
         return Ok(Err(format!(
-            "there's no {source} quality profile named {:?}",
+            "there's no {whose} quality profile named {:?}",
             input.quality_profile
         )));
     }
