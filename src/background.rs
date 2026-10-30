@@ -333,27 +333,34 @@ async fn scan_some(
             Some(folder) => library::scan_folder(pool, library, folder).await,
             None => library::scan(pool, library).await,
         };
-        log_scan(library, folder.as_deref(), scanned);
+        log_scan(pool, library, folder.as_deref(), scanned).await;
     }
     fill_search_keys(pool).await;
 }
 
-fn log_scan(
+/// Logs how a scan went, then names the files it couldn't parse that aren't named yet.
+async fn log_scan(
+    pool: &sqlx::SqlitePool,
     library: &library::Library,
     folder: Option<&str>,
     scanned: anyhow::Result<library::ScanReport>,
 ) {
     match scanned {
-        Ok(report) => tracing::info!(
-            library = library.name,
-            folder,
-            files = report.files,
-            added = report.added,
-            newly_missing = report.newly_missing,
-            unparsed = report.unparsed,
-            skipped = report.skipped,
-            "scan finished"
-        ),
+        Ok(report) => {
+            tracing::info!(
+                library = library.name,
+                folder,
+                files = report.files,
+                added = report.added,
+                newly_missing = report.newly_missing,
+                unparsed = report.unparsed,
+                skipped = report.skipped,
+                "scan finished"
+            );
+            if report.unparsed > 0 {
+                library::unparsed::name_new(pool, library).await;
+            }
+        }
         Err(err) => tracing::error!(
             library = library.name,
             folder,
@@ -367,7 +374,7 @@ fn log_scan(
 pub(crate) async fn scan_all(pool: &sqlx::SqlitePool, libraries: Vec<library::Library>) {
     for library in libraries {
         let scanned = library::scan(pool, &library).await;
-        log_scan(&library, None, scanned);
+        log_scan(pool, &library, None, scanned).await;
     }
     fill_search_keys(pool).await;
 }

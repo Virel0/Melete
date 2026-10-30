@@ -139,6 +139,7 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
     if !pending.is_empty() {
         tracing::info!(files = pending.len(), "probing files");
     }
+    let pace = crate::jobs::pace::Pace::start("library", "probing files", pending.len());
 
     let slots = Arc::new(Semaphore::new(PARALLEL_PROBES));
     let ffprobe: Arc<PathBuf> = Arc::new(ffprobe.to_path_buf());
@@ -156,12 +157,14 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
     }
     let mut report = ProbeReport::default();
     while let Some(joined) = tasks.join_next().await {
+        let item = pace.item();
         let (id, size, modified_at, rel_path, result) = joined?;
         match &result {
             Ok(_) => report.probed += 1,
             Err(ProbeError::Failed(reason)) => {
                 tracing::warn!(rel_path, reason, "ffprobe rejected a file");
                 report.failed += 1;
+                item.failed();
             }
             Err(err @ (ProbeError::TimedOut | ProbeError::Unreadable(_))) => {
                 tracing::debug!(rel_path, error = %err, "probe will be retried");
@@ -171,5 +174,6 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
         }
         store_probed(pool, id, size, modified_at, &result).await?;
     }
+    pace.finish();
     Ok(report)
 }
