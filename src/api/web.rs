@@ -83,6 +83,7 @@ const MODULES: [(&str, &str); 106] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("two-factor.js", include_str!("../web/two-factor.js")),
     ("languages.js", include_str!("../web/languages.js")),
     (
         "playback-prefs.js",
