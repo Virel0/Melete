@@ -116,12 +116,19 @@ filesystem and no capabilities.
    services' other settings, such as turning MusicBrainz or lyrics on, are listed commented out:
    they're usually set in the web UI, under Settings → Outside services. A value set in `.env`
    wins and can't be changed from the web UI, so uncomment one only to fix it for good.
-3. Choose the image. `compose.yaml` builds it from this repository (`build: .`), which takes
-   a while the first time. To use a release instead, replace `build: .` and `image: melete:dev`
-   with the release's image, pinned by its digest (see [Checking a release](#checking-a-release)):
+3. Choose the image in `.env`; `compose.yaml` itself needn't change. It runs the release it
+   names, `ghcr.io/virel0/melete:0.1.0`. To pin it by its digest (see
+   [Checking a release](#checking-a-release)), or to run another version:
 
-   ```yaml
-   image: ghcr.io/virel0/melete:0.1.0@sha256:<digest>
+   ```sh
+   MELETE_IMAGE=ghcr.io/virel0/melete:0.1.0@sha256:<digest>
+   ```
+
+   To build from this repository instead, for development, add `compose.build.yaml`; the
+   first build takes a while, and `docker compose up -d --build` builds again after a change:
+
+   ```sh
+   COMPOSE_FILE=compose.yaml:compose.build.yaml
    ```
 4. Without an NVIDIA GPU, remove the `deploy:` block from `compose.yaml` and set
    `MELETE_HWACCEL: none` (the CPU). With one, the host needs the NVIDIA Container Toolkit.
@@ -136,6 +143,19 @@ filesystem and no capabilities.
    ```
 
 The web UI is at `http://<server>:8100/`.
+
+### Updating
+
+Read the release's notes, then name the new version in `MELETE_IMAGE` (or, when it's unset,
+update this repository's checkout: its `compose.yaml` names the newest release), and:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Melete backs up its database before a new version changes it (see
+[Backups and restore](#backups-and-restore)).
 
 ### First run
 

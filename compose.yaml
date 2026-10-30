@@ -4,8 +4,9 @@ name: melete
 
 services:
   melete:
-    build: .
-    image: melete:dev
+    # The published release. MELETE_IMAGE in .env pins another version or a digest; building
+    # from this repository instead is compose.build.yaml.
+    image: ${MELETE_IMAGE:-ghcr.io/virel0/melete:0.1.0}
     container_name: melete
     restart: unless-stopped
     ports:
