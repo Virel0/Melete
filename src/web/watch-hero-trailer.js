@@ -2,10 +2,11 @@
 // with Unmute and Stop trailer beside the pick's buttons. The backdrop comes back when the
 // trailer ends, when it's stopped, or when the hero moves on.
 //
-// A trailer in the title's folder comes first, played as it is when this browser can play it
-// (it's never converted for this). Without one, and only while an admin has trailers online on,
-// the one TMDB lists plays in YouTube's privacy-enhanced player. Nothing is loaded from YouTube
-// until that trailer starts, and the frame goes when it stops.
+// `/home` says where each pick's trailer comes from: one in the title's folder first, played as
+// it is when this browser can play it (it's never converted for this); without one, and only
+// while an admin has trailers online on, the one TMDB lists, in YouTube's privacy-enhanced
+// player. Nothing is loaded from YouTube until that trailer starts, and the frame goes when it
+// stops.
 //
 // Never when the device asks for less motion. On a phone-sized screen only when the user's
 // playback preferences say every screen; "Never" there turns trailers off.
@@ -32,24 +33,27 @@ function allowed(prefs) {
   return prefs.hero_trailers === "everywhere" || !phoneSized.matches;
 }
 
-// The trailer to play for `item`: { video } for one in its folder this browser plays as it is,
-// { embed } for one online, or null.
+// The trailer to play for `item`, from where `/home` says it comes (`item.trailer`): { video }
+// for one in its folder this browser plays as it is, { embed } for one online, or null. A folder
+// trailer the browser can't play as it is gives way to the online one, when there is one.
 async function find(item) {
-  const plural = item.kind === "movie" ? "movies" : "series";
-  const extras = await api(`/${plural}/${item.id}/extras`);
-  const local = extras.find((e) => e.kind === "trailer");
-  if (local) {
-    const [info, play] = await Promise.all([api(`/files/${local.id}`), api(`/files/${local.id}/play`, { method: "POST" })]);
-    if (choose(info, {}).direct) return { video: play.stream_url };
-  }
+  const trailer = item.trailer;
+  if (!trailer) return null;
+  if (trailer.source === "online") return online(trailer.embed_url, item.title);
+  const [info, play] = await Promise.all([api(`/files/${trailer.file_id}`), api(`/files/${trailer.file_id}/play`, { method: "POST" })]);
+  if (choose(info, {}).direct) return { video: play.stream_url };
   if (!(await trailersOn())) return null;
-  const online = await api(`/${plural}/${item.id}/trailer`).catch((err) => {
+  const plural = item.kind === "movie" ? "movies" : "series";
+  const answer = await api(`/${plural}/${item.id}/trailer`).catch((err) => {
     if (err instanceof SignedOut) throw err;
     return null;
   });
-  // Only YouTube's privacy-enhanced player, whatever the answer says.
-  if (online?.site !== "youtube" || !online.embed_url.startsWith(`${PLAYER}/embed/`)) return null;
-  return { embed: online.embed_url, name: online.name };
+  return answer?.site === "youtube" ? online(answer.embed_url, answer.name) : null;
+}
+
+// Only YouTube's privacy-enhanced player, whatever the answer says.
+function online(embedUrl, name) {
+  return typeof embedUrl === "string" && embedUrl.startsWith(`${PLAYER}/embed/`) ? { embed: embedUrl, name } : null;
 }
 
 export function heroTrailer(art) {

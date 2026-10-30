@@ -12327,7 +12327,7 @@
         "type": "object",
         "required": ["hero", "rows"],
         "properties": {
-          "hero": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeItem"}, "maxItems": 8},
+          "hero": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeHeroItem"}, "maxItems": 8},
           "rows": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeRow"}}
         },
         "additionalProperties": false
@@ -12461,6 +12461,122 @@
             "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
           }
         },
+        "additionalProperties": false
+      },
+      "WatchHomeHeroItem": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "year",
+          "genres",
+          "runtime_minutes",
+          "overview",
+          "poster",
+          "backdrop",
+          "backdrop_focus",
+          "textless_backdrop",
+          "textless_backdrop_focus",
+          "logo",
+          "added_at",
+          "unwatched_episodes",
+          "episode",
+          "progress",
+          "trailer"
+        ],
+        "properties": {
+          "kind": {"enum": ["movie", "series"]},
+          "id": {"type": "integer", "description": "The movie's or series' id."},
+          "title": {"type": "string", "description": "TMDB's title when matched, else parsed from the folder name."},
+          "year": {"type": ["integer", "null"]},
+          "genres": {"type": "array", "items": {"type": "string"}, "description": "From TMDB; empty when unmatched."},
+          "runtime_minutes": {"type": ["integer", "null"], "description": "Movies only."},
+          "overview": {"type": ["string", "null"], "description": "TMDB's overview, for the logline."},
+          "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280)."},
+          "backdrop_focus": {
+            "type": ["object", "null"],
+            "required": ["x", "y"],
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "From the left edge (0) to the right (1)."
+              },
+              "y": {"type": "number", "minimum": 0, "maximum": 1, "description": "From the top (0) to the bottom (1)."}
+            },
+            "additionalProperties": false,
+            "description": "Where the backdrop's subject is (its detail, by edge strength), to crop around."
+          },
+          "textless_backdrop": {
+            "type": ["string", "null"],
+            "description": "Artwork URL (w1280): TMDB's best-voted backdrop without text."
+          },
+          "textless_backdrop_focus": {
+            "type": ["object", "null"],
+            "required": ["x", "y"],
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "From the left edge (0) to the right (1)."
+              },
+              "y": {"type": "number", "minimum": 0, "maximum": 1, "description": "From the top (0) to the bottom (1)."}
+            },
+            "additionalProperties": false,
+            "description": "Where the backdrop's subject is (its detail, by edge strength), to crop around."
+          },
+          "logo": {"type": ["string", "null"], "description": "Artwork URL (w500), a PNG with transparency."},
+          "added_at": {
+            "type": ["integer", "null"],
+            "description": "When the title came in (its first file still here), in Unix seconds: for a \"new\" badge."
+          },
+          "unwatched_episodes": {
+            "type": ["integer", "null"],
+            "description": "Series only: episodes on disk you haven't watched, each once however many files have it, specials aside."
+          },
+          "episode": {
+            "type": ["object", "null"],
+            "required": ["file_id", "season", "episode", "name", "still"],
+            "properties": {
+              "file_id": {"type": "integer", "description": "The episode's file, to play."},
+              "season": {"type": ["integer", "null"]},
+              "episode": {"type": ["integer", "null"]},
+              "name": {"type": ["string", "null"]},
+              "still": {"type": ["string", "null"], "description": "Artwork URL (w300)."}
+            },
+            "additionalProperties": false,
+            "description": "The episode this entry is about: the one you're partway through, or the next one. Null elsewhere."
+          },
+          "progress": {
+            "type": ["object", "null"],
+            "required": ["file_id", "position_seconds", "duration_seconds", "watched", "updated_at"],
+            "properties": {
+              "file_id": {"type": "integer"},
+              "position_seconds": {"type": "number"},
+              "duration_seconds": {"type": ["number", "null"]},
+              "watched": {"type": "boolean"},
+              "updated_at": {"type": "integer"}
+            },
+            "additionalProperties": false,
+            "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
+          },
+          "trailer": {
+            "type": ["object", "null"],
+            "required": ["source", "file_id", "embed_url"],
+            "properties": {
+              "source": {"enum": ["folder", "online"], "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). `online`: TMDB's, in YouTube's privacy-enhanced player, given only while an admin has trailers online on."},
+              "file_id": {"type": ["integer", "null"], "description": "For `folder`: the trailer's id. Null for `online`."},
+              "embed_url": {"type": ["string", "null"], "description": "For `online`: the player's address on youtube-nocookie.com. Null for `folder`."}
+            },
+            "additionalProperties": false,
+            "description": "The pick's trailer: one in its folder first, else (only while trailers online are on) TMDB's. Null when there's none. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
+          }
+        },
+        "description": "A hero pick: a row's item, and where its trailer comes from.",
         "additionalProperties": false
       },
       "ArrConnection": {

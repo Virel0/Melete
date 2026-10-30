@@ -28,6 +28,7 @@ use crate::access::Access;
 
 mod because;
 mod cards;
+mod hero_trailer;
 mod picks;
 
 use cards::*;
@@ -178,9 +179,17 @@ async fn home(
             cards.overlay_artwork(entry.title, &found);
         }
     }
-    let item = |e: &Entry| cards.item(e);
+    // Each pick says where its trailer comes from, so an app needn't ask.
+    let online = crate::settings::trailers_online(pool).await?;
+    let mut picks = Vec::new();
+    for entry in &hero {
+        if let Some(mut pick) = cards.item(entry) {
+            pick["trailer"] = hero_trailer::hero_trailer(pool, entry.title, online).await?;
+            picks.push(pick);
+        }
+    }
     Ok(Json(json!({
-        "hero": hero.iter().filter_map(item).collect::<Vec<_>>(),
+        "hero": picks,
         "rows": rows_json(&cards, &rows, &featured, &because),
     })))
 }
