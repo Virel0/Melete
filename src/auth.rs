@@ -225,9 +225,9 @@ pub async fn check_password(
     })
 }
 
-/// Sets a new password and signs out every other session and API key of the user, and unlinks
-/// any identity provider, which would otherwise outlast the reset. `keep_token` (the caller's
-/// own token) stays valid.
+/// Sets a new password and signs out every other session and API key of the user, ends any
+/// sign-in waiting for its second-factor code, and unlinks any identity provider, which would
+/// otherwise outlast the reset. `keep_token` (the caller's own token) stays valid.
 pub async fn set_password(
     pool: &SqlitePool,
     user_id: i64,
@@ -247,6 +247,11 @@ pub async fn set_password(
         .execute(&mut *tx)
         .await?;
     sqlx::query("DELETE FROM oidc_identities WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    // A sign-in the old password started, waiting for its code, is signed out with the rest.
+    sqlx::query("DELETE FROM sign_in_challenges WHERE user_id = ?")
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
