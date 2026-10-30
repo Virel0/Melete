@@ -7,6 +7,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- The web player no longer shows "null" beside Full screen for a movie or an episode without a
+  neighbour, nor does the music queue, the AI search or a Soulseek download's Remove.
+- Double-clicking the picture takes the player full screen, and the video's own full-screen
+  request hands over to the player's stage, so Skip and the next episode come along.
+
 ## [0.1.0] - 2026-10-29
 
 The first release.

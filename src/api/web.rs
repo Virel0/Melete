@@ -443,6 +443,75 @@ mod tests {
         }
     }
 
+    /// The top-level arguments of each `replaceChildren(` call in `body`, with the line it's on.
+    /// Quoted text is skipped, so a bracket inside a string doesn't count.
+    fn replace_children_arguments(body: &str) -> Vec<(usize, String)> {
+        let mut found = Vec::new();
+        for (at, _) in body.match_indices("replaceChildren(") {
+            let line = body[..at].matches('\n').count() + 1;
+            let (mut depth, mut quote, mut arg) = (1, None, String::new());
+            for c in body[at + "replaceChildren(".len()..].chars() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'' | '`') => quote = Some(c),
+                    (None, '(' | '[' | '{') => depth += 1,
+                    (None, ')' | ']' | '}') => depth -= 1,
+                    (None, ',') if depth == 1 => {
+                        found.push((line, std::mem::take(&mut arg)));
+                        continue;
+                    }
+                    _ => {}
+                }
+                if depth == 0 {
+                    break;
+                }
+                arg.push(c);
+            }
+            found.push((line, arg));
+        }
+        found
+    }
+
+    #[test]
+    fn full_screen_belongs_to_the_stage_however_it_is_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        // The video's own button stays off where browsers honour that, a double-click on the
+        // picture goes full screen, and the video's own request hands over to the stage.
+        assert!(module("player.js").contains(r#"controlslist: "nofullscreen""#));
+        assert!(
+            module("player.js").contains(r#"addEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        assert!(
+            module("player.js")
+                .contains(r#"removeEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        let keys = module("player-keys.js");
+        assert!(keys.contains(r#"video.addEventListener("dblclick""#));
+        assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    #[test]
+    fn no_module_hands_replace_children_a_null() {
+        // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
+        // own `h` and `append`, which leave it out.
+        let mut nullable = Vec::new();
+        for (name, body) in MODULES {
+            for (line, arg) in replace_children_arguments(body) {
+                let arg = arg.trim();
+                if arg == "null" || arg.ends_with(": null") || arg.ends_with("?? null") {
+                    nullable.push(format!("{name}:{line}"));
+                }
+            }
+        }
+        assert!(nullable.is_empty(), "{nullable:?}");
+        // The scan itself sees a nullable argument where there is one.
+        let sample = r#"nav.replaceChildren(a ? h("a", {}, "(") : null, b);"#;
+        let args = replace_children_arguments(sample);
+        assert_eq!(args.len(), 2);
+        assert!(args[0].1.ends_with(": null"));
+    }
+
     /// Of `dist/hls.light.min.mjs` in https://registry.npmjs.org/hls.js/-/hls.js-1.7.3.tgz, whose
     /// sha512 matched the registry's when it was vendored.
     const HLS_SHA256: &str = "c60e98c83e5b2ce6875ea6ca27e51f63b7a6f00e9d9b64b588c92261bd69d439";
