@@ -1,16 +1,13 @@
 // Outside services, for admins: TMDB, MusicBrainz, slskd, Deluge, the seedbox and the
 // rest, each with its settings, a connection test that can try values before they're saved,
 // and saving, which takes effect without a restart. A setting from .env wins and is shown, not
-// changed; a secret is only ever said to be set.
+// changed, naming its variable and the way to unlock it; a secret is only ever said to be set.
 
 import { field, form, group, secret } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
 
-const FROM = {
-  environment: "Set in .env, which wins; change it there.",
-  settings: null,
-  default: null,
-};
+// Why a setting given in .env can't be changed here: its variable, and the way back.
+const locked = (f) => ["Locked by ", h("code", {}, f.name), " in .env. Remove that line and restart Melete to change it here."];
 
 // One field's input, and how to read what's to be saved from it: a value, null to clear, or
 // undefined to leave it as it is.
@@ -18,10 +15,11 @@ function input(service, f) {
   const id = `service-${f.name.toLowerCase()}`;
   const fixed = f.from === "environment";
   if (f.input.toggle) {
-    const box = h("input", { type: "checkbox", id, checked: f.value === f.input.toggle.on, disabled: fixed });
+    const note = fixed ? locked(f) : f.hint || null;
+    const box = h("input", { type: "checkbox", id, checked: f.value === f.input.toggle.on, disabled: fixed, "aria-describedby": note ? `${id}-hint` : null });
     const el = h("div", { class: "check" }, box, h("label", { for: id }, f.label));
     return {
-      box: h("div", { class: "field" }, el, fixed ? h("p", { class: "note" }, FROM.environment) : f.hint ? h("p", { class: "note" }, f.hint) : null),
+      box: h("div", { class: "field" }, el, note ? h("p", { class: "note", id: `${id}-hint` }, note) : null),
       clear() {},
       fail() {},
       read: () => (fixed ? undefined : box.checked ? f.input.toggle.on : "off"),
@@ -31,12 +29,12 @@ function input(service, f) {
     const { options } = f.input.choice;
     const current = f.value ?? options[0]?.value;
     const select = h("select", { disabled: fixed }, options.map((o) => h("option", { value: o.value, selected: o.value === current }, o.label)));
-    const made = field(id, f.label, select, fixed ? FROM.environment : f.hint || null);
+    const made = field(id, f.label, select, fixed ? locked(f) : f.hint || null);
     // Only a change is sent, so saving the service's other settings doesn't judge every title again.
     return { ...made, read: () => (fixed || select.value === current ? undefined : select.value) };
   }
   if (f.input === "secret") {
-    const hint = fixed ? FROM.environment : f.set ? `Set. Leave it empty to keep it.${f.hint ? ` ${f.hint}` : ""}` : f.hint || "Not set.";
+    const hint = fixed ? locked(f) : f.set ? `Set. Leave it empty to keep it.${f.hint ? ` ${f.hint}` : ""}` : f.hint || "Not set.";
     const made = field(id, f.label, h("input", { type: "password", autocomplete: "new-password", spellcheck: "false", disabled: fixed }), hint);
     const removeId = `${id}-remove`;
     const remove = h("input", { type: "checkbox", id: removeId });
@@ -59,7 +57,7 @@ function input(service, f) {
       disabled: fixed,
       class: f.input === "number" ? "year" : null,
     }),
-    fixed ? FROM.environment : f.hint || null,
+    fixed ? locked(f) : f.hint || null,
   );
   return { ...made, read: () => (fixed ? undefined : made.input.value.trim() || null) };
 }
@@ -162,7 +160,16 @@ export async function services(ctx) {
       h(
         "p",
         { class: "note" },
-        "Changes take effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were. Anything set in .env wins over what's set here.",
+        ".env holds what Melete needs before it starts, and is the only place to set it: its folders (libraries, data, transcoding), the address it listens on, the ways in, and the helpers running beside it. Everything below is set here instead, and takes effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were.",
+      ),
+      h(
+        "p",
+        { class: "note" },
+        "A setting below that is also given in .env is locked, since .env wins, and names its variable. To set it here, remove that line from .env and restart Melete with ",
+        h("code", {}, "docker compose up -d"),
+        " (",
+        h("code", {}, "docker compose restart"),
+        " keeps the old values).",
       ),
       moved.map((s) => h("p", { class: "note" }, `${s.name} is set up under `, h("a", { href: ELSEWHERE[s.key].href }, ELSEWHERE[s.key].name), ".")),
       ...all.filter((s) => !ELSEWHERE[s.key]).map((s) => serviceSection(ctx, s)),
