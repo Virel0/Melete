@@ -4972,6 +4972,13 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "q_in",
+            "in": "query",
+            "required": false,
+            "description": "What `q` is matched against: all (default: the title, artist, album or album artist), or track (the track's own title, its artist or its album's artist, not the album's title, so an album's name doesn't bring every track on it).",
+            "schema": {"enum": ["all", "track"], "default": "all"}
+          },
+          {
             "name": "id",
             "in": "query",
             "required": false,

@@ -39,7 +39,7 @@ export function musicPage(parts, params, ctx) {
   // The album list was `#/music` before Home opened there: its old addresses still reach it.
   if (!section && [...params.keys()].length) return Promise.resolve(location.replace(`#/music/albums?${params}`));
   if ((!section || section === "home") && !id) return homePage(ctx);
-  if (section === "albums") return id ? one && albumPage(id, ctx) : albumList(params, ctx);
+  if (section === "albums") return id ? one && albumPage(id, ctx, params.get("track")) : albumList(params, ctx);
   if (section === "artists") return id ? one && artistPage(id, ctx) : artistList(params, ctx);
   if (section === "songs" && !id) return songList(params, ctx);
   if (section === "genres") return id ? genrePage(decodeURIComponent(id), ctx) : genreList(ctx);
