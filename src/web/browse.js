@@ -272,7 +272,7 @@ function describeIt(kind, noun) {
       status.textContent = answer.results.length
         ? `${plural(answer.results.length, noun[0], noun[1])} here fit.`
         : `Nothing in the library fits; ${missing.length ? "these might:" : "try other words."}`;
-      found.replaceChildren(
+      const parts = [
         answer.results.length ? h("ul", { class: "grid shelf" }, answer.results.map((item) => titleCard(kind, item))) : null,
         missing.length
           ? h(
@@ -282,7 +282,8 @@ function describeIt(kind, noun) {
               h("a", { href: "#/requests/ask" }, "Ask for one"),
             )
           : null,
-      );
+      ];
+      found.replaceChildren(...parts.filter(Boolean));
     } catch (err) {
       if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
       status.textContent = "";

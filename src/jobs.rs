@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
+pub mod pace;
 pub mod scans;
 
 /// How often the loops woken after a scan run when nothing wakes them sooner.

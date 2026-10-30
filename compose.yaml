@@ -4,8 +4,12 @@ name: melete
 
 services:
   melete:
-    build: .
-    image: melete:dev
+    # The published release. MELETE_IMAGE in .env pins another version or a digest; building
+    # from this repository instead is compose.build.yaml.
+    image: ${MELETE_IMAGE:-ghcr.io/virel0/melete:0.1.0}
+    # The uid:gid Melete runs as: the image's own user unless MELETE_USER in .env names
+    # another, such as the library's owner.
+    user: "${MELETE_USER:-10001:10001}"
     container_name: melete
     restart: unless-stopped
     ports:
@@ -66,13 +70,14 @@ services:
     # The host's folders come from .env (see .env.example). Each must be set: an unset one
     # stops compose rather than letting Docker create it, owned by root.
     volumes:
-      # Must be writable by uid 10001: sudo install -d -o 10001 -g 10001 <folder>
+      # Must be writable by Melete's user: sudo install -d -o 10001 -g 10001 <folder> (or
+      # MELETE_USER's uid and gid).
       - ${MELETE_CONFIG_DIR:?set MELETE_CONFIG_DIR in .env}:/config
-      # Transcoded segments; also writable by uid 10001.
+      # Transcoded segments; also writable by Melete's user.
       - ${MELETE_TRANSCODE_DIR:?set MELETE_TRANSCODE_DIR in .env}:/transcode
       # Read-only until automation is enabled, so nothing can write to the library before then;
       # finished downloads wait on the seedbox meanwhile. Turning it on: drop ":ro" here, and let
-      # uid 10001 write to these folders on the host (new folders and files come out
+      # Melete's user write to these folders on the host (new folders and files come out
       # group-writable).
       - ${MELETE_MOVIES_DIR:?set MELETE_MOVIES_DIR in .env}:/media/movies:ro
       - ${MELETE_SHOWS_DIR:?set MELETE_SHOWS_DIR in .env}:/media/shows:ro

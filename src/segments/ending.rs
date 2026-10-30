@@ -107,7 +107,9 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Fo
     .fetch_all(pool)
     .await?;
     let mut found = Found::default();
+    let pace = crate::jobs::pace::Pace::start("segments", "looking for credits alone", rows.len());
     for row in rows {
+        let item = pace.item();
         let path = Path::new(&row.root).join(&row.rel_path);
         let most = if row.movie {
             MOVIE_END_MOST
@@ -137,6 +139,7 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Fo
             Some(why) => {
                 tracing::warn!(rel_path = row.rel_path, why, "couldn't read a file's end");
                 found.failed += 1;
+                item.failed();
                 None
             }
             None => run_to_end(&looks).map(|(start, end)| Segment {

@@ -65,6 +65,8 @@ struct LibraryRow {
     title: String,
     year: Option<i64>,
     poster_path: Option<String>,
+    /// The folder's own poster, by its artwork name.
+    local_poster: Option<String>,
     library: String,
     category: Option<String>,
 }
@@ -110,7 +112,8 @@ pub(super) static WANTED: std::sync::LazyLock<String> = std::sync::LazyLock::new
 
 pub(super) const LIBRARY: &str = "
     SELECT m.id, m.imdb_id, coalesce(t.title, m.parsed_title) AS title,
-           coalesce(t.year, m.parsed_year) AS year, t.poster_path, l.name AS library, l.category,
+           coalesce(t.year, m.parsed_year) AS year, t.poster_path,
+           m.local_poster_key AS local_poster, l.name AS library, l.category,
            m.match_tmdb_id, m.arr_tmdb_id, m.tmdb_id
     FROM movies m
     JOIN libraries l ON l.id = m.library_id
@@ -241,11 +244,17 @@ fn wanted_title(
         monitored: w.monitored,
     };
     let shown = folders.iter().find(|m| files.contains_key(&m.id));
+    // The folder's own poster, else the wanted movie's TMDB one, else the folder's.
+    let folder = shown.or(folders.first());
+    let poster_path = folder
+        .and_then(|m| m.local_poster.clone())
+        .or(w.poster_path)
+        .or_else(|| folder.and_then(|m| m.poster_path.clone()));
     Title {
         wanted_id: Some(w.id),
         title: w.title,
         year: w.year,
-        poster: poster(w.poster_path),
+        poster: poster(poster_path),
         state: facts.state(),
         monitored: w.monitored,
         wanted: true,
@@ -274,7 +283,7 @@ fn library_title(movie: &LibraryRow, present: &Files) -> Title<MovieDetail> {
         wanted_id: None,
         title: movie.title.clone(),
         year: movie.year,
-        poster: poster(movie.poster_path.clone()),
+        poster: poster(movie.local_poster.clone().or(movie.poster_path.clone())),
         state: State::InLibrary,
         monitored: false,
         wanted: false,
