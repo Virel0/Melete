@@ -100,7 +100,8 @@ async fn scan_noting(
         .map(|f| f.rel_path.clone())
         .collect();
     let root = library.path.clone();
-    let read = tokio::task::spawn_blocking(move || read_all(&root, stale)).await?;
+    let (read, problems) = tokio::task::spawn_blocking(move || read_all(&root, stale)).await?;
+    problems.log(&library.name);
     let mut folders: Vec<String> = found
         .iter()
         .map(|f| album_folder(&f.rel_path).to_owned())
@@ -231,6 +232,50 @@ mod tests {
             ffmpeg.arg(&path).status().unwrap().success(),
             "ffmpeg made {rel}"
         );
+    }
+
+    #[test]
+    fn notes_the_files_whose_tags_had_problems() {
+        crate::logging::testing::note_tag_warnings();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for n in 1..=3 {
+            clip(root, &format!("A/B/0{n}.flac"), &[("title", "Song")]);
+        }
+        // An ID3v2.4 tag holding a title, in front of a FLAC file: lofty reads the file and
+        // warns that the tag can't be rewritten.
+        let path = root.join("A/B/01.flac");
+        let mut bytes =
+            b"ID3\x04\x00\x00\x00\x00\x00\x0dTIT2\x00\x00\x00\x03\x00\x00\x03Hi".to_vec();
+        bytes.extend(std::fs::read(&path).unwrap());
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(root.join("A/B/04.flac"), b"not audio").unwrap();
+        let files: Vec<String> = (1..=4).map(|n| format!("A/B/0{n}.flac")).collect();
+
+        let (read, problems) = read_all(root, files);
+        assert_eq!(
+            read["A/B/01.flac"].as_ref().unwrap().title.as_deref(),
+            Some("Song")
+        );
+        assert!(read["A/B/04.flac"].is_err());
+        assert_eq!(problems.files, 2);
+        let named: Vec<&str> = problems.examples.keys().map(String::as_str).collect();
+        assert_eq!(named, ["A/B/01.flac", "A/B/04.flac"]);
+        assert!(
+            problems.examples["A/B/01.flac"].contains("ID3v2"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_scans_tag_problems_name_only_the_first_few_files() {
+        let mut problems = TagProblems::default();
+        for n in [5, 3, 1, 4, 2] {
+            problems.note(&format!("{n}.flac"), "a problem".to_owned());
+        }
+        assert_eq!(problems.files, 5);
+        let named: Vec<&str> = problems.examples.keys().map(String::as_str).collect();
+        assert_eq!(named, ["1.flac", "2.flac", "3.flac"]);
     }
 
     async fn library(root: &Path) -> (SqlitePool, Library) {
