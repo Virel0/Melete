@@ -1669,7 +1669,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Set a file aside as the wrong one for its title",
-        "description": "Only for a movie or episode file Melete brought in from a download (FileInfo.imported); a file found in the library is never moved. The file goes to its library's trash (restorable with POST /api/v1/trash/{id}/restore, deleted after 30 days), the release it came from is blocklisted, its download is marked failed, and if the title is still monitored it's searched for again and the best accepted result grabbed.",
+        "description": "Only for a movie or episode file Melete brought in from a download (FileInfo.imported); a file found in the library is never moved. The file goes to its library's trash (restorable with POST /api/v1/trash/{id}/restore, deleted after 30 days), the release it came from is blocklisted, its download is marked failed, and if the title is still monitored it's searched for again (for a season pack's episode, that episode alone) and the best accepted result grabbed. A search that fails then is said in search; the file is set aside all the same.",
         "parameters": [
           {
             "name": "id",
@@ -1692,7 +1692,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "Melete didn't bring it in from a download, or it couldn't be moved (it changed on disk since it was scanned, or the library isn't writable)",
+            "description": "Melete didn't bring it in from a download (or the file at its name isn't the one a download put there any more), its download is still being brought in, or it couldn't be moved (it changed on disk since it was scanned, or the library isn't writable)",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -8626,7 +8626,8 @@
                 "taken_off",
                 "blocklisted",
                 "extra_found",
-                "renamed"
+                "renamed",
+                "set_aside"
               ]
             }
           },
@@ -11343,7 +11344,7 @@
           "id": {"type": "integer"},
           "imported": {
             "type": "boolean",
-            "description": "Whether Melete brought this file in from a download, rather than finding it in the library. Only such a file can be set aside as the wrong one (POST /api/v1/files/{id}/wrong); false for extras."
+            "description": "Whether Melete brought this file in from a download, rather than finding it in the library, and it's still the file it placed (same size, last change, inode and device). Only such a file can be set aside as the wrong one (POST /api/v1/files/{id}/wrong); false for extras."
           },
           "path": {"type": "string", "description": "Relative to the library folder."},
           "size": {"type": "integer"},
@@ -13374,7 +13375,7 @@
           },
           "reason": {
             "enum": ["upgrade", "wrong"],
-            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong)."
+            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong); its history says set_aside, not upgraded."
           },
           "trashed_at": {"type": "integer", "description": "Unix seconds."},
           "delete_after": {
@@ -16671,7 +16672,8 @@
               "taken_off",
               "blocklisted",
               "extra_found",
-              "renamed"
+              "renamed",
+              "set_aside"
             ]
           },
           "title": {

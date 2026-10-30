@@ -85,6 +85,8 @@ async fn place_all(
             .execute(pool)
             .await
             .map_err(|err| Stop::Retry(format!("the database: {err}")))?;
+        // And which file it is, so it's known for this download's only while it's still there.
+        record_placed(pool, id, &file.target).await?;
     }
     Ok(())
 }

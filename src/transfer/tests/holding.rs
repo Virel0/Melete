@@ -200,3 +200,23 @@ async fn a_failure_after_copying_leaves_no_part_files() {
         "the video's part file is gone"
     );
 }
+
+#[tokio::test]
+async fn each_placed_file_is_known_as_the_download_s_while_it_s_still_that_file() {
+    let r = rig().await;
+    let wanted = r.want_movie(None).await;
+    let files = r.seed(&[("Some.Movie.2024/Some.Movie.2024.mkv", data(1_000, 6))]);
+    let id = r
+        .movie_download(wanted, "Some.Movie.2024.1080p.WEB-DL", &files)
+        .await;
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    assert_eq!(r.state(id).await.0, "imported");
+
+    let placed = r
+        .local
+        .path()
+        .join("movies/Some Movie (2024)/Some.Movie.2024.mkv");
+    assert_eq!(placed_by(&r.pool, &placed).await.unwrap(), Some(id));
+    std::fs::write(&placed, b"written over by hand").unwrap();
+    assert_eq!(placed_by(&r.pool, &placed).await.unwrap(), None);
+}

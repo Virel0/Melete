@@ -61,7 +61,15 @@ async fn set_aside(
         Err(NotSetAside::Adopted) => {
             return Err(ApiError::new(
                 StatusCode::CONFLICT,
-                "Melete didn't bring this file in from a download: it's part of the library as it was, which Melete never moves",
+                "Melete didn't bring this file in from a download, or it has changed since: it's left where it is, as Melete never moves the library's own files",
+            ));
+        }
+        Err(NotSetAside::Busy(state)) => {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                format!(
+                    "its download is still being brought in ({state}); try again once it's done"
+                ),
             ));
         }
         Err(NotSetAside::Failed(why)) => {
@@ -72,7 +80,19 @@ async fn set_aside(
         }
     };
     let search = match aside.target {
-        Some(target) => crate::transfer::search_again(&state.pool, &state.sources, target).await?,
+        // The file is in the trash already: a search that fails is said, not an error.
+        Some(target) => {
+            match crate::transfer::search_again(&state.pool, &state.sources, target).await {
+                Ok(said) => said,
+                Err(err) => {
+                    tracing::warn!(
+                        error = format!("{err:#}"),
+                        "searching again after a wrong file failed"
+                    );
+                    format!("searching again failed: {err:#}")
+                }
+            }
+        }
         None => "it isn't for a wanted title, so it wasn't searched for again".into(),
     };
     Ok(Json(SetAsideView {

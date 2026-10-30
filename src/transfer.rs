@@ -32,6 +32,7 @@ mod again;
 mod cleanup;
 mod copy;
 mod destination;
+mod identity;
 mod picking;
 mod place;
 mod verify;
@@ -40,6 +41,7 @@ pub use again::*;
 use cleanup::*;
 pub use copy::*;
 pub(crate) use destination::*;
+pub(crate) use identity::*;
 pub(crate) use picking::*;
 pub(crate) use place::*;
 

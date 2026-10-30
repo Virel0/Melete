@@ -12,8 +12,11 @@ use crate::search::Target;
 pub enum NotSetAside {
     /// No such file in the library now.
     NotFound,
-    /// Melete didn't bring it in from a download: it's part of the existing library.
+    /// Melete didn't bring it in from a download (it's part of the existing library), or the
+    /// file at its name isn't the one a download put there any more.
     Adopted,
+    /// Its download is still being brought in; what it's doing.
+    Busy(String),
     /// It couldn't be moved; why.
     Failed(String),
 }
@@ -39,32 +42,36 @@ struct WrongRow {
     rel_path: String,
     size: i64,
     modified_at: i64,
+    season: Option<i64>,
+    episode: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
 struct FromDownload {
     id: i64,
     title: String,
+    state: String,
     wanted_movie_id: Option<i64>,
     wanted_series_id: Option<i64>,
     season: Option<i64>,
     episode: Option<i64>,
 }
 
-/// The download that put the file at `path` in the library, if one did: its record of the files
-/// it placed names it.
+/// The movie or episode download that put the file now at `path` in the library, if one did
+/// and it's still that file ([`crate::transfer::placed_by`]).
 pub async fn imported_by(pool: &SqlitePool, path: &Path) -> sqlx::Result<Option<i64>> {
     Ok(from_download(pool, path).await?.map(|d| d.id))
 }
 
 async fn from_download(pool: &SqlitePool, path: &Path) -> sqlx::Result<Option<FromDownload>> {
+    let Some(id) = crate::transfer::placed_by(pool, path).await? else {
+        return Ok(None);
+    };
     sqlx::query_as(
-        "SELECT id, title, wanted_movie_id, wanted_series_id, season, episode FROM downloads
-         WHERE (wanted_movie_id IS NOT NULL OR wanted_series_id IS NOT NULL)
-           AND EXISTS (SELECT 1 FROM json_each(placed) WHERE value = ?)
-         ORDER BY id DESC LIMIT 1",
+        "SELECT id, title, state, wanted_movie_id, wanted_series_id, season, episode FROM downloads
+         WHERE id = ? AND (wanted_movie_id IS NOT NULL OR wanted_series_id IS NOT NULL)",
     )
-    .bind(path.to_string_lossy())
+    .bind(id)
     .fetch_optional(pool)
     .await
 }
@@ -78,7 +85,8 @@ pub async fn set_aside(
 ) -> anyhow::Result<Result<SetAside, NotSetAside>> {
     let _one_at_a_time = TRASH_LOCK.lock().await;
     let row: Option<WrongRow> = sqlx::query_as(
-        "SELECT f.id, f.library_id, l.path AS root, f.rel_path, f.size, f.modified_at
+        "SELECT f.id, f.library_id, l.path AS root, f.rel_path, f.size, f.modified_at, f.season,
+             f.episode
          FROM media_files f JOIN libraries l ON l.id = f.library_id
          WHERE f.id = ? AND f.missing_since IS NULL
            AND (f.movie_id IS NOT NULL OR f.series_id IS NOT NULL)",
@@ -96,6 +104,12 @@ pub async fn set_aside(
     let Some(download) = from_download(pool, &from).await? else {
         return Ok(Err(NotSetAside::Adopted));
     };
+    if matches!(
+        download.state.as_str(),
+        "downloading" | "completed" | "transferring"
+    ) {
+        return Ok(Err(NotSetAside::Busy(download.state)));
+    }
     let trash_path = Path::new(TRASH)
         .join(download.id.to_string())
         .join(&row.rel_path)
@@ -122,16 +136,17 @@ pub async fn set_aside(
         }
     };
     crate::blocklist::add(pool, crate::blocklist::From::Download(download.id)).await?;
-    let target = match (
-        download.wanted_movie_id,
-        download.wanted_series_id,
-        download.season,
-    ) {
+    // A season pack's wrong episode is searched for alone: the pack's other files stay.
+    let (season, episode) = match row.season {
+        Some(season) => (Some(season), row.episode),
+        None => (download.season, download.episode),
+    };
+    let target = match (download.wanted_movie_id, download.wanted_series_id, season) {
         (Some(id), ..) => Some(Target::Movie(id)),
         (None, Some(id), Some(season)) => Some(Target::Series {
             id,
             season,
-            episode: download.episode,
+            episode,
         }),
         _ => None,
     };
