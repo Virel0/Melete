@@ -9,6 +9,7 @@ mod scan;
 mod successors;
 pub mod tags;
 mod title_files;
+pub mod unparsed;
 mod walk;
 pub mod watch;
 

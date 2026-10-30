@@ -14,7 +14,7 @@ services:
     container_name: melete-motion
     restart: unless-stopped
     # Melete's own user: Melete reads, and moves away, what it writes.
-    user: "10001:10001"
+    user: "${MELETE_USER:-10001:10001}"
     environment:
       MOTION_JOBS: /motion-jobs
       MOTION_MODELS: /models
@@ -23,9 +23,9 @@ services:
       MOTION_DEVICE: ${MELETE_MOTION_DEVICE:-cpu}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
-      # Jobs between Melete and the renderer; writable by uid 10001.
+      # Jobs between Melete and the renderer; writable by Melete's user.
       - ${MELETE_MOTION_JOBS_DIR:?set MELETE_MOTION_JOBS_DIR in .env}:/motion-jobs
-      # The models, downloaded once; writable by uid 10001.
+      # The models, downloaded once; writable by Melete's user.
       - ${MELETE_MOTION_MODELS_DIR:?set MELETE_MOTION_MODELS_DIR in .env}:/models
     tmpfs:
       - /tmp
