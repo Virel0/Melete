@@ -71,7 +71,7 @@ export function codeStep({ challenge, signedIn, restart }) {
       button.disabled = false;
       button.textContent = "Sign in";
       if (err.status === 410) return restart("That sign-in ran out. Enter your password again.");
-      fail(err.status === 401 ? "That code didn't work. Enter the newest code your app shows for Melete." : err.message);
+      fail(err.data?.reason === "wrong_code" ? "That code didn't work. Enter the newest code your app shows for Melete." : err.message);
     }
   });
   return { form: el, focus: () => input.focus() };
@@ -123,7 +123,7 @@ function setUpForm(ctx, say) {
     try {
       setup = await api("/me/two-factor/setup", { method: "POST", body: { password: password.input.value } });
     } catch (err) {
-      if (err.status === 403) {
+      if (err.data?.reason === "wrong_password") {
         password.fail("That isn't your password.");
         return null;
       }
@@ -146,7 +146,7 @@ function confirmStep(setup, ctx) {
     try {
       await api("/me/two-factor/confirm", { method: "POST", body: { code: typed } });
     } catch (err) {
-      if (err.status === 403) {
+      if (err.data?.reason === "wrong_code") {
         code.fail("That code didn't work. Check you added the key above, then enter the newest code.");
         return null;
       }
@@ -184,11 +184,11 @@ function turnOffForm(ctx) {
     try {
       await api("/me/two-factor/off", { method: "POST", body: { password: password.input.value, code: typed } });
     } catch (err) {
-      if (err.status === 403 && err.message === "wrong code") {
+      if (err.data?.reason === "wrong_code") {
         code.fail("That code didn't work. Enter the newest code your app shows for Melete.");
         return null;
       }
-      if (err.status === 403) {
+      if (err.data?.reason === "wrong_password") {
         password.fail("That isn't your password.");
         return null;
       }
@@ -206,17 +206,33 @@ function turnOffForm(ctx) {
 // The user's changes to how they sign in, for the sessions group; nothing when there are none.
 export function signInChanges(changes) {
   if (!changes.length) return null;
-  const said = {
-    two_factor_on: "Two-factor sign-in turned on",
-    two_factor_off: "Two-factor sign-in turned off",
-  };
-  const where = { account: "from your account", server: "on the server" };
   return [
     h("h3", { class: "part-sub" }, "Changes to how you sign in"),
     h(
       "ul",
       { class: "rows" },
-      changes.map((c) => h("li", {}, h("div", {}, h("strong", {}, said[c.change] ?? c.change), h("p", { class: "note" }, `${when(c.at)}, ${where[c.made_from] ?? c.made_from}.`)))),
+      changes.map((c) => h("li", {}, h("div", {}, ...describeChange(c)))),
     ),
   ];
+}
+
+// One entry of the record: what happened, and when and where from.
+function describeChange(c) {
+  if (c.change === "wrong_sign_in_code") {
+    const what = c.count === 1 ? "A wrong code at sign-in" : `${c.count} wrong codes at sign-in`;
+    return [
+      h("strong", {}, what),
+      h(
+        "p",
+        { class: "note" },
+        `${c.count === 1 ? "" : "The last on "}${when(c.at)}. A code is asked for only after the right password: if that wasn't you, someone knows yours, so change it above.`,
+      ),
+    ];
+  }
+  const said = {
+    two_factor_on: "Two-factor sign-in turned on",
+    two_factor_off: "Two-factor sign-in turned off",
+  };
+  const where = { account: "from your account", server: "on the server" };
+  return [h("strong", {}, said[c.change] ?? c.change), h("p", { class: "note" }, `${when(c.at)}, ${where[c.made_from] ?? c.made_from}.`)];
 }
