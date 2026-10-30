@@ -1,0 +1,126 @@
+use super::*;
+use crate::db;
+use crate::two_factor::totp;
+
+/// A user named `name` with a generated password, and their id.
+async fn user(pool: &sqlx::SqlitePool, name: &str) -> (auth::User, String) {
+    let password = auth::generate_password().unwrap();
+    let user = auth::create_user(pool, name, password.clone(), false)
+        .await
+        .unwrap()
+        .unwrap();
+    (user, password)
+}
+
+/// Alice, with her second factor on, and her password.
+async fn alice_with_a_second_factor(pool: &sqlx::SqlitePool) -> (i64, String) {
+    let (user, password) = user(pool, "alice").await;
+    let setup = two_factor::start_setup(pool, &user).await.unwrap().unwrap();
+    let secret = totp::tests::from_base32(&setup.secret);
+    let now = crate::db::unix_now();
+    let code = totp::code_at(&secret, totp::step_at(now));
+    two_factor::confirm(pool, user.id, &code, now)
+        .await
+        .unwrap();
+    (user.id, password)
+}
+
+fn never_asked() -> anyhow::Result<bool> {
+    panic!("asked when it shouldn't be")
+}
+
+#[tokio::test]
+async fn a_reset_removes_the_second_factor_when_the_answer_is_yes() {
+    let pool = db::open_in_memory().await;
+    let (id, old) = alice_with_a_second_factor(&pool).await;
+    let mut asked = 0;
+    let (user, new, outcome) = reset_password(&pool, "alice", SecondFactor::Ask, || {
+        asked += 1;
+        Ok(says_yes("y\n"))
+    })
+    .await
+    .unwrap();
+    assert_eq!(asked, 1);
+    assert_eq!((user.id, outcome), (id, Outcome::Removed));
+    assert!(!two_factor::is_on(&pool, id).await.unwrap());
+    let changes = two_factor::changes(&pool, id).await.unwrap();
+    assert_eq!(
+        (changes[0].change.as_str(), changes[0].made_from.as_str()),
+        ("two_factor_off", "server")
+    );
+    // Setting it is `set_password`'s, tested with it; here the new one is a fresh generated one.
+    assert_eq!(new.len(), 20);
+    assert_ne!(new, old);
+    assert!(
+        auth::check_password(&pool, "alice", old)
+            .await
+            .unwrap()
+            .is_none(),
+        "the old password no longer signs in"
+    );
+}
+
+#[tokio::test]
+async fn a_reset_keeps_the_second_factor_when_the_answer_is_no_or_the_flag_says_so() {
+    let pool = db::open_in_memory().await;
+    let (id, _) = alice_with_a_second_factor(&pool).await;
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Ask, || Ok(false))
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::Kept);
+    assert!(two_factor::is_on(&pool, id).await.unwrap());
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Keep, never_asked)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::Kept);
+    assert!(two_factor::is_on(&pool, id).await.unwrap());
+    let (_, _, outcome) = reset_password(&pool, "alice", SecondFactor::Remove, never_asked)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::Removed);
+    assert!(!two_factor::is_on(&pool, id).await.unwrap());
+}
+
+#[tokio::test]
+async fn a_reset_asks_nothing_of_a_user_without_one() {
+    let pool = db::open_in_memory().await;
+    user(&pool, "bob").await;
+    let (_, _, outcome) = reset_password(&pool, "bob", SecondFactor::Ask, never_asked)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::NoneOn);
+    assert!(
+        reset_password(&pool, "nobody", SecondFactor::Ask, never_asked)
+            .await
+            .is_err()
+    );
+}
+
+#[test]
+fn only_a_typed_yes_removes_it() {
+    for yes in ["y\n", "Y", " yes \n", "Yes"] {
+        assert!(says_yes(yes), "{yes:?}");
+    }
+    for no in ["", "\n", "n", "no", "N", "yep", "YES please"] {
+        assert!(!says_yes(no), "{no:?}");
+    }
+}
+
+#[test]
+fn reset_takes_one_second_factor_flag_at_most() {
+    assert_eq!(SecondFactor::from_flags(&[]), Some(SecondFactor::Ask));
+    assert_eq!(
+        SecondFactor::from_flags(&["--remove-second-factor"]),
+        Some(SecondFactor::Remove)
+    );
+    assert_eq!(
+        SecondFactor::from_flags(&["--keep-second-factor"]),
+        Some(SecondFactor::Keep)
+    );
+    for bad in [
+        &["--admin"][..],
+        &["--remove-second-factor", "--keep-second-factor"],
+    ] {
+        assert_eq!(SecondFactor::from_flags(bad), None);
+    }
+}
