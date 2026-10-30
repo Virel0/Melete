@@ -33,14 +33,14 @@ fn never_asked() -> anyhow::Result<bool> {
 async fn a_reset_removes_the_second_factor_when_the_answer_is_yes() {
     let pool = db::open_in_memory().await;
     let (id, old) = alice_with_a_second_factor(&pool).await;
-    let mut asked = false;
+    let mut asked = 0;
     let (user, new, outcome) = reset_password(&pool, "alice", SecondFactor::Ask, || {
-        asked = true;
-        Ok(true)
+        asked += 1;
+        Ok(says_yes("y\n"))
     })
     .await
     .unwrap();
-    assert!(asked);
+    assert_eq!(asked, 1);
     assert_eq!((user.id, outcome), (id, Outcome::Removed));
     assert!(!two_factor::is_on(&pool, id).await.unwrap());
     let changes = two_factor::changes(&pool, id).await.unwrap();
@@ -97,6 +97,16 @@ async fn a_reset_asks_nothing_of_a_user_without_one() {
             .await
             .is_err()
     );
+}
+
+#[test]
+fn only_a_typed_yes_removes_it() {
+    for yes in ["y\n", "Y", " yes \n", "Yes"] {
+        assert!(says_yes(yes), "{yes:?}");
+    }
+    for no in ["", "\n", "n", "no", "N", "yep", "YES please"] {
+        assert!(!says_yes(no), "{no:?}");
+    }
 }
 
 #[test]
