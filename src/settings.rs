@@ -336,6 +336,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_setting_locked_by_env_names_its_variable_and_the_way_out() {
+        let pool = db::open_in_memory().await;
+        let env = env_of(&[("MELETE_MUSICBRAINZ", "on")]);
+        let why = match save(
+            &pool,
+            "musicbrainz",
+            &change(&[("MELETE_MUSICBRAINZ", Some("off"))]),
+            &env,
+        )
+        .await
+        .unwrap()
+        {
+            Err(Refused::Invalid(why)) => why,
+            other => panic!("{other:?}"),
+        };
+        assert!(
+            why.starts_with("MELETE_MUSICBRAINZ is set in .env"),
+            "{why}"
+        );
+        assert!(
+            why.contains("remove that line from .env and restart Melete"),
+            "{why}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_view_says_a_secret_is_set_but_never_shows_it() {
         let pool = db::open_in_memory().await;
         let env = env_of(&[("MELETE_SLSKD_URL", "http://slskd:5030")]);
