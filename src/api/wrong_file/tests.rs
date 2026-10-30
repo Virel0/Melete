@@ -29,7 +29,8 @@ async fn fixture() -> Fixture {
     let library = tempfile::tempdir().unwrap();
     let mut tokens = Vec::new();
     for (name, admin) in [("admin", true), ("viewer", false)] {
-        let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
+        let password = auth::generate_password().unwrap();
+        let user = auth::create_user(&pool, name, password, admin)
             .await
             .unwrap()
             .unwrap();
