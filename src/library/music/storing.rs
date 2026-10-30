@@ -50,6 +50,7 @@ pub(super) async fn store(
     report.newly_missing = mark_tracks_missing(&mut tx, library, now, generation).await?;
 
     store_albums(&mut tx, library, artwork, generation, &mut report).await?;
+    merge_named_artists(&mut tx).await?;
     sqlx::query(
         "UPDATE music_albums SET missing_since = ?
          WHERE library_id = ? AND seen_generation < ? AND missing_since IS NULL",

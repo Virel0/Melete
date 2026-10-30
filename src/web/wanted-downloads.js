@@ -176,10 +176,17 @@ function askRemove(page, d, actions) {
     go.textContent = dataBox.checked ? "Remove and delete files" : "Remove download";
     delugeLabel.textContent = dataBox.checked ? "Also remove the torrent from Deluge" : keepsData;
   });
+  // A Soulseek download has no torrent nor seedbox files to remove.
+  const seedbox =
+    d.source === "soulseek"
+      ? []
+      : [
+          h("div", { class: "check" }, box, delugeLabel),
+          h("div", { class: "check" }, dataBox, h("label", { for: dataId }, "Also delete its files on the seedbox, for good")),
+        ];
   actions.replaceChildren(
     said,
-    d.source !== "soulseek" ? h("div", { class: "check" }, box, delugeLabel) : null,
-    d.source !== "soulseek" ? h("div", { class: "check" }, dataBox, h("label", { for: dataId }, "Also delete its files on the seedbox, for good")) : null,
+    ...seedbox,
     h("div", { class: "check" }, blockBox, h("label", { for: blockId }, "Blocklist this release, so it's never grabbed again")),
     go,
     keep,
