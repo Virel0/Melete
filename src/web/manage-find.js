@@ -130,8 +130,7 @@ function draw(v, words, groups, failed) {
   if (!total) {
     v.said.textContent = `${v.source} found nothing for “${words}”.${partly}`;
     v.results.replaceChildren(
-      h("p", { class: "note" }, "Try another spelling, or fewer words."),
-      v.music ? soulseekOffer(v, words) : null,
+      ...[h("p", { class: "note" }, "Try another spelling, or fewer words."), v.music ? soulseekOffer(v, words) : null].filter(Boolean),
     );
     return;
   }

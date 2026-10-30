@@ -57,7 +57,7 @@ export function wantPanel(ctx, { note, request, why, library, profiles, music, o
       if (err instanceof SignedOut) return ctx.signedOut();
       said.classList.add("error");
       const outside = err.status === 502 || /isn't set up/.test(err.message);
-      said.replaceChildren(`${err.message} `, outside ? h("a", { href: "#/admin/system/services" }, "How TMDB and MusicBrainz stand") : null);
+      said.replaceChildren(...[`${err.message} `, outside ? h("a", { href: "#/admin/system/services" }, "How TMDB and MusicBrainz stand") : null].filter(Boolean));
       submit.disabled = false;
     }
   });

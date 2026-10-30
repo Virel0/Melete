@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 320);
+        assert_eq!(checked, 326);
     }
 
     /// The response's fields are exactly the schema's.
@@ -2951,6 +2951,83 @@ mod openapi {
         );
         let (status, _) = send("PUT", movie, Some(json!({ "profile_id": null }))).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn an_anime_series_takes_only_animes_profiles() {
+        let (pool, app, _artwork) = full_server().await;
+        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
+            .await
+            .unwrap()
+            .unwrap();
+        let (_, token) =
+            crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        // Frieren is wanted as anime; Mushishi is Anime's by its library's category.
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path, category)
+                 VALUES (1, 'Shows', 'shows', '/s', NULL), (2, 'Anime', 'shows', '/a', 'anime');
+             INSERT INTO wanted_series (id, tvdb_id, title, monitored, series_type, library_id,
+                 source, added_at)
+             VALUES (1, 424536, 'Frieren', 1, 'anime', 1, 'manual', 0),
+                    (2, 81189, 'Breaking Bad', 1, 'standard', 1, 'manual', 0),
+                    (3, 79105, 'Mushishi', 1, 'standard', 2, 'manual', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut made = Vec::new();
+        for service in ["series", "anime"] {
+            let input: crate::profiles::edit::ProfileInput = serde_json::from_value(json!({
+                "source": "sonarr", "service": service, "name": "HD-1080p", "upgrade_allowed": true,
+                "cutoff": "WEBDL-1080p", "min_format_score": 0, "cutoff_format_score": 0,
+                "min_upgrade_format_score": 1, "language": null, "formats": [],
+                "items": [{ "name": "WEBDL-1080p", "qualities": ["WEBDL-1080p"], "allowed": true }]
+            }))
+            .unwrap();
+            let id = crate::profiles::edit::create_profile(&pool, &input)
+                .await
+                .unwrap()
+                .unwrap();
+            made.push(id);
+        }
+        let (series_profile, anime_profile) = (made[0], made[1]);
+        let choose = |wanted: i64, profile: i64| {
+            let request = Request::put(format!("/api/v1/wanted/series/{wanted}/profile"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "profile_id": profile }).to_string()))
+                .unwrap();
+            let app = app.clone();
+            async move { app.oneshot(request).await.unwrap().status() }
+        };
+        for anime in [1, 3] {
+            assert_eq!(
+                choose(anime, series_profile).await,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "series {anime} is Anime's"
+            );
+            assert_eq!(choose(anime, anime_profile).await, StatusCode::NO_CONTENT);
+        }
+        assert_eq!(
+            choose(2, anime_profile).await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(choose(2, series_profile).await, StatusCode::NO_CONTENT);
+        let chosen: Vec<Option<i64>> =
+            sqlx::query_scalar("SELECT profile_id FROM wanted_series ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            chosen,
+            [
+                Some(anime_profile),
+                Some(series_profile),
+                Some(anime_profile)
+            ]
+        );
     }
 
     #[tokio::test]
