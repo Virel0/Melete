@@ -254,7 +254,7 @@ async fn each_title_carries_its_documented_poster() {
     .execute(&pool)
     .await
     .unwrap();
-    let admin = auth::create_user(&pool, "alice", "alice-password".into(), true)
+    let admin = auth::create_user(&pool, "alice", auth::generate_password().unwrap(), true)
         .await
         .unwrap()
         .unwrap();
