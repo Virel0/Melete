@@ -22,6 +22,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   each artist, instead of empty boxes.
 - An artist with some albums tagged with MusicBrainz ids and some not is listed once. Their old
   address and pins lead to the artist they joined.
+- Matching moved and renamed files after a scan finds them by the movie and episode indexes,
+  rather than comparing each new file with every file in its library.
 
 ## [0.1.0] - 2026-10-29
 
