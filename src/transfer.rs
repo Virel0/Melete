@@ -241,6 +241,7 @@ pub async fn transfer(
         .map(|expected| verify::Check {
             expected,
             ffprobe: fixes.map(|f| f.tools.ffprobe.clone()),
+            measured: std::sync::Mutex::new(None),
         });
     let claimed = sqlx::query(
         "UPDATE downloads SET state = 'transferring', message = 'connecting to the seedbox', updated_at = ?
@@ -269,6 +270,7 @@ pub async fn transfer(
     ) {
         clean_up(pool, id).await;
     }
+    count_check(pool, &row, id, &outcome, check.as_ref()).await?;
     finish(
         pool,
         id,

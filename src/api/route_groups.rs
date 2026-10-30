@@ -162,6 +162,7 @@ pub(super) fn wanting_routes(
                 pipeline: downloads.clone(),
             },
         ))
+        .merge(runtime_checks::routes(pool.clone()))
         .merge(downloads::routes(pool.clone(), downloads, slskd.clone()))
         .merge(lists::routes(pool.clone(), list_sources))
 }
