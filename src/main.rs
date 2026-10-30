@@ -98,6 +98,7 @@ mod track_picks;
 mod transcode;
 mod transfer;
 mod trickplay;
+mod two_factor;
 mod upgrades;
 mod want;
 mod wanted_edit;
