@@ -360,6 +360,41 @@ mod tests {
         assert!(!tmdb.on);
     }
 
+    /// Only services with something to reach are tested; a setting that needs a component
+    /// beside Melete says whether it's set up.
+    #[test]
+    fn a_view_says_what_can_be_tested_and_what_a_setting_needs() {
+        let env = env_of(&[("MELETE_MOTION_JOBS", "/path/to/motion/jobs")]);
+        let config = Config::from_env_and(lookup(&HashMap::new(), &env)).unwrap();
+        let views = views(&config, &HashMap::new(), &env);
+        let view = |key: &str| views.iter().find(|s| s.key == key).unwrap();
+        assert!(view("tmdb").testable && view("slskd").testable);
+        assert!(view("tmdb").needs.is_none());
+        for own in [
+            "auto_dj",
+            "motion_covers",
+            "scans",
+            "song_albums",
+            "trickplay",
+        ] {
+            assert!(!view(own).testable, "{own}");
+        }
+        assert_eq!(
+            view("auto_dj").needs,
+            Some(Needs {
+                name: "stem separator",
+                set_up: false
+            })
+        );
+        assert_eq!(
+            view("motion_covers").needs,
+            Some(Needs {
+                name: "motion cover renderer",
+                set_up: true
+            })
+        );
+    }
+
     #[tokio::test]
     async fn intro_detection_is_off_until_turned_on() {
         let pool = db::open_in_memory().await;

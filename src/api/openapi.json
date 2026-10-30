@@ -8012,7 +8012,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Test an outside service's connection",
-        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr must say it's ready. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
+        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr (or a solver that copies its API) must answer. A setting of Melete's own (testable false) has nothing to connect to, and says so. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
         "parameters": [
           {"name": "key", "in": "path", "required": true, "description": "The service.", "schema": {"type": "string"}}
         ],
@@ -15646,7 +15646,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "fields"],
+        "required": ["key", "name", "about", "on", "testable", "needs", "fields"],
         "properties": {
           "key": {
             "type": "string",
@@ -15677,6 +15677,23 @@
           "name": {"type": "string"},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
           "on": {"type": "boolean", "description": "Whether it's in use as things stand."},
+          "testable": {
+            "type": "boolean",
+            "description": "Whether its test (POST /api/v1/settings/services/{key}/test) tries to reach something. False for a setting of Melete's own, which has nothing to connect to."
+          },
+          "needs": {
+            "type": ["object", "null"],
+            "description": "The component beside Melete it needs (Auto DJ the stem separator, motion covers their renderer), or null.",
+            "required": ["name", "set_up"],
+            "properties": {
+              "name": {"type": "string", "description": "What it is, as a sentence names it, e.g. \"stem separator\"."},
+              "set_up": {
+                "type": "boolean",
+                "description": "Whether Melete is set up to reach it (its folders are set). Whether it's running shows only when it's given work."
+              }
+            },
+            "additionalProperties": false
+          },
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
         },
         "additionalProperties": false

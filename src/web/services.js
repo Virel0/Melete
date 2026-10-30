@@ -104,7 +104,8 @@ export function serviceSection(ctx, s) {
     ctx.reload(`${s.name} saved, and in use now.`);
     return null;
   });
-  saving.querySelector(".form-actions").append(test);
+  // A setting of Melete's own has nothing to connect to, so no test.
+  if (s.testable) saving.querySelector(".form-actions").append(test);
   // Everything set in .env: nothing here to save, only to test.
   if (s.fields.every((f) => f.from === "environment")) saving.querySelector("button[type=submit]").hidden = true;
   const extra = [];
@@ -138,8 +139,9 @@ export function serviceSection(ctx, s) {
     { class: "subgroup", "aria-labelledby": id },
     h("h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
     h("p", { class: "note" }, s.about),
+    s.needs && h("p", { class: "note" }, s.needs.set_up ? `The ${s.needs.name} is set up.` : `The ${s.needs.name} isn't set up, so this can't run yet.`),
     saving,
-    tested,
+    s.testable && tested,
     extra,
   );
 }
