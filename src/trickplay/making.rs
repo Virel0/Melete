@@ -124,34 +124,50 @@ pub async fn make(
     Ok(index)
 }
 
+/// Present videos with a picture, probed in their current version, without previews made from
+/// it. One text for counting them and taking the next, so the two can't drift apart.
+macro_rules! pending_files {
+    () => {
+        "FROM media_files f
+         JOIN libraries l ON l.id = f.library_id
+         JOIN media_probes p ON p.file_id = f.id
+             AND p.size = f.size AND p.modified_at = f.modified_at
+         LEFT JOIN media_trickplay t ON t.file_id = f.id
+         WHERE f.missing_since IS NULL
+           AND json_extract(p.info, '$.video[0].width') > 0
+           AND json_extract(p.info, '$.video[0].height') > 0
+           AND (t.file_id IS NULL OR t.size <> f.size OR t.modified_at <> f.modified_at)"
+    };
+}
+
 /// Makes previews for every present video not made yet in its current version, one at a
 /// time, while it's turned on (`MELETE_TRICKPLAY`). A file ffmpeg can't read keeps why, and is
 /// looked at again only once it changes.
 pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyhow::Result<Report> {
     let mut report = Report::default();
+    let total: i64 = sqlx::query_scalar(concat!("SELECT count(*) ", pending_files!()))
+        .fetch_one(pool)
+        .await?;
+    let total = usize::try_from(total).unwrap_or_default();
+    let pace = crate::jobs::pace::Pace::start("trickplay", "making seek-bar previews", total);
     loop {
+        // Turned off meanwhile: the run stops, and says it stopped before the end.
         if !crate::settings::trickplay(pool).await? {
             return Ok(report);
         }
-        let next: Option<(i64, String, String, i64, i64, i64, i64)> = sqlx::query_as(
+        let next: Option<(i64, String, String, i64, i64, i64, i64)> = sqlx::query_as(concat!(
             "SELECT f.id, l.path, f.rel_path, f.size, f.modified_at,
-                 json_extract(p.info, '$.video[0].width'), json_extract(p.info, '$.video[0].height')
-             FROM media_files f
-             JOIN libraries l ON l.id = f.library_id
-             JOIN media_probes p ON p.file_id = f.id
-                 AND p.size = f.size AND p.modified_at = f.modified_at
-             LEFT JOIN media_trickplay t ON t.file_id = f.id
-             WHERE f.missing_since IS NULL
-               AND json_extract(p.info, '$.video[0].width') > 0
-               AND json_extract(p.info, '$.video[0].height') > 0
-               AND (t.file_id IS NULL OR t.size <> f.size OR t.modified_at <> f.modified_at)
-             ORDER BY f.id LIMIT 1",
-        )
+                 json_extract(p.info, '$.video[0].width'), json_extract(p.info, '$.video[0].height') ",
+            pending_files!(),
+            " ORDER BY f.id LIMIT 1"
+        ))
         .fetch_optional(pool)
         .await?;
         let Some((id, library, rel_path, size, modified_at, width, height)) = next else {
+            pace.finish();
             return Ok(report);
         };
+        let item = pace.item();
         let making = root.join(format!(".making-{id}-{size}-{modified_at}"));
         let input = Path::new(&library).join(&rel_path);
         let made = make(ffmpeg, &input, (width, height), &making).await;
@@ -171,6 +187,7 @@ pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyh
                     "couldn't make seek-bar previews"
                 );
                 report.failed += 1;
+                item.failed();
                 Some(format!("{err:#}"))
             }
         };

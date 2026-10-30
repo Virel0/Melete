@@ -114,6 +114,20 @@ struct Runs {
     finished_at: Option<i64>,
     result: Option<String>,
     next_at: Option<i64>,
+    progress: Vec<Progress>,
+}
+
+/// How far one step of a running task has got, such as probing files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Progress {
+    /// The step, in plain words.
+    pub what: &'static str,
+    /// Items done so far.
+    pub done: usize,
+    /// Items in this run.
+    pub total: usize,
+    /// Of those done, the ones that failed.
+    pub failed: usize,
 }
 
 static RUNS: LazyLock<Mutex<HashMap<&'static str, Runs>>> = LazyLock::new(Default::default);
@@ -166,6 +180,16 @@ pub fn ran(name: &'static str, started_at: i64, result: String) {
     task.result = Some(result);
 }
 
+/// Notes how far the step `what` of a running task has got, or with `None` that it's over. A
+/// task this server hasn't started isn't shown running for it.
+pub fn progress(name: &'static str, what: &'static str, now: Option<Progress>) {
+    let mut all = runs();
+    if let Some(task) = all.get_mut(name) {
+        task.progress.retain(|p| p.what != what);
+        task.progress.extend(now);
+    }
+}
+
 /// Notes a task finishing, how it went (`None` for fine), and when it runs next on its own.
 pub fn finished(name: &'static str, result: Option<String>, next_in: Option<Duration>) {
     let now = unix_now();
@@ -198,6 +222,8 @@ pub struct TaskView {
     pub next_at: Option<i64>,
     /// Whether it can be run now from here.
     pub can_run: bool,
+    /// How far each of its steps running now has got; empty when none is.
+    pub progress: Vec<Progress>,
 }
 
 /// Every task, in [`TASKS`]' order.
@@ -217,6 +243,7 @@ pub fn list() -> Vec<TaskView> {
                 result: runs.result,
                 next_at: runs.next_at,
                 can_run: task.wake.is_some(),
+                progress: runs.progress,
             }
         })
         .collect()
