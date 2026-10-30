@@ -10070,7 +10070,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your playback preferences",
-        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown.",
+        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown, and the Watch home's hero plays trailers on screens larger than a phone's.",
         "responses": {
           "200": {
             "description": "OK",
@@ -10094,7 +10094,8 @@
                 "description": "The preferences to change; each one left out keeps its value.",
                 "properties": {
                   "autoplay_next": {"type": "boolean"},
-                  "countdown_seconds": {"type": "integer", "minimum": 5, "maximum": 30}
+                  "countdown_seconds": {"type": "integer", "minimum": 5, "maximum": 30},
+                  "hero_trailers": {"enum": ["off", "large_screens", "everywhere"]}
                 },
                 "additionalProperties": false
               }
@@ -17309,7 +17310,7 @@
       },
       "PlaybackPreferences": {
         "type": "object",
-        "required": ["autoplay_next", "countdown_seconds"],
+        "required": ["autoplay_next", "countdown_seconds", "hero_trailers"],
         "properties": {
           "autoplay_next": {
             "type": "boolean",
@@ -17320,6 +17321,10 @@
             "minimum": 5,
             "maximum": 30,
             "description": "How long the countdown before the next episode lasts. Default 10."
+          },
+          "hero_trailers": {
+            "enum": ["off", "large_screens", "everywhere"],
+            "description": "Where the Watch home's hero plays its picks' trailers, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. A trailer in the title's folder comes first; one online only while an admin has trailers online on."
           }
         },
         "additionalProperties": false
