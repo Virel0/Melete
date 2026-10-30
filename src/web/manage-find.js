@@ -58,7 +58,7 @@ export function findPart(page) {
   results.addEventListener("keydown", (event) => move(v, event));
   return group(
     "Add new",
-    h("p", { class: "note" }, `Results appear as you type. Only the words you search for leave the server, to ${source}${music ? ", or to Soulseek when you ask" : ""}. Adding one puts it on the wanted list at once, as an approved request.`),
+    h("p", { class: "note" }, `Results appear as you type. Only the words you search for go to ${source}${music ? ", or to Soulseek when you ask" : ""}${music ? "" : "; posters of titles not here come from TMDB only when that is on under Outside services"}. Adding one puts it on the wanted list at once, as an approved request.`),
     search,
     said,
     results,

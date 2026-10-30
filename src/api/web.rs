@@ -581,7 +581,7 @@ mod tests {
             ("/web/manage-album.js", "/web/manage-want.js"),
             ("/web/manage-select.js", "/selection"),
             ("/web/manage-library.js", "all: () => selectAll(v)"),
-            ("/web/manage-add.js", "/requests/search"),
+            ("/web/manage-find.js", "/requests/search"),
             ("/web/manage-find.js", r#"["song", "Songs"]"#),
             ("/web/manage-find.js", "/requests/soulseek"),
             ("/web/manage-add-form.js", "find-add"),

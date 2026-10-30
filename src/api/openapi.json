@@ -15555,7 +15555,7 @@
           },
           "poster": {
             "type": ["string", "null"],
-            "description": "Its poster or cover on this server, only when it's here already: a movie's or series' TMDB poster Melete keeps, or an album's cover in a library you may see. Nothing is fetched for a result that isn't here, so a search sends out only its words."
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
           }
         },
         "additionalProperties": false

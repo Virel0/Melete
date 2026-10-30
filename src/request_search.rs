@@ -45,10 +45,13 @@ pub struct Candidate {
     pub wanted: bool,
     /// The searcher's own request for it still open (asked for or approved): its id.
     pub requested: Option<i64>,
-    /// Its poster or cover's address on this server, when it's here already: a title's TMDB
-    /// poster Melete keeps, or an album's cover in the library. Nothing is fetched for one
-    /// that isn't, so a search sends out only its words.
+    /// Its poster or cover's address on this server: an album's cover in the library; a movie's
+    /// or series' TMDB poster is set by the API, served as discovery's are (`tmdb_poster`).
     pub poster: Option<String>,
+    /// A movie's or series' poster path on TMDB's image server, as its search answered; served
+    /// only as discovery's posters are, so never sent as it is.
+    #[serde(skip)]
+    pub tmdb_poster: Option<String>,
 }
 
 fn first_artist(credits: &[Credit]) -> Option<(String, String)> {
@@ -164,6 +167,7 @@ async fn screen(
                 tmdb_id: Some(r.id),
                 year: r.release_date.as_deref().and_then(year_of),
                 detail: other(r.original_title, &r.title),
+                tmdb_poster: r.poster_path,
                 title: r.title,
                 ..Candidate::default()
             })
@@ -176,6 +180,7 @@ async fn screen(
                 tmdb_id: Some(r.id),
                 year: r.first_air_date.as_deref().and_then(year_of),
                 detail: other(r.original_name, &r.name),
+                tmdb_poster: r.poster_path,
                 title: r.name,
                 ..Candidate::default()
             })
@@ -725,12 +730,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pictures_come_only_from_whats_here() {
-        let (pool, user, tmdb, mb) = rig().await;
+    async fn album_covers_come_only_from_the_library() {
+        let (pool, user, _, mb) = rig().await;
         sqlx::query(
-            "INSERT INTO tmdb_movies (tmdb_id, title, poster_path, fetched_at)
-                 VALUES (603, 'The Matrix', '/matrix.jpg', 0);
-             INSERT INTO libraries (id, name, kind, path) VALUES (4, 'music', 'music', '/music');
+            "INSERT INTO libraries (id, name, kind, path) VALUES (4, 'music', 'music', '/music');
              INSERT INTO music_albums (id, library_id, key, title, artist_name, folder,
                      seen_generation, mb_release_group_id)
                  VALUES (7, 4, 'k', 'OK Computer', 'Radiohead', 'Radiohead/OK Computer', 1, ?)",
@@ -739,20 +742,11 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let movies = search(&pool, Some(&tmdb), None, user, "movie", "Matrix", None)
+        let songs = search(&pool, None, Some(&mb), user, "song", "paranoid", None)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            movies
-                .iter()
-                .map(|c| (c.tmdb_id, c.poster.as_deref()))
-                .collect::<Vec<_>>(),
-            [
-                (Some(603), Some("/api/v1/artwork/w342/matrix.jpg")),
-                (Some(9999), None)
-            ]
-        );
+        assert_eq!(songs[0].poster, None, "nothing fetched for what isn't here");
         let albums = search(&pool, None, Some(&mb), user, "album", "ok computer", None)
             .await
             .unwrap()
