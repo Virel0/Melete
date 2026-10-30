@@ -84,6 +84,10 @@ impl Visit for Message {
 
 #[cfg(test)]
 pub mod testing {
+    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+    use tracing::subscriber::DefaultGuard;
+
     use super::*;
 
     /// Sends the `log` crate's messages through a subscriber that notes the tag reader's
@@ -97,17 +101,54 @@ pub mod testing {
                 .try_init();
         });
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
+    /// The log on this thread, through `filter`, while it's held, for a test to read back.
+    pub struct Captured {
+        /// What's been written.
+        pub written: Written,
+        _default: DefaultGuard,
+        _one_at_a_time: MutexGuard<'static, ()>,
+    }
 
-    use super::*;
+    /// Starts a [`Captured`] log. tracing works out once, for every subscriber alive, which
+    /// messages anyone wants; subscribers made at the same moment on other threads can leave
+    /// that out of date, so captured logs are made one at a time, after the binary's own.
+    pub fn capture(filter: &str) -> Captured {
+        note_tag_warnings();
+        static ONE: Mutex<()> = Mutex::new(());
+        let one = ONE.lock().unwrap_or_else(PoisonError::into_inner);
+        let written = Written::default();
+        let log = subscriber(EnvFilter::new(filter), written.clone());
+        let default = tracing::subscriber::set_default(log);
+        tracing::callsite::rebuild_interest_cache();
+        Captured {
+            written,
+            _default: default,
+            _one_at_a_time: one,
+        }
+    }
 
-    /// A writer the test can read back.
+    /// A writer for the log that a test can read back.
     #[derive(Clone, Default)]
-    struct Written(Arc<Mutex<Vec<u8>>>);
+    pub struct Written(Arc<Mutex<Vec<u8>>>);
+
+    impl Written {
+        /// What's been written so far, without its colours.
+        pub fn text(&self) -> String {
+            let raw = String::from_utf8_lossy(&self.0.lock().expect("not poisoned")).into_owned();
+            let mut text = String::with_capacity(raw.len());
+            let mut chars = raw.chars();
+            while let Some(c) = chars.next() {
+                if c == '\u{1b}' {
+                    // A colour: ESC [ … m.
+                    chars.by_ref().find(|c| *c == 'm');
+                } else {
+                    text.push(c);
+                }
+            }
+            text
+        }
+    }
 
     impl std::io::Write for Written {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -128,21 +169,23 @@ mod tests {
             self.clone()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::capture;
+    use super::*;
 
     #[test]
     fn the_default_log_leaves_out_the_tag_readers_warnings_but_notes_them() {
-        let written = Written::default();
-        let log = subscriber(EnvFilter::new(DEFAULT_FILTER), written.clone());
-        let ((), noted) = tracing::subscriber::with_default(log, || {
-            noting(|| {
-                tracing::warn!(target: "lofty::flac::read", "an ID3v2 tag in a FLAC file");
-                tracing::error!(target: "lofty::probe", "a file lofty can't read");
-                tracing::info!(target: "melete::background", "scan finished");
-                tracing::debug!(target: "melete::background", "a detail");
-            })
+        let log = capture(DEFAULT_FILTER);
+        let ((), noted) = noting(|| {
+            tracing::warn!(target: "lofty::flac::read", "an ID3v2 tag in a FLAC file");
+            tracing::error!(target: "lofty::probe", "a file lofty can't read");
+            tracing::info!(target: "melete::background", "scan finished");
+            tracing::debug!(target: "melete::background", "a detail");
         });
-        let written = String::from_utf8(written.0.lock().expect("not poisoned").clone())
-            .expect("the log is text");
+        let written = log.written.text();
         assert!(written.contains("scan finished"), "{written}");
         assert!(written.contains("a file lofty can't read"), "{written}");
         assert!(!written.contains("an ID3v2 tag"), "{written}");
@@ -156,22 +199,16 @@ mod tests {
 
     #[test]
     fn rust_log_still_sets_the_filter_whole() {
-        let written = Written::default();
-        let log = subscriber(EnvFilter::new("info"), written.clone());
-        tracing::subscriber::with_default(log, || {
-            tracing::warn!(target: "lofty::flac::read", "an ID3v2 tag in a FLAC file");
-        });
-        let written = written.0.lock().expect("not poisoned").clone();
-        assert!(String::from_utf8_lossy(&written).contains("an ID3v2 tag"));
+        let log = capture("info");
+        tracing::warn!(target: "lofty::flac::read", "an ID3v2 tag in a FLAC file");
+        assert!(log.written.text().contains("an ID3v2 tag"));
     }
 
     #[test]
     fn nothing_is_noted_outside_noting() {
-        let log = subscriber(EnvFilter::new("off"), Written::default());
-        let ((), noted) = tracing::subscriber::with_default(log, || {
-            tracing::warn!(target: "lofty::flac::read", "before");
-            noting(|| ())
-        });
+        let _log = capture("off");
+        tracing::warn!(target: "lofty::flac::read", "before");
+        let ((), noted) = noting(|| ());
         assert!(noted.is_empty());
     }
 }
