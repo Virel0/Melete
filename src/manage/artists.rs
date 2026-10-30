@@ -50,6 +50,18 @@ struct AlbumRow {
     library: String,
     size: Option<i64>,
     first: Option<i64>,
+    /// A cover of its own: a file in its folder or a picture in a track.
+    own_cover: bool,
+}
+
+/// The cover of the first of `albums` (by id) with a cover of its own, as the artist's picture.
+fn cover<'a>(albums: impl IntoIterator<Item = &'a AlbumRow>) -> Option<String> {
+    albums
+        .into_iter()
+        .filter(|a| a.own_cover)
+        .map(|a| a.id)
+        .min()
+        .map(|id| format!("/api/v1/music/albums/{id}/cover"))
 }
 
 /// A wanted album: its artist, id, release group, whether it's monitored and out.
@@ -72,7 +84,10 @@ pub(super) const WANTED_ALBUMS: &str = "
 
 pub(super) const ALBUMS: &str = "
     SELECT a.id, a.artist_id, ar.mb_artist_id, ar.name AS artist, a.mb_release_group_id,
-           a.match_release_group_id, l.name AS library, t.size, t.first
+           a.match_release_group_id, l.name AS library, t.size, t.first,
+           a.cover_file IS NOT NULL OR EXISTS (SELECT 1 FROM music_tracks p
+               WHERE p.album_id = a.id AND p.missing_since IS NULL AND p.has_picture = 1)
+               AS own_cover
     FROM music_albums a
     JOIN libraries l ON l.id = a.library_id
     LEFT JOIN music_artists ar ON ar.id = a.artist_id
@@ -179,7 +194,7 @@ fn wanted_title(
         wanted_id: Some(w.id),
         title: w.name,
         year: None,
-        poster: None,
+        poster: cover(present.values().copied()),
         state: facts.state(),
         monitored: w.monitored,
         wanted: true,
@@ -219,7 +234,7 @@ fn unclaimed(albums: &[AlbumRow], claimed: &HashSet<i64>) -> Vec<Title<ArtistDet
             wanted_id: None,
             title: theirs[0].artist.clone().unwrap_or_default(),
             year: None,
-            poster: None,
+            poster: cover(theirs.iter().copied()),
             state: State::InLibrary,
             monitored: false,
             wanted: false,

@@ -46,6 +46,7 @@ mod libretranslate;
 mod listen;
 mod lists;
 mod live;
+mod logging;
 mod lrclib;
 mod lyrics;
 mod manage;
@@ -92,12 +93,14 @@ mod stems;
 mod subtitles;
 mod tasks;
 mod tmdb;
+mod tmdb_status;
 mod torznab;
 mod track_artists;
 mod track_picks;
 mod transcode;
 mod transfer;
 mod trickplay;
+mod two_factor;
 mod upgrades;
 mod want;
 mod wanted_edit;
@@ -109,15 +112,10 @@ use std::sync::Arc;
 use anyhow::{Context, bail};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{SignalKind, signal};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    logging::init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if show_seedbox_host_key(&args).await? {
@@ -343,6 +341,7 @@ fn spawn_background_jobs(
         },
     ));
     tokio::spawn(background::work_out_works(pool.clone()));
+    tokio::spawn(background::match_on_request(pool.clone(), tmdb.clone()));
     tokio::spawn(backup::daily(pool.clone(), config.data_dir.clone()));
     tokio::spawn(background::read_lyrics(pool.clone()));
     tokio::spawn(background::find_segments(

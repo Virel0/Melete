@@ -14,9 +14,9 @@ Fixes go into the next release. Only the latest release is supported.
 
 ## What Melete can access
 
-Melete runs in one container as uid 10001, with a read-only root filesystem, every Linux
-capability dropped and `no-new-privileges` set (`compose.yaml`). It is given no Docker socket
-and no host network. What it can reach is what the compose files mount and what an admin sets
+Melete runs in one container as uid 10001 (or the user `MELETE_USER` names), with a read-only
+root filesystem, every Linux capability dropped and `no-new-privileges` set (`compose.yaml`). It
+is given no Docker socket and no host network. What it can reach is what the compose files mount and what an admin sets
 up:
 
 **Files**

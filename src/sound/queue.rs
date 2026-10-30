@@ -61,16 +61,12 @@ impl Requests {
     }
 }
 
-/// Present tracks after `after` whose measurements are missing, older than the file, or from
-/// an older analysis; only `only` when given.
-pub(super) async fn pending(
-    pool: &SqlitePool,
-    after: i64,
-    only: Option<i64>,
-) -> sqlx::Result<Vec<Pending>> {
-    sqlx::query_as(
-        "SELECT t.id, l.path AS root, t.rel_path, t.modified_at
-         FROM music_tracks t JOIN libraries l ON l.id = t.library_id
+/// Present tracks after `?1` whose measurements are missing, older than the file, or from an
+/// older analysis (`?2`, [`ANALYZER`]); only `?4` when given. One text for [`pending`] and
+/// [`count_pending`], so the two can't drift apart.
+macro_rules! pending_tracks {
+    () => {
+        "FROM music_tracks t JOIN libraries l ON l.id = t.library_id
          WHERE t.missing_since IS NULL AND t.id > ?1 AND (?4 IS NULL OR t.id = ?4)
            AND (NOT EXISTS (SELECT 1 FROM music_sound_bounds b WHERE b.track_id = t.id
                               AND b.modified_at = t.modified_at AND b.analyzer >= ?2)
@@ -79,14 +75,43 @@ pub(super) async fn pending(
                 OR NOT EXISTS (SELECT 1 FROM music_beat_grids g WHERE g.track_id = t.id
                               AND g.modified_at = t.modified_at AND g.analyzer >= ?2)
                 OR NOT EXISTS (SELECT 1 FROM music_arrangements r WHERE r.track_id = t.id
-                              AND r.modified_at = t.modified_at AND r.analyzer >= ?2))
-         ORDER BY t.id LIMIT ?3",
-    )
+                              AND r.modified_at = t.modified_at AND r.analyzer >= ?2))"
+    };
+}
+
+/// Present tracks after `after` whose measurements are missing, older than the file, or from
+/// an older analysis; only `only` when given.
+pub(super) async fn pending(
+    pool: &SqlitePool,
+    after: i64,
+    only: Option<i64>,
+) -> sqlx::Result<Vec<Pending>> {
+    sqlx::query_as(concat!(
+        "SELECT t.id, l.path AS root, t.rel_path, t.modified_at ",
+        pending_tracks!(),
+        " ORDER BY t.id LIMIT ?3"
+    ))
     .bind(after)
     .bind(ANALYZER)
     .bind(BATCH)
     .bind(only)
     .fetch_all(pool)
+    .await
+}
+
+/// How many tracks need measuring now.
+async fn count_pending(pool: &SqlitePool) -> sqlx::Result<i64> {
+    // ?3, the batch's size, isn't needed to count, but every number up to ?4 is bound.
+    sqlx::query_scalar(concat!(
+        "SELECT count(*) ",
+        pending_tracks!(),
+        " AND ?3 IS NOT NULL"
+    ))
+    .bind(0)
+    .bind(ANALYZER)
+    .bind(BATCH)
+    .bind(None::<i64>)
+    .fetch_one(pool)
     .await
 }
 
@@ -98,6 +123,8 @@ pub async fn measure_pending(
     requests: &Requests,
 ) -> anyhow::Result<Report> {
     let mut report = Report::default();
+    let total = usize::try_from(count_pending(pool).await?).unwrap_or_default();
+    let pace = crate::jobs::pace::Pace::start("music-analysis", "measuring tracks", total);
     // Each track is visited once a run, so one that must wait doesn't hold up the rest.
     let mut visited = HashSet::new();
     let mut after = 0;
@@ -112,15 +139,33 @@ pub async fn measure_pending(
                 if visited.insert(id)
                     && let Some(asked) = pending(pool, 0, Some(id)).await?.pop()
                 {
-                    measure_track(pool, tools, &asked, &mut report).await?;
+                    measure_counted(pool, tools, &asked, &mut report, &pace).await?;
                 }
             }
             if visited.insert(track.id) {
-                measure_track(pool, tools, &track, &mut report).await?;
+                measure_counted(pool, tools, &track, &mut report, &pace).await?;
             }
         }
     }
+    pace.finish();
     Ok(report)
+}
+
+/// [`measure_track`], counted as one item of `pace`.
+async fn measure_counted(
+    pool: &SqlitePool,
+    tools: &Tools,
+    track: &Pending,
+    report: &mut Report,
+    pace: &crate::jobs::pace::Pace,
+) -> anyhow::Result<()> {
+    let item = pace.item();
+    let failed = report.failed;
+    measure_track(pool, tools, track, report).await?;
+    if report.failed > failed {
+        item.failed();
+    }
+    Ok(())
 }
 
 pub(super) async fn measure_track(
