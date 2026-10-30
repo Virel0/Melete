@@ -255,3 +255,34 @@ async fn files_known_already_count_from_the_first_of_theirs() {
     );
     assert!((added[6].1 - now).abs() < 60, "never later than now");
 }
+
+#[tokio::test]
+async fn missing_files_are_found_by_the_movie_and_episode_indexes() {
+    // Searching each new file's library alone compared it with every file there: on a large
+    // first scan that's quadratic.
+    let pool = db::open_in_memory().await;
+    let rows: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {}",
+        super::PAIRS
+    )))
+    .bind(1)
+    .bind(2)
+    .bind(None::<&str>)
+    .bind(0)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let plan: Vec<&str> = rows.iter().map(|r| r.3.as_str()).collect();
+    let plan = plan.join("\n");
+    assert!(
+        plan.contains("SEARCH o USING INDEX media_files_movie (movie_id=?)"),
+        "{plan}"
+    );
+    assert!(
+        plan.contains(
+            "SEARCH o USING INDEX media_files_series (series_id=? AND season=? AND episode=?)"
+        ),
+        "{plan}"
+    );
+    assert!(!plan.contains("SCAN"), "{plan}");
+}
