@@ -18,7 +18,7 @@ export async function profiles(ctx) {
   page.back = (message) => (message ? ctx.reload(message) : showList(page));
 
   const imports = sources.map((source) => importForm(ctx, source));
-  const anime = animeForm(ctx, sources);
+  const animePlace = ctx.service ? ANIME_PROFILE[ctx.service.key] : { title: "Anime profile", sources };
 
   const one = sources.length === 1;
   const formatsPart = group(
@@ -31,11 +31,13 @@ export async function profiles(ctx) {
   const parts = [
     ...sources.map((source) => group(source === "radarr" ? "Movie profiles" : "Series profiles", ...profileList(page, source))),
     formatsPart,
-    group(
-      "Anime profile",
-      h("p", { class: "note" }, "1080p, upgraded to 2160p when there is one; dual Japanese and English audio first, then English, then Japanese with English subtitles. Raws are refused."),
-      anime,
-    ),
+    animePlace
+      ? group(
+          animePlace.title,
+          h("p", { class: "note" }, "1080p, upgraded to 2160p when there is one; dual Japanese and English audio first, then English, then Japanese with English subtitles. Raws are refused."),
+          animeForm(ctx, animePlace.sources),
+        )
+      : null,
     ...sources.map((source, i) =>
       group(
         `Import from ${appName(source)}`,
@@ -43,7 +45,7 @@ export async function profiles(ctx) {
         imports[i],
       ),
     ),
-  ];
+  ].filter(Boolean);
   page.listParts = ctx.only === "formats" ? [formatsPart] : ctx.only === "profiles" ? parts.filter((p) => p !== formatsPart) : parts;
   page.view.replaceChildren(...page.listParts);
   return [page.view];
@@ -181,6 +183,15 @@ function importForm(ctx, source) {
     return null;
   });
 }
+
+// Where each service offers the anime profile: Anime for its series, with the choice of giving
+// it to every anime series; Movies for anime films, which have no such choice; Series not at
+// all, since anime series are Anime's. Outside a service (Settings), for either kind.
+const ANIME_PROFILE = {
+  anime: { title: "Anime profile", sources: ["sonarr"] },
+  movies: { title: "Anime profile for anime films", sources: ["radarr"] },
+  series: null,
+};
 
 // Making the anime profile, for series or movies, and choosing it for Sonarr's anime.
 function animeForm(ctx, sources) {
