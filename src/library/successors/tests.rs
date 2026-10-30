@@ -256,6 +256,72 @@ async fn files_known_already_count_from_the_first_of_theirs() {
     assert!((added[6].1 - now).abs() < 60, "never later than now");
 }
 
+/// A sign-in while a large first scan holds the database, looking for files that took others'
+/// places: it waits its turn and goes through, rather than failing "database is locked".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signing_in_while_a_large_scan_finds_successors_waits_its_turn() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    // A database on disk, opened as the server opens it, so a writer holds it as it does there.
+    let data_dir = tempfile::tempdir().unwrap();
+    let pool = db::open(data_dir.path()).await.unwrap();
+    // A first scan's worth of files, each a movie of its own, all first seen in this scan.
+    sqlx::raw_sql(
+        "INSERT INTO libraries (id, name, kind, path, scan_generation)
+             VALUES (1, 'movies', 'movies', '/m', 1);
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 6000)
+         INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation)
+             SELECT i, 1, 'Movie ' || i, 'Movie ' || i, 1 FROM n;
+         INSERT INTO media_files (library_id, rel_path, size, modified_at, movie_id,
+                 first_seen_generation, seen_generation)
+             SELECT 1, rel_path || '/Movie.mkv', 1, 0, id, 1, 1 FROM movies;",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
+        .await
+        .unwrap();
+
+    let (holding, held) = tokio::sync::oneshot::channel();
+    let scanning = tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            // As the scan does first: from here on it holds the database.
+            sqlx::query("UPDATE libraries SET last_scan_at = 1 WHERE id = 1")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            holding.send(()).unwrap();
+            super::carry_renamed(&mut tx, 1, (1, 1, None))
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+    });
+    held.await.unwrap();
+    let body = serde_json::json!({
+        "username": "alice", "password": "alice-password", "device_name": "Living room iPad",
+    });
+    let request = Request::post("/api/v1/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = crate::api::app(pool.clone())
+        .oneshot(request)
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "signing in during the scan"
+    );
+    scanning.await.unwrap();
+}
+
 /// Finding the files that took others' places looks each one's predecessors up by index: a
 /// join on the library compares every new file with every file of it, which over a large first
 /// scan kept the database locked for longer than anything else waits.
