@@ -17,11 +17,13 @@ use super::scan::{FoundFile, Media, ScanReport, unix_seconds};
 use super::tags::{self, Tags};
 
 mod grouping;
+mod merging;
 mod naming;
 mod reading;
 mod storing;
 
 use grouping::*;
+use merging::*;
 use naming::*;
 use reading::*;
 use storing::*;
@@ -98,7 +100,8 @@ async fn scan_noting(
         .map(|f| f.rel_path.clone())
         .collect();
     let root = library.path.clone();
-    let read = tokio::task::spawn_blocking(move || read_all(&root, stale)).await?;
+    let (read, problems) = tokio::task::spawn_blocking(move || read_all(&root, stale)).await?;
+    problems.log(&library.name);
     let mut folders: Vec<String> = found
         .iter()
         .map(|f| album_folder(&f.rel_path).to_owned())
@@ -229,6 +232,50 @@ mod tests {
             ffmpeg.arg(&path).status().unwrap().success(),
             "ffmpeg made {rel}"
         );
+    }
+
+    #[test]
+    fn notes_the_files_whose_tags_had_problems() {
+        crate::logging::testing::note_tag_warnings();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for n in 1..=3 {
+            clip(root, &format!("A/B/0{n}.flac"), &[("title", "Song")]);
+        }
+        // An ID3v2.4 tag holding a title, in front of a FLAC file: lofty reads the file and
+        // warns that the tag can't be rewritten.
+        let path = root.join("A/B/01.flac");
+        let mut bytes =
+            b"ID3\x04\x00\x00\x00\x00\x00\x0dTIT2\x00\x00\x00\x03\x00\x00\x03Hi".to_vec();
+        bytes.extend(std::fs::read(&path).unwrap());
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(root.join("A/B/04.flac"), b"not audio").unwrap();
+        let files: Vec<String> = (1..=4).map(|n| format!("A/B/0{n}.flac")).collect();
+
+        let (read, problems) = read_all(root, files);
+        assert_eq!(
+            read["A/B/01.flac"].as_ref().unwrap().title.as_deref(),
+            Some("Song")
+        );
+        assert!(read["A/B/04.flac"].is_err());
+        assert_eq!(problems.files, 2);
+        let named: Vec<&str> = problems.examples.keys().map(String::as_str).collect();
+        assert_eq!(named, ["A/B/01.flac", "A/B/04.flac"]);
+        assert!(
+            problems.examples["A/B/01.flac"].contains("ID3v2"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_scans_tag_problems_name_only_the_first_few_files() {
+        let mut problems = TagProblems::default();
+        for n in [5, 3, 1, 4, 2] {
+            problems.note(&format!("{n}.flac"), "a problem".to_owned());
+        }
+        assert_eq!(problems.files, 5);
+        let named: Vec<&str> = problems.examples.keys().map(String::as_str).collect();
+        assert_eq!(named, ["1.flac", "2.flac", "3.flac"]);
     }
 
     async fn library(root: &Path) -> (SqlitePool, Library) {
@@ -825,5 +872,120 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (pool, library) = library(dir.path()).await;
         assert!(scan(&pool, &library).await.is_err());
+    }
+
+    /// Each album's title and its artist's id, by title.
+    async fn album_artists(pool: &SqlitePool) -> Vec<(String, i64)> {
+        sqlx::query_as("SELECT title, artist_id FROM music_albums ORDER BY title")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    /// The artist's row id for a key.
+    async fn artist_row(pool: &SqlitePool, key: &str) -> (i64, Option<i64>) {
+        sqlx::query_as("SELECT id, merged_into FROM music_artists WHERE key = ?")
+            .bind(key)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_artist_with_one_tagged_and_one_untagged_album_is_one_artist() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Read in either order: the untagged album's folder sorts first.
+        let by = |album: &'static str| [("artist", "Radiohead"), ("album", album)];
+        clip(root, "A/Kid A/01.flac", &by("Kid A"));
+        clip(
+            root,
+            "B/OK Computer/01.flac",
+            &[
+                &by("OK Computer")[..],
+                &[("MUSICBRAINZ_ALBUMARTISTID", ARTIST)],
+            ]
+            .concat(),
+        );
+        // Spelled another way, case and punctuation aside.
+        clip(
+            root,
+            "C/Amnesiac/01.flac",
+            &[("artist", "radio-head"), ("album", "Amnesiac")],
+        );
+        let (pool, library) = library(root).await;
+        scan(&pool, &library).await.unwrap();
+
+        let (tagged, _) = artist_row(&pool, &format!("mb:{ARTIST}")).await;
+        let (named, joined) = artist_row(&pool, "name:radiohead").await;
+        assert_eq!(
+            joined,
+            Some(tagged),
+            "the old address leads to the one it joined"
+        );
+        assert_eq!(
+            album_artists(&pool).await,
+            [
+                ("Amnesiac".into(), tagged),
+                ("Kid A".into(), tagged),
+                ("OK Computer".into(), tagged)
+            ]
+        );
+        // Its tracks' credits join too.
+        crate::track_artists::refresh(&pool).await.unwrap();
+        let credited: Vec<i64> =
+            sqlx::query_scalar("SELECT DISTINCT artist_id FROM music_track_artists")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(credited, [tagged]);
+
+        // A database the old scan left split heals on the next scan.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "UPDATE music_albums SET artist_id = {named} WHERE title = 'Kid A';
+             UPDATE music_artists SET merged_into = NULL;"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        scan(&pool, &library).await.unwrap();
+        assert!(album_artists(&pool).await.iter().all(|(_, a)| *a == tagged));
+        assert_eq!(artist_row(&pool, "name:radiohead").await.1, Some(tagged));
+    }
+
+    #[tokio::test]
+    async fn two_musicbrainz_artists_of_one_name_stay_two() {
+        const OTHER: &str = "5b11f4ce-a62d-471e-81fc-a69a8278c7da";
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let by = |album: &'static str, id: &'static str| {
+            [
+                ("artist", "Nirvana"),
+                ("album", album),
+                ("MUSICBRAINZ_ALBUMARTISTID", id),
+            ]
+        };
+        clip(root, "A/Nevermind/01.flac", &by("Nevermind", ARTIST));
+        clip(root, "B/Local/01.flac", &by("Local", OTHER));
+        clip(
+            root,
+            "C/Untagged/01.flac",
+            &[("artist", "Nirvana"), ("album", "Untagged")],
+        );
+        let (pool, library) = library(root).await;
+        scan(&pool, &library).await.unwrap();
+
+        let (first, _) = artist_row(&pool, &format!("mb:{ARTIST}")).await;
+        let (second, _) = artist_row(&pool, &format!("mb:{OTHER}")).await;
+        let (named, joined) = artist_row(&pool, "name:nirvana").await;
+        assert_eq!(joined, None, "a name matching several stays on its own");
+        assert_eq!(
+            album_artists(&pool).await,
+            [
+                ("Local".into(), second),
+                ("Nevermind".into(), first),
+                ("Untagged".into(), named)
+            ]
+        );
     }
 }

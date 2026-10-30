@@ -1,6 +1,34 @@
-// The player's keyboard shortcuts, and the list of them under the video.
+// The player's keyboard shortcuts, the list of them under the video, and full screen.
 
 import { announce, h } from "/web/lib.js";
+
+// The height of the video's own controls along its bottom, roughly, in CSS pixels.
+const CONTROLS_BAND = 56;
+
+// Full screen is the stage's: the picture with Skip and the next episode over it. Returns
+// `fullscreen()`, which goes in or out, and `onFullscreen`, the fullscreenchange listener for
+// the page to add and remove.
+export function stageFullscreen(video, stage) {
+  const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.());
+  // Double-clicking the picture goes full screen as players do, but not on the controls along
+  // its bottom, where two quick clicks on Play mean something else.
+  video.addEventListener("dblclick", (event) => {
+    if (event.offsetY > video.clientHeight - CONTROLS_BAND) return;
+    event.preventDefault();
+    fullscreen()?.catch?.(() => {});
+  });
+  // The video's own request (its button, where a browser shows one in spite of `controlslist`)
+  // would leave Skip and the next episode behind, so the stage takes over. A browser that wants
+  // a fresh click for that keeps the video full screen, as asked. Leaving the stage can land on
+  // the video under it; that is left too.
+  let last = null;
+  const onFullscreen = () => {
+    const now = document.fullscreenElement;
+    if (now === video) (last === stage ? document.exitFullscreen() : stage.requestFullscreen?.())?.catch?.(() => {});
+    last = now;
+  };
+  return { fullscreen, onFullscreen };
+}
 
 // Page-wide, as YouTube's and Jellyfin's players have them; keys typed into a field, or
 // pressed on a button or link, are theirs. The video's own controls take Space and the
@@ -58,7 +86,7 @@ export function shortcutsHelp() {
         [["←", "→"], "Back or forward 5 seconds"],
         [["C"], "Next subtitles, then off"],
         [["N"], "Next episode"],
-        [["F"], "Full screen"],
+        [["F"], "Full screen (or double-click the picture)"],
         [["M"], "Sound off or on"],
       ].map(([keys, what]) => h("div", {}, h("dt", {}, keys.map((k, i) => [i ? " or " : "", h("kbd", {}, k)])), h("dd", {}, what))),
     ),
