@@ -6,7 +6,7 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 
 use super::*;
-use crate::ai_picks::{self, Status, Title};
+use crate::ai_picks::{self, Like, Status, Title};
 
 fn title_ref(title: Title) -> TitleRef {
     TitleRef {
@@ -31,25 +31,32 @@ pub(super) async fn featured(
 }
 
 /// Titles like `title` from the AI, with its reasons, that the viewer may see and hasn't
-/// watched; None while AI picks are off or until they're made.
+/// watched, and where they stand: `ai` with them; else none, and `off` (AI picks off or not set
+/// up), `making`, `limited` (the viewer's hourly AI calls are spent) or `busy` (the server is
+/// running as many AI calls as it may).
 pub(super) async fn like(
     pool: &SqlitePool,
     outside: &because::Outside,
     me: i64,
     access: &Access,
     title: TitleRef,
-) -> Result<Option<Vec<(TitleRef, String)>>, ApiError> {
+) -> Result<(&'static str, Option<Vec<(TitleRef, String)>>), ApiError> {
     let title = Title {
         series: title.series,
         id: title.id,
     };
-    let picks = ai_picks::like(pool, outside.ai.as_ref(), title, me, access).await?;
-    Ok(picks.map(|picks| {
-        picks
-            .into_iter()
-            .map(|p| (title_ref(p.title), p.reason))
-            .collect()
-    }))
+    Ok(
+        match ai_picks::like(pool, outside.ai.as_ref(), title, me, access).await? {
+            Like::Made(picks) => {
+                let picks = picks.into_iter().map(|p| (title_ref(p.title), p.reason));
+                ("ai", Some(picks.collect()))
+            }
+            Like::Off => ("off", None),
+            Like::Making => ("making", None),
+            Like::Limited => ("limited", None),
+            Like::Busy => ("busy", None),
+        },
+    )
 }
 
 /// Titles with their reasons as the answer gives them: what a tile shows of each, from its card.
@@ -100,6 +107,14 @@ pub(super) async fn picks(
         Status::Working => (
             "working",
             Some("Your picks are being made; ask again in a minute".into()),
+        ),
+        Status::Limited => (
+            "limited",
+            Some("You've asked for as many AI picks as you may this hour; try again later".into()),
+        ),
+        Status::Busy => (
+            "busy",
+            Some("Too many AI picks are being made just now; ask again in a minute".into()),
         ),
         Status::Ready => ("ready", None),
         Status::Failed(why) => (
@@ -152,7 +167,8 @@ async fn like_answer(
     if !cards.has(title) {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such title"));
     }
-    let (source, alike) = match like(pool, &state.outside, me, access, title).await? {
+    let (status, from_ai) = like(pool, &state.outside, me, access, title).await?;
+    let (source, alike) = match from_ai {
         Some(picks) => ("ai", picks.into_iter().map(|(t, r)| (t, Some(r))).collect()),
         None => {
             let discovery =
@@ -162,6 +178,7 @@ async fn like_answer(
         }
     };
     Ok(Json(json!({
+        "status": status,
         "source": source,
         "items": items(pool, me, access, &alike).await?,
     })))

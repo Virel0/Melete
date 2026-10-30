@@ -10,16 +10,19 @@ pub(super) struct Kept {
     pub picks: Vec<Pick>,
     pub made_at: Option<i64>,
     pub error: Option<String>,
+    /// When making them was last started.
+    pub tried_at: i64,
 }
 
-type KeptRow = (String, String, Option<i64>, Option<String>);
+type KeptRow = (String, String, Option<i64>, Option<String>, i64);
 
-fn kept((history, picks, made_at, error): KeptRow) -> Kept {
+fn kept((history, picks, made_at, error, tried_at): KeptRow) -> Kept {
     Kept {
         history,
         picks: serde_json::from_str(&picks).unwrap_or_default(),
         made_at,
         error,
+        tried_at,
     }
 }
 
@@ -29,11 +32,12 @@ fn kind(title: Title) -> &'static str {
 
 /// A viewer's picks as kept.
 pub(super) async fn viewer_row(pool: &SqlitePool, user: i64) -> sqlx::Result<Option<Kept>> {
-    let row: Option<KeptRow> =
-        sqlx::query_as("SELECT history, picks, made_at, error FROM ai_picks WHERE user_id = ?")
-            .bind(user)
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<KeptRow> = sqlx::query_as(
+        "SELECT history, picks, made_at, error, tried_at FROM ai_picks WHERE user_id = ?",
+    )
+    .bind(user)
+    .fetch_optional(pool)
+    .await?;
     Ok(row.map(kept))
 }
 
@@ -98,7 +102,7 @@ pub(super) async fn similar_row(
     seen: &str,
 ) -> sqlx::Result<Option<Kept>> {
     let row: Option<KeptRow> = sqlx::query_as(
-        "SELECT '', picks, made_at, error FROM ai_similar
+        "SELECT '', picks, made_at, error, tried_at FROM ai_similar
          WHERE kind = ? AND title_id = ? AND seen = ?",
     )
     .bind(kind(title))

@@ -127,6 +127,7 @@ async fn titles_like_one_come_from_the_library_until_the_ais_are_made() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(fields(&first), documented("SimilarTitles"));
     assert_eq!(first["source"], "library");
+    assert_eq!(first["status"], "making");
     assert_eq!(titles(&first["items"]), ["movie:30"]);
     assert_eq!(first["items"][0]["reason"], Value::Null);
     let made = until(&f, &token, "/api/v1/movies/1/similar", |a| {
@@ -135,6 +136,7 @@ async fn titles_like_one_come_from_the_library_until_the_ais_are_made() {
     .await;
     assert_eq!(titles(&made["items"]), ["movie:30"]);
     assert_eq!(made["items"][0]["reason"], "Hackers");
+    assert_eq!(made["status"], "ai");
     let (status, _) = get(&f, &token, "/api/v1/movies/3/similar").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "a gone film");
     let (status, series) = get(&f, &token, "/api/v1/series/1/similar").await;
