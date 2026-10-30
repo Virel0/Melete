@@ -7,7 +7,7 @@
 import { confirmInline, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, size } from "/web/lib.js";
 import { emptyState, placeholders, stateLabel } from "/web/page-parts.js";
-import { KINDS, fileRows, monitorSwitch, profilesFor, stateOf } from "/web/manage-parts.js";
+import { KINDS, fileRows, monitorSwitch, profileOrPicker, profilesFor, stateOf } from "/web/manage-parts.js";
 import { searchAndChoose, searchAndGrab } from "/web/manage-search.js";
 import { historyPart } from "/web/manage-history.js";
 import { seasonsPart } from "/web/manage-seasons.js";
@@ -59,7 +59,7 @@ function header(v) {
   const upgrade = t.cutoff_unmet ? " · upgrade wanted, below its profile's cutoff" : "";
   const folderPath = v.folder?.files?.[0]?.path.split("/").slice(0, -1).join("/") ?? null;
   const facts = [
-    ["Profile", t.profile ?? (t.wanted ? "None chosen: searches are refused until one is" : "—")],
+    ["Profile", profileOrPicker(ctx, v.kind, t, v.profiles, (message) => ctx.reload(message))],
     ["Library", t.library ?? "—"],
     v.wanted ? ["Series type", { standard: "Standard", daily: "Daily", anime: "Anime" }[v.wanted.series_type] ?? v.wanted.series_type] : null,
     folderPath ? ["Folder", folderPath] : null,

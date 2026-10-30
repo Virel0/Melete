@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 mod matching;
+mod profiles;
 
 use matching::*;
+use profiles::*;
 
 /// The admin areas. Anime comes last, after the areas apps knew before it had one of its own,
 /// so theirs keep their places in the answer.
@@ -35,7 +37,8 @@ pub struct Finding {
     /// Stable, for apps to act on: no_indexers, indexers_all_off, indexers_off,
     /// indexer_failed, requests_waiting, downloads_failed, follow_failed, files_missing,
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
-    /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched.
+    /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
+    /// requests_no_profile.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -108,6 +111,7 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
     opensubtitles_used_up(pool, &mut found).await?;
     tmdb_off(pool, &mut found).await?;
     titles_to_match(pool, &mut found).await?;
+    requests_without_profile(pool, &mut found).await?;
     Ok(Health {
         areas: by_area(found),
     })

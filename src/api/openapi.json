@@ -4179,7 +4179,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Approve a request: it joins the wanted list",
-        "description": "Where it goes: the body's choice, else the request defaults for its kind (anime series have their own, else the series ones serve), else the only library of that kind and category (anime for an anime series, none for the rest), else the only library of that kind; music is decided with the chosen or default music profile, else the preset that prefers FLAC. The body may be left out. A title wanted already keeps its place; a season asked for is monitored there. An album wants its artist too, followed for nothing else; a whole artist is followed for new releases and wants every studio album; a song is wanted on its own. Once approved, it's searched for at once and the best accepted result grabbed: a series season by season, a whole artist with a whole-artist search; nothing is grabbed while downloads are off, and what's on disk or on its way is left alone. The body may also say whether it's monitored, which `seasons` of a series are, and `search_now`: false approves it without searching (RSS syncs still look out for it).",
+        "description": "Where it goes: the body's choice, else the request defaults for its kind (anime series have their own, else the series ones serve), else the only library of that kind and category (anime for an anime series, none for the rest), else the only library of that kind; a movie or series is decided with the chosen profile, else the default one for its kind, else none (and isn't grabbed until one is chosen; admin health notes a service with several profiles and none set, `requests_no_profile`); music is decided with the chosen or default music profile, else the preset that prefers FLAC. The body may be left out. A title wanted already keeps its place; a season asked for is monitored there. An album wants its artist too, followed for nothing else; a whole artist is followed for new releases and wants every studio album; a song is wanted on its own. Once approved, it's searched for at once and the best accepted result grabbed: a series season by season, a whole artist with a whole-artist search; nothing is grabbed while downloads are off, and what's on disk or on its way is left alone. The body may also say whether it's monitored, which `seasons` of a series are, and `search_now`: false approves it without searching (RSS syncs still look out for it).",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Request id.", "schema": {"type": "integer"}}
         ],
@@ -16408,7 +16408,8 @@
               "tmdb_off",
               "tmdb_refused",
               "tmdb_failing",
-              "titles_unmatched"
+              "titles_unmatched",
+              "requests_no_profile"
             ],
             "description": "Stable, for apps to act on."
           },

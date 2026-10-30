@@ -78,6 +78,14 @@ pub async fn equivalent(pool: &SqlitePool, id: i64, service: &str) -> sqlx::Resu
     .await
 }
 
+/// How many profiles a service has.
+pub async fn count(pool: &SqlitePool, service: &str) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM quality_profiles WHERE service = ?")
+        .bind(service)
+        .fetch_one(pool)
+        .await
+}
+
 /// Where an app's imported profile goes: Radarr's to Movies; a Sonarr profile to each service
 /// whose wanted series name it, Series when none do.
 pub(super) async fn import_services(
