@@ -30,6 +30,8 @@ pub(crate) enum Expected {
 pub(crate) struct Check {
     pub(crate) expected: Expected,
     pub(crate) ffprobe: Option<PathBuf>,
+    /// How long the longest video ran when it was checked, for an admin's later override.
+    pub(crate) measured: std::sync::Mutex<Option<f64>>,
 }
 
 /// Edition words that mean a cut longer than the one TMDB times.
@@ -43,6 +45,18 @@ static LONGER_CUT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(
 /// The runtimes a movie or episode download is checked against; None when TMDB has none for it
 /// (nothing to compare, so it's placed as before) or it's music.
 pub(crate) async fn expected(pool: &SqlitePool, row: &Row) -> sqlx::Result<Option<Expected>> {
+    // An admin said the runtime is right after all: the last held-back film's, or no check.
+    if let Some(title) = row.target().map(crate::runtime_checks::title_of)
+        && let Some(instead) = crate::runtime_checks::override_for(pool, title).await?
+    {
+        return Ok(match (instead, row.wanted_movie_id) {
+            (Some(seconds), Some(_)) => Some(Expected::Movie {
+                seconds,
+                longer_cut: LONGER_CUT.is_match(&row.title),
+            }),
+            _ => None,
+        });
+    }
     if let Some(movie) = row.wanted_movie_id {
         let minutes: Option<i64> = sqlx::query_scalar(
             "SELECT t.runtime_minutes FROM wanted_movies w JOIN tmdb_movies t ON t.tmdb_id = w.tmdb_id
@@ -146,6 +160,9 @@ pub(crate) async fn check(check: &Check, videos: &[Video<'_>]) -> Result<(), Sto
             return Err(unreadable(video.name, "ffprobe found no running time"));
         };
         durations.push((video.name, seconds));
+    }
+    if let Ok(mut measured) = check.measured.lock() {
+        *measured = durations.iter().map(|d| d.1).reduce(f64::max);
     }
     match &check.expected {
         Expected::Movie {

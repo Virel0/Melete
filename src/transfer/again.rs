@@ -34,6 +34,12 @@ async fn search_again(
     if !monitored(pool, target).await? {
         return Ok("it isn't monitored, so it wasn't searched for again".into());
     }
+    if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
+        return Ok(format!(
+            "{} downloads of it didn't pass the running-time check, so Melete has stopped searching for it by itself; if its runtime is right after all, an admin can say so on its page",
+            crate::runtime_checks::STOP_AFTER
+        ));
+    }
     let Some(pipeline) = sources.pipeline.as_deref() else {
         return Ok("downloads are off, so it wasn't searched for again".into());
     };
@@ -75,4 +81,33 @@ async fn monitored(pool: &SqlitePool, target: Target) -> sqlx::Result<bool> {
             .await
         }
     }
+}
+
+/// Counts a download held back by the running-time check against its title, or starts the count
+/// again when one is imported ([`crate::runtime_checks`]).
+pub(super) async fn count_check(
+    pool: &SqlitePool,
+    row: &Row,
+    id: i64,
+    outcome: &Result<String, Stop>,
+    check: Option<&verify::Check>,
+) -> anyhow::Result<()> {
+    let Some(title) = row.target().map(crate::runtime_checks::title_of) else {
+        return Ok(());
+    };
+    match outcome {
+        Ok(_) => crate::runtime_checks::reset(pool, title).await?,
+        Err(Stop::NotTheTitle(why) | Stop::Held(why)) => {
+            let seconds = check.and_then(|c| c.measured.lock().ok().and_then(|m| *m));
+            let failure = crate::runtime_checks::Failure {
+                at: unix_now(),
+                download_id: id,
+                release: row.title.clone(),
+                reason: why.clone(),
+            };
+            crate::runtime_checks::record_failure(pool, title, failure, seconds).await?;
+        }
+        Err(_) => {}
+    }
+    Ok(())
 }
