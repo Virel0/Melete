@@ -110,6 +110,12 @@ filesystem and no capabilities.
    ```
 
    Never commit `.env`: it can hold passwords and keys.
+
+   `.env` holds only what must exist before Melete starts: the folders, keys and passwords, and
+   connections such as the seedbox's, each optional and left empty in the example. The
+   services' other settings, such as turning MusicBrainz or lyrics on, are listed commented out:
+   they're usually set in the web UI, under Settings → Outside services. A value set in `.env`
+   wins and can't be changed from the web UI, so uncomment one only to fix it for good.
 3. Choose the image. `compose.yaml` builds it from this repository (`build: .`), which takes
    a while the first time. To use a release instead, replace `build: .` and `image: melete:dev`
    with the release's image, pinned by its digest (see [Checking a release](#checking-a-release)):
