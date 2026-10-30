@@ -80,7 +80,7 @@ pub async fn candidate(
         };
         if env(name).is_some_and(|v| !v.trim().is_empty()) {
             return Ok(Err(Refused::Invalid(format!(
-                "{name} is set in .env, which wins; change or remove it there"
+                "{name} is set in .env, which wins; to change it here, remove that line from .env and restart Melete"
             ))));
         }
         let value = value.as_deref().map(str::trim).filter(|v| !v.is_empty());
