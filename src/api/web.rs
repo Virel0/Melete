@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 106] = [
+const MODULES: [(&str, &str); 108] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -176,6 +176,11 @@ const MODULES: [(&str, &str); 106] = [
     ("manage-want.js", include_str!("../web/manage-want.js")),
     ("manage-select.js", include_str!("../web/manage-select.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
+    ("manage-find.js", include_str!("../web/manage-find.js")),
+    (
+        "manage-add-form.js",
+        include_str!("../web/manage-add-form.js"),
+    ),
     (
         "manage-activity.js",
         include_str!("../web/manage-activity.js"),
@@ -577,7 +582,9 @@ mod tests {
             ("/web/manage-select.js", "/selection"),
             ("/web/manage-library.js", "all: () => selectAll(v)"),
             ("/web/manage-add.js", "/requests/search"),
-            ("/web/manage-add.js", r#"["song", "Songs"]"#),
+            ("/web/manage-find.js", r#"["song", "Songs"]"#),
+            ("/web/manage-find.js", "/requests/soulseek"),
+            ("/web/manage-add-form.js", "find-add"),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
         ] {

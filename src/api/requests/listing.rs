@@ -11,6 +11,23 @@ pub(super) struct SearchQuery {
     pub(super) artist: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct SoulseekQuery {
+    pub(super) q: String,
+}
+
+/// Songs on Soulseek for music MusicBrainz doesn't know (admins only): only the words go to
+/// slskd.
+pub(super) async fn soulseek(
+    State(state): State<RequestState>,
+    Query(query): Query<SoulseekQuery>,
+) -> Result<Json<Vec<request_search::Heard>>, ApiError> {
+    request_search::search_soulseek(state.sources.slskd.as_deref(), &query.q)
+        .await
+        .map(Json)
+        .map_err(refused)
+}
+
 /// Movies and series on TMDB, music on MusicBrainz, each marked in the library, wanted, or
 /// asked for already.
 pub(super) async fn search(

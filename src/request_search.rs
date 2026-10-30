@@ -12,6 +12,11 @@ use crate::requests::Refused;
 use crate::tmdb;
 use crate::want::year_of;
 
+mod art;
+mod soulseek;
+
+pub use soulseek::*;
+
 /// Something that can be asked for.
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
 pub struct Candidate {
@@ -40,6 +45,10 @@ pub struct Candidate {
     pub wanted: bool,
     /// The searcher's own request for it still open (asked for or approved): its id.
     pub requested: Option<i64>,
+    /// Its poster or cover's address on this server, when it's here already: a title's TMDB
+    /// poster Melete keeps, or an album's cover in the library. Nothing is fetched for one
+    /// that isn't, so a search sends out only its words.
+    pub poster: Option<String>,
 }
 
 fn first_artist(credits: &[Credit]) -> Option<(String, String)> {
@@ -179,23 +188,25 @@ async fn artists(
     mb: &musicbrainz::Client,
     q: &str,
 ) -> anyhow::Result<Result<Vec<Candidate>, Refused>> {
-    Ok(Ok(answered!("MusicBrainz", mb.search_artists(q))
+    let found = answered!("MusicBrainz", mb.find_artists(q))
         .into_iter()
-        .map(|a| {
+        .map(|(score, a)| {
             let about: Vec<String> = [a.disambiguation, a.kind, a.country]
                 .into_iter()
                 .flatten()
                 .filter(|s| !s.is_empty())
                 .collect();
-            Candidate {
+            let c = Candidate {
                 kind: "artist".into(),
                 mb_artist_id: Some(a.id),
                 title: a.name,
                 detail: (!about.is_empty()).then(|| about.join(", ")),
                 ..Candidate::default()
-            }
+            };
+            (score, c)
         })
-        .collect()))
+        .collect();
+    Ok(Ok(ranked(q, found)))
 }
 
 /// Albums called `q` on MusicBrainz, by `artist` when given.
@@ -204,13 +215,13 @@ async fn albums(
     q: &str,
     artist: Option<&str>,
 ) -> anyhow::Result<Result<Vec<Candidate>, Refused>> {
-    Ok(Ok(answered!("MusicBrainz", mb.search_albums(q, artist))
+    let found = answered!("MusicBrainz", mb.find_albums(q, artist))
         .into_iter()
-        .map(|g| {
+        .map(|(score, g)| {
             let by = first_artist(&g.artist_credit);
             let mut types: Vec<String> = g.secondary_types.unwrap_or_default();
             types.extend(g.primary_type);
-            Candidate {
+            let c = Candidate {
                 kind: "album".into(),
                 mb_release_group_id: Some(g.id),
                 mb_artist_id: by.as_ref().map(|(id, _)| id.clone()),
@@ -219,9 +230,11 @@ async fn albums(
                 title: g.title,
                 detail: (!types.is_empty()).then(|| types.join(" ")),
                 ..Candidate::default()
-            }
+            };
+            (score, c)
         })
-        .collect()))
+        .collect();
+    Ok(Ok(ranked(q, found)))
 }
 
 /// Songs called `q` on MusicBrainz, by `artist` when given.
@@ -230,9 +243,9 @@ async fn songs(
     q: &str,
     artist: Option<&str>,
 ) -> anyhow::Result<Result<Vec<Candidate>, Refused>> {
-    Ok(Ok(answered!("MusicBrainz", mb.search_songs(q, artist))
+    let found = answered!("MusicBrainz", mb.find_songs(q, artist))
         .into_iter()
-        .map(|r| {
+        .map(|(score, r)| {
             let by = first_artist(&r.artist_credit);
             let album = r
                 .releases
@@ -250,7 +263,7 @@ async fn songs(
                 .map(|ms| (ms + 500) / 1000)
                 .map(|s| format!("{}:{:02}", s / 60, s % 60));
             let about: Vec<String> = [album, length].into_iter().flatten().collect();
-            Candidate {
+            let c = Candidate {
                 kind: "song".into(),
                 mb_recording_id: Some(r.id),
                 mb_artist_id: by.as_ref().map(|(id, _)| id.clone()),
@@ -258,9 +271,33 @@ async fn songs(
                 title: r.title,
                 detail: (!about.is_empty()).then(|| about.join(", ")),
                 ..Candidate::default()
-            }
+            };
+            (score, c)
         })
-        .collect()))
+        .collect();
+    Ok(Ok(ranked(q, found)))
+}
+
+/// How closely a name matches what was typed, closest first: the same words, starting with
+/// them, holding them, or not.
+fn closeness(q: &str, name: &str) -> u8 {
+    let (q, name) = (crate::search_keys::fold(q), crate::search_keys::fold(name));
+    if q.is_empty() || name == q {
+        0
+    } else if name.starts_with(&q) {
+        1
+    } else if name.contains(&q) {
+        2
+    } else {
+        3
+    }
+}
+
+/// Best first: by MusicBrainz's score, then by how closely the name matches, then as
+/// MusicBrainz listed them.
+fn ranked(q: &str, mut found: Vec<(i64, Candidate)>) -> Vec<Candidate> {
+    found.sort_by_key(|(score, c)| (std::cmp::Reverse(*score), closeness(q, &c.title)));
+    found.into_iter().map(|(_, c)| c).collect()
 }
 
 /// Narrows a music candidate's `in_library` to the libraries `access` lets the user see: an
@@ -313,6 +350,10 @@ pub async fn as_seen_by(
         .bind(id)
         .fetch_one(pool)
         .await?;
+    // An album's cover is shown only where the album is.
+    if !c.in_library && c.kind == "album" {
+        c.poster = None;
+    }
     Ok(c)
 }
 
@@ -387,6 +428,7 @@ async fn mark(pool: &SqlitePool, user_id: i64, mut c: Candidate) -> anyhow::Resu
             .await?
             .is_some();
     }
+    c.poster = art::here(pool, &c).await?;
     c.requested = sqlx::query_scalar(
         "SELECT id FROM requests WHERE user_id = ? AND kind = ? AND state != 'declined'
            AND (tmdb_id = ? OR mb_recording_id = ? OR mb_release_group_id = ?
@@ -615,6 +657,109 @@ mod tests {
                 .await
                 .unwrap(),
             Err(Refused::NoMusicBrainz)
+        );
+    }
+
+    #[test]
+    fn results_rank_by_score_then_by_how_closely_the_name_matches() {
+        let named = |score: i64, title: &str| {
+            (
+                score,
+                Candidate {
+                    title: title.into(),
+                    ..Candidate::default()
+                },
+            )
+        };
+        let found = ranked(
+            "radiohead",
+            vec![
+                named(90, "Radiohead"),
+                named(100, "The Radiohead Tribute"),
+                named(100, "Radiohead Tribute"),
+                named(100, "Radio-Head"),
+                named(100, "Shadows"),
+            ],
+        );
+        assert_eq!(
+            found.iter().map(|c| c.title.as_str()).collect::<Vec<_>>(),
+            [
+                "Radio-Head",
+                "Radiohead Tribute",
+                "The Radiohead Tribute",
+                "Shadows",
+                "Radiohead"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn music_is_found_by_its_words_loosely() {
+        let pool = db::open_in_memory().await;
+        let (mb, log) = testing::start(0).await;
+        let found = search(&pool, None, Some(&mb), 1, "artist", "radiohed", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found[0].mb_artist_id.as_deref(), Some(RADIOHEAD));
+        let songs = search(
+            &pool,
+            None,
+            Some(&mb),
+            1,
+            "song",
+            "paranoid andriod",
+            Some("radiohead"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(songs[0].mb_recording_id.as_deref(), Some(PARANOID_ANDROID));
+        let asked = log.lock().unwrap().join("\n");
+        // Each word loosely, and only the words.
+        assert!(asked.contains("artist%3A%28radiohed%7E%29"), "{asked}");
+        assert!(
+            asked.contains("recording%3A%28paranoid%7E+AND+andriod%7E%29"),
+            "{asked}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pictures_come_only_from_whats_here() {
+        let (pool, user, tmdb, mb) = rig().await;
+        sqlx::query(
+            "INSERT INTO tmdb_movies (tmdb_id, title, poster_path, fetched_at)
+                 VALUES (603, 'The Matrix', '/matrix.jpg', 0);
+             INSERT INTO libraries (id, name, kind, path) VALUES (4, 'music', 'music', '/music');
+             INSERT INTO music_albums (id, library_id, key, title, artist_name, folder,
+                     seen_generation, mb_release_group_id)
+                 VALUES (7, 4, 'k', 'OK Computer', 'Radiohead', 'Radiohead/OK Computer', 1, ?)",
+        )
+        .bind(OK_COMPUTER)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let movies = search(&pool, Some(&tmdb), None, user, "movie", "Matrix", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            movies
+                .iter()
+                .map(|c| (c.tmdb_id, c.poster.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                (Some(603), Some("/api/v1/artwork/w342/matrix.jpg")),
+                (Some(9999), None)
+            ]
+        );
+        let albums = search(&pool, None, Some(&mb), user, "album", "ok computer", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            albums[0].poster.as_deref(),
+            Some("/api/v1/music/albums/7/cover")
         );
     }
 }

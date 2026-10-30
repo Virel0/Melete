@@ -1145,3 +1145,40 @@ async fn admins_find_songs_and_add_one_as_add_new_does() {
         )
     );
 }
+
+/// When MusicBrainz finds nothing, Add new looks on Soulseek: only the words go to slskd, and
+/// what its users share comes back as songs. Admins only.
+#[tokio::test]
+async fn admins_look_on_soulseek_with_only_the_words() {
+    let pool = db::open_in_memory().await;
+    let (admin, alice) = (
+        token(&pool, "admin", true).await,
+        token(&pool, "alice", false).await,
+    );
+    let answers = json!([{"username": "peer", "hasFreeUploadSlot": true, "files": [
+        {"filename": "Music\\Unsigned Band\\Demo\\01 - Garage Song.flac", "size": 1000},
+        {"filename": "Music\\Unsigned Band\\Demo\\folder.jpg", "size": 10},
+    ]}]);
+    let (slskd, seen) = crate::slskd::testing::start(answers, 1).await;
+    let sources = Sources {
+        slskd: Some(Arc::new(slskd.quick())),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), None, sources);
+    let uri = "/api/v1/requests/soulseek?q=unsigned%20band%20garage%20song";
+    let (status, found) = send(&app, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        found,
+        json!([{"title": "Garage Song", "artist": "Unsigned Band", "users": 1, "formats": ["FLAC"]}])
+    );
+    assert_eq!(seen.lock().unwrap().texts, ["unsigned band garage song"]);
+    let (status, _) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let blank = "/api/v1/requests/soulseek?q=%20";
+    let (status, _) = send(&app, "GET", blank, &admin, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let without = routes(pool, None, Sources::default());
+    let (status, body) = send(&without, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
