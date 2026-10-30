@@ -187,3 +187,41 @@ async fn a_challenge_finishes_once_the_way_it_started_and_runs_out() {
         None
     );
 }
+
+#[tokio::test]
+async fn wrong_codes_count_together_within_the_hour_of_the_last() {
+    let pool = db::open_in_memory().await;
+    let user = user(&pool).await;
+    let t = 1_800_000_000;
+    let summary = |changes: Vec<Change>| -> Vec<(String, i64, i64)> {
+        changes
+            .into_iter()
+            .map(|c| (c.change, c.count, c.at))
+            .collect()
+    };
+    for at in [t, t + 600, t + 600 + 3500] {
+        record_wrong_code(&pool, user.id, at).await.unwrap();
+    }
+    let wrong = || "wrong_sign_in_code".to_owned();
+    assert_eq!(
+        summary(changes(&pool, user.id).await.unwrap()),
+        [(wrong(), 3, t + 4100)],
+        "each within an hour of the one before"
+    );
+    record_wrong_code(&pool, user.id, t + 4100 + 3600)
+        .await
+        .unwrap();
+    assert_eq!(
+        summary(changes(&pool, user.id).await.unwrap()),
+        [(wrong(), 1, t + 7700), (wrong(), 3, t + 4100)],
+        "an hour after the last starts a new entry"
+    );
+    // A change in between starts a new entry too.
+    turned_on(&pool, &user, t + 7800).await;
+    record_wrong_code(&pool, user.id, t + 7900).await.unwrap();
+    let newest = &changes(&pool, user.id).await.unwrap()[0];
+    assert_eq!(
+        (newest.change.as_str(), newest.count),
+        ("wrong_sign_in_code", 1)
+    );
+}
