@@ -2,7 +2,8 @@ use super::*;
 use crate::{auth, db};
 
 async fn user(pool: &SqlitePool) -> User {
-    auth::create_user(pool, "alice", "a-long-password".into(), false)
+    let password = auth::generate_password().unwrap();
+    auth::create_user(pool, "alice", password, false)
         .await
         .unwrap()
         .unwrap()
