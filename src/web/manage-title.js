@@ -11,6 +11,7 @@ import { KINDS, fileRows, monitorSwitch, profilesFor, stateOf } from "/web/manag
 import { searchAndChoose, searchAndGrab } from "/web/manage-search.js";
 import { historyPart } from "/web/manage-history.js";
 import { seasonsPart } from "/web/manage-seasons.js";
+import { wantPanel } from "/web/manage-want.js";
 import { fixMatch } from "/web/settings.js";
 import { art } from "/web/cards.js";
 
@@ -31,7 +32,7 @@ export async function titlePage(ctx) {
   const [folder, wanted, profiles, loads] = await Promise.all([
     folderId ? api(`/${movies ? "movies" : "series"}/${folderId}`).catch(() => null) : null,
     !movies && t.wanted ? api("/wanted/series").then((all) => all.find((w) => w.id === t.wanted_id) ?? null) : null,
-    t.wanted ? profilesFor(kind).catch(() => []) : [],
+    profilesFor(kind).catch(() => []),
     t.wanted ? api("/downloads") : [],
   ]);
   if (!ctx.current()) return [];
@@ -78,7 +79,7 @@ function header(v) {
         { class: "manage-head-facts" },
         h("div", { class: "title-line" }, h("h1", {}, t.title, t.year ? h("span", { class: "year" }, ` (${t.year})`) : null), monitor),
         h("p", { class: "title-state" }, stateOf(t), upgrade),
-        t.wanted ? null : h("p", { class: "note" }, "Not on the wanted list, so Melete doesn't look for it or its upgrades. Add it under Add new."),
+        t.wanted ? null : want(v),
         h("dl", { class: "kv" }, facts.map(([k, val]) => [h("dt", {}, k), h("dd", {}, val)])),
         toolbar(v, panel, said),
         said,
@@ -86,6 +87,19 @@ function header(v) {
     ),
     panel,
   ];
+}
+
+// Not wanted: Monitor puts it on the wanted list, in the library it's in.
+function want(v) {
+  const { t, key, movies } = v;
+  return wantPanel(v.ctx, {
+    note: "Not on the wanted list, so Melete doesn't look for it or its upgrades.",
+    request: t.tmdb_id ? { kind: movies ? "movie" : "series", tmdb_id: t.tmdb_id } : null,
+    why: "Melete doesn't know which title it is, so it can't be wanted yet: fix its match first.",
+    library: t.library,
+    profiles: v.profiles,
+    opened: (r) => `#/admin/${r.service === "series" || r.service === "anime" ? r.service : key}/title/${r.wanted_id}`,
+  });
 }
 
 function toolbar(v, panel, said) {

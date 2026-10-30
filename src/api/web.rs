@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 104] = [
+const MODULES: [(&str, &str); 105] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -173,6 +173,7 @@ const MODULES: [(&str, &str); 104] = [
     ),
     ("manage-artist.js", include_str!("../web/manage-artist.js")),
     ("manage-album.js", include_str!("../web/manage-album.js")),
+    ("manage-want.js", include_str!("../web/manage-want.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
     (
         "manage-activity.js",
@@ -568,6 +569,10 @@ mod tests {
             ("/web/manage-seasons.js", "/episodes/"),
             ("/web/manage-artist.js", "monitor_new"),
             ("/web/manage-album.js", "track_list"),
+            ("/web/manage-want.js", "As Where they go says"),
+            ("/web/manage-title.js", "/web/manage-want.js"),
+            ("/web/manage-artist.js", "/web/manage-want.js"),
+            ("/web/manage-album.js", "/web/manage-want.js"),
             ("/web/manage-add.js", "/requests/search"),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
