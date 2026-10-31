@@ -77,6 +77,7 @@ mod requests;
 mod romanise;
 mod rottentomatoes;
 mod rss;
+mod runtime_checks;
 mod search;
 mod search_keys;
 mod search_missing;
