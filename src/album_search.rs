@@ -134,12 +134,12 @@ pub fn mismatch_as(name: &str, artist: &str, album: &str, what: &str) -> Option<
     let words: Vec<&str> = name.split(' ').collect();
     let artist_c = comparable(artist);
     let artist_words: Vec<&str> = artist_c.split(' ').collect();
-    // A compilation's releases name it "VA".
-    let after_artist = find(&words, &artist_words, 0).or_else(|| {
-        (artist_c == "various artists")
-            .then(|| find(&words, &["va"], 0))
-            .flatten()
-    });
+    // A compilation's releases name it "VA", or name no artist at all: its title must then
+    // be there in full on its own.
+    let compilation = artist_c == "various artists";
+    let after_artist = find(&words, &artist_words, 0)
+        .or_else(|| compilation.then(|| find(&words, &["va"], 0)).flatten())
+        .or(compilation.then_some(0));
     let Some(after_artist) = after_artist else {
         return Some(format!("it doesn't name the artist ({artist})"));
     };
@@ -270,11 +270,7 @@ pub async fn search_skipping(
     }
     let asking_soulseek = async {
         let client = slskd?;
-        Some(
-            client
-                .search(&soulseek::search_text(&album.artist, &album.title))
-                .await,
-        )
+        Some(soulseek::search_loosely(client, &album.artist, &album.title).await)
     };
     let (outcomes, answered) =
         tokio::join!(ask_indexers(client, &indexers, &album), asking_soulseek);
@@ -429,6 +425,20 @@ pub async fn store(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_compilation_may_name_no_artist_but_its_whole_title() {
+        let title = "Cyberpunk: Edgerunners 2 (Original Series Soundtrack)";
+        let named = "Cyberpunk Edgerunners 2 (Original Series Soundtrack) [2026] [FLAC]";
+        assert_eq!(mismatch(named, "Various Artists", title), None);
+        assert_eq!(
+            mismatch(&format!("VA - {named}"), "Various Artists", title),
+            None
+        );
+        assert!(mismatch("Cyberpunk Edgerunners 2 FLAC", "Various Artists", title).is_some());
+        // Only a compilation goes without its artist.
+        assert!(mismatch(named, "Some Composer", title).is_some());
+    }
 
     #[test]
     fn a_name_shorter_than_the_artist_or_album_is_neither() {
