@@ -6,8 +6,11 @@
 //! viewer's picks, the titles they finished or are watching (about 15, an episode counting as
 //! its series) with their year and up to three genres; for titles like one, that title with
 //! its premise. With either, candidates from the library that the asking user may see, each by
-//! an opaque id with its title, year, up to three genres and a premise cut to about 12 words.
-//! Never a username, an account, a path or anything else about the household.
+//! an opaque id with its title, year, up to three genres and a premise cut to about 12 words;
+//! for a viewer's picks, while trending and similar titles are on, also this week's trending
+//! titles not in the library that they may be shown, told the same way, which come back as
+//! picks they may ask for. Never a username, an account, a path or anything else about the
+//! household.
 //!
 //! Picks are kept, served at once, and worked out again in the background: a viewer's when what
 //! they watched changes or after a day, titles like one after a week. Making them starts at most
@@ -27,9 +30,11 @@ use crate::db::unix_now;
 
 mod gather;
 mod stored;
+mod trending;
 
 use gather::*;
 use stored::*;
+pub use trending::Requestable;
 
 /// The most picks a viewer gets, and the most titles like one.
 pub const PICKS: usize = 12;
@@ -57,6 +62,27 @@ pub struct Pick {
     pub title: Title,
     /// Why, as the model put it.
     pub reason: String,
+}
+
+/// A pick as kept and served, in the model's order: a title in the library, or a trending one
+/// that isn't, which the viewer may ask for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Ranked {
+    /// A title in the library.
+    Library(Pick),
+    /// A trending title not in the library.
+    Requestable(Requestable),
+}
+
+impl Ranked {
+    /// The pick of a title in the library; None for a requestable one.
+    pub fn library(&self) -> Option<&Pick> {
+        match self {
+            Ranked::Library(pick) => Some(pick),
+            Ranked::Requestable(_) => None,
+        }
+    }
 }
 
 /// Where a viewer's picks stand.
@@ -89,6 +115,8 @@ pub struct Served {
     pub made_at: Option<i64>,
     /// The picks still there that the viewer may see and hasn't watched, best first.
     pub picks: Vec<Pick>,
+    /// Those picks and the requestable ones still not in the library, in the model's order.
+    pub ranked: Vec<Ranked>,
 }
 
 impl Served {
@@ -97,6 +125,7 @@ impl Served {
             status,
             made_at: None,
             picks: Vec::new(),
+            ranked: Vec::new(),
         }
     }
 }
@@ -109,11 +138,25 @@ pub async fn on(pool: &SqlitePool) -> sqlx::Result<bool> {
         == Some("on"))
 }
 
-/// A viewer's picks as they stand, starting to make them afresh in the background when what
-/// they watched changed or they're a day old. Nothing is sent while they're off.
+/// A viewer's picks as they stand, from the library alone: [`for_viewer_with`] without TMDB.
+#[cfg(test)]
 pub async fn for_viewer(
     pool: &SqlitePool,
     client: Option<&Arc<Client>>,
+    user: i64,
+    access: &Access,
+) -> anyhow::Result<Served> {
+    for_viewer_with(pool, client, None, user, access).await
+}
+
+/// A viewer's picks as they stand, starting to make them afresh in the background when what
+/// they watched changed or they're a day old; with `tmdb`, trending titles not in the library
+/// are candidates too while trending and similar titles are on. Nothing is sent while they're
+/// off.
+pub async fn for_viewer_with(
+    pool: &SqlitePool,
+    client: Option<&Arc<Client>>,
+    tmdb: Option<&Arc<crate::tmdb::Client>>,
     user: i64,
     access: &Access,
 ) -> anyhow::Result<Served> {
@@ -137,12 +180,17 @@ pub async fn for_viewer(
     let mut refused = None;
     if due {
         let (owned, client_owned, access_owned) = (pool.clone(), client.clone(), access.clone());
-        let job = async move { make_for_viewer(&owned, &client_owned, user, &access_owned).await };
+        let tmdb_owned = tmdb.cloned();
+        let job = async move {
+            let tmdb = tmdb_owned.as_deref();
+            make_for_viewer_with(&owned, &client_owned, tmdb, user, &access_owned).await
+        };
         let claim = claim_viewer(pool, user, &key, now - TRY_EVERY);
         refused = start(client, user, claim, job).await?;
     }
     let kept = viewer_row(pool, user).await?.unwrap_or_default();
-    let picks = still_there(pool, Some(user), access, &kept.picks).await?;
+    let ranked = still_ranked(pool, user, access, &kept.picks).await?;
+    let picks = ranked.iter().filter_map(Ranked::library).cloned().collect();
     let status = match (&kept.made_at, &kept.error, refused) {
         (Some(_), _, _) => Status::Ready,
         (None, _, Some(Refusal::Limited)) => Status::Limited,
@@ -154,19 +202,36 @@ pub async fn for_viewer(
         status,
         made_at: kept.made_at,
         picks,
+        ranked,
     })
 }
 
-/// Makes a viewer's picks now and keeps them; on failure keeps why, and the picks from before.
+/// Makes a viewer's picks now from the library alone: [`make_for_viewer_with`] without TMDB.
+#[cfg(test)]
 pub async fn make_for_viewer(
     pool: &SqlitePool,
     client: &Client,
     user: i64,
     access: &Access,
 ) -> anyhow::Result<()> {
+    make_for_viewer_with(pool, client, None, user, access).await
+}
+
+/// Makes a viewer's picks now and keeps them; on failure keeps why, and the picks from before.
+/// With `tmdb`, while trending and similar titles are on, trending titles not in the library
+/// that the viewer may be shown are candidates too.
+pub async fn make_for_viewer_with(
+    pool: &SqlitePool,
+    client: &Client,
+    tmdb: Option<&crate::tmdb::Client>,
+    user: i64,
+    access: &Access,
+) -> anyhow::Result<()> {
     let watched = history(pool, user, access).await?;
     let key = history_key(&watched);
-    let candidates = candidates_for_viewer(pool, user, access, &watched).await?;
+    let mut candidates = candidates_for_viewer(pool, user, access, &watched).await?;
+    let first = candidates.len() + 1;
+    candidates.extend(trending::candidates(pool, tmdb, access, first).await?);
     let told: Vec<_> = watched.iter().map(|w| w.told.clone()).collect();
     let picked = if candidates.is_empty() {
         Ok(Vec::new())
@@ -256,7 +321,15 @@ pub async fn like(
         refused = start(client, user, claim, job).await?;
     }
     Ok(match (kept.filter(|k| k.made_at.is_some()), refused) {
-        (Some(kept), _) => Like::Made(still_there(pool, Some(user), access, &kept.picks).await?),
+        (Some(kept), _) => {
+            let library: Vec<Pick> = kept
+                .picks
+                .iter()
+                .filter_map(Ranked::library)
+                .cloned()
+                .collect();
+            Like::Made(still_there(pool, Some(user), access, &library).await?)
+        }
         (None, Some(Refusal::Limited)) => Like::Limited,
         (None, Some(Refusal::Busy)) => Like::Busy,
         (None, None) => Like::Making,
@@ -283,7 +356,12 @@ pub async fn make_like(
     };
     match picked {
         Ok(picked) => {
-            keep_similar(pool, title, &seen, &resolve(&candidates, picked)).await?;
+            let picks: Vec<Pick> = resolve(&candidates, picked)
+                .iter()
+                .filter_map(Ranked::library)
+                .cloned()
+                .collect();
+            keep_similar(pool, title, &seen, &picks).await?;
             Ok(())
         }
         Err(failure) => {
@@ -293,20 +371,54 @@ pub async fn make_like(
     }
 }
 
-/// The picks as titles: each candidate's id taken back to the title it stood for.
-fn resolve(candidates: &[Candidate], picked: Vec<crate::ai::Picked>) -> Vec<Pick> {
+/// The picks as titles: each candidate's id taken back to the title it stood for, in the
+/// library or requestable.
+fn resolve(candidates: &[Candidate], picked: Vec<crate::ai::Picked>) -> Vec<Ranked> {
     picked
         .into_iter()
         .filter_map(|p| {
             let c = candidates
                 .iter()
                 .find(|c| c.told.id.as_ref() == Some(&p.id))?;
-            Some(Pick {
-                title: c.title,
-                reason: p.reason,
+            Some(match &c.requestable {
+                Some(r) => Ranked::Requestable(Requestable {
+                    reason: p.reason,
+                    ..r.clone()
+                }),
+                None => Ranked::Library(Pick {
+                    title: c.title,
+                    reason: p.reason,
+                }),
             })
         })
         .collect()
+}
+
+/// The kept picks still to serve, in order: those in the library `user` may see and hasn't
+/// watched, and the requestable ones still not in the library that `access` may be shown,
+/// while trending and similar titles are still on.
+async fn still_ranked(
+    pool: &SqlitePool,
+    user: i64,
+    access: &Access,
+    kept: &[Ranked],
+) -> anyhow::Result<Vec<Ranked>> {
+    let discovery = crate::settings::discovery(pool).await?;
+    let mut out = Vec::new();
+    for pick in kept {
+        let there = match pick {
+            Ranked::Library(p) => !still_there(pool, Some(user), access, std::slice::from_ref(p))
+                .await?
+                .is_empty(),
+            Ranked::Requestable(r) => {
+                discovery && trending::still_requestable(pool, access, r).await?
+            }
+        };
+        if there {
+            out.push(pick.clone());
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

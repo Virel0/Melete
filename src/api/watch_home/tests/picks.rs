@@ -8,6 +8,11 @@ use crate::ai::fake;
 /// The main fixture with Film C (an Action film like Film A), AI picks on, and the routes
 /// talking to the fake OpenRouter.
 async fn with_ai() -> (Fixture, fake::Fake) {
+    with_ai_and(None).await
+}
+
+/// [`with_ai`], the routes talking to `tmdb` too.
+async fn with_ai_and(tmdb: Option<Arc<crate::tmdb::Client>>) -> (Fixture, fake::Fake) {
     let f = fixture().await;
     sqlx::raw_sql(
         r#"INSERT INTO tmdb_movies (tmdb_id, title, year, overview, genres, fetched_at)
@@ -27,7 +32,7 @@ async fn with_ai() -> (Fixture, fake::Fake) {
     let app = routes_from(
         f.pool.clone(),
         ArtworkState::stored_only(f.pool.clone()),
-        None,
+        tmdb,
         Some(client),
     );
     let f = Fixture {
@@ -97,8 +102,9 @@ async fn featured_for_you_is_its_own_answer_and_a_home_row() {
     let ready = until(&f, &token, "/api/v1/ai/picks", |a| a["status"] == "ready").await;
     assert_eq!(
         ready["picks"],
-        json!([{ "kind": "movie", "id": 30, "title": "Film C", "year": 2005, "poster": null,
-                 "backdrop": null, "reason": "Another hacker story" }])
+        json!([{ "kind": "movie", "id": 30, "tmdb_id": 700, "requestable": false,
+                 "title": "Film C", "year": 2005, "poster": null, "backdrop": null,
+                 "reason": "Another hacker story" }])
     );
     assert_eq!(fields(&ready["picks"][0]), documented("AiPick"));
     let home = home_of(&f, &token).await;
@@ -141,4 +147,53 @@ async fn titles_like_one_come_from_the_library_until_the_ais_are_made() {
     assert_eq!(status, StatusCode::NOT_FOUND, "a gone film");
     let (status, series) = get(&f, &token, "/api/v1/series/1/similar").await;
     assert_eq!(status, StatusCode::OK, "{series}");
+}
+
+#[tokio::test]
+async fn a_trending_pick_comes_back_requestable_by_kind_and_tmdb_id() {
+    use crate::tmdb::testing::{FakeTmdb, Reply};
+    let tmdb = FakeTmdb::default();
+    tmdb.reply(
+        "/trending/movie/week",
+        vec![Reply::ok(json!({ "results": [
+            { "id": 900, "title": "Tide", "release_date": "2024-05-01", "genre_ids": [28],
+              "poster_path": "/tide.jpg" }
+        ]}))],
+    )
+    .reply(
+        "/trending/tv/week",
+        vec![Reply::ok(json!({ "results": [] }))],
+    );
+    let (f, fake) = with_ai_and(Some(Arc::new(tmdb.start().await))).await;
+    sqlx::query(
+        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_DISCOVERY', 'on', 0)",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (me, token) = user(&f, "viewer").await;
+    progress(&f, me, 6, 0.0, 10).await;
+    // Whatever ids the candidates got, Tide is the last.
+    let picks: Vec<Value> = (1..=20)
+        .map(|n| json!({ "id": format!("c{n}"), "reason": "Picked" }))
+        .collect();
+    *fake.content.lock().unwrap() = json!({ "picks": picks }).to_string();
+    let ready = until(&f, &token, "/api/v1/ai/picks", |a| a["status"] == "ready").await;
+    let last = ready["picks"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(
+        last,
+        json!({ "kind": "movie", "id": null, "tmdb_id": 900, "requestable": true,
+                "title": "Tide", "year": 2024, "poster": null, "backdrop": null,
+                "reason": "Picked" })
+    );
+    assert_eq!(fields(&last), documented("AiPick"));
+    assert!(
+        ready["picks"].as_array().unwrap()[..ready["picks"].as_array().unwrap().len() - 1]
+            .iter()
+            .all(|p| p["requestable"] == false && p["id"].is_i64())
+    );
+    // The home's row is the library's picks alone.
+    let home = home_of(&f, &token).await;
+    assert!(!titles(row(&home, "featured_for_you")).is_empty());
+    assert!(!row(&home, "featured_for_you").to_string().contains("Tide"));
 }

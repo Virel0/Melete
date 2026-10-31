@@ -10359,7 +10359,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Featured for you",
-        "description": "Up to 12 titles from the library chosen for you by the AI from what you've watched, with a reason each, while an admin has AI picks on (Settings → Outside services → AI features; off by default). What's sent to OpenRouter: the titles you finished or are watching recently (about 15, an episode counting as its series), each with its year and up to three genres, and up to 60 candidate titles from the library that you may see and haven't watched, each by an opaque id with its title, year, up to three genres and a premise of about 12 words. Never a name, an account, a file path or anything else about the household. Your picks are kept and served at once; new ones are made in the background when what you watched changes or they're a day old, at most every 10 minutes, and take the old ones' place only once they're made. Each AI call started for you counts against 30 an hour (as AI search does, retries included) and the server runs at most 2 at once; past either, with none made yet, `status` says so. A title you've watched since, or may no longer see, is left out. When they're off, not set up, not made yet or failing, `picks` is empty and `status` and `message` say why; the Watch home's `featured_for_you` row has the same picks.",
+        "description": "Up to 12 titles from the library chosen for you by the AI from what you've watched, with a reason each, while an admin has AI picks on (Settings → Outside services → AI features; off by default). What's sent to OpenRouter: the titles you finished or are watching recently (about 15, an episode counting as its series), each with its year and up to three genres, and up to 60 candidate titles from the library that you may see and haven't watched, each by an opaque id with its title, year, up to three genres and a premise of about 12 words. While trending and similar titles are on (Settings, off by default) and TMDB is set up, up to 20 of this week's trending movies and series that aren't in the library or wanted are candidates too, told the same way; for them only which chart, and with a highest rating each title's TMDB id (for its rating, as discovery does), goes to TMDB, and only those rated within your highest rating are offered. Those picked come back with `requestable` true, by `kind` and `tmdb_id`, to ask for rather than play; they're left out once in the library or wanted, or when trending and similar titles are turned off. Never a name, an account, a file path or anything else about the household. Your picks are kept and served at once; new ones are made in the background when what you watched changes or they're a day old, at most every 10 minutes, and take the old ones' place only once they're made. Each AI call started for you counts against 30 an hour (as AI search does, retries included) and the server runs at most 2 at once; past either, with none made yet, `status` says so. A title you've watched since, or may no longer see, is left out. When they're off, not set up, not made yet or failing, `picks` is empty and `status` and `message` say why; the Watch home's `featured_for_you` row has the same picks from the library.",
         "responses": {
           "200": {
             "description": "OK",
@@ -12446,10 +12446,12 @@
       },
       "AiPick": {
         "type": "object",
-        "required": ["kind", "id", "title", "year", "poster", "backdrop", "reason"],
+        "required": ["kind", "id", "tmdb_id", "requestable", "title", "year", "poster", "backdrop", "reason"],
         "properties": {
           "kind": {"enum": ["movie", "series"]},
-          "id": {"type": "integer", "description": "The movie's or series' id in the library."},
+          "id": {"type": ["integer", "null"], "description": "The movie's or series' id in the library; null for a title to ask for."},
+          "tmdb_id": {"type": ["integer", "null"], "description": "Its TMDB id, of a movie or a series as `kind` says; null for a title in the library not matched on TMDB."},
+          "requestable": {"type": "boolean", "description": "True for a trending title not in the library, to ask for (a request by `kind` and `tmdb_id`) rather than play; false for one in the library."},
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
           "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
