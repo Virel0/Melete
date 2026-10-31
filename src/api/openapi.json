@@ -5554,7 +5554,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your liked tracks and albums",
-        "description": "The tracks and the albums you like, each newest like first, read from your Aoide sync log the way your devices read it: a like set on any of them, or here, is the same like. Each with its track or album as the music API shows it, or null when it isn't in the library now (its content key says what it was).",
+        "description": "The tracks and the albums you like, each newest like first, read from your Aoide sync log the way your devices read it: a like set on any of them, or here, is the same like. Each with its track or album as the music API shows it, or null when it isn't in the library now (its content key says what it was). An album is found as your devices find it: by its id, else, when a rescan gave it a new id, by its content key when exactly one album you may see has that key (several are none, never a guess); one found through two likes is listed once.",
         "responses": {
           "200": {
             "description": "OK",
@@ -5628,7 +5628,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Like an album",
-        "description": "Writes into your Aoide sync log the album like an Aoide device of yours would (an `album_likes` row: the album's own row if it has one, else a new row), as this session; your devices apply it on their next pull. Nothing is written when you like it already. Liking an album likes none of its tracks.",
+        "description": "Writes into your Aoide sync log the album like an Aoide device of yours would (an `album_likes` row: the album's own row if it has one, else one with its content key whose id names no album in the library, as a device relinks it, else a new row), as this session; your devices apply it on their next pull. Nothing is written when you like it already. Liking an album likes none of its tracks.",
         "parameters": [
           {
             "name": "id",
@@ -14868,7 +14868,7 @@
           "artist_id": {"type": ["integer", "null"], "description": "null for a compilation of several artists."},
           "liked": {
             "type": "boolean",
-            "description": "Whether you like the album, as your Aoide sync log has it (`/music/albums/{id}/like`). Liking an album likes none of its tracks."
+            "description": "Whether you like the album, as your Aoide sync log has it (`/music/albums/{id}/like`), the album found as `GET /music/likes` finds it. Liking an album likes none of its tracks."
           },
           "artist": {"type": "string", "description": "The album artist, or Various Artists."},
           "year": {"type": ["integer", "null"]},

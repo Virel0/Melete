@@ -20,6 +20,9 @@ use super::listening::normalise;
 use super::playlists::Row;
 use super::writing::{self, Change, WriteError};
 
+mod albums;
+pub use albums::liked_albums;
+
 /// What a like names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -213,9 +216,10 @@ pub async fn liked(
 }
 
 /// Likes or unlikes the track or album `id` for `user_id`, as a device of theirs named
-/// `device` would at `now`: liking writes its row (its own, if it has one) liked and not
-/// deleted; unliking deletes its row when that's a like. Nothing is written when it's already
-/// so. False only when liking a track or album that isn't in the library.
+/// `device` would at `now`: liking writes its row (its own, if it has one; for an album, else
+/// one its content key left behind, see [`held`]) liked and not deleted; unliking deletes its
+/// row when that's a like. Nothing is written when it's already so. False only when liking a
+/// track or album that isn't in the library.
 ///
 /// # Errors
 ///
@@ -229,13 +233,7 @@ pub async fn set(
     like: bool,
     now: i64,
 ) -> Result<bool, WriteError> {
-    let wanted = id.to_string();
-    // Its row, as the device that made it holds it; the latest if ids were written two ways.
-    let held = rows(pool, kind, user_id)
-        .await?
-        .into_iter()
-        .filter(|r| normalise(&r.item_id) == wanted)
-        .reduce(|a, b| if b.beats(&a) { b } else { a });
+    let held = held(pool, kind, user_id, id).await?;
     let row = match (held, like) {
         (Some(held), true) if held.liked && !held.deleted => return Ok(true),
         // Only a like is withdrawn here; a dislike stays.
@@ -280,6 +278,32 @@ pub async fn set(
     };
     writing::append(pool, user_id, device, vec![change], now).await?;
     Ok(true)
+}
+
+/// The row a change to the track or album `id` goes into, as the device that made it holds
+/// it: the one naming it (the latest, if ids were written two ways); for a present album with
+/// none, one its content key left behind ([`albums::left_behind`]).
+async fn held(
+    pool: &SqlitePool,
+    kind: Kind,
+    user_id: i64,
+    id: i64,
+) -> Result<Option<Like>, WriteError> {
+    let wanted = id.to_string();
+    let (own, others): (Vec<Like>, Vec<Like>) = rows(pool, kind, user_id)
+        .await?
+        .into_iter()
+        .partition(|r| normalise(&r.item_id) == wanted);
+    if let Some(own) = own
+        .into_iter()
+        .reduce(|a, b| if b.beats(&a) { b } else { a })
+    {
+        return Ok(Some(own));
+    }
+    Ok(match kind {
+        Kind::Track => None,
+        Kind::Album => albums::left_behind(pool, others, id).await?,
+    })
 }
 
 #[cfg(test)]

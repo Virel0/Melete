@@ -376,3 +376,169 @@ async fn a_device_album_like_is_accepted_and_shown() {
     assert_eq!(body["albums"][0]["album"]["id"], 1);
     assert_eq!(body["albums"][0]["liked_at"], 2);
 }
+
+/// What a device holds of the album likes in `ops`, by the apps' merge: (album id, content key)
+/// of each liked row.
+fn albums_liked_on_device(ops: &[Value]) -> Vec<(String, String)> {
+    let rows: Vec<(String, String, String)> = ops
+        .iter()
+        .filter(|op| op["entity"] == "album_likes")
+        .map(|op| {
+            (
+                op["entityId"].as_str().unwrap().to_owned(),
+                op["operation"].as_str().unwrap().to_owned(),
+                op["payload"].to_string(),
+            )
+        })
+        .collect();
+    likes::fold(
+        Kind::Album,
+        rows.iter()
+            .map(|(e, o, p)| (e.as_str(), o.as_str(), p.as_str())),
+    )
+    .into_iter()
+    .filter(|r| r.liked && !r.deleted)
+    .map(|r| (r.item_id, r.content_key))
+    .collect()
+}
+
+/// A one-second tone at `rel` under `root`, tagged as a song on Björk's Post.
+fn clip(root: &std::path::Path, rel: &str, title: &str) {
+    let path = root.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=1"])
+        .args(["-metadata", &format!("title={title}")])
+        .args(["-metadata", "artist=Björk", "-metadata", "album=Post"])
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "ffmpeg made {rel}");
+}
+
+/// The id of the one album in the library now.
+async fn present_album(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar("SELECT id FROM music_albums WHERE missing_since IS NULL")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn an_album_keyed_anew_by_a_rescan_stays_liked() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("music");
+    clip(&root, "Björk/Post/01.flac", "Army of Me");
+    let pool = crate::db::open_in_memory().await;
+    let config = crate::library::LibraryConfig {
+        name: "music".into(),
+        kind: crate::library::LibraryKind::Music,
+        path: root.clone(),
+    };
+    let library = crate::library::sync_config(&pool, &[config])
+        .await
+        .unwrap()
+        .remove(0);
+    crate::library::scan(&pool, &library).await.unwrap();
+    let app = routes(pool.clone(), false)
+        .merge(crate::api::aoide::routes(pool.clone(), dir.path().into()))
+        .merge(crate::api::music::routes(
+            pool.clone(),
+            dir.path().join("covers"),
+            dir.path().join("motion"),
+            None,
+        ));
+    let f = Fixture {
+        app,
+        pool,
+        _dir: dir,
+    };
+    let (phone, web) = (session(&f, "alice").await, session(&f, "alice").await);
+    let old = present_album(&f.pool).await;
+    let like = format!("/api/v1/music/albums/{old}/like");
+    assert_eq!(
+        call(&f, &web, "PUT", &like, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+
+    // The folder is renamed: the album is keyed by its folder, so a rescan gives it a new row
+    // and marks the old one missing, while its artist and title, its content key, stay.
+    std::fs::rename(root.join("Björk/Post"), root.join("Björk/Post (1995)")).unwrap();
+    crate::library::scan(&f.pool, &library).await.unwrap();
+    let new = present_album(&f.pool).await;
+    assert_ne!(new, old);
+
+    // Still liked on the list and on its page, as on a device, which relinks by the key.
+    let (_, body) = call(&f, &web, "GET", "/api/v1/music/likes", None).await;
+    let albums = body["albums"].as_array().unwrap();
+    assert_eq!(albums.len(), 1, "{body}");
+    assert_eq!(albums[0]["album"]["id"], new);
+    let page = format!("/api/v1/music/albums/{new}");
+    assert_eq!(call(&f, &web, "GET", &page, None).await.1["liked"], true);
+
+    // Liking it again writes nothing; unliking and liking again change the one row, which
+    // names the album by its new id from then on.
+    let like = format!("/api/v1/music/albums/{new}/like");
+    let (ops, cursor) = pull(&f, &phone, 0).await;
+    call(&f, &web, "PUT", &like, None).await;
+    assert!(pull(&f, &phone, cursor).await.0.is_empty(), "no second row");
+    let (status, _) = call(&f, &web, "DELETE", &like, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(call(&f, &web, "GET", &page, None).await.1["liked"], false);
+    call(&f, &web, "PUT", &like, None).await;
+    let (more, _) = pull(&f, &phone, cursor).await;
+    assert_eq!(more.len(), 2);
+    let row = &ops[0]["entityId"];
+    assert!(more.iter().all(|op| &op["entityId"] == row), "{more:?}");
+    let mut all = ops.clone();
+    all.extend(more);
+    assert_eq!(
+        albums_liked_on_device(&all),
+        [(new.to_string(), "bjork|post".to_owned())]
+    );
+    assert_eq!(call(&f, &web, "GET", &page, None).await.1["liked"], true);
+}
+
+#[tokio::test]
+async fn a_like_whose_key_two_present_albums_share_names_neither() {
+    let f = fixture().await;
+    sqlx::raw_sql(
+        "INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+             VALUES (2, 1, 'k2', 'Post', 'Björk', 'b', 1);",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let phone = session(&f, "alice").await;
+    // A like made for an album that has since gone: its id names nothing present.
+    let op = json!({ "opId": "op-1", "entity": "album_likes", "entityId": "A", "operation": "upsert",
+        "payload": { "id": "A", "albumId": "77", "contentKey": "bjork|post", "liked": true,
+                     "updatedAt": 2000, "deleted": false, "originDevice": "phone" },
+        "createdAt": 2000 });
+    let (status, _) = call(
+        &f,
+        &phone,
+        "POST",
+        "/aoide/sync/push",
+        Some(json!({ "deviceId": "phone", "ops": [op] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = call(&f, &phone, "GET", "/api/v1/music/likes", None).await;
+    assert_eq!(body["albums"][0]["album"], Value::Null, "{body}");
+    for album in [1, 2] {
+        let page = format!("/api/v1/music/albums/{album}");
+        let (_, body) = call(&f, &phone, "GET", &page, None).await;
+        assert_eq!(body["liked"], false, "album {album}");
+    }
+
+    // With one of them gone, the other is the album the like names.
+    sqlx::query("UPDATE music_albums SET missing_since = 5 WHERE id = 2")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let (_, body) = call(&f, &phone, "GET", "/api/v1/music/likes", None).await;
+    assert_eq!(body["albums"][0]["album"]["id"], 1, "{body}");
+    let (_, body) = call(&f, &phone, "GET", "/api/v1/music/albums/1", None).await;
+    assert_eq!(body["liked"], true);
+}

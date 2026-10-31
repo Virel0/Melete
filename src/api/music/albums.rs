@@ -231,12 +231,8 @@ pub(super) async fn album(
     }
     let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
     let mut body = row.to_json(shown);
-    let liked = crate::aoide::likes::liked(
-        &state.pool,
-        crate::aoide::likes::Kind::Album,
-        current.user.id,
-    )
-    .await?;
+    let liked =
+        crate::aoide::likes::liked_albums(&state.pool, current.user.id, &current.access).await?;
     body["liked"] = json!(liked.iter().any(|(album, _)| *album == Some(id)));
     body["motion_cover_generation"] = json!(crate::motion::status(&state.pool, id).await?);
     body["library"] = json!(library);

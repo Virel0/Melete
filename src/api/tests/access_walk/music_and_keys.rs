@@ -81,6 +81,39 @@ async fn hidden_music_cant_be_opened_and_what_cant_be_narrowed_is_closed() {
     }
 }
 
+/// An album's like is written to Aoide's log as a track's is, so it's closed the same way to
+/// someone who sees only some music libraries, an open album's as much as a hidden one's.
+#[tokio::test]
+async fn album_likes_are_closed_to_someone_limited_to_some_music() {
+    let w = world().await;
+    for album in [1, 41] {
+        for method in ["PUT", "DELETE"] {
+            let uri = format!("/api/v1/music/albums/{album}/like");
+            assert_eq!(
+                ask(&w, method, &uri).await.0,
+                StatusCode::FORBIDDEN,
+                "{method} {uri}"
+            );
+        }
+    }
+    restrict(
+        &w,
+        Some(Restriction {
+            libraries: Some(vec![1, 2, 5, 6]),
+            max_age: None,
+        }),
+    )
+    .await;
+    for method in ["PUT", "DELETE"] {
+        let uri = "/api/v1/music/albums/1/like";
+        assert_eq!(
+            ask(&w, method, uri).await.0,
+            StatusCode::NO_CONTENT,
+            "{method} {uri}"
+        );
+    }
+}
+
 /// A key limited to reading, of a user limited to some titles, keeps both limits at once.
 #[tokio::test]
 async fn a_scoped_key_keeps_its_scope_and_its_users_access() {

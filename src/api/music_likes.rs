@@ -69,7 +69,7 @@ async fn list(
     let liked = likes::liked(pool, Kind::Track, me).await?;
     let ids: Vec<i64> = liked.iter().filter_map(|(track, _)| *track).collect();
     let tracks = tracks_by_id(pool, &current.access, me, &ids).await?;
-    let liked_albums = likes::liked(pool, Kind::Album, me).await?;
+    let liked_albums = likes::liked_albums(pool, me, &current.access).await?;
     let ids: Vec<i64> = liked_albums
         .iter()
         .filter_map(|(album, _)| *album)
