@@ -56,6 +56,7 @@ mod progress;
 mod releases;
 mod requests;
 mod rss;
+mod runtime_checks;
 mod search;
 mod segments;
 mod services;
