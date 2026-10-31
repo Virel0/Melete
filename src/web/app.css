@@ -378,7 +378,14 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 .path { overflow-wrap: anywhere; }
 .secret-box { margin-block-start: var(--space-4); }
 .secret-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.secret { flex: 1 1 16rem; font-family: ui-monospace, monospace; }
+.secret { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, monospace; }
+/* Two-factor setup: the QR code beside the key, under it on a phone. The code stays black on
+   white whatever the theme, as scanners need. */
+.two-factor-key { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); margin-block: var(--space-3); }
+.two-factor-key > div:last-child { flex: 1 1 16rem; min-width: 0; }
+.two-factor-key .secret-box { margin-block-start: 0; }
+.qr-code { flex: none; width: min(12rem, 100%); }
+.qr-code svg { display: block; width: 100%; height: auto; border-radius: var(--radius-s); }
 /* A two-factor code: digits kept apart so six are easy to check against the app. */
 input.code { font-family: ui-monospace, monospace; letter-spacing: 0.2em; max-width: 14ch; }
 .report-details { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: var(--step--1); background: var(--surface-raised); border-radius: var(--radius-s); }

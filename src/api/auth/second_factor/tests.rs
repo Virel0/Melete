@@ -543,3 +543,22 @@ async fn wrong_codes_at_sign_in_show_in_the_users_record_without_where_from() {
     let keys: Vec<&String> = newest.as_object().unwrap().keys().collect();
     assert_eq!(keys, ["at", "change", "count", "made_from"], "no address");
 }
+
+#[tokio::test]
+async fn setup_answers_the_link_drawn_as_a_qr_code_and_nowhere_else() {
+    let (_, app) = setup().await;
+    let session = token(&app).await;
+    let answer = post(&app, SETUP, Some(&session), json!({ "password": alice() })).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(answer.headers[header::CACHE_CONTROL], "no-store");
+    assert_documented("TwoFactorSetup", &answer.body);
+    let uri = answer.body["uri"].as_str().unwrap();
+    let qr = answer.body["qr"].as_str().expect("a QR code");
+    let drawn = crate::two_factor::qr::encode(uri.as_bytes()).unwrap();
+    assert_eq!(qr, drawn.svg(), "the link, drawn");
+    assert!(qr.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+    // Shown with the setup only: the status never has it.
+    let status = get(&app, STATUS, &session).await;
+    assert!(status.body.get("qr").is_none());
+    assert!(!status.body.to_string().contains("<svg"));
+}

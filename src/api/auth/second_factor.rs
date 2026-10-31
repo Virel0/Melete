@@ -152,7 +152,9 @@ pub(super) async fn setup(
             "two-factor sign-in is on already; turn it off first",
         ));
     };
-    let body = Json(json!({ "secret": setup.secret, "uri": setup.uri }));
+    // Drawn here, so the secret in the link goes nowhere else to become a picture.
+    let qr = two_factor::qr::encode(setup.uri.as_bytes()).map(|code| code.svg());
+    let body = Json(json!({ "secret": setup.secret, "uri": setup.uri, "qr": qr }));
     Ok(([(header::CACHE_CONTROL, "no-store")], body).into_response())
 }
 

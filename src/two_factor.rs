@@ -16,6 +16,7 @@ use crate::auth::User;
 use crate::db::unix_now;
 
 mod challenges;
+pub mod qr;
 mod record;
 pub mod totp;
 
