@@ -8715,6 +8715,45 @@
         }
       }
     },
+    "/api/v1/manage/{service}/selection": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Change many of a managed list's titles at once",
+        "description": "What a managed list's selection bar does, for up to 100 titles a request; a larger selection is sent in batches. `monitor` monitors titles on the wanted list (`wanted_ids`) and puts titles only in the library (`folders`, a list row's `movie_id`, `series_id` or `artist_id`) on it, monitored, in the library each is in, with `profile_id` or else the request defaults' profile, as approving an admin's add does but without a request of its own and without a search (a run for what's missing does that). A movie or series is named by its TMDB match and looked up on TMDB; an artist by their MusicBrainz id and looked up on MusicBrainz, wanting every studio album it lists and their new ones. `unmonitor`, `profile` (with `profile_id`) and `remove` (taken off the wanted list; files stay) change titles on the wanted list only. Each title is changed on its own: one that can't be is left as it is and listed with why.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "description": "movies, series, anime or artists, as the managed lists are named.",
+            "schema": {"enum": ["movies", "series", "anime", "artists"]}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelection"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "What changed, and what didn't with why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelectionOutcome"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such service",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "422": {
+            "description": "The profile isn't one for this service's titles",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/wanted/artists/follows": {
       "get": {
         "tags": ["Admin"],
@@ -17058,6 +17097,63 @@
           "key": {
             "type": "string",
             "description": "What imports know it by: a movie's TMDB id, a series' TVDB id, an artist's or album's MusicBrainz id."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedSelection": {
+        "type": "object",
+        "required": ["action", "wanted_ids", "folders", "profile_id"],
+        "properties": {
+          "action": {"type": "string", "enum": ["monitor", "unmonitor", "profile", "remove"]},
+          "wanted_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Titles on the wanted list: a managed list row's `wanted_id`. May be empty."
+          },
+          "folders": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Titles only in the library, for `monitor` only (empty otherwise): a row's `movie_id`, `series_id` or `artist_id`."
+          },
+          "profile_id": {
+            "type": ["integer", "null"],
+            "description": "For `profile`, the one set (needed); for `monitor`, the one titles only in the library are wanted with, null for the request defaults' profile; null for the others. A quality profile of the service's kind, or a music profile for artists."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedSelectionOutcome": {
+        "type": "object",
+        "required": ["changed", "wanted", "unchanged"],
+        "properties": {
+          "changed": {"type": "integer", "description": "Titles changed."},
+          "wanted": {
+            "type": "array",
+            "description": "Titles only in the library that are on the wanted list now.",
+            "items": {
+              "type": "object",
+              "required": ["folder", "wanted_id"],
+              "properties": {
+                "folder": {"type": "integer"},
+                "wanted_id": {"type": "integer", "description": "Its wanted entry, as a managed list row's `wanted_id`."}
+              },
+              "additionalProperties": false
+            }
+          },
+          "unchanged": {
+            "type": "array",
+            "description": "Titles left as they were.",
+            "items": {
+              "type": "object",
+              "required": ["wanted_id", "folder", "why"],
+              "properties": {
+                "wanted_id": {"type": ["integer", "null"], "description": "Its wanted entry, when it was one."},
+                "folder": {"type": ["integer", "null"], "description": "Its folder, when it was only in the library."},
+                "why": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
