@@ -48,7 +48,7 @@ async fn fetch_wanted_movies(
     Ok(())
 }
 
-/// Asks for the digital and physical release dates of monitored wanted movies out within the
+/// Asks for the digital, physical and TV release dates of monitored wanted movies out within the
 /// last year, coming or undated, unless they were asked for within the last week.
 async fn refresh_release_dates(
     pool: &SqlitePool,
@@ -72,11 +72,12 @@ async fn refresh_release_dates(
                 let dates = dates.unwrap_or_default();
                 sqlx::query(
                     "UPDATE tmdb_movies SET digital_release = ?, physical_release = ?,
-                         release_dates_at = ?
+                         tv_release = ?, release_dates_at = ?
                      WHERE tmdb_id = ?",
                 )
                 .bind(dates.digital)
                 .bind(dates.physical)
+                .bind(dates.tv)
                 .bind(now)
                 .bind(id)
                 .execute(pool)
