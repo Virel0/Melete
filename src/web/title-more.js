@@ -5,11 +5,14 @@
 //   null when there's none of them.
 // - aboutSection(title, files, { admin, kind }): About, folded; a file's details are asked
 //   for when it's opened.
+// - moreLikeThis(kind, id, gen): "More like this", a row drawn once it's in; nothing when
+//   there are no titles like it.
 // - extrasPage(kind, id, gen) and castPage(kind, id, gen): `#/movies/5/extras`, `…/cast`.
 
 import { SignedOut, announce, api, clock, fileName, h, languageName, loading, plural, runtime, show, size } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { playHref } from "/web/cards.js";
+import { row } from "/web/watch-tiles.js";
 import { creditsSection } from "/web/people.js";
 
 const EXTRA_KINDS = {
@@ -148,4 +151,23 @@ export function castPage(kind, id, gen) {
     load: () => api(`/${route(kind)}/${id}/credits`),
     draw: (credits) => creditsSection(credits) ?? h("p", { class: "status" }, "No cast or crew known for this title."),
   });
+}
+
+// "More like this": up to 12 titles like this one that the viewer may see and hasn't watched,
+// the AI's with its reason for each while AI picks are on and made, else Melete's own likeness
+// (while they're off, being made, or held back by their limits: shown the same, without a
+// word). Drawn into the box once they're in; nothing when there are none or they can't be read,
+// as the page is whole without them.
+export function moreLikeThis(kind, id, gen) {
+  const box = h("div", { class: "more-like-this" });
+  api(`/${route(kind)}/${id}/similar`)
+    .then((answer) => {
+      if (gen !== generation) return;
+      const shelf = row(`like-${kind}-${id}`, "More like this", answer.items ?? []);
+      if (shelf) box.replaceChildren(shelf);
+    })
+    .catch((err) => {
+      if (err instanceof SignedOut) signIn("Your session ended. Sign in again.");
+    });
+  return box;
 }

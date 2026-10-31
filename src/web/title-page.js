@@ -14,7 +14,7 @@ import { icon } from "/web/music-controls.js";
 import { placeholders } from "/web/page-parts.js";
 import { buttonColour, css, strongest, tintPage } from "/web/title-colour.js";
 import { episodesPicker, markFiles, markSeries, seasonOrder } from "/web/title-episodes.js";
-import { aboutSection, castPage, extrasPage, moreLinks } from "/web/title-more.js";
+import { aboutSection, castPage, extrasPage, moreLikeThis, moreLinks } from "/web/title-more.js";
 import { trailerButton } from "/web/title-trailer.js";
 import { partway, playTarget, timeLeft } from "/web/watch-play.js";
 
@@ -162,6 +162,7 @@ export async function movie(id, gen, admin = false) {
     head.el,
     m.files.length ? null : h("p", { class: "status" }, "No file for this movie right now."),
     moreLinks("movie", m, extras, credits),
+    moreLikeThis("movie", m.id, gen),
     aboutSection(m, m.files, { admin, kind: "movie" }),
   );
 }
@@ -227,5 +228,5 @@ export async function series(id, params, gen, admin = false) {
     episodes.replaceWith(fresh);
     episodes = fresh;
   });
-  show(s.title, head.el, episodes, moreLinks("series", s, extras, credits), aboutSection(s, [], { admin, kind: "series", unparsed: s.unparsed_files }));
+  show(s.title, head.el, episodes, moreLinks("series", s, extras, credits), moreLikeThis("series", s.id, gen), aboutSection(s, [], { admin, kind: "series", unparsed: s.unparsed_files }));
 }
