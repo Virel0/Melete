@@ -1294,9 +1294,22 @@ async fn copied_chunks_are_deleted_behind_the_viewer() {
             .count()
     };
     assert!(chunk_count(3) > 0);
+    // Within ten minutes and a gigabyte behind the viewer, nothing goes: going back is instant.
+    t.sweep(IDLE);
+    assert!(chunk_count(3) > 0, "kept within the limits");
+    assert!(files[0].exists() && files[7].exists());
+    // Past the number of segments kept, the oldest go…
+    t.keep_behind(5, u64::MAX);
     t.sweep(IDLE);
     assert_eq!(chunk_count(3), 0, "chunks of segments 0-2 deleted");
     assert!(!files[2].exists() && files[3].exists());
+    // …and past the bytes kept, whatever their number.
+    t.keep_behind(100, 1);
+    t.sweep(IDLE);
+    assert!(
+        !files[7].exists() && files[8].exists(),
+        "nothing behind fits in a byte"
+    );
     // Going back starts afresh.
     let back = t.segment(b"one", &p, 1).await.unwrap();
     assert!(back.exists());
@@ -1428,4 +1441,12 @@ async fn open_gop_h264_copies_decode_after_a_seek() {
         frames + 4 >= packets,
         "{frames} of {packets} frames decoded"
     );
+}
+
+#[test]
+fn a_copy_run_pauses_further_ahead_than_an_encoding_one() {
+    assert_eq!(throttle_copy(AHEAD_PAUSE + 1, false), None, "still copying");
+    assert_eq!(throttle_copy(101, false), Some(libc::SIGSTOP));
+    assert_eq!(throttle_copy(49, true), Some(libc::SIGCONT));
+    assert_eq!(throttle_copy(75, true), None, "between the two: leave it");
 }
