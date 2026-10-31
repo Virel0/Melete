@@ -10,6 +10,7 @@ pub async fn restore<'a>(
     before: &HashMap<String, String>,
 ) -> sqlx::Result<()> {
     let mut tx = pool.begin().await?;
+    let sealing = crate::secrets::sealing(&mut *tx).await?;
     for name in names {
         match before.get(name) {
             Some(value) => {
@@ -18,7 +19,7 @@ pub async fn restore<'a>(
                      ON CONFLICT (name) DO UPDATE SET value = excluded.value",
                 )
                 .bind(name)
-                .bind(value)
+                .bind(to_store(sealing, name, value)?)
                 .bind(unix_now())
                 .execute(&mut *tx)
                 .await?;
@@ -112,6 +113,7 @@ pub async fn save(
         Err(refused) => return Ok(Err(refused)),
     };
     let mut tx = pool.begin().await?;
+    let sealing = crate::secrets::sealing(&mut *tx).await?;
     for name in changes.keys() {
         match next.get(name) {
             Some(value) => {
@@ -120,7 +122,7 @@ pub async fn save(
                      ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                 )
                 .bind(name)
-                .bind(value)
+                .bind(to_store(sealing, name, value)?)
                 .bind(unix_now())
                 .execute(&mut *tx)
                 .await?;

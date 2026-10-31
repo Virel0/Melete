@@ -96,6 +96,34 @@ async fn a_reset_asks_nothing_of_a_user_without_one() {
     );
 }
 
+#[tokio::test]
+async fn told_to_remove_it_a_reset_removes_a_setup_still_waiting_too() {
+    let pool = db::open_in_memory().await;
+    let (bob, _) = user(&pool, "bob").await;
+    two_factor::start_setup(&pool, &bob).await.unwrap().unwrap();
+    assert_eq!(
+        two_factor::stage(&pool, bob.id).await.unwrap(),
+        two_factor::Stage::Waiting
+    );
+    // Asked or kept, a setup that isn't on is left alone, as before.
+    let (_, _, outcome) = reset_password(&pool, "bob", SecondFactor::Ask, never_asked)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::NoneOn);
+    assert_eq!(
+        two_factor::stage(&pool, bob.id).await.unwrap(),
+        two_factor::Stage::Waiting
+    );
+    let (_, _, outcome) = reset_password(&pool, "bob", SecondFactor::Remove, never_asked)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::NoneOn, "it was never on");
+    assert_eq!(
+        two_factor::stage(&pool, bob.id).await.unwrap(),
+        two_factor::Stage::Off
+    );
+}
+
 #[test]
 fn only_a_typed_yes_removes_it() {
     for yes in ["y\n", "Y", " yes \n", "Yes"] {

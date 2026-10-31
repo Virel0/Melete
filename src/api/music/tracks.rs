@@ -10,7 +10,7 @@ impl Liked {
     /// What `user_id` likes now.
     pub(in super::super) async fn of(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Self> {
         Ok(Self(
-            crate::aoide::likes::liked(pool, user_id)
+            crate::aoide::likes::liked(pool, crate::aoide::likes::Kind::Track, user_id)
                 .await?
                 .into_iter()
                 .filter_map(|(track, _)| track)

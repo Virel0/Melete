@@ -153,11 +153,9 @@ pub async fn create(
         Ok(found) => found,
         Err(refused) => return Ok(Err(refused)),
     };
-    let id = insert_request(pool, user, &new, &found).await?;
-    let Some(id) = id else {
-        return Ok(Err(Refused::Already(
-            open_request(pool, user, &new, &found).await?,
-        )));
+    let (id, reopened) = match record(pool, user, &new, &found).await? {
+        Ok(recorded) => recorded,
+        Err(refused) => return Ok(Err(refused)),
     };
     let wanted_already = wanted_already(pool, &new, &found).await?;
     let let_through: bool = user.is_admin
@@ -169,6 +167,7 @@ pub async fn create(
         // Approved by the requester's standing, or because it's on its way already.
         let by = (!wanted_already).then_some(user.id);
         if let Err(refused) = approve_at_once(pool, tmdb, mb, id, by, &choice).await? {
+            restore_or_drop(pool, id, reopened).await?;
             return Ok(Err(refused));
         }
     }
@@ -179,7 +178,7 @@ pub async fn create(
 
 /// Approves a request as it's made. One that can't be approved stays asked for, for an admin
 /// to choose where it goes; but when an admin's own choice is what doesn't work, they're told
-/// and nothing is kept.
+/// and nothing is kept ([`restore_or_drop`]).
 async fn approve_at_once(
     pool: &SqlitePool,
     tmdb: Option<&tmdb::Client>,
@@ -190,10 +189,6 @@ async fn approve_at_once(
 ) -> anyhow::Result<Result<(), Refused>> {
     match approve_as(pool, tmdb, mb, id, by, choice).await? {
         Err(refused @ (Refused::Invalid(_) | Refused::NoLibrary(_))) if choice.chooses() => {
-            sqlx::query("DELETE FROM requests WHERE id = ? AND state = 'requested'")
-                .bind(id)
-                .execute(pool)
-                .await?;
             Ok(Err(refused))
         }
         Err(refused) => {
@@ -202,6 +197,90 @@ async fn approve_at_once(
         }
         Ok(()) => Ok(Ok(())),
     }
+}
+
+/// Records what's asked for: a new request, or the user's approved one again when what it
+/// became was taken off the wanted list (with how it stood); refused when the user's request
+/// for it is still open.
+async fn record(
+    pool: &SqlitePool,
+    user: &User,
+    new: &NewRequest,
+    found: &Found,
+) -> anyhow::Result<Result<(i64, Option<Was>), Refused>> {
+    if let Some(id) = insert_request(pool, user, new, found).await? {
+        return Ok(Ok((id, None)));
+    }
+    let open = open_request(pool, user, new, found).await?;
+    Ok(match reopen_unfollowed(pool, open).await? {
+        Some(was) => Ok((open, Some(was))),
+        None => Err(Refused::Already(open)),
+    })
+}
+
+/// How an approved request stood before it was asked for again: when it was decided, by whom,
+/// and when it was first asked for.
+struct Was {
+    decided_at: Option<i64>,
+    decided_by: Option<i64>,
+    created_at: i64,
+}
+
+/// Asks again for what an approved request became once that's off the wanted list (taken off,
+/// so the request no longer leads anywhere): the request goes back to waiting, to be approved
+/// as a new one would be. How it stood, or None when it's still open and followed.
+async fn reopen_unfollowed(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<Was>> {
+    const UNFOLLOWED: &str = "id = ? AND state = 'approved'
+        AND coalesce(wanted_movie_id, wanted_series_id, wanted_artist_id, wanted_album_id,
+                     wanted_song_id) IS NULL";
+    let mut tx = pool.begin().await?;
+    let was: Option<(Option<i64>, Option<i64>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT decided_at, decided_by, created_at FROM requests WHERE {UNFOLLOWED}"),
+    ))
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((decided_at, decided_by, created_at)) = was else {
+        return Ok(None);
+    };
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "UPDATE requests SET state = 'requested', decided_at = NULL, decided_by = NULL,
+             created_at = ?
+         WHERE {UNFOLLOWED}"
+    )))
+    .bind(unix_now())
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Some(Was {
+        decided_at,
+        decided_by,
+        created_at,
+    }))
+}
+
+/// Undoes a request an admin's own choice couldn't place: a new one is dropped, one asked for
+/// again goes back to how it stood.
+async fn restore_or_drop(pool: &SqlitePool, id: i64, was: Option<Was>) -> anyhow::Result<()> {
+    let Some(was) = was else {
+        sqlx::query("DELETE FROM requests WHERE id = ? AND state = 'requested'")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        return Ok(());
+    };
+    sqlx::query(
+        "UPDATE requests SET state = 'approved', decided_at = ?, decided_by = ?, created_at = ?
+         WHERE id = ? AND state = 'requested'",
+    )
+    .bind(was.decided_at)
+    .bind(was.decided_by)
+    .bind(was.created_at)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Records the request as asked for; None when the user has an open request for it already.
@@ -483,6 +562,193 @@ mod tests {
             .unwrap();
         assert_eq!((again.state.as_str(), again.decided_by), ("approved", None));
         assert_eq!(again.wanted_id, approved.wanted_id);
+    }
+
+    #[tokio::test]
+    async fn a_title_taken_off_the_list_can_be_asked_for_again() {
+        use crate::wanted_edit::{self, Kind};
+        let r = rig().await;
+        let own = create(&r.pool, Some(&r.tmdb), None, &r.admin, movie(603))
+            .await
+            .unwrap()
+            .unwrap();
+        let asked = create(&r.pool, Some(&r.tmdb), None, &r.alice, movie(604))
+            .await
+            .unwrap()
+            .unwrap();
+        let approved = approve(
+            &r.pool,
+            Some(&r.tmdb),
+            None,
+            asked.id,
+            &r.admin,
+            &Choice::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        for id in [own.wanted_id, approved.wanted_id] {
+            wanted_edit::remove(&r.pool, Kind::Movie, id.unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        assert!(wanted_movies(&r.pool).await.is_empty());
+
+        // An admin's request is approved again at once, and leads to the title again.
+        let again = create(&r.pool, Some(&r.tmdb), None, &r.admin, movie(603))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (again.id, again.state.as_str(), again.decided_by.as_deref()),
+            (own.id, "approved", Some("admin"))
+        );
+        assert!(again.wanted_id.is_some());
+        assert_eq!(
+            wanted_movies(&r.pool).await,
+            [(603, "The Matrix".into(), 1, true, None)]
+        );
+        // Followed again, so asking once more is refused as before.
+        assert_eq!(
+            create(&r.pool, Some(&r.tmdb), None, &r.admin, movie(603))
+                .await
+                .unwrap(),
+            Err(Refused::Already(own.id))
+        );
+
+        // A user's waits for an admin again, as a new request would.
+        let again = create(&r.pool, Some(&r.tmdb), None, &r.alice, movie(604))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (again.id, again.state.as_str(), again.decided_by),
+            (asked.id, "requested", None)
+        );
+        assert_eq!(wanted_movies(&r.pool).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn asked_again_with_a_choice_that_fails_it_stays_as_it_was() {
+        use crate::wanted_edit::{self, Kind};
+        let r = rig().await;
+        let own = create(
+            &r.pool,
+            Some(&r.tmdb),
+            None,
+            &r.admin,
+            NewRequest {
+                library_id: Some(2),
+                ..show(1399, None)
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(own.state, "approved");
+        let decided: (Option<i64>, i64) =
+            sqlx::query_as("SELECT decided_at, created_at FROM requests WHERE id = ?")
+                .bind(own.id)
+                .fetch_one(&r.pool)
+                .await
+                .unwrap();
+        wanted_edit::remove(&r.pool, Kind::Series, own.wanted_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        // Two shows libraries and none chosen: the admin is told, and the request stays.
+        let refused = create(
+            &r.pool,
+            Some(&r.tmdb),
+            None,
+            &r.admin,
+            NewRequest {
+                monitored: Some(false),
+                ..show(1399, None)
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(refused, Err(Refused::NoLibrary(_))), "{refused:?}");
+        let kept = get(&r.pool, own.id).await.unwrap().unwrap();
+        assert_eq!(
+            (kept.state.as_str(), kept.decided_by.as_deref()),
+            ("approved", Some("admin"))
+        );
+        let after: (Option<i64>, i64) =
+            sqlx::query_as("SELECT decided_at, created_at FROM requests WHERE id = ?")
+                .bind(own.id)
+                .fetch_one(&r.pool)
+                .await
+                .unwrap();
+        assert_eq!(after, decided);
+    }
+
+    #[tokio::test]
+    async fn with_one_profile_and_none_set_an_approved_title_gets_that_one() {
+        let r = rig().await;
+        sqlx::query(
+            "INSERT INTO quality_profiles (id, source, service, name, upgrade_allowed, cutoff,
+                 min_format_score, cutoff_format_score, min_upgrade_format_score, updated_at)
+             VALUES (5, 'radarr', 'movies', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (6, 'sonarr', 'series', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (7, 'sonarr', 'anime', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (8, 'sonarr', 'anime', 'UHD', 1, 'Bluray-2160p', 0, 0, 1, 0)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO request_defaults (kind, library_id) VALUES ('series', 2), ('anime', 3)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, movie(603))
+            .await
+            .unwrap()
+            .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, show(1399, None))
+            .await
+            .unwrap()
+            .unwrap();
+        // Anime has two to choose between: none is chosen for it.
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, show(31910, None))
+            .await
+            .unwrap()
+            .unwrap();
+        let series: Vec<(String, Option<i64>)> =
+            sqlx::query_as("SELECT title, profile_id FROM wanted_series ORDER BY title")
+                .fetch_all(&r.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            series,
+            [
+                ("Game of Thrones".into(), Some(6)),
+                ("Naruto Shippuden".into(), None)
+            ]
+        );
+        assert_eq!(
+            wanted_movies(&r.pool).await,
+            [(603, "The Matrix".into(), 1, true, Some(5))]
+        );
+
+        // A second movies profile: there's a choice to make, so none is made for it.
+        sqlx::query(
+            "INSERT INTO quality_profiles (id, source, service, name, upgrade_allowed, cutoff,
+                 min_format_score, cutoff_format_score, min_upgrade_format_score, updated_at)
+             VALUES (9, 'radarr', 'movies', 'UHD', 1, 'Bluray-2160p', 0, 0, 1, 0)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, movie(604))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(wanted_movies(&r.pool).await[1].4, None);
     }
 
     #[tokio::test]

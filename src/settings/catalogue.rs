@@ -187,7 +187,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "downloads",
         name: "Deluge",
-        about: "Grabbing torrents with Deluge on the seedbox.",
+        about: "Grabbing torrents with Deluge on the seedbox, and removing them once imported when you choose to.",
         fields: &[
             field(
                 "MELETE_DOWNLOADS",
@@ -206,6 +206,30 @@ pub const SERVICES: &[Service] = &[
                 "Web UI password",
                 "",
                 Input::Secret,
+            ),
+            field(
+                crate::downloads::REMOVE_SETTING,
+                "Remove a torrent once it's imported",
+                "Only torrents Melete added, and only once everything they brought is in the library, never while copying or importing. With its data, Deluge deletes its files on the seedbox too.",
+                Input::Choice {
+                    options: &[
+                        Choice::new("never", "Never"),
+                        Choice::new("kept_data", "After import, keep its data on the seedbox"),
+                        Choice::new("with_data", "After import, with its data"),
+                    ],
+                },
+            ),
+            field(
+                crate::downloads::RATIO_SETTING,
+                "First wait for this share ratio",
+                "For trackers that ask for seeding, such as 1 or 1.5. Empty to not wait for one; with a time as well, whichever comes first.",
+                Input::Number,
+            ),
+            field(
+                crate::downloads::SEED_HOURS_SETTING,
+                "Or this many hours seeding",
+                "Such as 72. Empty to not wait for a time.",
+                Input::Number,
             ),
         ],
     },

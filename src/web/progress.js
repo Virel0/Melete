@@ -1,7 +1,7 @@
 // How wanted titles are getting on: a step bar for one title, and the Activity section,
 // which follows the server's live progress stream (Server-Sent Events) while it's open.
 
-import { SignedOut, announce, api, h } from "/web/lib.js";
+import { SignedOut, announce, api, h, plural } from "/web/lib.js";
 import { group } from "/web/forms.js";
 
 // The road a wanted title takes, in order.
@@ -47,7 +47,9 @@ export function stepBar(p) {
           h("progress", { max: 100, value: p.percent, "aria-label": `${p.title}: ${Math.round(p.percent)}% downloaded` }),
           ` ${Math.round(p.percent)}%`,
         )
-      : null;
+      : p.step === "transferring" && p.copied
+        ? copyingBar(p.title, p.copied)
+        : null;
   const said =
     p.step === "failed"
       ? h("p", { class: "error" }, `Failed${p.message ? `: ${p.message}` : "."}`)
@@ -146,4 +148,31 @@ export function follow(ctx, path, event, draw, live) {
     clearTimeout(retry);
     source?.close();
   });
+}
+
+// A copy home's progress, `{ bytes, total, bytes_per_second, seconds_left }`, as a bar with
+// its words: "Copying home: 1.2 of 4.3 GB, 6 minutes left".
+export function copyingBar(title, c) {
+  const words = `Copying home: ${sizeOf(c.bytes, c.total)}${c.seconds_left === null ? "" : `, ${timeLeft(c.seconds_left)}`}`;
+  const percent = c.total ? Math.round((c.bytes / c.total) * 100) : 0;
+  return h("p", { class: "note" }, h("progress", { max: c.total || 1, value: c.bytes, "aria-label": `${title}: ${percent}% copied home` }), ` ${words}`);
+}
+
+// "1.2 of 4.3 GB": both in the total's unit.
+function sizeOf(bytes, total) {
+  const units = ["bytes", "KB", "MB", "GB", "TB"];
+  let unit = 0;
+  while (total / 1024 ** unit >= 1024 && unit < units.length - 1) unit += 1;
+  const show = (n) => (unit === 0 ? String(n) : (n / 1024 ** unit).toFixed(1));
+  return `${show(bytes)} of ${show(total)} ${units[unit]}`;
+}
+
+// "less than a minute left", "6 minutes left", "1 hour 5 minutes left".
+function timeLeft(seconds) {
+  if (seconds < 60) return "less than a minute left";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${plural(minutes, "minute", "minutes")} left`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${plural(hours, "hour", "hours")}${rest ? ` ${plural(rest, "minute", "minutes")}` : ""} left`;
 }

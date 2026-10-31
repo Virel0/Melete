@@ -35,6 +35,7 @@ mod destination;
 mod identity;
 mod picking;
 mod place;
+mod tracking;
 mod verify;
 
 pub use again::*;
@@ -44,6 +45,7 @@ pub(crate) use destination::*;
 pub(crate) use identity::*;
 pub(crate) use picking::*;
 pub(crate) use place::*;
+use tracking::*;
 
 /// How often to look for finished downloads when there's nothing to do.
 const IDLE: Duration = Duration::from_secs(60);
