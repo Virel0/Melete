@@ -288,17 +288,30 @@ The backups hold everything in the database. The secrets in it (keys and passwor
 services set from the web UI, indexers' API keys, two-factor sign-in, and search results'
 download links, which can carry an indexer's key or a tracker's passkey) are sealed with the
 key in the data folder's `secrets.key`, which Melete makes at its first start and no backup
-holds. A backup alone reveals no secret, and without that file it can't give them back:
+holds. Without that file, a backup gives none of them back:
 
 - Back up `secrets.key` apart from the database copies, somewhere only you can read, and keep
   it for as long as you keep the copies.
 - When Melete starts and the key is missing, or isn't the one the secrets were sealed with,
   it stops and says which secrets it can't read. Put the key back; or, with Melete stopped, run
   `docker compose run --rm melete melete secrets clear` to clear the services' secrets,
-  indexers' keys and search results' links (then enter the secrets and keys again in Settings,
-  and search again), and
+  indexers' keys, two-factor setups not yet confirmed and search results' links (then enter
+  the secrets and keys again in Settings, and search again), and
   `docker compose run --rm melete melete user reset-password <name> --remove-second-factor`
   for each user whose two-factor sign-in it names.
+
+On the first start of a version that seals secrets, Melete seals the ones the database kept
+in plain text, then rewrites the database (`VACUUM`) and empties its write-ahead log, so the
+old bytes don't linger in freed pages. It then seals the secrets in each copy already in
+`backups/`, in place: the copy made just before that upgrade and the daily and weekly ones
+before it. A copy it can't open is named in a warning, kept as it is, and tried again at the
+next start. Copies of the data folder you made elsewhere before the upgrade still hold the
+secrets in plain text: delete them, or keep them as safe as the server.
+
+Sealing keeps the secrets from someone who can read the database or a backup without the key
+file. It doesn't stop someone who can change the database. A setting's secret is bound to its
+name and a two-factor secret to its user, so neither opens if moved to another; an indexer's
+key, a download link and a guid are bound only to their column.
 
 Secrets set in `.env` stay in `.env`, not in the database.
 

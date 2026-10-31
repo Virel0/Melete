@@ -271,6 +271,63 @@ async fn a_plain_value_slipped_into_a_switched_database_is_refused_without_showi
 }
 
 #[tokio::test]
+async fn a_start_refused_for_unsealed_values_says_so_not_that_the_key_is_wrong() {
+    let pool = db::open_in_memory().await;
+    switch(&pool, key().unwrap()).await.unwrap().unwrap();
+    sqlx::query("DROP TRIGGER settings_secret_sealed_insert")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_TMDB_TOKEN', ?, 0)",
+    )
+    .bind(TOKEN)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // The data folder holds the very key the tests seal with.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(KEY_FILE), "07".repeat(32)).unwrap();
+    let said = prepare(&pool, dir.path()).await.unwrap_err().to_string();
+    assert!(said.contains("kept unsealed in a database"), "{said}");
+    assert!(said.contains("MELETE_TMDB_TOKEN (kept unsealed)"), "{said}");
+    assert!(
+        !said.contains("isn't the key they were sealed with"),
+        "{said}"
+    );
+    assert!(!said.contains("put back"), "the key is fine: {said}");
+    assert!(!said.contains(TOKEN));
+}
+
+#[tokio::test]
+async fn a_key_file_cut_short_before_anything_was_sealed_is_safe_to_delete() {
+    let pool = db::open_in_memory().await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(KEY_FILE), "").unwrap();
+    let said = prepare(&pool, dir.path()).await.unwrap_err().to_string();
+    assert!(
+        said.contains("safe to delete it and start Melete again"),
+        "{said}"
+    );
+    assert!(
+        std::fs::read(dir.path().join(KEY_FILE)).unwrap().is_empty(),
+        "never made over"
+    );
+
+    // A new key is written beside its place first; one left by a stopped start is never used.
+    let dir = tempfile::tempdir().unwrap();
+    let temp = dir.path().join(".secrets.key.new");
+    std::fs::write(&temp, "left by a start that stopped").unwrap();
+    let key = prepare(&pool, dir.path()).await.unwrap();
+    assert!(!temp.exists());
+    let text = std::fs::read_to_string(dir.path().join(KEY_FILE)).unwrap();
+    assert_eq!(text.trim_end().len(), 64);
+    let sealed = key.seal_text("settings.A", TOKEN).unwrap();
+    let again = prepare(&pool, dir.path()).await.unwrap();
+    assert_eq!(again.open_text("settings.A", &sealed).unwrap(), TOKEN);
+}
+
+#[tokio::test]
 async fn a_missing_or_wrong_key_stops_the_start_saying_which_and_how_to_recover() {
     let dir = tempfile::tempdir().unwrap();
     let pool = plain_database(dir.path()).await;
@@ -328,6 +385,7 @@ async fn clearing_what_cant_be_read_lets_melete_start_with_a_new_key() {
             settings: vec![("MELETE_TMDB_TOKEN".into(), Unreadable::NoKey)],
             indexers: vec![(1, "Keyed".into(), Unreadable::NoKey)],
             two_factor: vec![("alice".into(), Unreadable::NoKey)],
+            setups: vec![],
             links: vec![1],
         }
     );
@@ -468,3 +526,5 @@ async fn indexer_keys_are_kept_sealed_and_searches_get_them_whole() {
     assert!(!searched.is_empty());
     assert!(searched.iter().all(|i| i.api_key == "key"));
 }
+
+mod upgrade;

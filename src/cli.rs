@@ -126,6 +126,13 @@ async fn clear_secrets(pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
             cleared.links.len()
         );
     }
+    if !cleared.setups.is_empty() {
+        let names: Vec<&str> = cleared.setups.iter().map(|(_, n)| n.as_str()).collect();
+        println!(
+            "Removed the unconfirmed two-factor setups of: {}; they can start again from their account.",
+            names.join(", ")
+        );
+    }
     if !cleared.two_factor.is_empty() {
         let names: Vec<&str> = cleared.two_factor.iter().map(|(n, _)| n.as_str()).collect();
         println!(
@@ -186,22 +193,25 @@ pub(crate) async fn reset_password(
         bail!("no user named {name:?}");
     };
     let has_one = two_factor::is_on(pool, user.id).await?;
-    let remove = has_one
-        && match second_factor {
-            SecondFactor::Remove => true,
-            SecondFactor::Keep => false,
-            SecondFactor::Ask => ask()?,
-        };
+    // Told to remove it, a setup still waiting for its first code goes too: its secret may be
+    // one the key can't open, and it's worth nothing then.
+    let remove = match second_factor {
+        SecondFactor::Remove => true,
+        SecondFactor::Keep => false,
+        SecondFactor::Ask => has_one && ask()?,
+    };
     let password = auth::generate_password()?;
     auth::set_password(pool, user.id, password.clone(), None).await?;
-    let outcome = if remove {
-        two_factor::remove(pool, user.id, two_factor::MadeFrom::Server).await?;
-        Outcome::Removed
-    } else if has_one {
-        Outcome::Kept
-    } else {
-        Outcome::NoneOn
-    };
+    let outcome =
+        if remove && two_factor::remove(pool, user.id, two_factor::MadeFrom::Server).await? {
+            Outcome::Removed
+        } else if remove {
+            Outcome::NoneOn
+        } else if has_one {
+            Outcome::Kept
+        } else {
+            Outcome::NoneOn
+        };
     Ok((user, password, outcome))
 }
 

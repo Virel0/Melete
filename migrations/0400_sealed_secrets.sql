@@ -10,7 +10,10 @@
 -- One row once the database is switched; it stays switched.
 CREATE TABLE secrets_sealed (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    sealed_at INTEGER NOT NULL
+    sealed_at INTEGER NOT NULL,
+    -- When the backup copies made before the switch had their plain secrets sealed too; NULL
+    -- until every copy was.
+    copies_sealed_at INTEGER
 ) STRICT;
 
 CREATE TRIGGER secrets_sealed_stays BEFORE DELETE ON secrets_sealed
