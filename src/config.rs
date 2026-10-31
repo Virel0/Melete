@@ -197,6 +197,7 @@ impl Config {
             anyhow::bail!("MELETE_DISCOVERY_POSTERS={other:?} should be on or off");
         }
         let trickplay = switch(&get, "MELETE_TRICKPLAY")?;
+        check_trickplay_width(&get)?;
         let offline_copies = switch(&get, "MELETE_OFFLINE_COPIES")?;
         let song_albums = switch(&get, "MELETE_SONG_ALBUMS")?;
         let ffprobe = get("MELETE_FFPROBE").map_or_else(

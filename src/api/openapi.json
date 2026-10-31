@@ -9745,7 +9745,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A file's seek-bar previews",
-        "description": "Where each picture is and when it's from, for showing a preview as the viewer moves along the seek bar. Made in the background while seek-bar previews are on (Settings, off by default): a picture every 10 seconds at most, from the file's keyframes, 320 pixels wide, tiled into JPEG sheets. Fetch a sheet from a stream link: `{stream_url}/trickplay/{n}.jpg`. Times are the file's own, as direct play and every conversion keep them.",
+        "description": "Where each picture is and when it's from, for showing a preview as the viewer moves along the seek bar. Made in the background while seek-bar previews are on (Settings, off by default): a picture every 10 seconds at most, from the file's keyframes, 320, 480 or 640 pixels wide as chosen in Settings (320 by default; `width` and `height` say which), tiled into JPEG sheets. After the width changes, the previews are made again in the background, and these are the old ones until then. Fetch a sheet from a stream link: `{stream_url}/trickplay/{n}.jpg`. Times are the file's own, as direct play and every conversion keep them.",
         "parameters": [
           {
             "name": "id",
@@ -17350,7 +17350,7 @@
         "type": "object",
         "required": ["width", "height", "columns", "rows", "sheets", "times"],
         "properties": {
-          "width": {"type": "integer", "description": "Each picture's width in pixels (320)."},
+          "width": {"type": "integer", "description": "Each picture's width in pixels: 320, 480 or 640, as chosen in Settings when they were made."},
           "height": {"type": "integer", "description": "Each picture's height in pixels, in the video's shape."},
           "columns": {"type": "integer", "description": "Pictures across a sheet."},
           "rows": {"type": "integer", "description": "Pictures down a sheet."},

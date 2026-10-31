@@ -395,13 +395,23 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "trickplay",
         name: "Seek-bar previews",
-        about: "Small pictures on the seek bar, so you can see where a seek lands: one every 10 seconds of each video, from its keyframes, about 50 to 100 KB a minute of video (5 to 10 MB for a two-hour film), kept in the data folder (trickplay/) and removed when the file changes or goes. Nothing leaves the server.",
-        fields: &[field(
-            "MELETE_TRICKPLAY",
-            "Make seek-bar previews",
-            "The first run reads every video once, one at a time, which takes a while on a large library.",
-            Input::Toggle { on: "on" },
-        )],
+        about: "Small pictures on the seek bar, so you can see where a seek lands: one every 10 seconds of each video, from its keyframes, about 50 to 100 KB a minute of video at 320 pixels wide (5 to 10 MB for a two-hour film), kept in the data folder (trickplay/) and removed when the file changes or goes. Nothing leaves the server.",
+        fields: &[
+            field(
+                "MELETE_TRICKPLAY",
+                "Make seek-bar previews",
+                "The first run reads every video once, one at a time, which takes a while on a large library.",
+                Input::Toggle { on: "on" },
+            ),
+            field(
+                crate::trickplay::WIDTH_SETTING,
+                "Preview width",
+                "Wider pictures look sharper on large screens and take more room. A change makes every preview again in the background, one file at a time; the old ones are shown until then.",
+                Input::Choice {
+                    options: crate::trickplay::WIDTH_CHOICES,
+                },
+            ),
+        ],
     },
     Service {
         key: "offline_copies",
