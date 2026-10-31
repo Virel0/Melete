@@ -132,7 +132,10 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         None => None,
     };
     let ai = match &config.openrouter {
-        Some(settings) => Some(Arc::new(ai::Client::new(settings)?)),
+        Some(settings) => Some(Arc::new(ai::Client::with_budget(
+            settings,
+            kept.ai_budget.clone(),
+        )?)),
         None => None,
     };
     Ok(Built {
@@ -204,10 +207,11 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
                 pool.clone(),
                 pipeline.clone(),
             )));
-            tasks.push(tokio::spawn(transfer::work(
+            tasks.push(tokio::spawn(transfer::work_with(
                 pool.clone(),
                 pipeline.clone(),
                 built.fixes.clone(),
+                built.tmdb.clone(),
             )));
         }
         None => tracing::info!("downloads are off; MELETE_DOWNLOADS=on turns them on"),

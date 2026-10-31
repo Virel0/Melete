@@ -8,6 +8,7 @@
 // - extrasPage(kind, id, gen) and castPage(kind, id, gen): `#/movies/5/extras`, `…/cast`.
 
 import { SignedOut, announce, api, clock, fileName, h, languageName, loading, plural, runtime, show, size } from "/web/lib.js";
+import { confirmInline } from "/web/forms.js";
 import { generation, signIn } from "/web/page-state.js";
 import { playHref } from "/web/cards.js";
 import { creditsSection } from "/web/people.js";
@@ -49,16 +50,46 @@ function fileFacts(info) {
   return words.filter(Boolean).join(", ");
 }
 
-// One file in About: its name and size, and what's in it once read.
-function fileItem(file) {
+// One file in About: its name and size, and what's in it once read. For an admin, a file Melete
+// brought in from a download also gets "Wrong file?".
+function fileItem(file, admin) {
   const facts = h("span", { class: "note" }, "Reading…");
+  const actions = h("div", { class: "row-actions" });
+  const li = h("li", {}, h("span", { class: "path", title: file.path }, fileName(file.path)), h("span", { class: "size" }, size(file.size)), facts, actions);
   api(`/files/${file.id}`)
-    .then((info) => (facts.textContent = [fileFacts(info), info.media?.duration_seconds ? clock(info.media.duration_seconds) : null].filter(Boolean).join(" · ")))
+    .then((info) => {
+      facts.textContent = [fileFacts(info), info.media?.duration_seconds ? clock(info.media.duration_seconds) : null].filter(Boolean).join(" · ");
+      if (admin && info.imported) actions.append(wrongFileButton(file, li, actions));
+    })
     .catch((err) => {
       if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
       facts.textContent = "Its details couldn't be read.";
     });
-  return h("li", {}, h("span", { class: "path", title: file.path }, fileName(file.path)), h("span", { class: "size" }, size(file.size)), facts);
+  return li;
+}
+
+// "Wrong file?": after saying what happens, moves the file to the trash, blocklists its release
+// and searches again; the row then says how it went.
+function wrongFileButton(file, li, actions) {
+  const name = fileName(file.path);
+  const button = h("button", { type: "button", class: "quiet", "aria-label": `Wrong file? ${name}` }, "Wrong file?");
+  button.addEventListener("click", () =>
+    confirmInline(actions, {
+      question: `Move ${name} to the trash as the wrong file? The release it came from is blocklisted and, if the title is still monitored, it is searched for again. The file can be put back from the trash for 30 days.`,
+      confirm: "Move to the trash",
+      keep: "Keep it",
+      run: async () => {
+        const done = await api(`/files/${file.id}/wrong`, { method: "POST" });
+        const said = `Moved ${name} to the trash and blocklisted its release; ${done.search}.`;
+        li.replaceChildren(
+          h("span", { class: "path" }, name),
+          h("p", { class: "note", role: "status" }, said, " ", h("a", { href: "#/admin/system/trash" }, "Open the trash")),
+        );
+        announce(said);
+      },
+    }),
+  );
+  return button;
 }
 
 // For admins: scans the title's folder alone now, for a file just copied in.
@@ -104,7 +135,7 @@ export function aboutSection(title, files, { admin = false, kind, unparsed = [] 
   );
   // Read only when someone opens it, a file at a time.
   box.addEventListener("toggle", () => {
-    if (box.open && !list.childElementCount) list.replaceChildren(...files.slice(0, 20).map(fileItem));
+    if (box.open && !list.childElementCount) list.replaceChildren(...files.slice(0, 20).map((f) => fileItem(f, admin)));
   });
   return h("section", { class: "about-section", "aria-label": "About" }, box);
 }

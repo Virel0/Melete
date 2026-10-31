@@ -101,7 +101,13 @@ pub(super) async fn file_info(
 ) -> Result<Json<Value>, ApiError> {
     require_playable(&state.pool, &current.access, id).await?;
     let f = load_file(&state.pool, &state.ffprobe, id).await?;
+    let path = std::path::Path::new(&f.root).join(&f.rel_path);
+    let imported = !extras::is_extra_id(id)
+        && crate::upgrades::imported_by(&state.pool, &path)
+            .await?
+            .is_some();
     Ok(Json(json!({
+        "imported": imported,
         "id": f.id,
         "path": f.rel_path,
         "size": f.size,
