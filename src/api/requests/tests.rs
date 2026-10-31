@@ -1145,3 +1145,114 @@ async fn admins_find_songs_and_add_one_as_add_new_does() {
         )
     );
 }
+
+/// A movie or series found gets its poster as discovery gives posters: one Melete knows always;
+/// one it doesn't only with posters of titles not in the library on, and then noted as listed so
+/// the artwork route serves it on the same terms.
+#[tokio::test]
+async fn results_get_posters_on_discoverys_terms() {
+    let pool = db::open_in_memory().await;
+    let alice = token(&pool, "alice", false).await;
+    sqlx::query(
+        "INSERT INTO tmdb_movies (tmdb_id, title, poster_path, fetched_at)
+             VALUES (603, 'The Matrix', '/matrix.jpg', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/search/movie?include_adult=false&query=Matrix",
+        vec![Reply::ok(json!({"page": 1, "total_pages": 1, "results": [
+            {"id": 603, "title": "The Matrix", "release_date": "1999-03-30", "poster_path": "/matrix.jpg"},
+            {"id": 9999, "title": "Matrix", "release_date": "", "poster_path": "/sweden.jpg"},
+            {"id": 9998, "title": "Matrix II", "release_date": ""},
+        ]}))],
+    );
+    let sources = Sources {
+        tmdb: Some(Arc::new(fake.start().await)),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), None, sources);
+    let posters = |found: &Value| {
+        found
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["poster"].clone())
+            .collect::<Vec<_>>()
+    };
+    let uri = "/api/v1/requests/search?kind=movie&q=Matrix";
+    let (status, found) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        posters(&found),
+        [
+            json!("/api/v1/artwork/w342/matrix.jpg"),
+            Value::Null,
+            Value::Null
+        ]
+    );
+    let listed: i64 = sqlx::query_scalar("SELECT count(*) FROM discover_posters")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(listed, 0, "off: nothing noted");
+
+    sqlx::query(
+        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_DISCOVERY_POSTERS', 'on', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (_, found) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(
+        posters(&found),
+        [
+            json!("/api/v1/artwork/w342/matrix.jpg"),
+            json!("/api/v1/artwork/w342/sweden.jpg"),
+            Value::Null
+        ]
+    );
+    let noted = crate::discover_posters::servable(&pool, "/sweden.jpg", crate::db::unix_now())
+        .await
+        .unwrap();
+    assert!(noted, "served on discovery's terms");
+}
+
+/// When MusicBrainz finds nothing, Add new looks on Soulseek: only the words go to slskd, and
+/// what its users share comes back as songs. Admins only.
+#[tokio::test]
+async fn admins_look_on_soulseek_with_only_the_words() {
+    let pool = db::open_in_memory().await;
+    let (admin, alice) = (
+        token(&pool, "admin", true).await,
+        token(&pool, "alice", false).await,
+    );
+    let answers = json!([{"username": "peer", "hasFreeUploadSlot": true, "files": [
+        {"filename": "Music\\Unsigned Band\\Demo\\01 - Garage Song.flac", "size": 1000},
+        {"filename": "Music\\Unsigned Band\\Demo\\folder.jpg", "size": 10},
+    ]}]);
+    let (slskd, seen) = crate::slskd::testing::start(answers, 1).await;
+    let sources = Sources {
+        slskd: Some(Arc::new(slskd.quick())),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), None, sources);
+    let uri = "/api/v1/requests/soulseek?q=unsigned%20band%20garage%20song";
+    let (status, found) = send(&app, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        found,
+        json!([{"title": "Garage Song", "artist": "Unsigned Band", "users": 1, "formats": ["FLAC"]}])
+    );
+    assert_eq!(seen.lock().unwrap().texts, ["unsigned band garage song"]);
+    let (status, _) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let blank = "/api/v1/requests/soulseek?q=%20";
+    let (status, _) = send(&app, "GET", blank, &admin, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let without = routes(pool, None, Sources::default());
+    let (status, body) = send(&without, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
