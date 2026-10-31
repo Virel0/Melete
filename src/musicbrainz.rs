@@ -10,6 +10,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 mod answers;
+mod finding;
 mod moved;
 mod releases;
 
@@ -207,28 +208,6 @@ impl Client {
             Err(Error::NotFound) => Ok(Vec::new()),
             Err(err) => Err(err),
         }
-    }
-
-    /// Artists called `name`, best first.
-    pub async fn search_artists(&self, name: &str) -> Result<Vec<FoundArtist>, Error> {
-        let found: ArtistSearch = self
-            .find("artist", format!("artist:{}", phrase(name)))
-            .await?;
-        Ok(found.artists)
-    }
-
-    /// Release groups (albums, EPs, singles…) called `title`, by `artist` when given.
-    pub async fn search_albums(
-        &self,
-        title: &str,
-        artist: Option<&str>,
-    ) -> Result<Vec<ReleaseGroupDetail>, Error> {
-        let mut query = format!("releasegroup:{}", phrase(title));
-        if let Some(artist) = artist {
-            query.push_str(&format!(" AND artist:{}", phrase(artist)));
-        }
-        let found: GroupSearch = self.find("release-group", query).await?;
-        Ok(found.release_groups)
     }
 
     /// Recordings (songs as performed) called `title`, by `artist` when given.
@@ -484,9 +463,9 @@ pub mod testing {
                         log.lock().unwrap().push(format!("search artist {}", query.unwrap_or_default()));
                         serde_json::json!({"artists": [
                             {"id": super::testing::RADIOHEAD, "name": "Radiohead", "type": "Group",
-                             "country": "GB", "disambiguation": ""},
+                             "country": "GB", "disambiguation": "", "score": 100},
                             {"id": "0a0b0c0d-1e2f-4a5b-8c6d-7e8f9a0b1c2d", "name": "Radiohead", "type": "Person",
-                             "disambiguation": "a tribute act"},
+                             "disambiguation": "a tribute act", "score": 62},
                         ]})
                         .to_string()
                     },
@@ -515,6 +494,7 @@ pub mod testing {
                         log.lock().unwrap().push(format!("search recording {}", query.unwrap_or_default()));
                         serde_json::json!({"recordings": [{
                             "id": super::testing::PARANOID_ANDROID, "title": "Paranoid Android", "length": 383000,
+                            "score": 100,
                             "artist-credit": [{"name": "Radiohead", "joinphrase": "",
                                 "artist": {"id": super::testing::RADIOHEAD, "name": "Radiohead"}}],
                             "releases": [{"title": "OK Computer", "status": "Official",
@@ -533,7 +513,7 @@ pub mod testing {
                         if query.contains("query=") {
                             log.lock().unwrap().push(format!("search release-group {query}"));
                             return (StatusCode::OK, serde_json::json!({"release-groups": [{
-                                "id": super::testing::OK_COMPUTER, "title": "OK Computer",
+                                "id": super::testing::OK_COMPUTER, "title": "OK Computer", "score": 100,
                                 "primary-type": "Album", "secondary-types": [],
                                 "first-release-date": "1997-05-21",
                                 "artist-credit": [{"name": "Radiohead", "joinphrase": "",
@@ -826,10 +806,10 @@ mod tests {
         let (client, log) = testing::start(0).await;
         // The fake only answers searches at /release, /artist, /release-group and /recording.
         assert!(!client.search("OK Computer", None).await.unwrap().is_empty());
-        assert!(!client.search_artists("Radiohead").await.unwrap().is_empty());
+        assert!(!client.find_artists("Radiohead").await.unwrap().is_empty());
         assert!(
             !client
-                .search_albums("OK Computer", None)
+                .find_albums("OK Computer", None)
                 .await
                 .unwrap()
                 .is_empty()

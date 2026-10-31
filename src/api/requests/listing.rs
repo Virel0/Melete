@@ -11,6 +11,23 @@ pub(super) struct SearchQuery {
     pub(super) artist: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct SoulseekQuery {
+    pub(super) q: String,
+}
+
+/// Songs on Soulseek for music MusicBrainz doesn't know (admins only): only the words go to
+/// slskd.
+pub(super) async fn soulseek(
+    State(state): State<RequestState>,
+    Query(query): Query<SoulseekQuery>,
+) -> Result<Json<Vec<request_search::Heard>>, ApiError> {
+    request_search::search_soulseek(state.sources.slskd.as_deref(), &query.q)
+        .await
+        .map(Json)
+        .map_err(refused)
+}
+
 /// Movies and series on TMDB, music on MusicBrainz, each marked in the library, wanted, or
 /// asked for already.
 pub(super) async fn search(
@@ -41,12 +58,19 @@ pub(super) async fn search(
         crate::ratings::fetch_unknown(&state.pool, tmdb, &titles).await?;
     }
     let mut shown = Vec::with_capacity(found.len());
-    for candidate in found {
+    for mut candidate in found {
         let tv = candidate.kind == "series";
         let keep = match candidate.tmdb_id {
             Some(id) => current.access.shows_tmdb(&state.pool, tv, id).await?,
             None => true,
         };
+        // A movie's or series' poster as discovery gives one: a title Melete knows, or with
+        // posters of titles not in the library on, any listed (and noted as listed).
+        if keep && let Some(id) = candidate.tmdb_id {
+            let path = candidate.tmdb_poster.as_deref();
+            let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
+            candidate.poster = url.as_str().map(str::to_owned);
+        }
         if keep {
             shown.push(request_search::as_seen_by(&state.pool, &current.access, candidate).await?);
         }

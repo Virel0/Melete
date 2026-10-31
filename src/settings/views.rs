@@ -44,11 +44,41 @@ pub struct ServiceView {
     pub about: &'static str,
     /// Whether it's in use as things stand.
     pub on: bool,
+    /// Whether its Test tries to reach something; a setting of Melete's own has nothing to
+    /// connect to.
+    pub testable: bool,
+    /// The component beside Melete it needs, if any, and whether it's set up.
+    pub component: Option<Component>,
     /// The service it only works with, by key, when there's one: it's shown under that one, and
     /// stays off while that one is.
     pub needs: Option<&'static str>,
     /// Its settings, in the order they're shown.
     pub fields: Vec<FieldView>,
+}
+
+/// A component beside Melete that a setting needs, such as Auto DJ the stem separator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Component {
+    /// What it is, as a sentence names it: "stem separator".
+    pub name: &'static str,
+    /// Whether Melete is set up to reach it (its folders are set). Whether it's running
+    /// shows only when it's given work.
+    pub set_up: bool,
+}
+
+/// The component beside Melete that service `key` needs, as `config` sets it up.
+fn component(config: &Config, key: &str) -> Option<Component> {
+    match key {
+        "auto_dj" => Some(Component {
+            name: "stem separator",
+            set_up: config.stems.is_some(),
+        }),
+        "motion_covers" => Some(Component {
+            name: "motion cover renderer",
+            set_up: config.motion_jobs.is_some(),
+        }),
+        _ => None,
+    }
 }
 
 /// The service a feature only works with, by key: trending and similar titles and trailers
@@ -105,6 +135,8 @@ pub fn views(
             name: service.name,
             about: service.about,
             on: on(config, service.key) && needs(service.key).is_none_or(|n| on(config, n)),
+            testable: crate::service_check::connects(service.key),
+            component: component(config, service.key),
             needs: needs(service.key),
             fields: service
                 .fields
