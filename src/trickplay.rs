@@ -2,10 +2,11 @@
 //! can show where a seek lands. Made in the background while it's turned on
 //! (`MELETE_TRICKPLAY`, off by default, as the first run reads every video once), one file at a
 //! time, from keyframes only (`-skip_frame nokey`), which is many times faster than decoding
-//! every frame. The pictures are 320 pixels wide, tiled 10 by 10 into JPEG sheets, with an index
-//! giving each one's time as the file has it, so they match direct play and every conversion.
-//! Kept in the data folder under `trickplay/<file version>/`, never in the library, and removed
-//! once the file changes or goes.
+//! every frame. The pictures are 320, 480 or 640 pixels wide (`MELETE_TRICKPLAY_WIDTH`, 320 by
+//! default), tiled 10 by 10 into JPEG sheets, with an index giving each one's time as the file
+//! has it, so they match direct play and every conversion. Kept in the data folder under
+//! `trickplay/<file version>/`, never in the library, and removed once the file changes or goes.
+//! A new width makes them again in the background; the old ones are served until then.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -24,8 +25,32 @@ pub use making::*;
 
 /// A picture every this many seconds, at most.
 pub const INTERVAL: f64 = 10.0;
-/// Each picture's width in pixels; the height keeps the video's shape.
+/// Each picture's width in pixels unless another is chosen; the height keeps the video's shape.
 pub const WIDTH: i64 = 320;
+/// The setting choosing the pictures' width.
+pub const WIDTH_SETTING: &str = "MELETE_TRICKPLAY_WIDTH";
+/// The widths as Settings offers them, with the room each takes; the default first.
+pub const WIDTH_CHOICES: &[crate::settings::Choice] = &[
+    crate::settings::Choice::new("320", "320 pixels (about 5 to 10 MB for a two-hour film)"),
+    crate::settings::Choice::new("480", "480 pixels (about 2.25 times the room of 320)"),
+    crate::settings::Choice::new("640", "640 pixels (about 4 times the room of 320)"),
+];
+
+/// The width `value` names, when it's one Settings offers.
+pub fn known_width(value: &str) -> Option<i64> {
+    let value = value.trim();
+    WIDTH_CHOICES
+        .iter()
+        .find(|c| c.value == value)
+        .and_then(|c| c.value.parse().ok())
+}
+
+/// The pictures' width as set now: 320 when it's unset or (which saving refuses) not one
+/// Settings offers.
+pub async fn width(pool: &SqlitePool) -> sqlx::Result<i64> {
+    let set = crate::settings::value(pool, WIDTH_SETTING).await?;
+    Ok(set.as_deref().and_then(known_width).unwrap_or(WIDTH))
+}
 /// Pictures across a sheet…
 pub const COLUMNS: i64 = 10;
 /// …and down it.

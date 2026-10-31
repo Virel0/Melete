@@ -2,10 +2,15 @@ use super::*;
 
 #[test]
 fn the_command_reads_keyframes_only_and_tiles_them() {
-    let args: Vec<String> = args(Path::new("/m/a film.mkv"), 180, Path::new("/t/1-2-3"))
-        .into_iter()
-        .map(|a| a.into_string().unwrap())
-        .collect();
+    let args: Vec<String> = args(
+        Path::new("/m/a film.mkv"),
+        WIDTH,
+        180,
+        Path::new("/t/1-2-3"),
+    )
+    .into_iter()
+    .map(|a| a.into_string().unwrap())
+    .collect();
     let at = |flag: &str| args.iter().position(|a| a == flag).unwrap();
     assert!(at("-skip_frame") < at("-i"), "decoding skips non-keyframes");
     assert_eq!(args[at("-skip_frame") + 1], "nokey");
@@ -30,10 +35,10 @@ fn times_come_from_showinfo() {
 
 #[test]
 fn pictures_keep_the_videos_shape_in_even_heights() {
-    assert_eq!(picture_height(1920, 1080), 180);
-    assert_eq!(picture_height(1920, 800), 134);
-    assert_eq!(picture_height(720, 576), 256);
-    assert_eq!(picture_height(4000, 10), 2, "never nothing");
+    assert_eq!(picture_height(WIDTH, 1920, 1080), 180);
+    assert_eq!(picture_height(WIDTH, 1920, 800), 134);
+    assert_eq!(picture_height(WIDTH, 720, 576), 256);
+    assert_eq!(picture_height(WIDTH, 4000, 10), 2, "never nothing");
 }
 
 /// A `seconds`-long clip with a keyframe every 2 seconds.
@@ -55,7 +60,7 @@ async fn makes_a_picture_every_ten_seconds_from_keyframes() {
     let dir = tempfile::tempdir().unwrap();
     let clip = keyframed_clip(dir.path(), 45);
     let out = dir.path().join("previews");
-    let index = make(Path::new("ffmpeg"), &clip, (320, 180), &out)
+    let index = make(Path::new("ffmpeg"), &clip, (320, 180), WIDTH, &out)
         .await
         .unwrap();
     assert_eq!(index.times, [0.0, 10.0, 20.0, 30.0, 40.0]);
@@ -80,6 +85,7 @@ async fn makes_a_picture_every_ten_seconds_from_keyframes() {
         Path::new("ffmpeg"),
         &junk,
         (320, 180),
+        WIDTH,
         &dir.path().join("j"),
     )
     .await
@@ -209,5 +215,84 @@ async fn a_file_ffmpeg_cant_read_isnt_tried_again_until_it_changes() {
         std::fs::read_dir(&root).unwrap().count(),
         0,
         "nothing half-made left"
+    );
+}
+
+/// Chooses the previews' width as Settings does.
+async fn choose_width(pool: &SqlitePool, width: &str) -> Result<(), crate::settings::Refused> {
+    let changes = [(WIDTH_SETTING.to_owned(), Some(width.to_owned()))].into();
+    let none = |_: &str| None;
+    crate::settings::save(pool, "trickplay", &changes, &none)
+        .await
+        .unwrap()
+        .map(|_| ())
+}
+
+/// The width and height of a picture file, as ffprobe reads it.
+async fn picture_size(path: &Path) -> (Option<i64>, Option<i64>) {
+    let info = crate::probe::probe(Path::new("ffprobe"), path)
+        .await
+        .unwrap();
+    (info.video[0].width, info.video[0].height)
+}
+
+#[tokio::test]
+async fn a_new_width_makes_the_previews_again_and_the_old_ones_serve_until_then() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = keyframed_clip(dir.path(), 25);
+    let pool = library(dir.path(), &clip).await;
+    let root = dir.path().join("trickplay");
+    let ffmpeg = Path::new("ffmpeg");
+    turn_on(&pool).await;
+    assert_eq!(make_pending(&pool, ffmpeg, &root).await.unwrap().made, 1);
+    assert_eq!(index_of(&pool, &root, 1).await.unwrap().unwrap().width, 320);
+
+    assert!(matches!(
+        choose_width(&pool, "500").await,
+        Err(crate::settings::Refused::Invalid(_))
+    ));
+    choose_width(&pool, "640").await.unwrap();
+    assert_eq!(super::super::width(&pool).await.unwrap(), 640);
+    let old = index_of(&pool, &root, 1).await.unwrap().unwrap();
+    assert_eq!((old.width, old.height), (320, 180), "served until replaced");
+
+    let report = make_pending(&pool, ffmpeg, &root).await.unwrap();
+    assert_eq!((report.made, report.failed), (1, 0), "made again");
+    let index = index_of(&pool, &root, 1).await.unwrap().unwrap();
+    assert_eq!((index.width, index.height), (640, 360));
+    assert_eq!(index.times, [0.0, 10.0, 20.0]);
+    let sheet = sheet_path(&pool, &root, 1, 0).await.unwrap().unwrap();
+    assert_eq!(picture_size(&sheet).await, (Some(6400), Some(3600)));
+    assert_eq!(
+        make_pending(&pool, ffmpeg, &root).await.unwrap(),
+        Report::default(),
+        "once per width"
+    );
+}
+
+#[tokio::test]
+async fn previews_that_cant_be_made_at_a_new_width_keep_the_old_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = keyframed_clip(dir.path(), 5);
+    let pool = library(dir.path(), &clip).await;
+    let root = dir.path().join("trickplay");
+    let ffmpeg = Path::new("ffmpeg");
+    turn_on(&pool).await;
+    assert_eq!(make_pending(&pool, ffmpeg, &root).await.unwrap().made, 1);
+    // Spoiled after its previews were made, as it was probed.
+    std::fs::write(
+        &clip,
+        b"x".repeat(std::fs::metadata(&clip).unwrap().len() as usize),
+    )
+    .unwrap();
+    choose_width(&pool, "480").await.unwrap();
+    let report = make_pending(&pool, ffmpeg, &root).await.unwrap();
+    assert_eq!((report.made, report.failed), (0, 1));
+    let kept = index_of(&pool, &root, 1).await.unwrap().unwrap();
+    assert_eq!(kept.width, 320, "the old previews stay");
+    assert_eq!(
+        make_pending(&pool, ffmpeg, &root).await.unwrap(),
+        Report::default(),
+        "not tried at that width again"
     );
 }

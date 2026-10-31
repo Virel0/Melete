@@ -36,6 +36,29 @@ fn wrong(message: impl Into<String>) -> Checked {
     }
 }
 
+/// Whether service `key`'s Test tries to reach something; the rest are settings of Melete's own,
+/// with nothing to connect to.
+pub fn connects(key: &str) -> bool {
+    matches!(
+        key,
+        "tmdb"
+            | "musicbrainz"
+            | "lyrics"
+            | "slskd"
+            | "downloads"
+            | "seedbox"
+            | "flaresolverr"
+            | "translation"
+            | "oidc"
+            | "openrouter"
+            | "opensubtitles"
+    )
+}
+
+/// The Test's answer for a setting of Melete's own.
+const NOTHING_TO_CONNECT_TO: &str =
+    "There's nothing to connect to: it's a setting of Melete's own.";
+
 /// Tests service `key` as `config` sets it up.
 pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Result<Checked> {
     Ok(match key {
@@ -73,7 +96,12 @@ pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Res
         "flaresolverr" => match &config.flaresolverr {
             None => wrong("There's no address to test yet."),
             Some(url) => match flaresolverr::Client::new(url)?.ready().await {
-                Ok(()) => ok("FlareSolverr is ready."),
+                Ok(solver @ flaresolverr::Solver::FlareSolverr(_)) => {
+                    ok(format!("{solver} is ready."))
+                }
+                Ok(flaresolverr::Solver::Compatible) => ok(
+                    "A FlareSolverr-compatible solver answered. It doesn't list its sessions, so whether it gets past a check shows on the first search through it.",
+                ),
                 Err(why) => wrong(why),
             },
         },
@@ -107,7 +135,7 @@ pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Res
                 Err(failure) => wrong(format!("{failure}.")),
             },
         },
-        _ => ok("There's nothing to connect to: it's a setting of Melete's own."),
+        _ => ok(NOTHING_TO_CONNECT_TO),
     })
 }
 
@@ -127,11 +155,12 @@ async fn tmdb_takes(token: &crate::config::Secret) -> anyhow::Result<Checked> {
 /// Whether slskd answers with the key, is signed in to Soulseek, and shares nothing.
 async fn slskd_answers(settings: &crate::config::Slskd) -> anyhow::Result<Checked> {
     let client = slskd::Client::new(&settings.url, settings.api_key.clone())?;
-    Ok(match client.signed_in().await {
+    Ok(match client.status().await {
+        Err(err) if err.is::<slskd::TurnedDown>() => wrong(format!("{err}.")),
         Err(err) => wrong(format!(
             "Couldn't reach slskd with that address and key: {err}"
         )),
-        Ok(signed_in) => match client.ensure_not_sharing().await {
+        Ok(slskd::Status { signed_in, .. }) => match client.ensure_not_sharing().await {
             Err(err) => wrong(format!("{err}.")),
             Ok(()) if signed_in => {
                 ok("slskd answered, is signed in to Soulseek, and shares nothing.")
@@ -283,6 +312,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slskd_says_which_role_its_key_needs() {
+        let (_, seen) = crate::slskd::testing::start(serde_json::json!([]), 1).await;
+        let base = seen.lock().unwrap().base.clone();
+        let settings = config(&[
+            ("MELETE_SLSKD_URL", base),
+            (
+                "MELETE_SLSKD_API_KEY",
+                crate::slskd::testing::KEY.to_owned(),
+            ),
+        ]);
+        assert!(said("slskd", &settings).await.ok);
+        assert_eq!(
+            seen.lock().unwrap().admin_asked,
+            0,
+            "no administrator's route"
+        );
+        seen.lock().unwrap().forbidden = true;
+        assert_eq!(
+            said("slskd", &settings).await,
+            wrong(
+                "slskd won't let this key read how it is (403 Forbidden); Melete's key needs slskd's ReadWrite role."
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn libretranslate_must_answer_and_take_the_key() {
         assert_eq!(
             said("translation", &config(&[])).await,
@@ -310,6 +365,35 @@ mod tests {
         );
         let gone = config(&[("MELETE_LIBRETRANSLATE_URL", "http://127.0.0.1:9".to_owned())]);
         assert!(!said("translation", &gone).await.ok);
+    }
+
+    /// What the settings page offers a Test for is exactly what the Test tries to reach.
+    #[tokio::test]
+    async fn only_services_with_something_to_reach_are_testable() {
+        let none = config(&[]);
+        for service in crate::settings::SERVICES {
+            let own = said(service.key, &none).await.message == NOTHING_TO_CONNECT_TO;
+            assert_eq!(connects(service.key), !own, "{}", service.key);
+        }
+        assert!(!connects("auto_dj") && connects("tmdb"));
+    }
+
+    #[tokio::test]
+    async fn flaresolverr_says_which_solver_answers() {
+        use crate::flaresolverr::testing::{Plays, start_as};
+        let at = |url: String| config(&[("MELETE_FLARESOLVERR_URL", url)]);
+        let (flaresolverr, _) = start_as(Plays::FlareSolverr(Some("3.3.21")), "").await;
+        assert_eq!(
+            said("flaresolverr", &at(flaresolverr)).await,
+            ok("FlareSolverr 3.3.21 is ready.")
+        );
+        let (byparr, _) = start_as(Plays::Byparr, "").await;
+        assert_eq!(
+            said("flaresolverr", &at(byparr)).await,
+            ok(
+                "A FlareSolverr-compatible solver answered. It doesn't list its sessions, so whether it gets past a check shows on the first search through it."
+            )
+        );
     }
 
     #[tokio::test]
