@@ -3,11 +3,15 @@
 
 use super::*;
 
+/// Copies every file of the plan under its hidden part name, checks a movie's or episode's
+/// running time when `check` is given, and only then puts the files in place: a download that
+/// fails the check leaves nothing in the library.
 pub(super) async fn copy_all(
     pool: &SqlitePool,
     seedbox: &Seedbox,
     id: i64,
     plan: &Plan,
+    check: Option<&verify::Check>,
 ) -> Result<(), Stop> {
     // An unmounted share looks like an empty folder; writing there would fill the host's disk.
     let root = plan.root.clone();
@@ -27,44 +31,75 @@ pub(super) async fn copy_all(
         .connect()
         .await
         .map_err(|err| Stop::Retry(err.to_string()))?;
-    let dir = plan.dir.clone();
-    blocking(move || create_dirs(&dir)).await?;
+    make_dirs(pool, id, &plan.dir).await?;
     let db = |err: sqlx::Error| Stop::Retry(format!("the database: {err}"));
     let placed: String = sqlx::query_scalar("SELECT placed FROM downloads WHERE id = ?")
         .bind(id)
         .fetch_one(pool)
         .await
         .map_err(db)?;
-    let mut placed: Vec<String> = serde_json::from_str(&placed).unwrap_or_default();
+    let placed: Vec<String> = serde_json::from_str(&placed).unwrap_or_default();
+    let mut staged = Vec::with_capacity(plan.files.len());
     for (n, file) in plan.files.iter().enumerate() {
         let dir = match file.folder.as_str() {
             "" => plan.dir.clone(),
             folder => {
                 let dir = plan.dir.join(folder);
-                let create = dir.clone();
-                blocking(move || create_dirs(&create)).await?;
+                make_dirs(pool, id, &dir).await?;
                 dir
             }
         };
         let message = format!("copying {} of {}: {}", n + 1, plan.files.len(), file.name);
-        sqlx::query("UPDATE downloads SET message = ?, updated_at = ? WHERE id = ?")
-            .bind(message)
-            .bind(unix_now())
+        say(pool, id, &message).await?;
+        staged.push(fetch(pool, &connection, file, &dir, id, &placed).await?);
+    }
+    if let Some(check) = check {
+        say(pool, id, "checking how long it runs").await?;
+        verify::check_staged(check, &staged).await?;
+    }
+    place_all(pool, id, staged, placed).await
+}
+
+/// Puts each copied file in place, recording each as soon as it is.
+async fn place_all(
+    pool: &SqlitePool,
+    id: i64,
+    staged: Vec<Staged>,
+    mut placed: Vec<String>,
+) -> Result<(), Stop> {
+    for file in staged {
+        let Some(partial) = file.partial else {
+            continue;
+        };
+        let target = file.target.clone();
+        blocking(move || {
+            std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o664))?;
+            place(&partial, &target)
+        })
+        .await?;
+        // Remembered at once, so a restart knows this file is this download's own.
+        placed.push(file.target.to_string_lossy().into_owned());
+        sqlx::query("UPDATE downloads SET placed = ? WHERE id = ?")
+            .bind(serde_json::to_string(&placed).unwrap_or_default())
             .bind(id)
             .execute(pool)
             .await
-            .map_err(db)?;
-        if let Some(target) = copy(pool, &connection, file, &dir, id, &placed).await? {
-            // Remembered at once, so a restart knows this file is this download's own.
-            placed.push(target);
-            sqlx::query("UPDATE downloads SET placed = ? WHERE id = ?")
-                .bind(serde_json::to_string(&placed).unwrap_or_default())
-                .bind(id)
-                .execute(pool)
-                .await
-                .map_err(db)?;
-        }
+            .map_err(|err| Stop::Retry(format!("the database: {err}")))?;
+        // And which file it is, so it's known for this download's only while it's still there.
+        record_placed(pool, id, &file.target).await?;
     }
+    Ok(())
+}
+
+/// Updates the download's message.
+async fn say(pool: &SqlitePool, id: i64, message: &str) -> Result<(), Stop> {
+    sqlx::query("UPDATE downloads SET message = ?, updated_at = ? WHERE id = ?")
+        .bind(message)
+        .bind(unix_now())
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|err| Stop::Retry(format!("the database: {err}")))?;
     Ok(())
 }
 
@@ -192,22 +227,37 @@ pub async fn delete_partials(
     Ok((deleted, left))
 }
 
-/// Copies one file into `dir`, resuming a partial copy, and puts it in place without replacing
-/// anything. Returns the path it placed, or None when this download had placed it already.
-pub(super) async fn copy(
+/// A file copied home under its part name and not yet in place.
+pub(super) struct Staged {
+    /// Its name in the library.
+    pub(super) name: String,
+    /// Its part file; None when this download had placed it already.
+    pub(super) partial: Option<PathBuf>,
+    /// Where it goes.
+    pub(super) target: PathBuf,
+}
+
+/// Copies one file into `dir` under its part name, resuming a partial copy; it's put in place
+/// once every file is copied and checked.
+pub(super) async fn fetch(
     pool: &SqlitePool,
     connection: &Connection,
     file: &Planned,
     dir: &Path,
     id: i64,
     placed: &[String],
-) -> Result<Option<String>, Stop> {
+) -> Result<Staged, Stop> {
     let target = dir.join(&file.name);
     let target_name = target.to_string_lossy().into_owned();
+    let staged = |partial| Staged {
+        name: file.name.clone(),
+        partial,
+        target: target.clone(),
+    };
     // Anything at the name (a file, a folder, even a dangling link) stops the copy, unless this
     // download put it there itself (and a restart came before the database heard).
     match std::fs::symlink_metadata(&target) {
-        Ok(_) if placed.contains(&target_name) => return Ok(None),
+        Ok(_) if placed.contains(&target_name) => return Ok(staged(None)),
         Ok(_) => {
             return Err(Stop::Fail(format!(
                 "{} is already there and isn't this file; Melete doesn't replace files",
@@ -233,13 +283,7 @@ pub(super) async fn copy(
             file.name, file.size
         )));
     }
-    let (from, to) = (partial.clone(), target.clone());
-    blocking(move || {
-        std::fs::set_permissions(&from, std::fs::Permissions::from_mode(0o664))?;
-        place(&from, &to)
-    })
-    .await?;
-    Ok(Some(target_name))
+    Ok(staged(Some(partial)))
 }
 
 /// An error from the seedbox, as a stop that's retried later.

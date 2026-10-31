@@ -21,7 +21,7 @@ CREATE TABLE title_events (
     at INTEGER NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('searched', 'grabbed', 'imported', 'failed', 'upgraded',
                                        'taken_off', 'blocklisted', 'extra_found', 'renamed',
-                                       'removed_from_deluge')),
+                                       'set_aside', 'removed_from_deluge')),
     service TEXT NOT NULL CHECK (service IN ('movies', 'series', 'anime', 'music')),
     key TEXT NOT NULL,
     -- As it was called then.

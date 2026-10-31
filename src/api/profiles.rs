@@ -998,4 +998,47 @@ mod tests {
         .await;
         assert_eq!(preset["service"], "anime");
     }
+
+    #[tokio::test]
+    async fn minimum_availability_defaults_to_released_and_is_kept_unless_sent() {
+        let f = fixture().await;
+        let profile = |availability: Option<&str>| {
+            let mut body = json!({
+                "source": "radarr", "name": "Films", "upgrade_allowed": false, "cutoff": "Bluray-1080p",
+                "min_format_score": 0, "cutoff_format_score": 0, "min_upgrade_format_score": 1,
+                "language": "any",
+                "items": [{ "name": "Bluray-1080p", "qualities": ["Bluray-1080p"], "allowed": true }],
+                "formats": []
+            });
+            if let Some(a) = availability {
+                body["minimum_availability"] = json!(a);
+            }
+            body
+        };
+        let (status, made) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile(None)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{made}");
+        assert_eq!(made["minimum_availability"], "released");
+        let uri = format!("/api/v1/profiles/{}", made["id"]);
+
+        let (_, changed) = send(&f, "PUT", &uri, &f.admin, Some(profile(Some("in_cinemas")))).await;
+        assert_eq!(changed["minimum_availability"], "in_cinemas");
+        let (_, kept) = send(&f, "PUT", &uri, &f.admin, Some(profile(None))).await;
+        assert_eq!(kept["minimum_availability"], "in_cinemas", "left out, kept");
+
+        let (status, refused) = send(&f, "PUT", &uri, &f.admin, Some(profile(Some("soon")))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            refused
+                .to_string()
+                .contains("announced, in_cinemas or released"),
+            "{refused}"
+        );
+    }
 }
