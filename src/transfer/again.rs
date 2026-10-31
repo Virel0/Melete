@@ -26,7 +26,7 @@ pub async fn bring_home(
 
 /// Searches again for `target` when it's still monitored and downloads are on, grabbing the
 /// best accepted result; says what came of it.
-async fn search_again(
+pub(crate) async fn search_again(
     pool: &SqlitePool,
     sources: &crate::fulfil::Sources,
     target: Target,
