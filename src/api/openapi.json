@@ -5442,8 +5442,8 @@
         "tags": ["Music"],
         "x-melete-access": "user",
         "x-melete-scope": "read",
-        "summary": "Your liked tracks",
-        "description": "The tracks you like, newest like first, read from your Aoide sync log the way your devices read it: a like set on any of them, or here, is the same like. Each with its track as the music API shows it, or null when it isn't in the library now (its content key says what it was).",
+        "summary": "Your liked tracks and albums",
+        "description": "The tracks and the albums you like, each newest like first, read from your Aoide sync log the way your devices read it: a like set on any of them, or here, is the same like. Each with its track or album as the music API shows it, or null when it isn't in the library now (its content key says what it was). An album is found as your devices find it: by its id, else, when a rescan gave it a new id, by its content key when exactly one album you may see has that key (several are none, never a guess); one found through two likes is listed once.",
         "responses": {
           "200": {
             "description": "OK",
@@ -5498,6 +5498,60 @@
             "in": "path",
             "required": true,
             "description": "The track's id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "204": {"description": "Not liked"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: likes live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/music/albums/{id}/like": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Like an album",
+        "description": "Writes into your Aoide sync log the album like an Aoide device of yours would (an `album_likes` row: the album's own row if it has one, else one with its content key whose id names no album in the library, as a device relinks it, else a new row), as this session; your devices apply it on their next pull. Nothing is written when you like it already. Liking an album likes none of its tracks.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The album's id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "204": {"description": "Liked"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: likes live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such album in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Unlike an album",
+        "description": "Deletes the album's like row in your Aoide sync log, as an Aoide device of yours would; your devices apply it on their next pull. Nothing is written when you don't like it. Works for an album gone from the library too.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The album's id.",
             "schema": {"type": "integer"}
           }
         ],
@@ -6930,6 +6984,7 @@
                         "opId": {"type": "string", "maxLength": 128},
                         "entity": {
                           "enum": [
+                            "album_likes",
                             "folders",
                             "likes",
                             "play_events",
@@ -14372,7 +14427,7 @@
       },
       "MusicLikes": {
         "type": "object",
-        "required": ["tracks"],
+        "required": ["tracks", "albums"],
         "properties": {
           "tracks": {
             "type": "array",
@@ -14388,6 +14443,25 @@
                 "track": {
                   "anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}],
                   "description": "Null when the track isn't in the library now."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "albums": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["liked_at", "content_key", "album"],
+              "properties": {
+                "liked_at": {
+                  "type": "integer",
+                  "description": "When it was liked, in Unix seconds, by the device's clock."
+                },
+                "content_key": {"type": "string", "description": "`artist|album`, as the apps fold it."},
+                "album": {
+                  "anyOf": [{"$ref": "#/components/schemas/MusicAlbum"}, {"type": "null"}],
+                  "description": "Null when the album isn't in the library now."
                 }
               },
               "additionalProperties": false
@@ -14605,12 +14679,17 @@
           "library",
           "genres",
           "release",
-          "track_list"
+          "track_list",
+          "liked"
         ],
         "properties": {
           "id": {"type": "integer"},
           "title": {"type": "string"},
           "artist_id": {"type": ["integer", "null"], "description": "null for a compilation of several artists."},
+          "liked": {
+            "type": "boolean",
+            "description": "Whether you like the album, as your Aoide sync log has it (`/music/albums/{id}/like`), the album found as `GET /music/likes` finds it. Liking an album likes none of its tracks."
+          },
           "artist": {"type": "string", "description": "The album artist, or Various Artists."},
           "year": {"type": ["integer", "null"]},
           "compilation": {"type": "boolean"},
@@ -15340,7 +15419,7 @@
             "description": "The Melete user who pushed it (a collaborator, on a shared playlist)."
           },
           "entity": {
-            "enum": ["folders", "likes", "play_events", "playlist_items", "playlists", "queue_state", "track_flags"]
+            "enum": ["album_likes", "folders", "likes", "play_events", "playlist_items", "playlists", "queue_state", "track_flags"]
           },
           "entityId": {"type": "string"},
           "operation": {"enum": ["upsert", "delete"]},
@@ -15409,7 +15488,7 @@
           "acceptedEntities": {
             "type": "array",
             "items": {
-              "enum": ["folders", "likes", "play_events", "playlist_items", "playlists", "queue_state", "track_flags"]
+              "enum": ["album_likes", "folders", "likes", "play_events", "playlist_items", "playlists", "queue_state", "track_flags"]
             },
             "description": "What push accepts; hold ops of an entity not listed."
           },
