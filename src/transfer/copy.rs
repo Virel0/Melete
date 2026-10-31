@@ -40,6 +40,7 @@ pub(super) async fn copy_all(
         .map_err(db)?;
     let placed: Vec<String> = serde_json::from_str(&placed).unwrap_or_default();
     let mut staged = Vec::with_capacity(plan.files.len());
+    let mut tracker = Tracker::new(pool, id, &plan.files);
     for (n, file) in plan.files.iter().enumerate() {
         let dir = match file.folder.as_str() {
             "" => plan.dir.clone(),
@@ -51,7 +52,8 @@ pub(super) async fn copy_all(
         };
         let message = format!("copying {} of {}: {}", n + 1, plan.files.len(), file.name);
         say(pool, id, &message).await?;
-        staged.push(fetch(pool, &connection, file, &dir, id, &placed).await?);
+        staged.push(fetch(pool, &connection, file, &dir, id, &placed, &mut tracker).await?);
+        tracker.file_done(file.size).await?;
     }
     if let Some(check) = check {
         say(pool, id, "checking how long it runs").await?;
@@ -237,8 +239,8 @@ pub(super) struct Staged {
     pub(super) target: PathBuf,
 }
 
-/// Copies one file into `dir` under its part name, resuming a partial copy; it's put in place
-/// once every file is copied and checked.
+/// Copies one file into `dir` under its part name, resuming a partial copy, telling `tracker`
+/// how far it has got; it's put in place once every file is copied and checked.
 pub(super) async fn fetch(
     pool: &SqlitePool,
     connection: &Connection,
@@ -246,6 +248,7 @@ pub(super) async fn fetch(
     dir: &Path,
     id: i64,
     placed: &[String],
+    tracker: &mut Tracker<'_>,
 ) -> Result<Staged, Stop> {
     let target = dir.join(&file.name);
     let target_name = target.to_string_lossy().into_owned();
@@ -275,7 +278,9 @@ pub(super) async fn fetch(
     check_remote(sftp, file).await?;
 
     let (local, done) = open_partial(&partial, file).await?;
-    let done = fetch_rest(sftp, file, local, done).await?;
+    // An earlier copy's part file counts from the start.
+    tracker.copying(done, true).await?;
+    let done = fetch_rest(sftp, file, local, done, tracker).await?;
     let written = std::fs::symlink_metadata(&partial)?.len();
     if done != file.size || written != file.size {
         return Err(Stop::Retry(format!(
@@ -346,12 +351,13 @@ async fn open_partial(partial: &Path, file: &Planned) -> Result<(tokio::fs::File
 }
 
 /// Copies the rest of the file from the seedbox into the part file and makes sure it reached
-/// the disk; returns how many bytes were copied in all.
+/// the disk, telling `tracker` as it goes; returns how many bytes were copied in all.
 async fn fetch_rest(
     sftp: &russh_sftp::client::SftpSession,
     file: &Planned,
     mut local: tokio::fs::File,
     mut done: u64,
+    tracker: &mut Tracker<'_>,
 ) -> Result<u64, Stop> {
     let mut source = sftp
         .open(file.remote.clone())
@@ -372,6 +378,7 @@ async fn fetch_rest(
         let take = read.min((file.size - done) as usize);
         local.write_all(&buffer[..take]).await?;
         done += take as u64;
+        tracker.copying(done, false).await?;
     }
     // tokio writes in the background and reports a failed last write only on flush (sync_all
     // doesn't): a full disk must not pass for a finished copy.

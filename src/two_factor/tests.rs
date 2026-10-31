@@ -77,6 +77,25 @@ async fn setup_gives_a_secret_and_link_until_a_first_code_confirms_it() {
 }
 
 #[tokio::test]
+async fn with_secrets_sealed_setup_and_sign_in_codes_still_work() {
+    let pool = db::open_in_memory().await;
+    let key = crate::secrets::key().unwrap();
+    crate::secrets::startup::switch(&pool, key).await.unwrap();
+    let user = user(&pool).await;
+    let now = 1_800_000_000;
+    let secret = turned_on(&pool, &user, now - 300).await;
+    let stored: Vec<u8> = sqlx::query_scalar("SELECT secret FROM two_factor")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 49, "sealed, not the 20 plain bytes");
+    assert!(!stored.windows(secret.len()).any(|w| w == secret.as_slice()));
+    let code = totp::code_at(&secret, totp::step_at(now));
+    assert!(take_code(&pool, user.id, &code, now).await.unwrap());
+    assert!(!take_code(&pool, user.id, &code, now).await.unwrap());
+}
+
+#[tokio::test]
 async fn a_code_is_taken_once_and_never_for_an_older_step() {
     let pool = db::open_in_memory().await;
     let user = user(&pool).await;

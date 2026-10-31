@@ -3,7 +3,8 @@
 //! Optional for every user, and only for signing in with a password: Quick Connect is approved
 //! from a device already signed in, and an identity provider asks for its own second factor.
 //!
-//! The secret is kept as it is (a code can't be checked against a hash), sent to the user only
+//! The secret is kept sealed, not hashed (a code can't be checked against a hash; see
+//! `secrets`), sent to the user only
 //! while setup waits for its first code, and never logged. A code is taken once: never again
 //! for its own step or an older one. The way back from a lost device is the server's command
 //! line, `melete user reset-password`, which offers to remove it.
@@ -14,6 +15,7 @@ use sqlx::SqlitePool;
 
 use crate::auth::User;
 use crate::db::unix_now;
+use crate::secrets;
 
 mod challenges;
 pub mod qr;
@@ -129,6 +131,8 @@ pub async fn status(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Status> {
 pub async fn start_setup(pool: &SqlitePool, user: &User) -> anyhow::Result<Option<Setup>> {
     let mut secret = [0u8; 20];
     getrandom::fill(&mut secret).map_err(|e| anyhow!("no randomness available: {e}"))?;
+    let sealing = secrets::sealing(pool).await?;
+    let stored = secrets::bytes_to_store(sealing, &secrets::two_factor(user.id), &secret)?;
     let made = sqlx::query(
         "INSERT INTO two_factor (user_id, secret, created_at) VALUES (?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE
@@ -136,7 +140,7 @@ pub async fn start_setup(pool: &SqlitePool, user: &User) -> anyhow::Result<Optio
              WHERE two_factor.confirmed_at IS NULL",
     )
     .bind(user.id)
-    .bind(&secret[..])
+    .bind(&stored)
     .bind(unix_now())
     .execute(pool)
     .await?
@@ -171,11 +175,12 @@ pub async fn confirm(
             .bind(user_id)
             .fetch_optional(&mut *tx)
             .await?;
-    let secret = match row {
+    let stored = match row {
         None => return Ok(Confirmed::NothingWaiting),
         Some((_, Some(_))) => return Ok(Confirmed::AlreadyOn),
-        Some((secret, None)) => secret,
+        Some((stored, None)) => stored,
     };
+    let secret = opened(secrets::sealing(&mut *tx).await?, user_id, &stored)?;
     let Some(step) = totp::matching_step(&secret, code, now) else {
         return Ok(Confirmed::WrongCode);
     };
@@ -187,7 +192,7 @@ pub async fn confirm(
     .bind(now)
     .bind(step)
     .bind(user_id)
-    .bind(&secret)
+    .bind(&stored)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -207,12 +212,16 @@ pub async fn take_code(
     code: &str,
     now: i64,
 ) -> sqlx::Result<bool> {
-    let secret: Option<Vec<u8>> = sqlx::query_scalar(
+    let stored: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT secret FROM two_factor WHERE user_id = ? AND confirmed_at IS NOT NULL",
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await?;
+    let secret = match stored {
+        Some(stored) => Some(opened(secrets::sealing(pool).await?, user_id, &stored)?),
+        None => None,
+    };
     let Some(step) = secret.and_then(|secret| totp::matching_step(&secret, code, now)) else {
         return Ok(false);
     };
@@ -227,6 +236,12 @@ pub async fn take_code(
     .await?
     .rows_affected();
     Ok(taken == 1)
+}
+
+/// The user's secret, from what's stored for it.
+fn opened(sealing: bool, user_id: i64, stored: &[u8]) -> sqlx::Result<Vec<u8>> {
+    let what = secrets::two_factor(user_id);
+    secrets::bytes_from_store(sealing, &what, stored, secrets::startup::TWO_FACTOR_LEN)
 }
 
 /// Removes the user's second factor, on or still being set up, with any sign-in waiting for a
