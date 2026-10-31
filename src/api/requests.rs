@@ -85,6 +85,7 @@ pub fn routes(
             "/api/v1/requests/imports/{id}/approve",
             post(approve_import),
         )
+        .route("/api/v1/requests/soulseek", get(soulseek))
         .route("/api/v1/requests/settings", get(settings))
         .route(
             "/api/v1/requests/settings/defaults/{kind}",

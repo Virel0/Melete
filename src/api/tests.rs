@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 329);
+        assert_eq!(checked, 331);
     }
 
     /// The response's fields are exactly the schema's.
@@ -3530,6 +3530,43 @@ mod openapi {
             let body: Value = serde_json::from_slice(&bytes).unwrap();
             assert_shape(&spec, schema, &body[0]);
         }
+    }
+
+    #[tokio::test]
+    async fn a_selections_outcome_carries_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
+            .await
+            .unwrap()
+            .unwrap();
+        let (_, token) =
+            crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO wanted_movies (id, tmdb_id, title, monitored, source, added_at)
+                 VALUES (1, 603, 'The Matrix', 1, 'manual', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let body = serde_json::json!({
+            "action": "unmonitor", "wanted_ids": [1, 2], "folders": [], "profile_id": null
+        });
+        let request = Request::post("/api/v1/manage/movies/selection")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = manage::selection_routes(pool, None, None)
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let outcome: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_shape(&spec(), "ManagedSelectionOutcome", &outcome);
+        assert_eq!(outcome["unchanged"][0]["wanted_id"], 2);
     }
 
     #[tokio::test]

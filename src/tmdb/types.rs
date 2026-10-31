@@ -22,6 +22,9 @@ pub struct MovieResult {
     pub original_title: Option<String>,
     /// The first release as YYYY-MM-DD; None or empty when TMDB doesn't know it.
     pub release_date: Option<String>,
+    /// Its poster's path on TMDB's image server, when it has one.
+    #[serde(default)]
+    pub poster_path: Option<String>,
 }
 
 /// A series in TMDB's search or find results.
@@ -35,6 +38,9 @@ pub struct SeriesResult {
     pub original_name: Option<String>,
     /// The first episode's air date as YYYY-MM-DD; None or empty when TMDB doesn't know it.
     pub first_air_date: Option<String>,
+    /// Its poster's path on TMDB's image server, when it has one.
+    #[serde(default)]
+    pub poster_path: Option<String>,
 }
 
 /// A page of a chart or list.
