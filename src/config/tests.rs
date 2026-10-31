@@ -681,3 +681,16 @@ fn the_ratings_country_is_one_melete_reads() {
         assert!(with(bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn the_preview_width_is_one_settings_offers() {
+    let with = |value: &'static str| {
+        Config::from_lookup(move |k| (k == "MELETE_TRICKPLAY_WIDTH").then(|| value.to_owned()))
+    };
+    for fine in ["", "320", "480", "640"] {
+        assert!(with(fine).is_ok(), "{fine}");
+    }
+    for bad in ["500", "1280", "wide"] {
+        assert!(with(bad).is_err(), "{bad}");
+    }
+}

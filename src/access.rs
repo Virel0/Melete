@@ -57,6 +57,27 @@ impl Access {
         self.libraries.is_none() && self.max_age.is_none()
     }
 
+    /// What's seen, as a short text the same for everyone who sees the same: empty for
+    /// everything, else the libraries (sorted) and the highest age, such as `l1,3;a12`.
+    pub fn key(&self) -> String {
+        if self.is_everything() {
+            return String::new();
+        }
+        let libraries = self.libraries.as_ref().map(|ids| {
+            let mut ids = ids.clone();
+            ids.sort_unstable();
+            ids.dedup();
+            let ids: Vec<String> = ids.iter().map(i64::to_string).collect();
+            format!("l{}", ids.join(","))
+        });
+        let age = self.max_age.map(|a| format!("a{a}"));
+        [libraries, age]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
     /// Whether only some libraries may be seen.
     pub fn limits_libraries(&self) -> bool {
         self.libraries.is_some()

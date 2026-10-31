@@ -1,13 +1,16 @@
 //! AI features through OpenRouter, off unless `MELETE_OPENROUTER_KEY` is set. One key on
 //! the server, so no device holds one; the only code that talks to OpenRouter.
 //!
-//! What leaves the server: the words someone typed to describe what they're after, and the
-//! instructions below; nothing about the library, the household or who asked. The model
-//! answers with titles it knows, which Melete then looks for in the library itself. The key
+//! What leaves the server for a search: the words someone typed to describe what they're
+//! after, and the instructions below; nothing about the library, the household or who asked.
+//! The model answers with titles it knows, which Melete then looks for in the library itself.
+//! For picks (`picks`), while an admin has them on: titles with their year, up to three genres
+//! and a short premise, and nothing else. The key
 //! goes in the Authorization header only, and never into a log, an error or a URL. No
 //! attribution headers are sent, and OpenRouter is asked to route only to providers that don't
 //! keep or train on what they're sent (`data_collection: deny`).
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
@@ -15,6 +18,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::config::{OpenRouter, Secret};
+
+mod budget;
+mod picks;
+
+pub use budget::*;
+pub use picks::*;
 
 const USER_AGENT: &str = concat!("Melete/", env!("CARGO_PKG_VERSION"));
 const API: &str = "https://openrouter.ai/api/v1";
@@ -73,15 +82,26 @@ pub struct Client {
     key: Secret,
     model: String,
     api: String,
+    budget: Arc<Budget>,
 }
 
 impl Client {
     /// A client for OpenRouter's API, with timeouts and no redirects (the key is in a header).
     pub fn new(settings: &OpenRouter) -> anyhow::Result<Self> {
-        Self::with_api(settings, API)
+        Self::with_api(settings, API, Arc::default())
     }
 
-    fn with_api(settings: &OpenRouter, api: &str) -> anyhow::Result<Self> {
+    /// As [`Client::new`], spending from `budget`, which outlasts the client.
+    pub fn with_budget(settings: &OpenRouter, budget: Arc<Budget>) -> anyhow::Result<Self> {
+        Self::with_api(settings, API, budget)
+    }
+
+    /// What AI picks may spend.
+    pub fn budget(&self) -> &Budget {
+        &self.budget
+    }
+
+    fn with_api(settings: &OpenRouter, api: &str, budget: Arc<Budget>) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
@@ -94,6 +114,7 @@ impl Client {
             key: settings.key.clone(),
             model: settings.model.clone(),
             api: api.trim_end_matches('/').to_owned(),
+            budget,
         })
     }
 
@@ -258,6 +279,8 @@ pub mod fake {
         pub status: Arc<Mutex<u16>>,
         /// Each request's body and headers.
         pub seen: Arc<Mutex<Vec<(Value, HeaderMap)>>>,
+        /// How long the model takes to answer, in milliseconds.
+        pub delay_ms: Arc<Mutex<u64>>,
     }
 
     pub async fn start() -> (Fake, String) {
@@ -279,6 +302,8 @@ pub mod fake {
         Json(body): Json<Value>,
     ) -> (StatusCode, Json<Value>) {
         fake.seen.lock().unwrap().push((body, headers));
+        let delay = *fake.delay_ms.lock().unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         let status = StatusCode::from_u16(*fake.status.lock().unwrap()).unwrap();
         let content = fake.content.lock().unwrap().clone();
         (
@@ -299,7 +324,7 @@ pub mod fake {
             key: Secret::for_tests("sk-or-test-key"),
             model: "openrouter/auto".into(),
         };
-        Client::with_api(&settings, api).unwrap()
+        Client::with_api(&settings, api, Arc::default()).unwrap()
     }
 }
 
