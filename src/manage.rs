@@ -14,6 +14,7 @@ mod artists;
 mod cutoff;
 mod downloads;
 mod movies;
+pub mod selection;
 mod series;
 
 pub use artists::*;

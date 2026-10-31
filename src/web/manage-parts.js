@@ -16,9 +16,9 @@
 // - ago(unix): how long ago a moment was, in words ("4 minutes ago"), for what happened lately.
 //
 // For Movies, Series, Anime and Music (styles in manage.css): each service's lists and words
-// (KINDS), a title's state in words, and changing several wanted titles at once.
+// (KINDS), a title's state in words, and its monitoring switch. Changing several titles at
+// once is manage-select.js.
 
-import { confirmInline } from "/web/forms.js";
 import { SignedOut, airDate, announce, api, fileName, h, languageName, plural, size } from "/web/lib.js";
 import { stateLabel } from "/web/page-parts.js";
 
@@ -263,79 +263,6 @@ export function monitorSwitch({ ctx, label, on, shown = false, change, said }) {
     }
   });
   return button;
-}
-
-// Changing several wanted titles at once, one call each, saying what happened to each that
-// failed. `titles` are managed-list rows on the wanted list.
-export async function changeEach(titles, change) {
-  const failed = [];
-  for (const t of titles) {
-    try {
-      await change(t);
-    } catch (err) {
-      if (err instanceof SignedOut) throw err;
-      failed.push(`${t.title}: ${err.message}`);
-    }
-  }
-  return failed;
-}
-
-// The bar under the toolbar while titles are selected: monitor or stop, set the profile, take
-// off the list (asked first, saying files stay). `done(message)` draws the list again.
-export function selectionBar(ctx, kind, { selected, profiles, done }) {
-  const count = h("p", { class: "selected-count", role: "status" });
-  const actions = h("div", { class: "row-actions" });
-  // `said(titles)` says what was done to them, as a sentence.
-  const run = async (said, change) => {
-    const titles = selected();
-    if (!titles.length) return;
-    for (const b of actions.querySelectorAll("button, select")) b.disabled = true;
-    try {
-      const failed = await changeEach(titles, change);
-      const ok = titles.length - failed.length;
-      const message = `${said(plural(ok, kind.one, kind.many))}${failed.length ? ` Not changed: ${failed.join("; ")}.` : ""}`;
-      announce(message);
-      done(message);
-    } catch (err) {
-      if (err instanceof SignedOut) return ctx.signedOut();
-      throw err;
-    }
-  };
-  const monitor = (on) => (t) => api(`${kind.wanted}/${t.wanted_id}/monitored`, { method: "PUT", body: { monitored: on } });
-  const profile = h("select", { class: "compact", "aria-label": "Profile" }, h("option", { value: "" }, "Profile…"), profiles.map((p) => h("option", { value: String(p.id) }, p.name)));
-  const setProfile = h("button", { type: "button", class: "quiet" }, "Set profile");
-  setProfile.addEventListener("click", () => {
-    if (!profile.value) return profile.focus();
-    const name = profile.selectedOptions[0].textContent;
-    run((n) => `Set ${name} on ${n}.`, (t) => api(`${kind.wanted}/${t.wanted_id}/profile`, { method: "PUT", body: { profile_id: Number(profile.value) } }));
-  });
-  const takeOff = h("button", { type: "button", class: "quiet" }, "Take off the list…");
-  takeOff.addEventListener("click", () => {
-    const n = selected().length;
-    if (!n) return;
-    const them = n === 1 ? ["it", "its"] : ["them", "their"];
-    confirmInline(actions, {
-      question: `Take ${plural(n, kind.one, kind.many)} off the wanted list? Melete stops looking for ${them[0]}; ${them[1]} files in the library stay, and ${them[0]} can be added again.`,
-      confirm: "Take off",
-      run: () => run((n) => `Took ${n} off the wanted list.`, (t) => api(`${kind.wanted}/${t.wanted_id}`, { method: "DELETE" })),
-    });
-  });
-  const parts = [
-    h("button", { type: "button", class: "quiet", onclick: () => run((n) => `Monitoring ${n}.`, monitor(true)) }, "Monitor"),
-    h("button", { type: "button", class: "quiet", onclick: () => run((n) => `Stopped monitoring ${n}.`, monitor(false)) }, "Stop monitoring"),
-    profiles.length ? [profile, setProfile] : null,
-    takeOff,
-  ];
-  const bar = h("div", { class: "selection-bar" }, count, actions);
-  return {
-    bar,
-    update() {
-      const n = selected().length;
-      count.textContent = n ? `${plural(n, kind.one, kind.many)} selected` : `Select ${kind.many} on the wanted list to change them.`;
-      if (!actions.querySelector(".question")) actions.replaceChildren(...parts.flat().filter(Boolean));
-      for (const b of actions.querySelectorAll("button, select")) b.disabled = n === 0;
-    },
-  };
 }
 
 // A row per file with what ffprobe found in it; one not read yet says so.
