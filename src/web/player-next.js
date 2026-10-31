@@ -3,11 +3,14 @@
 // the player's options; and "Next episode in 10" over the picture once the credits start (or
 // 20 seconds from the end when the episode has no credits marked), which starts the next one
 // when it reaches nothing, with Play now and Cancel. Cancelling keeps it away for this episode.
+// The user's playback preferences set the countdown's length, or turn it off: the card then
+// offers the next episode without starting it.
 
 import { announce, api, episodeLabel, h } from "/web/lib.js";
 import { episodeCode } from "/web/watch-play.js";
 
-const UP_NEXT_SECONDS = 10;
+// What the server's playback preferences say when they can't be read.
+const DEFAULT_PLAYBACK = { autoplay_next: true, countdown_seconds: 10 };
 // Without credits marked, the card comes this long before the end.
 const NO_CREDITS_SECONDS = 20;
 
@@ -89,7 +92,13 @@ export function episodeLinks(where, ctx) {
 export function upNextPanel(video, where, after, { ctx, report, backHref, heading, credits }) {
   const card = h("div", { class: "up-next-card", hidden: true, role: "group", "aria-label": "Up next" });
   const panel = h("div", { class: "up-next" });
-  const s = { next: null, href: null, timer: null, left: UP_NEXT_SECONDS, dismissed: false, ctx };
+  const s = { next: null, href: null, timer: null, prefs: DEFAULT_PLAYBACK, left: DEFAULT_PLAYBACK.countdown_seconds, dismissed: false, ctx };
+  api("/me/playback")
+    .catch(() => DEFAULT_PLAYBACK)
+    .then((prefs) => {
+      s.prefs = prefs;
+      if (!s.timer) s.left = prefs.countdown_seconds;
+    });
   after.then((next) => {
     s.next = next;
     s.href = next ? episodeHref(where.seriesId, next) : null;
@@ -113,7 +122,7 @@ export function upNextPanel(video, where, after, { ctx, report, backHref, headin
     } else if (!card.hidden) {
       // Gone back before the credits: put it away until they come round again.
       hide();
-      s.left = UP_NEXT_SECONDS;
+      s.left = s.prefs.countdown_seconds;
     }
   });
   video.addEventListener("ended", () => {
@@ -132,8 +141,10 @@ export function upNextPanel(video, where, after, { ctx, report, backHref, headin
 
 // Fills the card with the next episode, Play now and Cancel, says so, and counts down while the
 // video plays (or at once when it has ended). `ended` moves focus to Play now: the picture has
-// stopped, so nothing is taken from someone watching.
+// stopped, so nothing is taken from someone watching. With auto-play off, the card offers the
+// next episode and counts nothing.
 function offer(card, s, hide, ended) {
+  if (!s.prefs.autoplay_next) return offerWithoutCountdown(card, s, hide, ended);
   const { next } = s;
   const code = episodeCode(next.season, next.episode.episode);
   const seconds = h("span", {}, String(s.left));
@@ -164,4 +175,24 @@ function offer(card, s, hide, ended) {
       location.hash = s.href;
     }
   }, 1000);
+}
+
+// The card with the next episode and a way to close it, and no countdown.
+function offerWithoutCountdown(card, s, hide, ended) {
+  const { next } = s;
+  const code = episodeCode(next.season, next.episode.episode);
+  const play = h("a", { class: "button", href: s.href }, "Next episode");
+  const close = h("button", { type: "button", class: "quiet" }, "Close");
+  close.addEventListener("click", () => {
+    s.dismissed = true;
+    hide();
+  });
+  card.replaceChildren(
+    h("p", { class: "up-next-label" }, "Up next"),
+    h("p", { class: "up-next-title" }, [code, next.episode.name].filter(Boolean).join(" · ")),
+    h("p", { class: "actions" }, play, close),
+  );
+  card.hidden = false;
+  if (ended) play.focus();
+  announce(`Up next: ${episodeLabel(next.season, next.episode.episode, next.episode.name)}.`);
 }

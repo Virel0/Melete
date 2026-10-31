@@ -188,6 +188,8 @@ impl Config {
         // Watching the folders: read where it's used (`settings`), as it can change while
         // running, and checked here.
         switch(&get, "MELETE_SCAN_WATCH")?;
+        // AI picks: read where they're made (`ai_picks`), as they can change while running.
+        switch(&get, "MELETE_AI_PICKS")?;
         check_ratings_country(&get)?;
         // Posters of titles not in the library: read where they're served (`settings`), checked
         // here.
@@ -197,6 +199,7 @@ impl Config {
             anyhow::bail!("MELETE_DISCOVERY_POSTERS={other:?} should be on or off");
         }
         let trickplay = switch(&get, "MELETE_TRICKPLAY")?;
+        check_trickplay_width(&get)?;
         let offline_copies = switch(&get, "MELETE_OFFLINE_COPIES")?;
         let song_albums = switch(&get, "MELETE_SONG_ALBUMS")?;
         let ffprobe = get("MELETE_FFPROBE").map_or_else(

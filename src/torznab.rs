@@ -36,6 +36,14 @@ pub enum Error {
     Unreachable(String),
     /// An HTTP status other than success, 401, 403 or 410.
     Status(u16),
+    /// A 401 or 403 that doesn't say the key is wrong: the site refused the request for its
+    /// own reasons (it wants a key, or checks for a browser first).
+    Refused {
+        /// The HTTP status, 401 or 403.
+        status: u16,
+        /// Whether the request carried an API key.
+        key_sent: bool,
+    },
     /// The indexer answered with a Torznab error.
     Indexer {
         /// Torznab's error code, as sent.
@@ -57,6 +65,20 @@ impl fmt::Display for Error {
             Error::Disabled => f.write_str("the indexer is turned off in Prowlarr"),
             Error::Unreachable(reason) => write!(f, "can't reach the indexer: {reason}"),
             Error::Status(status) => write!(f, "the indexer answered {status}"),
+            Error::Refused {
+                status,
+                key_sent: true,
+            } => write!(
+                f,
+                "the indexer refused the request (HTTP {status}) without saying the API key is wrong; the site may check for a browser before its feed"
+            ),
+            Error::Refused {
+                status,
+                key_sent: false,
+            } => write!(
+                f,
+                "the indexer refused the request (HTTP {status}); it may want an API key, or check for a browser before its feed"
+            ),
             Error::Indexer { code, description } => {
                 write!(f, "the indexer reported error {code}: {description}")
             }
@@ -76,7 +98,8 @@ impl std::error::Error for Error {}
 pub struct Endpoint<'a> {
     /// The feed's URL (for Prowlarr, one indexer's Torznab URL), without the key.
     pub url: &'a str,
-    /// The indexer's API key. Only Torznab feeds are sent it, in the query string.
+    /// The indexer's API key. Only Torznab feeds are sent it, in the query string, and only
+    /// when it isn't empty.
     pub api_key: &'a str,
 }
 
@@ -273,14 +296,29 @@ impl Client {
     }
 
     async fn get(&self, endpoint: &Endpoint<'_>, params: &[(&str, &str)]) -> Result<String, Error> {
-        let mut with_key = params.to_vec();
-        with_key.push(("apikey", endpoint.api_key));
-        self.fetch(endpoint.url, &with_key).await
+        let mut query = params.to_vec();
+        // A feed without a key is sent none: some read an empty `apikey` as a wrong one.
+        let key = endpoint.api_key.trim();
+        if !key.is_empty() {
+            query.push(("apikey", key));
+        }
+        self.fetch_keyed(endpoint.url, &query, !key.is_empty())
+            .await
     }
 
     /// GETs a URL with a query, as text: the timeout, the size cap, no redirects, and errors
     /// without the URL hold for every kind of indexer.
     async fn fetch(&self, url: &str, params: &[(&str, &str)]) -> Result<String, Error> {
+        self.fetch_keyed(url, params, false).await
+    }
+
+    /// [`Client::fetch`], `key_sent` saying whether the query carries an API key.
+    async fn fetch_keyed(
+        &self,
+        url: &str,
+        params: &[(&str, &str)],
+        key_sent: bool,
+    ) -> Result<String, Error> {
         let unreachable = |err: reqwest::Error| Error::Unreachable(err.without_url().to_string());
         let mut response = self
             .http
@@ -290,20 +328,43 @@ impl Client {
             .await
             .map_err(unreachable)?;
         match response.status() {
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => return Err(Error::Rejected),
+            status @ (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+                let body = read_body(&mut response).await.unwrap_or_default();
+                return Err(refused(status, &body, key_sent));
+            }
             StatusCode::GONE => return Err(Error::Disabled),
             status if !status.is_success() => return Err(Error::Status(status.as_u16())),
             _ => {}
         }
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
-            if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-                return Err(Error::TooLarge);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        String::from_utf8(body).map_err(|_| Error::Malformed("not UTF-8".into()))
+        read_body(&mut response).await
     }
+}
+
+/// Why an indexer answered 401 or 403. A Torznab error in the reply says (code 100: the key);
+/// without one, a 401 to a request with a key turns the key down, and anything else is the
+/// site refusing the request for its own reasons.
+fn refused(status: StatusCode, body: &str, key_sent: bool) -> Error {
+    match parse_items(body) {
+        Err(said @ (Error::Rejected | Error::Indexer { .. })) => said,
+        _ if status == StatusCode::UNAUTHORIZED && key_sent => Error::Rejected,
+        _ => Error::Refused {
+            status: status.as_u16(),
+            key_sent,
+        },
+    }
+}
+
+/// A reply's body as text, up to the size cap.
+async fn read_body(response: &mut reqwest::Response) -> Result<String, Error> {
+    let unreachable = |err: reqwest::Error| Error::Unreachable(err.without_url().to_string());
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(Error::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| Error::Malformed("not UTF-8".into()))
 }
 
 /// How an indexer is reached.
@@ -554,6 +615,81 @@ mod tests {
         let err = client.caps(&gone).await.unwrap_err();
         assert!(matches!(err, Error::Unreachable(_)), "{err}");
         assert!(!err.to_string().contains("secret-key"), "{err}");
+    }
+
+    /// A feed with no key set is sent no `apikey` at all. A 401 or 403 is put down to the key
+    /// only when the indexer says so (Torznab's error 100); a bot check's page is the site
+    /// refusing the request.
+    #[tokio::test]
+    async fn sends_a_key_only_when_set_and_blames_it_only_when_told() {
+        use axum::extract::{OriginalUri, Query};
+        use axum::response::IntoResponse;
+        use std::collections::HashMap;
+
+        let keys: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+        let router = axum::Router::new().fallback({
+            let keys = keys.clone();
+            move |OriginalUri(uri): OriginalUri, Query(q): Query<HashMap<String, String>>| async move {
+                let key = q.get("apikey").cloned();
+                keys.lock().unwrap().push(key.clone());
+                let caps = include_str!("../tests/fixtures/prowlarr/caps.xml");
+                let bot_check = "<html><title>Just a moment...</title></html>";
+                let wrong_key =
+                    r#"<?xml version="1.0"?><error code="100" description="Incorrect user credentials"/>"#;
+                match (uri.path(), key.as_deref()) {
+                    ("/open/api", None) => caps.into_response(),
+                    ("/checked/api", _) => {
+                        (axum::http::StatusCode::FORBIDDEN, bot_check).into_response()
+                    }
+                    ("/keyed/api", Some("right")) => caps.into_response(),
+                    _ => (axum::http::StatusCode::FORBIDDEN, wrong_key).into_response(),
+                }
+            }
+        });
+        let url = serve(router).await;
+        let at = |path: &str| url.replace("/1/api", path);
+        let client = Client::new().unwrap();
+        let caps = |url: String, api_key: &'static str| {
+            let client = client.clone();
+            async move { client.caps(&Endpoint { url: &url, api_key }).await }
+        };
+
+        for blank in ["", "  "] {
+            assert!(caps(at("/open/api"), blank).await.is_ok());
+        }
+        assert_eq!(*keys.lock().unwrap(), [None, None], "no apikey parameter");
+
+        let checked = caps(at("/checked/api"), "").await.unwrap_err();
+        assert_eq!(
+            checked,
+            Error::Refused {
+                status: 403,
+                key_sent: false
+            }
+        );
+        assert_eq!(
+            checked.to_string(),
+            "the indexer refused the request (HTTP 403); it may want an API key, or check for a browser before its feed"
+        );
+        let checked = caps(at("/checked/api"), "right").await.unwrap_err();
+        assert_eq!(
+            checked,
+            Error::Refused {
+                status: 403,
+                key_sent: true
+            }
+        );
+        assert!(
+            checked
+                .to_string()
+                .contains("without saying the API key is wrong"),
+            "{checked}"
+        );
+
+        assert!(caps(at("/keyed/api"), "right").await.is_ok());
+        let wrong = caps(at("/keyed/api"), "wrong").await.unwrap_err();
+        assert_eq!(wrong, Error::Rejected);
+        assert_eq!(wrong.to_string(), "the indexer rejected the API key");
     }
 
     #[tokio::test]

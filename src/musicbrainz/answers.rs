@@ -102,18 +102,6 @@ pub struct FoundArtist {
 }
 
 #[derive(Deserialize)]
-pub(super) struct ArtistSearch {
-    #[serde(default)]
-    pub(super) artists: Vec<FoundArtist>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct GroupSearch {
-    #[serde(rename = "release-groups", default)]
-    pub(super) release_groups: Vec<ReleaseGroupDetail>,
-}
-
-#[derive(Deserialize)]
 pub(super) struct RecordingSearch {
     #[serde(default)]
     pub(super) recordings: Vec<RecordingDetail>,

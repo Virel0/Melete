@@ -404,7 +404,7 @@ async fn items(
 /// it was listed for (TMDB id `tmdb_id`, a series' with `tv`) so the route serves it for a
 /// while, to a user with a highest rating only for a title within it
 /// ([`crate::discover_posters`]).
-async fn poster(
+pub(super) async fn poster(
     pool: &SqlitePool,
     path: Option<&str>,
     tv: bool,
