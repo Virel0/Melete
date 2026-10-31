@@ -117,7 +117,7 @@
         "tags": ["Accounts"],
         "x-melete-access": "public",
         "summary": "Sign in with username and password",
-        "description": "Returns a session token for this device. It lasts until it is signed out, the password changes, or it goes unused for 90 days. Five attempts per username and address lock that pair for 15 minutes; a wrong password and an unknown username get the same reply.",
+        "description": "Returns a session token for this device. It lasts until it is signed out, the password changes, or it goes unused for 90 days. Five attempts per username and address lock that pair for 15 minutes; a wrong password and an unknown username get the same reply. For a user with two-factor sign-in on, a right password answers 401 with a `SecondFactorNeeded` challenge and no token: finish with the code at `/auth/login/second-factor`. A wrong password is answered as for anyone else.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -133,8 +133,17 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
-            "description": "Wrong username or password",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong username or password (`Error`), or a right password from a user with two-factor sign-in on (`SecondFactorNeeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/Error"},
+                    {"$ref": "#/components/schemas/SecondFactorNeeded"}
+                  ]
+                }
+              }
+            }
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"},
@@ -150,7 +159,7 @@
         "tags": ["Accounts"],
         "x-melete-access": "public",
         "summary": "Sign in to a cookie, for the web UI",
-        "description": "Like `/auth/login`, with the same lockouts, but the session token goes into the `melete_session` cookie instead of the body (HttpOnly, SameSite=Strict, `Secure` when the request's Origin is https). It lasts as long as a session can go unused, 90 days.",
+        "description": "Like `/auth/login`, with the same lockouts, but the session token goes into the `melete_session` cookie instead of the body (HttpOnly, SameSite=Strict, `Secure` when the request's Origin is https). It lasts as long as a session can go unused, 90 days. With two-factor sign-in on, a right password answers 401 with a `SecondFactorNeeded` challenge and sets no cookie: finish at `/auth/web-login/second-factor`.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -166,8 +175,17 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
-            "description": "Wrong username or password",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+            "description": "Wrong username or password (`Error`), or a right password from a user with two-factor sign-in on (`SecondFactorNeeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/Error"},
+                    {"$ref": "#/components/schemas/SecondFactorNeeded"}
+                  ]
+                }
+              }
+            }
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"},
@@ -840,7 +858,13 @@
         "description": "The key stops working at once, as when its owner revokes it. The user's other keys and their sessions keep working.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "User id.", "schema": {"type": "integer"}},
-          {"name": "key_id", "in": "path", "required": true, "description": "Key id from the user's key list.", "schema": {"type": "integer"}}
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "description": "Key id from the user's key list.",
+            "schema": {"type": "integer"}
+          }
         ],
         "responses": {
           "204": {"description": "Revoked"},
@@ -2052,13 +2076,7 @@
         "summary": "Mark a season or a whole series watched or unwatched",
         "description": "Every episode file of the season, or of the whole series (specials included) when no season is given, that is present and the caller may see, all at once. Each is marked as marking it alone would: the next play starts from the beginning. Files already as asked are left alone.",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Series id.",
-            "schema": {"type": "integer"}
-          }
+          {"name": "id", "in": "path", "required": true, "description": "Series id.", "schema": {"type": "integer"}}
         ],
         "requestBody": {
           "required": true,
@@ -2069,7 +2087,11 @@
                 "required": ["watched"],
                 "properties": {
                   "watched": {"type": "boolean"},
-                  "season": {"type": "integer", "minimum": 0, "description": "Only this season (0 for specials). Without it, the whole series."}
+                  "season": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Only this season (0 for specials). Without it, the whole series."
+                  }
                 },
                 "additionalProperties": false
               }
@@ -2188,7 +2210,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `latest_shows`, `latest_anime` and `latest_movies` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Nothing leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Nothing leaves the server but what a title's details would ask TMDB for its hero pick.",
         "responses": {
           "200": {
             "description": "OK",
@@ -2320,6 +2342,16 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Quality profiles",
+        "description": "Every quality profile, or one Manage service's: Movies has Radarr's, and Series and Anime each have their own, though both score Sonarr's custom formats.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Only this service's profiles.",
+            "schema": {"enum": ["movies", "series", "anime"]}
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -2328,6 +2360,10 @@
                 "schema": {"type": "array", "items": {"$ref": "#/components/schemas/QualityProfile"}}
               }
             }
+          },
+          "400": {
+            "description": "service isn't movies, series or anime",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"}
@@ -4327,7 +4363,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Choose the quality profile a wanted series is searched and grabbed with",
-        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one.",
+        "description": "Used over the profile Sonarr names, by searches and RSS sync; re-imports keep the choice. null goes back to the Sonarr one. The profile must be one of the series' own service's (its `service`: Anime's for an anime series, Series' for the rest); another is refused (422).",
         "parameters": [
           {
             "name": "id",
@@ -4373,7 +4409,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Make the anime quality profile",
-        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source.",
+        "description": "Makes a profile named Anime and its custom formats: 1080p, upgraded to 2160p when available, and by audio dual Japanese and English (300) over English (200) over Japanese with English subtitles (100). Raws are refused (-10000). Releases that don't name their subtitles, as most fansubs don't, still qualify with score 0. All or nothing: 409 if a format or profile of those names already exists for the source. The series one is Anime's (service anime); the movies one is Movies'.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4386,7 +4422,7 @@
                   "apply_to_anime": {
                     "type": "boolean",
                     "default": false,
-                    "description": "For sonarr: also choose it for every wanted series Sonarr calls anime."
+                    "description": "For sonarr: also choose it for every wanted series under Anime (wanted as anime, or in a library with the anime category)."
                   }
                 }
               }
@@ -4653,6 +4689,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artist, their albums and the albums they appear on",
+        "description": "An artist known only by name whose albums joined the one MusicBrainz artist of the same name (one of their albums tagged with MusicBrainz ids, another not) answers as that artist, so old links and pins still lead somewhere: the answer's `id` is the artist's now.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Artist id.", "schema": {"type": "integer"}}
         ],
@@ -4970,6 +5007,13 @@
             "required": false,
             "description": "Part of the title, artist, album or album artist; case, accents, spaces and punctuation aside.",
             "schema": {"type": "string"}
+          },
+          {
+            "name": "q_in",
+            "in": "query",
+            "required": false,
+            "description": "What `q` is matched against: all (default: the title, artist, album or album artist), or track (the track's own title, its artist or its album's artist, not the album's title, so an album's name doesn't bring every track on it).",
+            "schema": {"enum": ["all", "track"], "default": "all"}
           },
           {
             "name": "id",
@@ -8012,7 +8056,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Test an outside service's connection",
-        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr must say it's ready. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
+        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr (or a solver that copies its API) must answer. A setting of Melete's own (testable false) has nothing to connect to, and says so. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
         "parameters": [
           {"name": "key", "in": "path", "required": true, "description": "The service.", "schema": {"type": "string"}}
         ],
@@ -8297,7 +8341,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What needs attention in each admin area",
-        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Worked out from the database when asked, and from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU); nothing outside the server is contacted.",
+        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), and from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs); nothing outside the server is contacted.",
         "responses": {
           "200": {
             "description": "OK",
@@ -8333,7 +8377,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "The background tasks, how they last went and when they run next",
-        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between.",
+        "description": "Every task this server has, in a fixed order, with its last start and end, how it went, and when it runs next on its own. Kept in memory since the server started: a task that hasn't been seen isn't running here (`active` false), as music matching isn't while MusicBrainz is off, or the GPU check without a GPU encoder. The library task's next run is the next whole scan its schedule (MELETE_SCAN_SCHEDULE) gives; folders imported are scanned at once in between. TMDB matching (tmdb-matching) runs after each scan and when asked, while TMDB is set up; its result counts the titles matched and those that need a match, and says in plain words what went wrong (TMDB refused the token, asked for fewer requests, or no request went through).",
         "responses": {
           "200": {
             "description": "OK",
@@ -8364,6 +8408,7 @@
             "schema": {
               "enum": [
                 "library",
+                "tmdb-matching",
                 "music-matching",
                 "music-analysis",
                 "segments",
@@ -10256,6 +10301,207 @@
           "401": {"$ref": "#/components/responses/Unauthorized"}
         }
       }
+    },
+    "/api/v1/auth/login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish signing in with a second-factor code",
+        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Each wrong code here is added to the user's own record (`GET /me/two-factor`), without where it came from. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/auth/web-login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish the web UI's sign-in with a second-factor code",
+        "description": "Like `/auth/login/second-factor`, for a challenge from `/auth/web-login`: the session goes into the `melete_session` cookie, as `/auth/web-login` would have set it. A challenge from one route doesn't finish at the other.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in; the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Whether your two-factor sign-in is on",
+        "description": "With your latest changes to it, newest first: turning it on or off, from your account or on the server's command line, and wrong codes typed at sign-in (counted together within an hour of the last; where they were typed from isn't kept), so you can tell if your password is known. Never the secret.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorStatus"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/me/two-factor/setup": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Start setting up two-factor sign-in",
+        "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The secret, until confirmed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorSetup"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is on already: turn it off first",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/confirm": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in on with a first code",
+        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {"code": {"type": "string", "description": "Six digits."}}
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "On"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong code (`reason`: `wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "No setup is waiting for a code, or it's on already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/off": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in off",
+        "description": "Needs your password and a current code. Nothing is signed out. Without the device for codes, an admin removes it on the server with `melete user reset-password <name>`, which sets a new password too.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["password", "code"],
+                "properties": {
+                  "password": {"type": "string"},
+                  "code": {"type": "string", "description": "Six digits."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Off"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`) or code (`wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is off already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11821,7 +12067,10 @@
         "type": "object",
         "required": ["changed"],
         "properties": {
-          "changed": {"type": "integer", "description": "How many files this changed: marked, unmarked or set back to the start."}
+          "changed": {
+            "type": "integer",
+            "description": "How many files this changed: marked, unmarked or set back to the start."
+          }
         },
         "additionalProperties": false
       },
@@ -11925,7 +12174,7 @@
         "required": ["key", "items"],
         "properties": {
           "key": {
-            "enum": ["continue_watching", "next_up", "favourites", "latest_shows", "latest_anime", "latest_movies"]
+            "enum": ["continue_watching", "next_up", "favourites", "latest_movies", "latest_shows", "latest_anime"]
           },
           "items": {
             "type": "array",
@@ -12069,6 +12318,7 @@
         "required": [
           "id",
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -12085,6 +12335,10 @@
           "source": {
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series (the app it was imported from, or the kind of titles it's for)."
+          },
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr. Series and Anime have profiles of their own; a series takes one of its own service's."
           },
           "name": {"type": "string"},
           "upgrade_allowed": {"type": "boolean"},
@@ -12737,6 +12991,7 @@
         "type": "object",
         "required": [
           "source",
+          "service",
           "name",
           "upgrade_allowed",
           "cutoff",
@@ -12752,7 +13007,11 @@
             "enum": ["radarr", "sonarr"],
             "description": "radarr for movies, sonarr for series; it can't change later."
           },
-          "name": {"type": "string", "description": "1-100 characters, unique for its source."},
+          "service": {
+            "enum": ["movies", "series", "anime"],
+            "description": "The Manage service whose titles it's for: movies for radarr, series or anime for sonarr (Series and Anime have profiles of their own); it can't change later. A client that predates it may leave it out: a new profile is then movies' or series', and a change keeps the profile's."
+          },
+          "name": {"type": "string", "description": "1-100 characters, unique within its service."},
           "upgrade_allowed": {"type": "boolean"},
           "cutoff": {"type": "string", "description": "The name of an allowed item: upgrades stop there."},
           "min_format_score": {"type": "integer"},
@@ -15646,7 +15905,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "fields"],
+        "required": ["key", "name", "about", "on", "testable", "component", "fields", "needs"],
         "properties": {
           "key": {
             "type": "string",
@@ -15676,8 +15935,33 @@
           },
           "name": {"type": "string"},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
-          "on": {"type": "boolean", "description": "Whether it's in use as things stand."},
-          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
+          "on": {
+            "type": "boolean",
+            "description": "Whether it's in use as things stand: never while the service it needs is off."
+          },
+          "testable": {
+            "type": "boolean",
+            "description": "Whether its test (POST /api/v1/settings/services/{key}/test) tries to reach something. False for a setting of Melete's own, which has nothing to connect to."
+          },
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}},
+          "component": {
+            "type": ["object", "null"],
+            "description": "The component beside Melete it needs (Auto DJ the stem separator, motion covers their renderer), or null.",
+            "required": ["name", "set_up"],
+            "properties": {
+              "name": {"type": "string", "description": "What it is, as a sentence names it, e.g. \"stem separator\"."},
+              "set_up": {
+                "type": "boolean",
+                "description": "Whether Melete is set up to reach it (its folders are set). Whether it's running shows only when it's given work."
+              }
+            },
+            "additionalProperties": false
+          },
+          "needs": {
+            "type": ["string", "null"],
+            "enum": ["tmdb", null],
+            "description": "The service it only works with, by key (trending and similar titles and trailers online need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
+          }
         },
         "additionalProperties": false
       },
@@ -16115,7 +16399,11 @@
               "opensubtitles_used_up",
               "backup_failed",
               "backup_old",
-              "disk_nearly_full"
+              "disk_nearly_full",
+              "tmdb_off",
+              "tmdb_refused",
+              "tmdb_failing",
+              "titles_unmatched"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -16205,12 +16493,14 @@
           "last_finished_at",
           "result",
           "next_at",
-          "can_run"
+          "can_run",
+          "progress"
         ],
         "properties": {
           "name": {
             "enum": [
               "library",
+              "tmdb-matching",
               "music-matching",
               "music-analysis",
               "segments",
@@ -16246,7 +16536,12 @@
             "type": ["integer", "null"],
             "description": "When it runs next on its own; it may run sooner when asked."
           },
-          "can_run": {"type": "boolean", "description": "Whether POST …/run can start it."}
+          "can_run": {"type": "boolean", "description": "Whether POST …/run can start it."},
+          "progress": {
+            "type": "array",
+            "description": "How far each of its steps running now has got, such as probing files or matching movies on TMDB (the library task runs some side by side); empty when none is. Shown for steps with items to count; the server's log has the same counts every few hundred items or 30 seconds.",
+            "items": {"$ref": "#/components/schemas/TaskProgress"}
+          }
         },
         "additionalProperties": false
       },
@@ -16338,7 +16633,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16415,7 +16713,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16496,7 +16797,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address, when there is one."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "A picture for the artist: the cover (GET /api/v1/music/albums/{id}/cover) of the first of their albums on disk that has one of its own, in its folder or in a track. Null when none has."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -17150,6 +17454,97 @@
               {"type": "null"}
             ]
           }
+        },
+        "additionalProperties": false
+      },
+      "Refusal": {
+        "type": "object",
+        "required": ["error", "reason"],
+        "properties": {
+          "error": {"type": "string"},
+          "reason": {
+            "enum": ["wrong_password", "wrong_code"],
+            "description": "Which was wrong, for an app to point at the right field."
+          }
+        },
+        "additionalProperties": false,
+        "description": "An error that also says which of the request's secrets was wrong."
+      },
+      "SecondFactorNeeded": {
+        "type": "object",
+        "required": ["error", "second_factor", "challenge", "expires_in"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Says a code is needed, for an app that doesn't know this step to show."
+          },
+          "second_factor": {"const": "totp", "description": "What the code is: six digits from an authenticator app."},
+          "challenge": {"type": "string", "description": "Starts with m2f_. Finishes the sign-in once, with the code."},
+          "expires_in": {"type": "integer", "description": "Seconds the challenge lasts: 300."}
+        },
+        "additionalProperties": false
+      },
+      "SecondFactorRequest": {
+        "type": "object",
+        "required": ["challenge", "code"],
+        "properties": {
+          "challenge": {"type": "string"},
+          "code": {"type": "string", "description": "Six digits; spaces around them are ignored."}
+        }
+      },
+      "TwoFactorStatus": {
+        "type": "object",
+        "required": ["on", "on_since", "changes"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Signing in with the password asks for a code."},
+          "on_since": {"type": ["integer", "null"], "description": "Unix seconds; null while it's off."},
+          "changes": {
+            "type": "array",
+            "description": "The 20 latest, newest first.",
+            "items": {
+              "type": "object",
+              "required": ["change", "made_from", "at", "count"],
+              "properties": {
+                "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
+                "made_from": {
+                  "enum": ["account", "server", "sign_in"],
+                  "description": "The user's account, the server's command line, or signing in (wrong codes)."
+                },
+                "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "1, except for wrong codes counted together."
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TwoFactorSetup": {
+        "type": "object",
+        "required": ["secret", "uri"],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "160 bits in base32 (no padding), to type into an authenticator app."
+          },
+          "uri": {
+            "type": "string",
+            "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskProgress": {
+        "type": "object",
+        "required": ["what", "done", "total", "failed"],
+        "properties": {
+          "what": {"type": "string", "description": "The step, in plain words, such as \"probing files\"."},
+          "done": {"type": "integer", "description": "Items done so far."},
+          "total": {"type": "integer", "description": "Items in this run; it grows when more become due meanwhile."},
+          "failed": {"type": "integer", "description": "Of those done, the ones that failed."}
         },
         "additionalProperties": false
       }

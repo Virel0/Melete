@@ -85,7 +85,7 @@ export async function libraries(ctx) {
       h(
         "p",
         { class: "note" },
-        "Set in the server's MELETE_LIBRARY_ variables. They're scanned whole at startup and on the scan schedule (Outside services, Library scans; every 6 hours unless set), and what Melete imports is picked up at once from its own folder. A folder holding a .ignore or .melete-ignore file is skipped. Nothing in them is renamed or moved.",
+        "Set only in .env, one MELETE_LIBRARY_ variable each, since Melete needs them before it starts: add or change one there and restart Melete. They're scanned whole at startup and on the scan schedule (Outside services, Library scans; every 6 hours unless set), and what Melete imports is picked up at once from its own folder. A folder holding a .ignore or .melete-ignore file is skipped. Nothing in them is renamed or moved.",
       ),
       all.length ? h("ul", { class: "rows" }, rows) : h("p", { class: "status" }, "No libraries are set up."),
       h("div", { class: "form-actions" }, scan, status),

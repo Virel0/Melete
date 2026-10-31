@@ -109,6 +109,29 @@ pub(super) async fn place(
     Ok(Ok((library, profile)))
 }
 
+/// The profile an approved series gets, of its own service (series or anime): the approver's
+/// choice must be one of that service's; one from the defaults (Series', standing in for Anime's
+/// when Anime has none set) is swapped for the service's profile of the same name, or dropped.
+async fn series_profile(
+    pool: &SqlitePool,
+    choice: &Choice,
+    profile_id: Option<i64>,
+    service: &str,
+) -> anyhow::Result<Result<Option<i64>, Refused>> {
+    let Some(id) = profile_id else {
+        return Ok(Ok(None));
+    };
+    let mine = crate::profiles::service::of_profile(pool, id).await?;
+    if choice.profile_id == Some(id) && mine.as_deref() != Some(service) {
+        return Ok(Err(Refused::Invalid(format!(
+            "profile {id} isn't one of {service}'s; this series is {service}'s"
+        ))));
+    }
+    Ok(Ok(
+        crate::profiles::service::equivalent(pool, id, service).await?
+    ))
+}
+
 pub(super) async fn approve_as(
     pool: &SqlitePool,
     tmdb: Option<&tmdb::Client>,
@@ -238,6 +261,10 @@ pub(crate) async fn want_from_tmdb(
         };
         let (library_id, profile_id) = match placed {
             Ok(placed) => placed,
+            Err(refused) => return Ok(Err(refused)),
+        };
+        let profile_id = match series_profile(pool, choice, profile_id, defaults).await? {
+            Ok(id) => id,
             Err(refused) => return Ok(Err(refused)),
         };
         // Seasons the approver listed are monitored once it's on the list.

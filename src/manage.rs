@@ -105,7 +105,8 @@ pub struct Title<D> {
     pub title: String,
     /// Its year, when known.
     pub year: Option<i64>,
-    /// Its poster's address, when there is one.
+    /// Its poster's address, when there is one: a movie's or series' folder's own poster, else
+    /// TMDB's; for an artist, the cover of the first of their albums on disk with its own.
     pub poster: Option<String>,
     /// Where it stands.
     pub state: State,
@@ -331,7 +332,7 @@ pub fn page<D: Folder>(
     }
 }
 
-/// The poster's address for a TMDB poster path.
+/// The poster's address for a TMDB poster path or a title folder's own poster's artwork name.
 pub(crate) fn poster(path: Option<String>) -> Option<String> {
     path.map(|p| format!("/api/v1/artwork/w342{p}"))
 }

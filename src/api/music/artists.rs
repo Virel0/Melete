@@ -73,22 +73,49 @@ pub(super) fn artist_from(access: &Access) -> String {
     )
 }
 
-/// Artists in the library now that the user may see, by id, as the music API shows them.
+/// The artist an id stands for now: the one it joined, for an artist known only by name whose
+/// albums joined the MusicBrainz artist of that name; else itself.
+async fn joined(pool: &SqlitePool, id: i64) -> sqlx::Result<i64> {
+    let joined: Option<i64> =
+        sqlx::query_scalar("SELECT merged_into FROM music_artists WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    Ok(joined.unwrap_or(id))
+}
+
+/// Artists in the library now that the user may see, by id (an artist that joined another by
+/// the one it joined), as the music API shows them.
 pub(in super::super) async fn artists_by_id(
     pool: &SqlitePool,
     access: &Access,
     ids: &[i64],
 ) -> Result<std::collections::HashMap<i64, Value>, ApiError> {
     let from = artist_from(access);
-    let rows: Vec<ArtistRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT id, coalesce(merged_into, id) FROM music_artists
+         WHERE id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()))
+    .fetch_all(pool)
+    .await?;
+    let now: Vec<i64> = rows.iter().map(|(_, now)| *now).collect();
+    let found: Vec<ArtistRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {} {from}
          AND ar.id IN (SELECT value FROM json_each(?)) GROUP BY ar.id",
         artist_columns(access)
     )))
-    .bind(serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()))
+    .bind(serde_json::to_string(&now).unwrap_or_else(|_| "[]".into()))
     .fetch_all(pool)
     .await?;
-    Ok(rows.iter().map(|r| (r.id, r.to_json())).collect())
+    Ok(rows
+        .iter()
+        .filter_map(|(asked, now)| {
+            let row = found.iter().find(|r| r.id == *now)?;
+            Some((*asked, row.to_json()))
+        })
+        .collect())
 }
 
 pub(super) async fn list_artists(
@@ -135,6 +162,8 @@ pub(super) async fn artist(
     Extension(current): Extension<CurrentUser>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
+    // An artist whose albums joined another answers as that one; its `id` says which.
+    let id = joined(&state.pool, id).await?;
     let from = artist_from(&current.access);
     let row: Option<ArtistRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {} {from} AND ar.id = ? GROUP BY ar.id",
