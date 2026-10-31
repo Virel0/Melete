@@ -1301,3 +1301,62 @@ async fn cast_crew_and_collections_come_with_library_titles() {
     assert_eq!(refresh_credits(&pool, &tmdb).await.unwrap(), 0);
     assert!(fake.log.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn keeps_a_titles_own_language_with_its_details() {
+    let pool = db::open_in_memory().await;
+    let movies = library(&pool, LibraryKind::Movies).await;
+    let shows = library(&pool, LibraryKind::Shows).await;
+    insert_title(
+        &pool,
+        "movies",
+        movies,
+        "Spirited Away (2001)",
+        (Some(129), None),
+    )
+    .await;
+    insert_title(&pool, "movies", movies, "Untold (2003)", (Some(130), None)).await;
+    insert_title(
+        &pool,
+        "series",
+        shows,
+        "Squid Game (2021)",
+        (Some(93405), None),
+    )
+    .await;
+    let mut spirited = movie(129, "Spirited Away", "2001-07-20");
+    spirited["original_language"] = json!("ja");
+    let fake = FakeTmdb::default();
+    fake.reply("/movie/129", vec![Reply::ok(spirited)])
+        .reply(
+            "/movie/130",
+            vec![Reply::ok(movie(130, "Untold", "2003-01-01"))],
+        )
+        .reply(
+            "/tv/93405?append_to_response=external_ids",
+            vec![Reply::ok(json!({
+                "id": 93405, "name": "Squid Game", "first_air_date": "2021-09-17",
+                "original_language": "ko", "genres": [], "seasons": [{ "season_number": 1 }]
+            }))],
+        )
+        .reply(
+            "/tv/93405?append_to_response=season/1",
+            vec![Reply::ok(
+                json!({ "id": 93405, "season/1": { "episodes": [] } }),
+            )],
+        );
+    let tmdb = fake.start().await;
+    refresh(&pool, &tmdb).await.unwrap();
+    let movies: Vec<(i64, Option<String>)> =
+        sqlx::query_as("SELECT tmdb_id, original_language FROM tmdb_movies ORDER BY tmdb_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(movies, [(129, Some("ja".into())), (130, None)]);
+    let series: Option<String> =
+        sqlx::query_scalar("SELECT original_language FROM tmdb_series WHERE tmdb_id = 93405")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(series.as_deref(), Some("ko"));
+}
