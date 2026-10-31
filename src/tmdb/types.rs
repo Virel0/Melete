@@ -136,6 +136,8 @@ pub struct ReleaseDates {
     pub digital: Option<String>,
     /// The earliest physical release (DVD, Blu-ray); None when TMDB has none.
     pub physical: Option<String>,
+    /// The earliest showing on TV (a TV film's premiere); None when TMDB has none.
+    pub tv: Option<String>,
 }
 
 /// A series' details, for matching and for showing it.

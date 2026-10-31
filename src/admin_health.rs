@@ -35,13 +35,14 @@ pub struct Finding {
     /// Stable, for apps to act on: no_indexers, indexers_all_off, indexers_off,
     /// indexer_failed, requests_waiting, downloads_failed, follow_failed, files_missing,
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
-    /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched.
+    /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
+    /// runtime_checks_failed.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
     /// How many things it's about (requests waiting, downloads failed, files missing).
     pub count: i64,
-    /// The indexer or library it's about, when it's about one.
+    /// The indexer, library or wanted title it's about, when it's about one.
     pub id: Option<i64>,
 }
 
@@ -108,6 +109,7 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
     opensubtitles_used_up(pool, &mut found).await?;
     tmdb_off(pool, &mut found).await?;
     titles_to_match(pool, &mut found).await?;
+    found.0.extend(crate::runtime_checks::findings(pool).await?);
     Ok(Health {
         areas: by_area(found),
     })

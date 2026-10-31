@@ -56,6 +56,7 @@ mod progress;
 mod releases;
 mod requests;
 mod rss;
+mod runtime_checks;
 mod search;
 mod segments;
 mod services;
@@ -72,6 +73,7 @@ mod trickplay;
 mod wanted_removed;
 mod watch_home;
 mod web;
+mod wrong_file;
 
 use std::path::PathBuf;
 use std::sync::Arc;
