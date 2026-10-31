@@ -7,6 +7,7 @@
 //   for when it's opened.
 // - moreLikeThis(kind, id, gen): "More like this", a row drawn once it's in; nothing when
 //   there are no titles like it.
+// - fileItem(file, admin): one file's row, as About and an episode's File show it.
 // - extrasPage(kind, id, gen) and castPage(kind, id, gen): `#/movies/5/extras`, `…/cast`.
 
 import { SignedOut, announce, api, clock, fileName, h, languageName, loading, plural, runtime, show, size } from "/web/lib.js";
@@ -53,9 +54,9 @@ function fileFacts(info) {
   return words.filter(Boolean).join(", ");
 }
 
-// One file in About: its name and size, and what's in it once read. For an admin, a file Melete
-// brought in from a download also gets "Wrong file?".
-function fileItem(file, admin) {
+// One file in About or an episode's File: its name and size, and what's in it once read. For an
+// admin, a file Melete brought in from a download also gets "Wrong file?".
+export function fileItem(file, admin) {
   const facts = h("span", { class: "note" }, "Reading…");
   const actions = h("div", { class: "row-actions" });
   const li = h("li", {}, h("span", { class: "path", title: file.path }, fileName(file.path)), h("span", { class: "size" }, size(file.size)), facts, actions);
