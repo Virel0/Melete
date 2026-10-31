@@ -42,13 +42,15 @@ function picture(src, title, wide) {
   );
 }
 
-// A movie's or series' poster tile, linking to `href`.
+// A movie's or series' poster tile, linking to `href`, with why it was picked under the title
+// when the item says (an AI pick's `reason`).
 export function posterTile(item, href, badge = badgeOf(item)) {
   return h(
     "a",
     { class: "tile", href, "data-title": `${item.kind}:${item.id}` },
     picture(item.poster, item.title, false),
     clip(item.title, "span"),
+    item.reason ? h("span", { class: "tile-reason", title: item.reason }, h("span", { class: "visually-hidden" }, ": "), item.reason) : null,
     // After the title, so the link is read "Ninefold, New"; drawn over the poster's corner.
     badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null,
   );

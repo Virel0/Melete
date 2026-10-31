@@ -144,6 +144,17 @@
 .tile-caption > .clip:first-child { flex: 1; }
 .tile-caption > .clip + .clip { max-width: 45%; color: var(--muted); }
 .tile-note { flex: none; color: var(--muted); }
+/* Why the AI picked it: three lines at most, all of it on hover. */
+.tile-reason {
+  color: var(--muted);
+  font-size: var(--step--1);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.more-like-this { margin-block-start: var(--space-6); }
+.more-like-this:empty { display: none; }
 
 @media (max-width: 40rem) {
   .hero, .hero-placeholder { margin-inline: calc(-1 * var(--space-4)); margin-block-start: calc(-1 * var(--space-4)); }
