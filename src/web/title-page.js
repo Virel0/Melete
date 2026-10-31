@@ -216,7 +216,7 @@ export async function series(id, params, gen, admin = false) {
   colour(s, head.play, gen);
   const asked = params.has("season") ? Number(params.get("season")) : null;
   const opening = s.seasons.some((x) => x.season === asked) ? asked : season ?? seasonOrder(s.seasons).find((x) => x.available)?.season;
-  const picker = () => episodesPicker(s, progress, { opening: Number(new URLSearchParams(location.hash.split("?")[1] ?? "").get("season") ?? opening), gen });
+  const picker = () => episodesPicker(s, progress, { opening: Number(new URLSearchParams(location.hash.split("?")[1] ?? "").get("season") ?? opening), gen, admin });
   let episodes = s.seasons.length ? picker() : h("p", { class: "status" }, "No seasons found for this series yet.");
   let all = false;
   markAll.addEventListener("click", async () => {

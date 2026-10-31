@@ -1,24 +1,26 @@
 // A series' seasons and episodes, as two panes: seasons down the left (Specials last), the
 // chosen season's episodes on the right, each row one link that plays it (from where it was
-// left), with Mark watched beside it; the season can be marked watched as a whole. Below
-// 800 px the panes stack, the seasons a row of their own.
+// left), with Mark watched beside it; the season can be marked watched as a whole. For an
+// admin, each episode's file is folded under it, with "Wrong file?" for one Melete brought in.
+// Below 800 px the panes stack, the seasons a row of their own.
 //
-// episodesPicker(series, progress, { opening, gen }) → the section; `progress` maps a file id
-// to the user's progress entry and is kept up to date as things are marked; `opening` is the
-// season shown first (the one Play would start), `gen` the navigation it belongs to.
+// episodesPicker(series, progress, { opening, gen, admin }) → the section; `progress` maps a
+// file id to the user's progress entry and is kept up to date as things are marked; `opening`
+// is the season shown first (the one Play would start), `gen` the navigation it belongs to.
 
 import { SignedOut, airDate, announce, api, h, plural, runtime, seasonName } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { playHref } from "/web/cards.js";
 import { failed, placeholders } from "/web/page-parts.js";
 import { episodeCode, partway, timeLeft } from "/web/watch-play.js";
+import { fileItem } from "/web/title-more.js";
 
 // Numbered seasons first, Specials last.
 export function seasonOrder(seasons) {
   return [...seasons].sort((a, b) => (a.season === 0) - (b.season === 0) || a.season - b.season);
 }
 
-export function episodesPicker(series, progress, { opening, gen }) {
+export function episodesPicker(series, progress, { opening, gen, admin = false }) {
   const seasons = seasonOrder(series.seasons);
   const pane = h("div", { class: "episode-pane", id: "episode-pane" });
   const buttons = seasons.map((x) =>
@@ -35,7 +37,7 @@ export function episodesPicker(series, progress, { opening, gen }) {
     const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
     params.set("season", seasons[i].season);
     history.replaceState(history.state, "", `#/series/${series.id}?${params}`);
-    showSeason(series, seasons[i], progress, pane, gen).then((count) => {
+    showSeason(series, seasons[i], progress, pane, gen, admin).then((count) => {
       if (said && count !== undefined) announce(`${seasonName(seasons[i].season)}, ${plural(count, "episode", "episodes")}`);
     });
   };
@@ -53,7 +55,7 @@ export function episodesPicker(series, progress, { opening, gen }) {
 
 // Loads a season into the pane: its heading, Mark season watched, and its episodes. Returns
 // how many episodes it has, or nothing when another season was chosen meanwhile.
-async function showSeason(series, chosen, progress, pane, gen) {
+async function showSeason(series, chosen, progress, pane, gen, admin) {
   const mine = String(chosen.season);
   pane.dataset.season = mine;
   pane.replaceChildren(placeholders(seasonName(chosen.season).toLowerCase(), { kind: "rows", count: 4 }));
@@ -63,7 +65,7 @@ async function showSeason(series, chosen, progress, pane, gen) {
   } catch (err) {
     if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
     if (pane.dataset.season !== mine) return;
-    pane.replaceChildren(failed(seasonName(chosen.season).toLowerCase(), err, () => showSeason(series, chosen, progress, pane, gen)));
+    pane.replaceChildren(failed(seasonName(chosen.season).toLowerCase(), err, () => showSeason(series, chosen, progress, pane, gen, admin)));
     return;
   }
   if (gen !== generation || pane.dataset.season !== mine) return;
@@ -71,7 +73,7 @@ async function showSeason(series, chosen, progress, pane, gen) {
   const markAll = h("button", { type: "button", class: "quiet" });
   // Redrawn after marking; focus goes back to the button that was pressed, in its new row.
   const draw = (focusOn = null) => {
-    list.replaceChildren(...season.episodes.map((e) => episodeRow(series, chosen.season, e, progress, () => draw(e))));
+    list.replaceChildren(...season.episodes.map((e) => episodeRow(series, chosen.season, e, progress, () => draw(e), admin)));
     if (focusOn) list.children[season.episodes.indexOf(focusOn)]?.querySelector(".episode-mark")?.focus();
     const files = season.episodes.flatMap((e) => e.files);
     const all = files.length > 0 && season.episodes.every((e) => !e.files.length || progress.get(e.files[0].id)?.watched);
@@ -147,8 +149,9 @@ export async function markFiles(files, watched, progress, button) {
 }
 
 // One episode: a link that plays it (its still with "S2:E4" and how far through, its name,
-// air date, length and overview), and Mark watched beside it; without a file, a plain row.
-function episodeRow(series, seasonNumber, e, progress, redraw) {
+// air date, length and overview), and Mark watched beside it, and for an admin its file under
+// them; without a file, a plain row.
+function episodeRow(series, seasonNumber, e, progress, redraw, admin) {
   const file = e.files[0];
   const code = episodeCode(seasonNumber, e.episode);
   const p = file ? progress.get(file.id) : null;
@@ -174,5 +177,16 @@ function episodeRow(series, seasonNumber, e, progress, redraw) {
   const label = `${partway(p) ? "Resume" : "Play"} ${code}: ${e.name ?? `Episode ${e.episode}`}`;
   const mark = h("button", { type: "button", class: "quiet episode-mark", "aria-label": `${p?.watched ? "Mark unwatched" : "Mark watched"}: ${code}` }, p?.watched ? "Mark unwatched" : "Mark watched");
   mark.addEventListener("click", () => markFiles(e.files, !p?.watched, progress, mark).then(redraw));
-  return h("li", { class: "episode-row" }, h("a", { class: "episode-play", href, "aria-label": label }, still, words), mark);
+  return h("li", { class: "episode-row" }, h("a", { class: "episode-play", href, "aria-label": label }, still, words), mark, admin ? episodeFiles(e.files, code) : null);
+}
+
+// For an admin: an episode's file (or files), folded, read when it's opened, as About shows a
+// movie's; one Melete brought in from a download has "Wrong file?".
+function episodeFiles(files, code) {
+  const list = h("ul", { class: "files about-files" });
+  const box = h("details", { class: "episode-file" }, h("summary", { "aria-label": `${files.length > 1 ? "Files" : "File"} of ${code}` }, files.length > 1 ? "Files" : "File"), list);
+  box.addEventListener("toggle", () => {
+    if (box.open && !list.childElementCount) list.replaceChildren(...files.map((f) => fileItem(f, true)));
+  });
+  return box;
 }
