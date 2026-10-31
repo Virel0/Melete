@@ -15,6 +15,7 @@ use crate::db::unix_now;
 use crate::deluge;
 
 mod clearing;
+mod copying;
 mod fetching;
 mod following;
 mod grabbing;
@@ -22,6 +23,7 @@ mod records;
 mod removing;
 
 pub use clearing::*;
+pub use copying::*;
 pub use fetching::*;
 pub use following::*;
 pub use grabbing::*;
