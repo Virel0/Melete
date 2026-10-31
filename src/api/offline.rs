@@ -139,8 +139,12 @@ async fn ask(
     State(state): State<OfflineState>,
     Extension(current): Extension<CurrentUser>,
     Path(id): Path<i64>,
-    Json(asked): Json<Ask>,
+    Json(mut asked): Json<Ask>,
 ) -> Result<(StatusCode, Json<Copy>), ApiError> {
+    // A copy is AAC, and HDR10 rather than Dolby Vision, whatever player asked: it may be
+    // played on another device.
+    asked.settings.audio_codecs = None;
+    asked.settings.dolby_vision = None;
     let bad = |why: &str| ApiError::new(StatusCode::BAD_REQUEST, why);
     asked.settings.validate().map_err(bad)?;
     if asked.settings.burn_subtitle.is_some() {

@@ -11,12 +11,47 @@ pub struct Keyframes {
     pub starts: Vec<f64>,
     /// How far past a keyframe `-ss` must point to land on it; see [`keyframes`].
     pub seek_past: f64,
+    /// For each segment, its keyframe's decode time in the file's own timestamps: a run from
+    /// the start puts copied audio from before it in the segment before. Matroska keeps no
+    /// decode times, so they're worked out as ffmpeg does, from the frame rate and the frames
+    /// held back for B-frames. The first segment's is never needed.
+    pub audio_from: Vec<f64>,
 }
 
 /// Longer than this between two keyframes, and copying is refused: a segment would be huge,
 /// or the file has no index and every seek came back to the start.
 pub(super) const MAX_COPY_SEGMENT: f64 = 30.0;
 pub(super) const KEYFRAME_PROBE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// What [`keyframes`] asks ffprobe of the file first.
+#[derive(Deserialize)]
+struct Probe {
+    format: Format,
+    #[serde(default)]
+    streams: Vec<Stream>,
+}
+
+#[derive(Deserialize)]
+struct Format {
+    start_time: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Stream {
+    index: i64,
+    has_b_frames: Option<i64>,
+    avg_frame_rate: Option<String>,
+}
+
+impl Stream {
+    /// How far a keyframe's decode time comes before its display time, when the file doesn't
+    /// say: the frames held back for B-frames.
+    fn held_back(&self) -> Option<f64> {
+        let (num, den) = self.avg_frame_rate.as_deref()?.split_once('/')?;
+        let (num, den): (f64, f64) = (num.parse().ok()?, den.parse().ok()?);
+        (num > 0.0 && den > 0.0).then(|| self.has_b_frames.unwrap_or(0) as f64 * den / num)
+    }
+}
 
 /// Finds keyframes about every [`SEGMENT_SECONDS`] without reading the whole file: ffprobe
 /// seeks to each point through the file's index (Matroska cues, MP4 sync samples) and reports
@@ -27,20 +62,6 @@ pub async fn keyframes(
     video: i64,
     duration: f64,
 ) -> anyhow::Result<Keyframes> {
-    #[derive(Deserialize)]
-    struct Probe {
-        format: Format,
-        #[serde(default)]
-        streams: Vec<Stream>,
-    }
-    #[derive(Deserialize)]
-    struct Format {
-        start_time: Option<String>,
-    }
-    #[derive(Deserialize)]
-    struct Stream {
-        has_b_frames: Option<i64>,
-    }
     let mut file = OsString::from("file:");
     file.push(input);
     let run = |args: Vec<OsString>| async move {
@@ -60,7 +81,7 @@ pub async fn keyframes(
         anyhow::Ok(String::from_utf8(output.stdout)?)
     };
     let mut args: Vec<OsString> = ["-v", "error", "-show_entries"].map(OsString::from).into();
-    args.push("format=start_time:stream=has_b_frames".into());
+    args.push("format=start_time:stream=index,has_b_frames,avg_frame_rate".into());
     args.extend(["-of", "json"].map(OsString::from));
     args.push(file.clone());
     let probe: Probe = serde_json::from_str(&run(args).await?)?;
@@ -77,6 +98,12 @@ pub async fn keyframes(
         .iter()
         .any(|s| s.has_b_frames.unwrap_or(0) > 0);
     let seek_past = if b_frames { 0.130434 } else { 0.0 } + 0.0005;
+    let held_back = probe
+        .streams
+        .iter()
+        .find(|s| s.index == video)
+        .and_then(Stream::held_back)
+        .unwrap_or(0.0);
 
     let intervals: Vec<String> = (0..segment_count(duration))
         .map(|n| format!("{:.6}%+#1", start_time + n as f64 * SEGMENT_SECONDS))
@@ -87,22 +114,34 @@ pub async fn keyframes(
     args.push(video.to_string().into());
     args.push("-read_intervals".into());
     args.push(intervals.join(",").into());
-    args.extend(["-show_entries", "packet=pts_time,flags", "-of", "csv=p=0"].map(OsString::from));
+    args.extend(
+        [
+            "-show_entries",
+            "packet=pts_time,dts_time,flags",
+            "-of",
+            "csv=p=0",
+        ]
+        .map(OsString::from),
+    );
     args.push(file);
     let mut starts = vec![0.0];
+    let mut audio_from = vec![f64::NEG_INFINITY];
     for line in run(args).await?.lines() {
-        let (pts, flags) = line
-            .split_once(',')
-            .ok_or_else(|| anyhow::anyhow!("unexpected ffprobe output {line:?}"))?;
+        let mut fields = line.split(',');
+        let (Some(pts), Some(dts), Some(flags)) = (fields.next(), fields.next(), fields.next())
+        else {
+            anyhow::bail!("unexpected ffprobe output {line:?}");
+        };
         anyhow::ensure!(
             flags.contains('K'),
             "a seek landed on a frame that isn't a keyframe"
         );
-        let at: f64 = pts.parse()?;
-        let at = at - start_time;
+        let pts: f64 = pts.parse()?;
+        let at = pts - start_time;
         // A keyframe right at the start belongs to the first segment, as does a sliver of one.
         if at > 0.5 && at < duration && at > starts.last().copied().unwrap_or(0.0) + 0.001 {
             starts.push(at);
+            audio_from.push(dts.parse().unwrap_or(pts - held_back));
         }
     }
     let longest = starts
@@ -114,7 +153,11 @@ pub async fn keyframes(
         longest <= MAX_COPY_SEGMENT,
         "{longest:.1} s without a keyframe found"
     );
-    Ok(Keyframes { starts, seek_past })
+    Ok(Keyframes {
+        starts,
+        seek_past,
+        audio_from,
+    })
 }
 
 /// How many fixed segments a video `duration` seconds long has; at least one.

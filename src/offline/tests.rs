@@ -1,5 +1,5 @@
 use super::*;
-use crate::transcode::{Hardware, Settings, Transcoder};
+use crate::transcode::{AudioCodec, Hardware, Settings, Transcoder};
 
 fn plan_of(codec: VideoCodec, bitrate: i64, channels: i64) -> Plan {
     Plan {
@@ -14,9 +14,11 @@ fn plan_of(codec: VideoCodec, bitrate: i64, channels: i64) -> Plan {
         ten_bit: false,
         fmp4: false,
         dolby_vision_only: false,
+        dolby_vision: false,
         keyframes: None,
         bitrate,
         audio: Some(1),
+        audio_codec: AudioCodec::Aac,
         channels,
         burn: None,
         audio_filter: None,
