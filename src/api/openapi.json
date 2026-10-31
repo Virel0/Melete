@@ -10183,6 +10183,55 @@
         }
       }
     },
+    "/api/v1/me/playback": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your playback preferences",
+        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaybackPreferences"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "put": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set your playback preferences",
+        "description": "Each field left out keeps its value, so an app that doesn't know a newer preference never resets it. A field Melete doesn't know is refused.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The preferences to change; each one left out keeps its value.",
+                "properties": {
+                  "autoplay_next": {"type": "boolean"},
+                  "countdown_seconds": {"type": "integer", "minimum": 5, "maximum": 30}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "As kept, every field",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaybackPreferences"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/me/favourites": {
       "get": {
         "tags": ["Browse"],
@@ -17577,6 +17626,23 @@
             "type": "string",
             "enum": ["off", "forced", "foreign", "always"],
             "description": "`off`: none, forced ones included. `forced`: only forced ones. `foreign`: full subtitles when the audio isn't in one of your subtitle languages, else forced ones. `always`: full subtitles."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlaybackPreferences": {
+        "type": "object",
+        "required": ["autoplay_next", "countdown_seconds"],
+        "properties": {
+          "autoplay_next": {
+            "type": "boolean",
+            "description": "The next episode starts by itself when the countdown reaches nothing. Off: the player offers the next episode with no countdown. Default true."
+          },
+          "countdown_seconds": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 30,
+            "description": "How long the countdown before the next episode lasts. Default 10."
           }
         },
         "additionalProperties": false

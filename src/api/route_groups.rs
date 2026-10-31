@@ -98,6 +98,7 @@ pub(super) fn account_routes(
     router
         .merge(progress::routes(pool.clone()))
         .merge(languages::routes(pool.clone()))
+        .merge(preferences::routes(pool.clone()))
         .merge(favourites::routes(pool.clone()))
         .merge(access::routes(pool.clone()))
         .merge(playlists::routes(pool.clone()))

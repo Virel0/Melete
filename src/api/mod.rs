@@ -50,6 +50,7 @@ mod offline;
 mod oidc;
 mod playback;
 mod playlists;
+mod preferences;
 mod profiles;
 mod progress;
 mod releases;
