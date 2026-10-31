@@ -10,8 +10,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 ### Added
 
 - Albums can be liked. An album's like is a sync record of its own (`album_likes`), so it
-  reaches Aoide's apps the way a song's does. The web has Like on an album's page and a Liked
-  albums page.
+  reaches Aoide's apps the way a song's does. The web has Like on an album's page, a heart on
+  every album card in Listen, and a Liked albums page. A liked album stays liked when a rescan
+  gives it a new id, as on the devices.
 - Ctrl+K search finds artists and songs. A song opens its album with the song picked out.
 - `q_in=track` on `GET /api/v1/music/tracks` matches a track's own title and artist only.
 

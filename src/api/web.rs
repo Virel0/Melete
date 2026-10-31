@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 111] = [
+const MODULES: [(&str, &str); 112] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -121,6 +121,10 @@ const MODULES: [(&str, &str); 111] = [
     ("music-radio.js", include_str!("../web/music-radio.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
+    (
+        "music-album-likes.js",
+        include_str!("../web/music-album-likes.js"),
+    ),
     ("music-sidebar.js", include_str!("../web/music-sidebar.js")),
     ("music-access.js", include_str!("../web/music-access.js")),
     (
@@ -879,6 +883,26 @@ mod tests {
         // Deleting is said plainly first, with keeping it the choice that has focus.
         assert!(one.contains("setTimeout(() => keep.focus());"));
         assert!(one.contains("Its songs are worked out from its rules on your Aoide devices"));
+    }
+
+    #[test]
+    fn album_cards_have_a_heart_that_follows_the_albums_like() {
+        assert!(module("music-parts.js").contains("    cardLike(album),\n"));
+        let hearts = module("music-album-likes.js");
+        for part in [
+            "if (!seesAllMusic()) return null;",
+            r#""aria-label": `Like ${album.title}`"#,
+            r#"button.setAttribute("aria-pressed", String(liked));"#,
+            r#"api(`/music/albums/${album.id}/like`, { method: want ? "PUT" : "DELETE" })"#,
+            "err.status === 403 ? LIKES_CLOSED",
+            // Shown once the likes are known, never saying "not liked" of a liked album.
+            "button.hidden = false;",
+        ] {
+            assert!(hearts.contains(part), "{part}");
+        }
+        // The album page's Like moves its cards' hearts too, and signing out forgets the likes.
+        assert!(module("music-actions.js").contains("albumLikeChanged(album.id, want);"));
+        assert!(module("shell.js").contains("forgetAlbumLikes();"));
     }
 
     #[test]
