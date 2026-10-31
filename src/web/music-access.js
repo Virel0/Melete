@@ -15,3 +15,6 @@ export const seesAllMusic = () => all;
 // Where radio, likes and playlists would be, for someone to whom they're closed.
 export const SYNC_CLOSED =
   "Radio, likes and playlists aren't open to you, as you can see only some music libraries. An admin can change what you see.";
+
+// What the like buttons say to someone to whom likes are closed.
+export const LIKES_CLOSED = "Likes aren't open to you, as you can see only some music libraries. An admin can change what you see.";

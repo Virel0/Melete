@@ -10,7 +10,8 @@ use serde_json::value::RawValue;
 use sqlx::SqlitePool;
 
 /// The entities push accepts, sorted (as `acceptedEntities` lists them).
-pub const ENTITIES: [&str; 7] = [
+pub const ENTITIES: [&str; 8] = [
+    "album_likes",
     "folders",
     "likes",
     "play_events",
