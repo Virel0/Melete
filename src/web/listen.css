@@ -163,6 +163,26 @@
 .strip-buttons .like svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; }
 .strip-buttons .like[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .strip-buttons .like[aria-pressed="true"] svg { fill: currentColor; }
+/* Like on an album's page: its heart, filled while the album is liked, in the head's own ink. */
+.play-actions .like { gap: var(--space-1); }
+.play-actions .like svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; }
+.play-actions .like[aria-pressed="true"] svg { fill: currentColor; }
+/* An album card's heart, over its cover's corner, on a disc of its own so it reads on any
+   cover; filled while the album is liked. */
+.album-card { position: relative; }
+.album-card .card-like {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-end: var(--space-2);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.album-card .card-like:hover { background: var(--surface-raised); }
+/* The filled heart drawn as large as the outline, and told apart by its fill, not a dot. */
+.album-card .card-like[aria-pressed="true"] svg { stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.album-card .card-like[aria-pressed="true"]::after { content: none; }
+.album-card .note { display: block; font-size: var(--step--1); }
+.album-card .note:empty { display: none; }
 .track-actions .note:empty { display: none; }
 @media (max-width: 40rem) {
   .tracks.songs li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
