@@ -18,7 +18,7 @@ let framesAllowed = null;
 
 // Whether the page's policy lets YouTube's player in, which it does only while trailers online
 // is on: asked of the page itself once, so with the setting off no title asks for a trailer.
-function trailersOn() {
+export function trailersOn() {
   framesAllowed ??= fetch("/", { method: "HEAD", credentials: "same-origin" })
     .then((r) => (r.headers.get("Content-Security-Policy") ?? "").includes(`frame-src ${PLAYER}`))
     .catch(() => false);

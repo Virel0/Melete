@@ -124,6 +124,11 @@ fn check_scores(input: &ProfileInput) -> anyhow::Result<Result<(), Refused>> {
     {
         return refuse("language is an ISO 639-1 code, original or any".into());
     }
+    if let Some(minimum) = &input.minimum_availability
+        && crate::search::Minimum::parse(minimum).is_none()
+    {
+        return refuse("minimum_availability is announced, in_cinemas or released".into());
+    }
     Ok(Ok(()))
 }
 
@@ -223,8 +228,9 @@ pub(super) async fn write_profile(
             sqlx::query_scalar(
                 "INSERT INTO quality_profiles (source, service, name, upgrade_allowed, cutoff,
                      min_format_score, cutoff_format_score, min_upgrade_format_score, language,
-                     updated_at, origin)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete') RETURNING id",
+                     updated_at, origin, minimum_availability)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete', coalesce(?, 'released'))
+                 RETURNING id",
             )
             .bind(checked.app.as_str())
             .bind(checked.service)
@@ -236,13 +242,14 @@ pub(super) async fn write_profile(
             .bind(input.min_upgrade_format_score)
             .bind(&input.language)
             .bind(unix_now())
+            .bind(&input.minimum_availability)
             .fetch_one(&mut *tx)
             .await
         }
         Some(id) => sqlx::query(
             "UPDATE quality_profiles SET name = ?, upgrade_allowed = ?, cutoff = ?, min_format_score = ?,
                  cutoff_format_score = ?, min_upgrade_format_score = ?, language = ?, updated_at = ?,
-                 origin = 'melete'
+                 origin = 'melete', minimum_availability = coalesce(?, minimum_availability)
              WHERE id = ?",
         )
         .bind(&checked.name)
@@ -253,6 +260,7 @@ pub(super) async fn write_profile(
         .bind(input.min_upgrade_format_score)
         .bind(&input.language)
         .bind(unix_now())
+        .bind(&input.minimum_availability)
         .bind(id)
         .execute(&mut *tx)
         .await

@@ -961,3 +961,6 @@ async fn a_soulseek_download_isnt_fetched_from_the_seedbox() {
         .unwrap();
     assert_eq!(next_due(&pool).await.unwrap(), None);
 }
+
+mod holding;
+mod verifying;
