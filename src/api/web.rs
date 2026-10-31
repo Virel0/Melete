@@ -1032,4 +1032,17 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert!(String::from_utf8_lossy(&body).contains("/custom-formats"));
     }
+
+    #[test]
+    fn the_pages_know_the_check_by_the_servers_own_words() {
+        // The pages tell a download being checked against its title from its message.
+        let progress = MODULES
+            .iter()
+            .find(|(name, _)| *name == "progress.js")
+            .map(|(_, body)| *body)
+            .unwrap();
+        let opening: String = crate::transfer::CHECKING.chars().take(29).collect();
+        assert_eq!(opening, "checking it's the right title");
+        assert!(progress.contains(&format!("startsWith(\"{opening}\")")));
+    }
 }

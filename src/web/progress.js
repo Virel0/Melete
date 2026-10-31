@@ -150,6 +150,12 @@ export function follow(ctx, path, event, draw, live) {
   });
 }
 
+// Whether a download's files are copied home and being checked against its title before any is
+// placed (the server's message then, kept in step with it).
+export function checking(d) {
+  return d.state === "transferring" && (d.message ?? "").startsWith("checking it's the right title");
+}
+
 // A copy home's progress, `{ bytes, total, bytes_per_second, seconds_left }`, as a bar with
 // its words: "Copying home: 1.2 of 4.3 GB, 6 minutes left".
 export function copyingBar(title, c) {
