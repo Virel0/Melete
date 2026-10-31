@@ -84,6 +84,12 @@ pub struct Status {
     pub files: Vec<TorrentFile>,
     /// Deluge's tracker or error message; often empty.
     pub message: String,
+    /// How much it has uploaded for each byte downloaded; 0 when Deluge doesn't say.
+    #[serde(default)]
+    pub ratio: f64,
+    /// How long it has seeded, in seconds; 0 when Deluge doesn't say.
+    #[serde(default)]
+    pub seeding_time: i64,
 }
 
 /// A file in a torrent.
@@ -95,7 +101,7 @@ pub struct TorrentFile {
     pub size: i64,
 }
 
-const STATUS_FIELDS: [&str; 8] = [
+const STATUS_FIELDS: [&str; 10] = [
     "name",
     "state",
     "progress",
@@ -104,6 +110,8 @@ const STATUS_FIELDS: [&str; 8] = [
     "is_finished",
     "files",
     "message",
+    "ratio",
+    "seeding_time",
 ];
 
 /// A client for Deluge's web UI. It holds one session and makes one call at a time; requests
