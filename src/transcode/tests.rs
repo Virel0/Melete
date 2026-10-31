@@ -67,6 +67,8 @@ fn plan_applies_settings() {
         burn_subtitle: None,
         video_codec: None,
         audio_mode: None,
+        audio_codecs: None,
+        dolby_vision: None,
     };
     let p = plan_for(&source, settings, Hardware::Nvenc);
     assert_eq!(
@@ -399,6 +401,7 @@ fn copied_dolby_vision_profile_5_is_tagged_as_dolby_vision() {
         p.keyframes = Some(Arc::new(Keyframes {
             starts: vec![0.0, 6.0],
             seek_past: 0.0005,
+            audio_from: Vec::new(),
         }));
         value_after(&args(&p, Hardware::Nvenc, 1), "-tag:v").map(str::to_owned)
     };
@@ -425,6 +428,7 @@ fn copy_plan(starts: &[f64], duration: f64, fmp4: bool, seek_past: f64) -> Plan 
     p.keyframes = Some(Arc::new(Keyframes {
         starts: starts.to_vec(),
         seek_past,
+        audio_from: Vec::new(),
     }));
     p
 }
@@ -604,9 +608,11 @@ fn real_plan(clip: &Path) -> Plan {
         ten_bit: false,
         fmp4: false,
         dolby_vision_only: false,
+        dolby_vision: false,
         keyframes: None,
         bitrate: 500_000,
         audio: Some(1),
+        audio_codec: AudioCodec::Aac,
         channels: 2,
         burn: None,
         audio_filter: None,
@@ -1428,4 +1434,354 @@ async fn open_gop_h264_copies_decode_after_a_seek() {
         frames + 4 >= packets,
         "{frames} of {packets} frames decoded"
     );
+}
+
+/// A copy of `source`'s video for a player that takes `takes`, asking for `channels`.
+fn copy_for(takes: &[&str], channels: i64) -> Settings {
+    Settings {
+        video_codec: Some(VideoCodec::Copy),
+        audio_channels: Some(channels),
+        audio_codecs: Some(takes.iter().map(|c| c.to_string()).collect()),
+        ..Settings::default()
+    }
+}
+
+/// An HEVC (fMP4) or H.264 (MPEG-TS) source whose default audio is `codec` with `channels`.
+fn with_audio(video: &str, codec: &str, profile: Option<&str>, channels: i64) -> MediaInfo {
+    let mut source = info(video, 2160, "yuv420p10le", None);
+    source.audio[1].codec = codec.into();
+    source.audio[1].profile = profile.map(Into::into);
+    source.audio[1].channels = Some(channels);
+    source
+}
+
+#[test]
+fn copy_plans_the_audio_by_what_the_player_takes() {
+    let audio = |source: MediaInfo, settings: Settings| {
+        plan_for(&source, settings, Hardware::Software).audio_codec
+    };
+    let atmos = || with_audio("hevc", "eac3", None, 6);
+    assert_eq!(audio(atmos(), copy_for(&["eac3"], 6)), AudioCodec::Copy);
+    assert_eq!(audio(atmos(), copy_for(&["eac3"], 8)), AudioCodec::Copy);
+    // A downmix, or a sound mode, changes the sound, so it's converted.
+    assert_eq!(audio(atmos(), copy_for(&["eac3"], 2)), AudioCodec::Aac);
+    let dialogue = Settings {
+        audio_mode: Some(AudioMode::Dialogue),
+        ..copy_for(&["eac3"], 6)
+    };
+    assert_eq!(audio(atmos(), dialogue), AudioCodec::Aac);
+    assert_eq!(
+        audio(atmos(), copy_for(&["aac", "ac3"], 6)),
+        AudioCodec::Aac
+    );
+    let eac3_on_ts = with_audio("h264", "eac3", None, 6);
+    assert_eq!(audio(eac3_on_ts, copy_for(&["eac3"], 6)), AudioCodec::Copy);
+
+    let truehd = || with_audio("hevc", "truehd", Some("Dolby TrueHD + Dolby Atmos"), 8);
+    let both = copy_for(&["eac3", "alac", "flac"], 8);
+    assert_eq!(audio(truehd(), both), AudioCodec::Flac);
+    assert_eq!(audio(truehd(), copy_for(&["alac"], 8)), AudioCodec::Alac);
+    assert_eq!(audio(truehd(), copy_for(&["eac3"], 8)), AudioCodec::Aac);
+    // MPEG-TS can't carry FLAC or ALAC.
+    let truehd_on_ts = with_audio("h264", "truehd", None, 8);
+    assert_eq!(
+        audio(truehd_on_ts, copy_for(&["flac", "alac"], 8)),
+        AudioCodec::Aac
+    );
+    let flac_on_ts = with_audio("h264", "flac", None, 2);
+    assert_eq!(audio(flac_on_ts, copy_for(&["flac"], 2)), AudioCodec::Aac);
+    let master_audio = with_audio("hevc", "dts", Some("DTS-HD MA + DTS:X"), 8);
+    assert_eq!(
+        audio(master_audio, copy_for(&["flac"], 8)),
+        AudioCodec::Flac
+    );
+    let pcm = with_audio("hevc", "pcm_s24le", None, 2);
+    assert_eq!(audio(pcm, copy_for(&["flac"], 2)), AudioCodec::Flac);
+    let lossy_dts = with_audio("hevc", "dts", Some("DTS"), 6);
+    assert_eq!(audio(lossy_dts, copy_for(&["flac"], 6)), AudioCodec::Aac);
+    let flac = || with_audio("hevc", "flac", None, 2);
+    assert_eq!(audio(flac(), copy_for(&["flac"], 2)), AudioCodec::Copy);
+    // Kept lossless when a downmix is asked for.
+    let stereo = audio(truehd(), copy_for(&["flac"], 2));
+    assert_eq!(stereo, AudioCodec::Flac);
+
+    // Without a list, and for converted video, it's AAC as ever.
+    let copy = Settings {
+        video_codec: Some(VideoCodec::Copy),
+        audio_channels: Some(6),
+        ..Settings::default()
+    };
+    assert_eq!(audio(atmos(), copy), AudioCodec::Aac);
+    let hevc = Settings {
+        video_codec: Some(VideoCodec::Hevc),
+        ..copy_for(&["eac3"], 6)
+    };
+    assert_eq!(audio(atmos(), hevc), AudioCodec::Aac);
+}
+
+#[test]
+fn audio_codecs_are_known_ones() {
+    assert!(
+        copy_for(&["aac", "ac3", "eac3", "flac", "alac"], 2)
+            .validate()
+            .is_ok()
+    );
+    assert!(copy_for(&["truehd"], 2).validate().is_err());
+    assert!(copy_for(&["dts"], 2).validate().is_err());
+    assert!(copy_for(&["EAC3"], 2).validate().is_err());
+    assert!(copy_for(&["aac"; 11], 2).validate().is_err());
+}
+
+#[test]
+fn copied_audio_is_copied_or_kept_lossless() {
+    let audio_of = |source: MediaInfo, settings: Settings| {
+        let p = plan_for(&source, settings, Hardware::Software);
+        let a = args(&p, Hardware::Software, 0);
+        (
+            value_after(&a, "-c:a").map(str::to_owned),
+            value_after(&a, "-ac").map(str::to_owned),
+            a.iter().any(|x| x == "-af"),
+        )
+    };
+    let atmos = with_audio("hevc", "eac3", None, 6);
+    assert_eq!(
+        audio_of(atmos, copy_for(&["eac3"], 6)),
+        (Some("copy".into()), None, false)
+    );
+    let truehd = || with_audio("hevc", "truehd", None, 8);
+    assert_eq!(
+        audio_of(truehd(), copy_for(&["flac"], 8)),
+        (Some("flac".into()), Some("8".into()), false)
+    );
+    assert_eq!(
+        audio_of(truehd(), copy_for(&["alac"], 8)),
+        (Some("alac".into()), Some("8".into()), false)
+    );
+    // A downmix to stereo keeps its filter.
+    assert_eq!(
+        audio_of(truehd(), copy_for(&["flac"], 2)),
+        (Some("flac".into()), Some("2".into()), true)
+    );
+}
+
+#[test]
+fn dolby_vision_is_labelled_for_players_that_show_it() {
+    let label = |source: MediaInfo, shows: Option<bool>| {
+        let settings = Settings {
+            video_codec: Some(VideoCodec::Copy),
+            dolby_vision: shows,
+            ..Settings::default()
+        };
+        let mut p = plan_for(&source, settings, Hardware::Software);
+        p.keyframes = Some(Arc::new(Keyframes {
+            starts: vec![0.0, 6.0],
+            seek_past: 0.0005,
+            audio_from: Vec::new(),
+        }));
+        let a = args(&p, Hardware::Software, 1);
+        (
+            value_after(&a, "-tag:v").map(str::to_owned),
+            value_after(&a, "-strict").map(str::to_owned),
+        )
+    };
+    let dolby_vision_tag = (Some("dvh1".to_owned()), Some("unofficial".to_owned()));
+    let hvc1 = (Some("hvc1".to_owned()), None);
+    let p8 = || dolby_vision(8, Some("hdr10"));
+    assert_eq!(label(p8(), Some(true)), dolby_vision_tag);
+    assert_eq!(label(p8(), Some(false)), hvc1);
+    assert_eq!(label(p8(), None), hvc1);
+    assert_eq!(
+        label(dolby_vision(8, Some("hlg")), Some(true)),
+        dolby_vision_tag
+    );
+    // Profile 5 has no other picture; profile 7's enhancement layer is Blu-ray's own.
+    assert_eq!(label(dolby_vision(5, None), None), dolby_vision_tag);
+    assert_eq!(label(dolby_vision(7, Some("hdr10")), Some(true)), hvc1);
+    let hdr10 = info("hevc", 2160, "yuv420p10le", Some("HDR10"));
+    assert_eq!(label(hdr10, Some(true)), hvc1);
+
+    // Converted video is never labelled so.
+    let hevc = Settings {
+        video_codec: Some(VideoCodec::Hevc),
+        dolby_vision: Some(true),
+        ..Settings::default()
+    };
+    assert!(!plan_for(&p8(), hevc, Hardware::Software).dolby_vision);
+}
+
+/// All of a segment's packets, video and audio, as stream, display time and size.
+fn all_packets(segment: &Path, init: Option<&Path>) -> Vec<String> {
+    let file = match init {
+        Some(init) => {
+            let whole = segment.with_extension("all.mp4");
+            let mut bytes = std::fs::read(init).unwrap();
+            bytes.extend(std::fs::read(segment).unwrap());
+            std::fs::write(&whole, bytes).unwrap();
+            whole
+        }
+        None => segment.to_path_buf(),
+    };
+    let out = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries"])
+        .args(["packet=stream_index,pts_time,size", "-of", "csv=p=0"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(Into::into)
+        .collect()
+}
+
+/// Copies `clip`'s video and its AC-3 audio through to segment `n`, and again from `n` as
+/// after a seek: the segment must be the same, audio included.
+async fn copied_audio_lines_up(dir: &Path, clip: &Path, n: i64) {
+    let ffprobe = Path::new("ffprobe");
+    let info = crate::probe::probe(ffprobe, clip).await.unwrap();
+    let copy = copy_for(&["ac3"], 2);
+    let mut p = plan(clip.into(), &info, &copy, Hardware::Software).unwrap();
+    assert_eq!(p.audio_codec, AudioCodec::Copy);
+    p.keyframes = Some(Arc::new(
+        keyframes(ffprobe, clip, p.video, p.duration).await.unwrap(),
+    ));
+    let name = clip.file_name().unwrap().to_str().unwrap();
+    let t = Transcoder::new(
+        "ffmpeg".into(),
+        Hardware::Software,
+        dir.join(format!("audio-{name}")),
+        4,
+    );
+    let mut inits = Vec::new();
+    let mut segments = Vec::new();
+    for (session, from) in [(&b"through"[..], 0), (&b"seeked"[..], n)] {
+        for i in from..=n {
+            let segment = t.segment(session, &p, i).await.unwrap();
+            if i == n {
+                segments.push(segment);
+            }
+        }
+        assert_eq!(t.running_start(session), Some(from));
+        if p.fmp4 {
+            let init = t.init(session, &p).await.unwrap();
+            let bytes = std::fs::read(&init).unwrap();
+            assert!(bytes.windows(4).any(|w| w == b"ac-3"), "{name}: AC-3 kept");
+            inits.push(init);
+        }
+    }
+    let packets = |i: usize| all_packets(&segments[i], inits.get(i).map(PathBuf::as_path));
+    let (through, seeked) = (packets(0), packets(1));
+    assert!(
+        through.iter().any(|p| p.starts_with("1,")),
+        "{name}: audio in segment {n}"
+    );
+    // The same packets. Matroska keeps times in milliseconds, and ffmpeg works out the exact
+    // ones differently after a seek, so they may differ by less than one.
+    let fields = |p: &String| {
+        let f: Vec<String> = p.split(',').map(Into::into).collect();
+        let pts: f64 = f[1].parse().unwrap();
+        (f[0].clone(), pts, f[2].clone())
+    };
+    assert_eq!(seeked.len(), through.len(), "{name}: segment {n}'s packets");
+    for (a, b) in seeked.iter().map(fields).zip(through.iter().map(fields)) {
+        assert!(
+            a.0 == b.0 && a.2 == b.2 && (a.1 - b.1).abs() < 0.001,
+            "{name}: segment {n} after a seek has {a:?} where the run from the start has {b:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn copied_audio_lines_up_after_a_seek() {
+    let dir = tempfile::tempdir().unwrap();
+    // HEVC in MP4 keeps decode times; H.264 in Matroska has them worked out.
+    let hevc = b_frame_clip(
+        dir.path(),
+        "hevc.mp4",
+        &[
+            "-c:v",
+            "libx265",
+            "-preset",
+            "ultrafast",
+            "-x265-params",
+            "keyint=70:min-keyint=70:scenecut=0:bframes=3:log-level=error",
+        ],
+    );
+    copied_audio_lines_up(dir.path(), &hevc, 5).await;
+    let h264 = b_frame_clip(
+        dir.path(),
+        "b-frames.mkv",
+        &[
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-g",
+            "50",
+            "-sc_threshold",
+            "0",
+            "-bf",
+            "3",
+        ],
+    );
+    copied_audio_lines_up(dir.path(), &h264, 6).await;
+}
+
+#[tokio::test]
+async fn lossless_audio_stays_lossless_in_the_segments() {
+    let dir = tempfile::tempdir().unwrap();
+    // A keyframe every 2 s and audio in frames of 30 samples, so the run starting at segment 1
+    // (6 s) cuts the frame its seek lands in to 6 samples.
+    let clip = dir.path().join("pcm.mkv");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi"])
+        .args(["-i", "testsrc=size=320x240:rate=24:duration=10"])
+        .args(["-f", "lavfi", "-i"])
+        .arg("sine=frequency=440:duration=10:sample_rate=48000:samples_per_frame=30")
+        .args(["-c:v", "libx265", "-preset", "ultrafast", "-x265-params"])
+        .arg("keyint=48:min-keyint=48:scenecut=0:bframes=0:log-level=error")
+        .args(["-c:a", "pcm_s16le"])
+        .arg(&clip)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let ffprobe = Path::new("ffprobe");
+    let info = crate::probe::probe(ffprobe, &clip).await.unwrap();
+    for (takes, entry) in [("flac", &b"dfLa"[..]), ("alac", &b"alac"[..])] {
+        let mut p = plan(
+            clip.clone(),
+            &info,
+            &copy_for(&[takes], 2),
+            Hardware::Software,
+        )
+        .unwrap();
+        p.keyframes = Some(Arc::new(
+            keyframes(ffprobe, &clip, p.video, p.duration)
+                .await
+                .unwrap(),
+        ));
+        let t = Transcoder::new(
+            "ffmpeg".into(),
+            Hardware::Software,
+            dir.path().join(format!("t-{takes}")),
+            4,
+        );
+        assert_eq!(p.segment_starts()[1], 6.0);
+        for n in [0, 1] {
+            let session = [n as u8];
+            let segment = t.segment(&session, &p, n).await.unwrap();
+            let init = t.init(&session, &p).await.unwrap();
+            let bytes = std::fs::read(&init).unwrap();
+            assert!(
+                bytes.windows(4).any(|w| w == entry),
+                "{takes} in the init section"
+            );
+            let audio = all_packets(&segment, Some(&init));
+            assert!(
+                audio.iter().any(|p| p.starts_with("1,")),
+                "{takes} audio in segment {n}"
+            );
+        }
+    }
 }

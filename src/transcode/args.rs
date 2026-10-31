@@ -210,15 +210,40 @@ pub(super) fn video_encoder_args(plan: &Plan, hw: Hardware, args: &mut Vec<OsStr
 }
 
 pub(super) fn audio_args(plan: &Plan, args: &mut Vec<OsString>) {
-    if plan.audio.is_some() {
-        if let Some(filter) = &plan.audio_filter {
-            args.extend(["-af", filter].map(OsString::from));
-        }
-        let audio_bitrate = if plan.channels > 2 { "384k" } else { "192k" };
-        let channels = plan.channels.to_string();
-        let items = ["-c:a", "aac", "-ac", &channels, "-b:a", audio_bitrate];
-        args.extend(items.map(OsString::from));
+    if plan.audio.is_none() {
+        return;
     }
+    if plan.audio_codec == AudioCodec::Copy {
+        args.extend(["-c:a", "copy"].map(OsString::from));
+        return;
+    }
+    if let Some(filter) = &plan.audio_filter {
+        args.extend(["-af", filter].map(OsString::from));
+    }
+    let channels = plan.channels.to_string();
+    let items: &[&str] = match plan.audio_codec {
+        // A fixed block size: after a seek the first frame can be a few samples, too few for
+        // FLAC to take as its block size.
+        AudioCodec::Flac => &["-c:a", "flac", "-frame_size", "4096", "-ac", &channels],
+        AudioCodec::Alac => &["-c:a", "alac", "-ac", &channels],
+        _ => {
+            let audio_bitrate = if plan.channels > 2 { "384k" } else { "192k" };
+            &["-c:a", "aac", "-ac", &channels, "-b:a", audio_bitrate]
+        }
+    };
+    args.extend(items.iter().map(OsString::from));
+}
+
+/// Copied HEVC's sample entry: Dolby Vision (dvh1) when the plan says so, else hvc1, which
+/// Apple players want. ffmpeg writes the Dolby Vision configuration record only when allowed
+/// what isn't in the ISO standard, and players need it.
+pub(super) fn copied_hevc_tag(plan: &Plan, args: &mut Vec<OsString>) {
+    let items: &[&str] = if plan.dolby_vision {
+        &["-tag:v", "dvh1", "-strict", "unofficial"]
+    } else {
+        &["-tag:v", "hvc1"]
+    };
+    args.extend(items.iter().map(OsString::from));
 }
 
 /// The HLS muxer's options: segments of `hls_time` seconds named `{prefix}{n}`, numbered from
@@ -273,8 +298,8 @@ pub(super) fn hls_args(
     args.push(dir.join("ffmpeg.m3u8").into());
 }
 
-/// Copies the video and converts the audio, writing a chunk per keyframe (`c{i}`, numbered from
-/// 0 in every run); see [`Running::chunks`].
+/// Copies the video, and the audio or a conversion of it, writing a chunk per keyframe (`c{i}`,
+/// numbered from 0 in every run); see [`Running::chunks`].
 pub(super) fn copy_args(plan: &Plan, start: i64, dir: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
     let mut push = |items: &[&str]| args.extend(items.iter().map(OsString::from));
@@ -310,14 +335,7 @@ pub(super) fn copy_args(plan: &Plan, start: i64, dir: &Path) -> Vec<OsString> {
         "copy",
     ]);
     if plan.fmp4 {
-        push(&[
-            "-tag:v",
-            if plan.dolby_vision_only {
-                "dvh1"
-            } else {
-                "hvc1"
-            },
-        ]);
+        copied_hevc_tag(plan, &mut args);
     } else {
         // MPEG-TS carries H.264's parameter sets in the stream, and the conversion puts them
         // before IDR frames only: a segment starting on an open-GOP keyframe would have none,
@@ -325,6 +343,20 @@ pub(super) fn copy_args(plan: &Plan, start: i64, dir: &Path) -> Vec<OsString> {
         push(&["-bsf:v", "h264_mp4toannexb,dump_extra=freq=keyframe"]);
     }
     audio_args(plan, &mut args);
+    // Copied audio isn't cut at -ss, as converted audio is: what the run from the start put
+    // in the segment before is dropped, so the segment is the same whichever run made it.
+    // Audio a file stores before the keyframe (as mkvmerge does) the seek skips, so there
+    // the segment starts a few audio frames short.
+    let audio_from = plan
+        .keyframes
+        .as_ref()
+        .and_then(|k| k.audio_from.get(usize::try_from(start).ok()?));
+    if let Some(from) = audio_from.filter(|_| plan.audio_codec == AudioCodec::Copy && start > 0) {
+        args.extend([
+            "-bsf:a".into(),
+            format!("noise=drop='lt(dts*tb,{from:.6})'").into(),
+        ]);
+    }
     // A split at every keyframe: each is past any target this small.
     let offset = plan.fmp4.then(|| format!("{FMP4_START:.3}"));
     hls_args(plan, "0.001", 0, offset.as_deref(), dir, "c", &mut args);
