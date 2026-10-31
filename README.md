@@ -89,7 +89,7 @@ You need Docker with the Compose plugin. Melete runs as uid 10001, or a user you
 [Running as another user](#running-as-another-user)), with a read-only root filesystem and no
 capabilities.
 
-1. Clone this repository on the server, or check out a release's tag (`git checkout v0.3.0`).
+1. Clone this repository on the server, or check out a release's tag (`git checkout v0.3.1`).
 2. Copy `.env.example` to `.env` next to `compose.yaml` and set the folders. Each must exist;
    compose stops rather than let Docker create a missing one as root.
 
@@ -119,11 +119,11 @@ capabilities.
    they're usually set in the web UI, under Settings → Outside services. A value set in `.env`
    wins and can't be changed from the web UI, so uncomment one only to fix it for good.
 3. Choose the image in `.env`; `compose.yaml` itself needn't change. It runs the release it
-   names, `ghcr.io/virel0/melete:0.3.0`. To pin it by its digest (see
+   names, `ghcr.io/virel0/melete:0.3.1`. To pin it by its digest (see
    [Checking a release](#checking-a-release)), or to run another version:
 
    ```sh
-   MELETE_IMAGE=ghcr.io/virel0/melete:0.3.0@sha256:<digest>
+   MELETE_IMAGE=ghcr.io/virel0/melete:0.3.1@sha256:<digest>
    ```
 
    To build from this repository instead, for development, add `compose.build.yaml`; the
@@ -375,20 +375,20 @@ signed build-provenance attestation.
 Pull by digest, so the image can't change under you:
 
 ```sh
-docker pull ghcr.io/virel0/melete:0.3.0@sha256:<digest>
+docker pull ghcr.io/virel0/melete:0.3.1@sha256:<digest>
 ```
 
 Check that the image was built by this repository's release workflow (needs the GitHub CLI):
 
 ```sh
-gh attestation verify oci://ghcr.io/virel0/melete:0.3.0@sha256:<digest> --owner Virel0
+gh attestation verify oci://ghcr.io/virel0/melete:0.3.1@sha256:<digest> --owner Virel0
 ```
 
 To use the archive instead, check it against the release's checksums, then load it:
 
 ```sh
 sha256sum --check SHA256SUMS
-docker load --input melete-0.3.0.oci.tar
+docker load --input melete-0.3.1.oci.tar
 ```
 
 When the release has a `SHA256SUMS.asc`, the checksums are signed with the project's release

@@ -146,6 +146,43 @@ pub fn search_text(artist: &str, album: &str) -> String {
         .join(" ")
 }
 
+/// Looser words for asking again when [`search_text`] found nothing: without a compilation's
+/// "Various Artists", which few folders say, and without what's in brackets ("(Original Series
+/// Soundtrack)", "[Deluxe]"), which folders word in their own ways.
+pub fn loose_text(artist: &str, album: &str) -> String {
+    let mut plain = String::new();
+    let mut depth = 0usize;
+    for c in album.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => plain.push(c),
+            _ => {}
+        }
+    }
+    let compilation = matches!(
+        artist.trim().to_lowercase().as_str(),
+        "various artists" | "various" | "va"
+    );
+    search_text(if compilation { "" } else { artist }, &plain)
+}
+
+/// Asks slskd for `artist` and `title`, and again with [`loose_text`]'s words when nobody
+/// answered and those words differ.
+pub async fn search_loosely(
+    client: &crate::slskd::Client,
+    artist: &str,
+    title: &str,
+) -> anyhow::Result<Vec<Response>> {
+    let strict = search_text(artist, title);
+    let found = client.search(&strict).await?;
+    let loose = loose_text(artist, title);
+    if !found.is_empty() || loose == strict || loose.is_empty() {
+        return Ok(found);
+    }
+    client.search(&loose).await
+}
+
 fn extension(name: &str) -> String {
     name.rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase())
@@ -396,6 +433,19 @@ mod tests {
             "AC DC Back in Black Remastered Live"
         );
         assert_eq!(search_text("Sigur Rós", "( )"), "Sigur Rós");
+    }
+
+    #[test]
+    fn the_loose_text_drops_various_artists_and_brackets() {
+        assert_eq!(
+            loose_text(
+                "Various Artists",
+                "Cyberpunk: Edgerunners 2 (Original Series Soundtrack)"
+            ),
+            "Cyberpunk Edgerunners 2"
+        );
+        assert_eq!(loose_text("Björk", "Post [Deluxe Edition]"), "Björk Post");
+        assert_eq!(loose_text("Björk", "Post"), search_text("Björk", "Post"));
     }
 
     #[test]

@@ -250,9 +250,7 @@ pub async fn search(
             "the song's music profile was removed; choose another".into(),
         )));
     };
-    let answer = slskd
-        .search(&soulseek::search_text(&song.artist, &song.title))
-        .await;
+    let answer = soulseek::search_loosely(slskd, &song.artist, &song.title).await;
     let (outcome, decided) = match answer {
         Ok(responses) => {
             let found = candidates(&responses);
