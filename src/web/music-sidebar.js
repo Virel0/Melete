@@ -1,7 +1,7 @@
-// What Listen's sidebar lists under its sections: Yours (Liked songs and Playlists), Pinned
-// (the albums, artists and playlists pinned on any device, in their order) and Playlists (the
-// listener's own and those shared with them, a shared one named with who shares it). sides.js
-// asks for them as the sidebar's `more` groups.
+// What Listen's sidebar lists under its sections: Yours (Liked songs, Liked albums and
+// Playlists), Pinned (the albums, artists and playlists pinned on any device, in their order)
+// and Playlists (the listener's own and those shared with them, a shared one named with who
+// shares it). sides.js asks for them as the sidebar's `more` groups.
 //
 // The answers are kept for a minute, and dropped at once when a page here changes the pins or
 // a playlist (`melete:pins`, `melete:playlists`), so the next sidebar drawn shows the change, and

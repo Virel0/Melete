@@ -16,9 +16,10 @@ import { icon, iconButton } from "/web/music-controls.js";
 import { playlistPicker } from "/web/music-playlist-pick.js";
 import { radioButton } from "/web/music-radio.js";
 import { hold, release } from "/web/page-parts.js";
-import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
+import { LIKES_CLOSED, SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
+import { albumLikeChanged } from "/web/music-album-likes.js";
 
-export const LIKES_CLOSED = "Likes aren't open to you, as you can see only some music libraries. An admin can change what you see.";
+export { LIKES_CLOSED };
 
 let made = 0;
 // The strip open now: its close function.
@@ -55,6 +56,36 @@ function likeButton(track, mark, said) {
   });
   draw();
   return button;
+}
+
+// Like for an album, on its page: an album's like is its own (`/music/albums/{id}/like`), and
+// likes none of its tracks. Its cards' hearts (music-album-likes.js) follow a change.
+export function albumLike(album) {
+  const said = h("span", { class: "note", role: "status" });
+  const button = h("button", { type: "button", class: "quiet like" });
+  const draw = () => {
+    button.replaceChildren(icon(album.liked ? "liked" : "like"), "Like");
+    button.setAttribute("aria-pressed", String(Boolean(album.liked)));
+  };
+  button.addEventListener("click", async () => {
+    if (!hold(button)) return;
+    said.textContent = "";
+    const want = !album.liked;
+    try {
+      await api(`/music/albums/${album.id}/like`, { method: want ? "PUT" : "DELETE" });
+      album.liked = want;
+      draw();
+      albumLikeChanged(album.id, want);
+      said.textContent = want ? `You like ${album.title}.` : `${album.title} is no longer liked.`;
+    } catch (err) {
+      if (err instanceof SignedOut) throw err;
+      said.textContent = err.status === 403 ? LIKES_CLOSED : `Couldn't change it: ${err.message}`;
+    } finally {
+      release(button);
+    }
+  });
+  draw();
+  return [button, said];
 }
 
 // The strip's contents, made when it first opens.

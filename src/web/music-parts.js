@@ -4,6 +4,7 @@
 import { nowPlaying } from "/web/music-player.js";
 import { SignedOut, api, clock, h, plural } from "/web/lib.js";
 import { hold, release } from "/web/page-parts.js";
+import { cardLike } from "/web/music-album-likes.js";
 
 // ---------- Pieces ----------
 
@@ -15,7 +16,7 @@ export function cover(src, extra = "") {
 export function albumCard(album, { showArtist = true } = {}) {
   return h(
     "li",
-    {},
+    { class: "album-card" },
     h(
       "a",
       { class: "card", href: `#/music/albums/${album.id}` },
@@ -24,6 +25,7 @@ export function albumCard(album, { showArtist = true } = {}) {
       showArtist ? h("div", { class: "meta clip", title: album.artist }, album.artist) : null,
       album.year ? h("div", { class: "meta" }, String(album.year)) : null,
     ),
+    cardLike(album),
   );
 }
 
