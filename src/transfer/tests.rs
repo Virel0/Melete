@@ -961,3 +961,54 @@ async fn a_soulseek_download_isnt_fetched_from_the_seedbox() {
         .unwrap();
     assert_eq!(next_due(&pool).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn copying_home_counts_from_a_resumed_part_file_up_to_the_total() {
+    let r = rig().await;
+    // Every count written, in order.
+    sqlx::raw_sql(
+        "CREATE TABLE copied_log (n INTEGER PRIMARY KEY, copied INTEGER, total INTEGER);
+         CREATE TRIGGER log_copied AFTER UPDATE OF copied ON downloads
+         BEGIN INSERT INTO copied_log (copied, total) VALUES (NEW.copied, NEW.copy_total); END;",
+    )
+    .execute(&r.pool)
+    .await
+    .unwrap();
+    let movie = data(3_000_000, 7);
+    let files = r.seed(&[("Some.Movie.2024/Some.Movie.2024.mkv", movie.clone())]);
+    let wanted = r.want_movie(None).await;
+    let id = r
+        .download(Some(wanted), None, "/home/user/Completed", &files)
+        .await;
+    // A third of it copied before a restart.
+    let dir = r.local.path().join("movies/Some Movie (2024)");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!(".Some.Movie.2024.mkv.{id}.melete-part")),
+        &movie[..1_000_000],
+    )
+    .unwrap();
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    assert_eq!(r.state(id).await.0, "imported");
+
+    let log: Vec<(i64, i64)> = sqlx::query_as("SELECT copied, total FROM copied_log ORDER BY n")
+        .fetch_all(&r.pool)
+        .await
+        .unwrap();
+    let counts: Vec<i64> = log.iter().map(|(c, _)| *c).collect();
+    assert_eq!(
+        counts.first(),
+        Some(&1_000_000),
+        "from the part file's length: {counts:?}"
+    );
+    assert_eq!(
+        counts.last(),
+        Some(&3_000_000),
+        "up to the total: {counts:?}"
+    );
+    assert!(
+        counts.windows(2).all(|w| w[0] <= w[1]),
+        "never back: {counts:?}"
+    );
+    assert!(log.iter().all(|(_, total)| *total == 3_000_000));
+}

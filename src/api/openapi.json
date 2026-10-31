@@ -12920,7 +12920,8 @@
           "completed_at",
           "destination",
           "replaces",
-          "import_position"
+          "import_position",
+          "copied"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -12964,7 +12965,22 @@
           "import_position": {
             "type": ["integer", "null"],
             "description": "A finished Soulseek download waiting to be imported: its place in line, 1 being next. Songs go ahead of albums, then the longest finished; null for anything else."
+          },
+          "copied": {
+            "anyOf": [{"$ref": "#/components/schemas/Copying"}, {"type": "null"}],
+            "description": "While it's being copied home (transferring, before an album's tagging): how far that has got, updated at most once a second. Null otherwise."
           }
+        },
+        "additionalProperties": false
+      },
+      "Copying": {
+        "type": "object",
+        "required": ["bytes", "total", "bytes_per_second", "seconds_left"],
+        "properties": {
+          "bytes": {"type": "integer", "description": "Bytes copied home so far, counting what an earlier copy that was cut off left (files it placed, and its part file's length)."},
+          "total": {"type": "integer", "description": "Bytes to copy in all: every file fetched."},
+          "bytes_per_second": {"type": ["integer", "null"], "description": "This copy's speed so far, once it has run a second; null before."},
+          "seconds_left": {"type": ["integer", "null"], "description": "At that speed, rounded up; null without one."}
         },
         "additionalProperties": false
       },
@@ -13197,7 +13213,7 @@
       },
       "WantedProgress": {
         "type": "object",
-        "required": ["kind", "wanted_id", "title", "step", "percent", "message", "download_id", "source", "updated_at"],
+        "required": ["kind", "wanted_id", "title", "step", "percent", "message", "download_id", "source", "updated_at", "copied"],
         "properties": {
           "kind": {
             "type": "string",
@@ -13224,6 +13240,10 @@
           "updated_at": {
             "type": ["integer", "null"],
             "description": "Unix seconds the download last changed; null for a step worked out from the library."
+          },
+          "copied": {
+            "anyOf": [{"$ref": "#/components/schemas/Copying"}, {"type": "null"}],
+            "description": "While it's being copied home (transferring, before an album's tagging): how far that has got, updated at most once a second. Null otherwise."
           }
         },
         "additionalProperties": false

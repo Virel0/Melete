@@ -52,6 +52,8 @@ pub struct Progress {
     pub source: Option<String>,
     /// When the download last changed; null for a state worked out from the library.
     pub updated_at: Option<i64>,
+    /// While the download is copied home: how far that has got.
+    pub copied: Option<crate::downloads::Copying>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -71,6 +73,9 @@ struct DownloadRow {
     episode: Option<i64>,
     /// The wanted title's name, when it's still wanted.
     wanted_title: Option<String>,
+    copied: Option<i64>,
+    copy_total: Option<i64>,
+    copy_rate: Option<i64>,
 }
 
 /// The step a download stands at.
@@ -125,6 +130,11 @@ fn from_download(row: DownloadRow) -> Progress {
         _ => base,
     };
     let step = download_step(&row.state, row.message.as_deref());
+    let copied = crate::downloads::Copying::of(
+        &row.state,
+        row.message.as_deref(),
+        (row.copied, row.copy_total, row.copy_rate),
+    );
     Progress {
         kind,
         wanted_id,
@@ -135,12 +145,13 @@ fn from_download(row: DownloadRow) -> Progress {
         download_id: Some(row.id),
         source: Some(row.source.clone()),
         updated_at: Some(row.updated_at),
+        copied,
     }
 }
 
 const DOWNLOAD_COLUMNS: &str = "SELECT d.id, d.source, d.title, d.state, d.progress, d.message,
         d.updated_at, d.wanted_movie_id, d.wanted_series_id, d.wanted_album_id, d.wanted_song_id,
-        d.season, d.episode,
+        d.season, d.episode, d.copied, d.copy_total, d.copy_rate,
         coalesce(m.title, s.title, al.title || ' by ' || ar.name, so.title || ' by ' || so.artist)
             AS wanted_title
      FROM downloads d
@@ -185,6 +196,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Progress>> {
             download_id: None,
             source: None,
             updated_at: Some(started),
+            copied: None,
         })
         .collect();
     all.extend(rows.into_iter().map(from_download));
@@ -319,6 +331,7 @@ pub async fn of(
                 download_id: latest.as_ref().map(|d| d.id),
                 source: latest.map(|d| d.source),
                 updated_at: None,
+                copied: None,
             }
         }
         latest => {
@@ -348,6 +361,7 @@ pub async fn of(
                 download_id: failed.as_ref().map(|d| d.id),
                 source: failed.map(|d| d.source),
                 updated_at: None,
+                copied: None,
             }
         }
     };

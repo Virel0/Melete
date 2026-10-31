@@ -31,11 +31,13 @@ mod copy;
 mod destination;
 mod picking;
 mod place;
+mod tracking;
 
 pub use copy::*;
 pub(crate) use destination::*;
 pub(crate) use picking::*;
 pub(crate) use place::*;
+use tracking::*;
 
 /// How often to look for finished downloads when there's nothing to do.
 const IDLE: Duration = Duration::from_secs(60);
