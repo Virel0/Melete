@@ -127,11 +127,12 @@ async fn tmdb_takes(token: &crate::config::Secret) -> anyhow::Result<Checked> {
 /// Whether slskd answers with the key, is signed in to Soulseek, and shares nothing.
 async fn slskd_answers(settings: &crate::config::Slskd) -> anyhow::Result<Checked> {
     let client = slskd::Client::new(&settings.url, settings.api_key.clone())?;
-    Ok(match client.signed_in().await {
+    Ok(match client.status().await {
+        Err(err) if err.is::<slskd::TurnedDown>() => wrong(format!("{err}.")),
         Err(err) => wrong(format!(
             "Couldn't reach slskd with that address and key: {err}"
         )),
-        Ok(signed_in) => match client.ensure_not_sharing().await {
+        Ok(slskd::Status { signed_in, .. }) => match client.ensure_not_sharing().await {
             Err(err) => wrong(format!("{err}.")),
             Ok(()) if signed_in => {
                 ok("slskd answered, is signed in to Soulseek, and shares nothing.")
@@ -279,6 +280,32 @@ mod tests {
                 .await
                 .message
                 .contains("shares 2 folder(s)")
+        );
+    }
+
+    #[tokio::test]
+    async fn slskd_says_which_role_its_key_needs() {
+        let (_, seen) = crate::slskd::testing::start(serde_json::json!([]), 1).await;
+        let base = seen.lock().unwrap().base.clone();
+        let settings = config(&[
+            ("MELETE_SLSKD_URL", base),
+            (
+                "MELETE_SLSKD_API_KEY",
+                crate::slskd::testing::KEY.to_owned(),
+            ),
+        ]);
+        assert!(said("slskd", &settings).await.ok);
+        assert_eq!(
+            seen.lock().unwrap().admin_asked,
+            0,
+            "no administrator's route"
+        );
+        seen.lock().unwrap().forbidden = true;
+        assert_eq!(
+            said("slskd", &settings).await,
+            wrong(
+                "slskd won't let this key read how it is (403 Forbidden); Melete's key needs slskd's ReadWrite role."
+            )
         );
     }
 
