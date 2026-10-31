@@ -115,8 +115,8 @@ pub(super) async fn store_movie(
     sqlx::query(
         "INSERT INTO tmdb_movies (tmdb_id, imdb_id, title, original_title, release_date, year,
              overview, runtime_minutes, poster_path, backdrop_path, genres, fetched_at,
-             language, english_fields, collection_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             language, english_fields, collection_id, original_language)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              imdb_id = excluded.imdb_id, title = excluded.title,
              original_title = excluded.original_title, release_date = excluded.release_date,
@@ -128,7 +128,8 @@ pub(super) async fn store_movie(
              images_fetched_at = CASE WHEN coalesce(tmdb_movies.language, 'en-US') = excluded.language
                  THEN tmdb_movies.images_fetched_at END,
              language = excluded.language, english_fields = excluded.english_fields,
-             collection_id = excluded.collection_id",
+             collection_id = excluded.collection_id,
+             original_language = excluded.original_language",
     )
     .bind(d.id)
     .bind(non_empty(&d.imdb_id))
@@ -145,6 +146,7 @@ pub(super) async fn store_movie(
     .bind(&d.language)
     .bind(english_fields(&d.from_english)?)
     .bind(d.belongs_to_collection.as_ref().map(|c| c.id))
+    .bind(non_empty(&d.original_language))
     .execute(pool)
     .await?;
     // The title is searchable by its folded keys at once, not after the next scan.
@@ -165,8 +167,8 @@ pub(super) async fn store_series(
     sqlx::query(
         "INSERT INTO tmdb_series (tmdb_id, tvdb_id, imdb_id, name, original_name, first_air_date,
              year, overview, status, poster_path, backdrop_path, genres, fetched_at, language,
-             english_fields)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             english_fields, original_language)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              tvdb_id = excluded.tvdb_id, imdb_id = excluded.imdb_id, name = excluded.name,
              original_name = excluded.original_name, first_air_date = excluded.first_air_date,
@@ -175,7 +177,8 @@ pub(super) async fn store_series(
              genres = excluded.genres, fetched_at = excluded.fetched_at,
              images_fetched_at = CASE WHEN coalesce(tmdb_series.language, 'en-US') = excluded.language
                  THEN tmdb_series.images_fetched_at END,
-             language = excluded.language, english_fields = excluded.english_fields",
+             language = excluded.language, english_fields = excluded.english_fields,
+             original_language = excluded.original_language",
     )
     .bind(d.id)
     .bind(ids.and_then(|i| i.tvdb_id))
@@ -192,6 +195,7 @@ pub(super) async fn store_series(
     .bind(now)
     .bind(&d.language)
     .bind(english_fields(&d.from_english)?)
+    .bind(non_empty(&d.original_language))
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM tmdb_episodes WHERE series_tmdb_id = ?")

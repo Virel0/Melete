@@ -119,6 +119,47 @@ async fn rows_hold_titles_like_those_finished_most_alike_first() {
 }
 
 #[tokio::test]
+async fn the_same_original_language_orders_titles_otherwise_as_alike() {
+    let f = alike_fixture().await;
+    let (me, token) = user(&f, "viewer").await;
+    progress(&f, me, 24, 0.0, 5).await;
+    let language = |seen: &str, thriller: &str| {
+        let pool = f.pool.clone();
+        let (seen, thriller) = (seen.to_owned(), thriller.to_owned());
+        async move {
+            sqlx::query(
+                "UPDATE tmdb_movies SET original_language = CASE tmdb_id
+                     WHEN 608 THEN ?1 WHEN 606 THEN ?2 WHEN 609 THEN 'en' END",
+            )
+            .bind(seen)
+            .bind(thriller)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+    let seen_row = |home: &Value| {
+        because(home)
+            .into_iter()
+            .find(|(seed, _)| seed == "movie:24")
+            .unwrap()
+            .1
+    };
+    // Elsewhere and Thriller are both Action from Seen's decade: the newer first...
+    language("en", "ko").await;
+    let home = home_of(&f, &token).await;
+    assert_eq!(seen_row(&home)[..2], strings(&["movie:25", "movie:22"]));
+    // ...unless only the other shares its language.
+    language("ko", "ko").await;
+    let home = home_of(&f, &token).await;
+    assert_eq!(seen_row(&home)[..2], strings(&["movie:22", "movie:25"]));
+    // "No language" isn't a language they share.
+    language("xx", "xx").await;
+    let home = home_of(&f, &token).await;
+    assert_eq!(seen_row(&home)[..2], strings(&["movie:25", "movie:22"]));
+}
+
+#[tokio::test]
 async fn only_titles_the_user_may_see_are_there() {
     let f = alike_fixture().await;
     let (me, token) = user(&f, "child").await;

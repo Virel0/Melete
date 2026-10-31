@@ -3,8 +3,9 @@
 //! haven't watched, most alike first.
 //!
 //! Likeness comes from what Melete stores of each title, with nothing leaving the server: a
-//! film's collection, shared genres, shared cast and crew, and the decade it came out in. A
-//! title has to share a collection, a genre or a person to count; the decade only orders. With
+//! film's collection, shared genres, shared cast and crew, the decade it came out in, and its
+//! own language. A title has to share a collection, a genre or a person to count; the decade
+//! and the language only order. With
 //! trending and similar titles on, TMDB's recommendations for the title are blended in, kept to
 //! what's in the library: only its TMDB id leaves, and the answer is kept a day.
 
@@ -46,6 +47,8 @@ struct Seed {
     collection: Option<i64>,
     /// A JSON array of TMDB person ids.
     people: String,
+    /// Its own language as TMDB gives it (`ja`), when known.
+    language: Option<String>,
 }
 
 /// The rows: each title the user finished most recently, with the titles like it.
@@ -131,21 +134,22 @@ async fn finished(pool: &SqlitePool, me: i64, access: &Access) -> Result<Vec<Tit
 
 /// What a title's likeness is measured by; nothing for one not matched on TMDB.
 async fn seed(pool: &SqlitePool, title: TitleRef) -> Result<Seed, ApiError> {
-    let found: Option<(i64, String, Option<i64>, Option<i64>)> = if title.series {
+    type Found = (i64, String, Option<i64>, Option<i64>, Option<String>);
+    let found: Option<Found> = if title.series {
         sqlx::query_as(
-            "SELECT t.tmdb_id, t.genres, t.year, NULL FROM series s
+            "SELECT t.tmdb_id, t.genres, t.year, NULL, t.original_language FROM series s
              JOIN tmdb_series t ON t.tmdb_id = s.match_tmdb_id WHERE s.id = ?",
         )
     } else {
         sqlx::query_as(
-            "SELECT t.tmdb_id, t.genres, t.year, t.collection_id FROM movies m
+            "SELECT t.tmdb_id, t.genres, t.year, t.collection_id, t.original_language FROM movies m
              JOIN tmdb_movies t ON t.tmdb_id = m.match_tmdb_id WHERE m.id = ?",
         )
     }
     .bind(title.id)
     .fetch_optional(pool)
     .await?;
-    let Some((tmdb_id, genres, year, collection)) = found else {
+    let Some((tmdb_id, genres, year, collection, language)) = found else {
         return Ok(Seed::default());
     };
     let people: Vec<i64> = sqlx::query_scalar(if title.series {
@@ -162,6 +166,8 @@ async fn seed(pool: &SqlitePool, title: TitleRef) -> Result<Seed, ApiError> {
         year,
         collection,
         people: serde_json::to_string(&people)?,
+        // TMDB's "xx" is no language: two silent films aren't alike for it.
+        language: language.filter(|l| l != "xx"),
     })
 }
 
@@ -205,8 +211,8 @@ async fn recommendations(
 
 /// The present titles the user may see and hasn't watched that are like `title`, most alike
 /// first: a shared collection counts 6, each shared genre 2 (up to three), each shared person 2
-/// (up to four), TMDB recommending it 6, and the same decade 1. One sharing no collection,
-/// genre or person, and not recommended, isn't like it.
+/// (up to four), TMDB recommending it 6, the same decade 1 and the same language 1. One sharing
+/// no collection, genre or person, and not recommended, isn't like it.
 async fn alike(
     pool: &SqlitePool,
     me: i64,
@@ -221,6 +227,7 @@ async fn alike(
     let rows: Vec<(bool, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "WITH candidates AS (
              SELECT 0 AS series, m.id, t.tmdb_id, t.genres, t.year, t.collection_id,
+                 t.original_language,
                  (SELECT count(DISTINCT c.person_id) FROM tmdb_credits c
                   WHERE c.movie_tmdb_id = t.tmdb_id
                     AND c.person_id IN (SELECT value FROM json_each(?2))) AS people
@@ -232,7 +239,7 @@ async fn alike(
                    JOIN playback_progress p ON p.file_id = f.id
                    WHERE f.movie_id = m.id AND p.user_id = ?1 AND p.watched = 1)
              UNION ALL
-             SELECT 1, s.id, t.tmdb_id, t.genres, t.year, NULL,
+             SELECT 1, s.id, t.tmdb_id, t.genres, t.year, NULL, t.original_language,
                  (SELECT count(DISTINCT c.person_id) FROM tmdb_credits c
                   WHERE c.series_tmdb_id = t.tmdb_id
                     AND c.person_id IN (SELECT value FROM json_each(?2)))
@@ -251,13 +258,14 @@ async fn alike(
                   WHERE g.value IN (SELECT value FROM json_each(?3))) AS genres,
                  people,
                  series = ?6 AND tmdb_id IN (SELECT value FROM json_each(?7)) AS recommended,
-                 coalesce(year / 10 = ?5 / 10, 0) AS decade
+                 coalesce(year / 10 = ?5 / 10, 0) AS decade,
+                 coalesce(original_language = ?10, 0) AS language
              FROM candidates WHERE NOT (series = ?6 AND id = ?8)
          )
          SELECT series, id FROM measured
          WHERE collection OR genres > 0 OR people > 0 OR recommended
          ORDER BY 6 * collection + 2 * min(genres, 3) + 2 * min(people, 4) + 6 * recommended
-                  + decade DESC, year DESC, series, id
+                  + decade + language DESC, year DESC, series, id
          LIMIT ?9",
         movies = access.movie_sql("m"),
         series = access.series_sql("s"),
@@ -271,6 +279,7 @@ async fn alike(
     .bind(serde_json::to_string(recommended)?)
     .bind(title.id)
     .bind(PER_ROW)
+    .bind(&seed.language)
     .fetch_all(pool)
     .await?;
     Ok(rows
