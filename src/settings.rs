@@ -170,6 +170,21 @@ mod tests {
         assert_eq!(get("MELETE_SLSKD_URL"), None);
     }
 
+    /// `.env.example` is copied as it is, and a value in `.env` locks a setting in the web UI: it
+    /// may only leave the UI's settings empty or commented out.
+    #[test]
+    fn the_env_example_leaves_the_uis_settings_to_the_ui() {
+        let pinned: Vec<&str> = include_str!("../.env.example")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| line.split_once('='))
+            .filter(|(name, value)| known(name.trim()).is_some() && !value.trim().is_empty())
+            .map(|(name, _)| name)
+            .collect();
+        assert!(pinned.is_empty(), "set in .env.example: {pinned:?}");
+    }
+
     #[tokio::test]
     async fn saves_what_holds_together_and_refuses_the_rest() {
         let pool = db::open_in_memory().await;
@@ -321,6 +336,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_setting_locked_by_env_names_its_variable_and_the_way_out() {
+        let pool = db::open_in_memory().await;
+        let env = env_of(&[("MELETE_MUSICBRAINZ", "on")]);
+        let why = match save(
+            &pool,
+            "musicbrainz",
+            &change(&[("MELETE_MUSICBRAINZ", Some("off"))]),
+            &env,
+        )
+        .await
+        .unwrap()
+        {
+            Err(Refused::Invalid(why)) => why,
+            other => panic!("{other:?}"),
+        };
+        assert!(
+            why.starts_with("MELETE_MUSICBRAINZ is set in .env"),
+            "{why}"
+        );
+        assert!(
+            why.contains("remove that line from .env and restart Melete"),
+            "{why}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_view_says_a_secret_is_set_but_never_shows_it() {
         let pool = db::open_in_memory().await;
         let env = env_of(&[("MELETE_SLSKD_URL", "http://slskd:5030")]);
@@ -358,6 +399,41 @@ mod tests {
         assert!(!serde_json::to_string(&views).unwrap().contains("key-value"));
         let tmdb = views.iter().find(|s| s.key == "tmdb").unwrap();
         assert!(!tmdb.on);
+    }
+
+    /// Only services with something to reach are tested; a setting that needs a component
+    /// beside Melete says whether it's set up.
+    #[test]
+    fn a_view_says_what_can_be_tested_and_what_a_setting_needs() {
+        let env = env_of(&[("MELETE_MOTION_JOBS", "/path/to/motion/jobs")]);
+        let config = Config::from_env_and(lookup(&HashMap::new(), &env)).unwrap();
+        let views = views(&config, &HashMap::new(), &env);
+        let view = |key: &str| views.iter().find(|s| s.key == key).unwrap();
+        assert!(view("tmdb").testable && view("slskd").testable);
+        assert!(view("tmdb").component.is_none());
+        for own in [
+            "auto_dj",
+            "motion_covers",
+            "scans",
+            "song_albums",
+            "trickplay",
+        ] {
+            assert!(!view(own).testable, "{own}");
+        }
+        assert_eq!(
+            view("auto_dj").component,
+            Some(Component {
+                name: "stem separator",
+                set_up: false
+            })
+        );
+        assert_eq!(
+            view("motion_covers").component,
+            Some(Component {
+                name: "motion cover renderer",
+                set_up: true
+            })
+        );
     }
 
     #[tokio::test]

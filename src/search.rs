@@ -21,12 +21,14 @@ use crate::profiles::{self, App, Loaded};
 use crate::release::{self, Episodes, Release};
 use crate::torznab;
 
+mod availability;
 mod indexer_params;
 mod on_disk;
 mod titles;
 mod view;
 mod wanted;
 
+pub(crate) use availability::*;
 pub(crate) use indexer_params::*;
 use on_disk::*;
 pub(crate) use on_disk::{OnDisk, Read, best_read, cutoff_unmet, file_name, judge_file};
@@ -213,14 +215,18 @@ pub(crate) async fn profile_for(
     target: Target,
     wanted: &Wanted,
 ) -> anyhow::Result<Result<Loaded, Refused>> {
-    let app = match target {
-        Target::Movie(_) => App::Radarr,
-        Target::Series { .. } => App::Sonarr,
+    let (app, service) = match target {
+        Target::Movie(_) => (App::Radarr, "movies".to_owned()),
+        Target::Series { id, .. } => (
+            App::Sonarr,
+            profiles::service::of_wanted_series(pool, id).await?,
+        ),
     };
-    // A profile chosen in Melete; it's always for this kind of title (checked when chosen).
+    // A profile chosen in Melete; it's for this title's service (checked when chosen; one
+    // chosen before the title moved between Series and Anime is passed over).
     if let Some(id) = wanted.profile_id
         && let Some(profile) = profiles::load(pool, id).await?
-        && profile.profile.source == app.as_str()
+        && profile.profile.service == service
     {
         return Ok(Ok(profile));
     }
@@ -229,12 +235,7 @@ pub(crate) async fn profile_for(
             "the title has no quality profile".into(),
         )));
     };
-    let profile_id: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM quality_profiles WHERE source = ? AND name = ?")
-            .bind(app.as_str())
-            .bind(profile_name)
-            .fetch_optional(pool)
-            .await?;
+    let profile_id = profiles::service::named(pool, &service, profile_name).await?;
     Ok(match profile_id {
         Some(id) => profiles::load(pool, id).await?,
         None => None,
@@ -262,6 +263,13 @@ pub(crate) async fn decide_all<'a>(
     let mut disk: HashMap<Option<(i64, i64, i64)>, OnDisk> = HashMap::new();
     let mut looked = Looked::default();
     let mut decided = Vec::new();
+    // Whether the film can be out in each release's form yet.
+    let out = match target {
+        Target::Movie(_) => dates(pool, wanted.tmdb_id).await?,
+        Target::Series { .. } => None,
+    };
+    let minimum =
+        Minimum::parse(&profile.profile.minimum_availability).unwrap_or(Minimum::Released);
     for &(indexer_id, item) in items {
         let parsed = release::parse(&item.title);
         // Where it goes; renumbered when it's numbered from the first episode.
@@ -315,6 +323,13 @@ pub(crate) async fn decide_all<'a>(
         };
         if let Some(reason) = mismatch {
             decision.rejections.insert(0, reason);
+            decision.accepted = false;
+        }
+        if let Some(why) = out
+            .as_ref()
+            .and_then(|d| refusal(minimum, d, parsed.source))
+        {
+            decision.rejections.push(why);
             decision.accepted = false;
         }
         decided.push((indexer_id, item, decision));

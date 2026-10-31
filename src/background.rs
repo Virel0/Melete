@@ -252,13 +252,16 @@ pub(crate) async fn probe_music(pool: &sqlx::SqlitePool, ffprobe: &std::path::Pa
 
 pub(crate) async fn match_metadata(pool: &sqlx::SqlitePool, tmdb: Option<Arc<tmdb::Client>>) {
     let Some(tmdb) = tmdb else {
+        crate::tasks::inactive(TMDB_TASK);
         // Nothing to fetch, but a country set in .env since the last run still counts.
         if let Err(err) = crate::ratings::reread(pool).await {
             tracing::warn!(error = %err, "couldn't judge content ratings again");
         }
         return;
     };
-    match metadata::refresh(pool, &tmdb).await {
+    crate::tasks::started(TMDB_TASK);
+    let run = metadata::refresh(pool, &tmdb).await;
+    match &run {
         Ok(report) => tracing::info!(
             matched = report.matched,
             unmatched = report.unmatched,
@@ -269,7 +272,44 @@ pub(crate) async fn match_metadata(pool: &sqlx::SqlitePool, tmdb: Option<Arc<tmd
         ),
         Err(err) => tracing::error!(error = format!("{err:#}"), "metadata refresh stopped"),
     }
-    match metadata::refresh_wanted(pool, &tmdb).await {
+    crate::tmdb_status::record(&run);
+    let said = crate::tmdb_status::summary(pool, &run).await;
+    refresh_the_rest(pool, &tmdb).await;
+    crate::tasks::finished(TMDB_TASK, Some(said), None);
+}
+
+/// TMDB matching's name on the Tasks page.
+const TMDB_TASK: &str = "tmdb-matching";
+
+/// Runs TMDB matching when an admin asks for it from Tasks, without a scan; marks it on Tasks as
+/// running in this server while TMDB is set up.
+pub(crate) async fn match_on_request(
+    pool: sqlx::SqlitePool,
+    mut tmdb: tokio::sync::watch::Receiver<Option<Arc<tmdb::Client>>>,
+) {
+    loop {
+        if tmdb.borrow_and_update().is_some() {
+            crate::tasks::ready(TMDB_TASK);
+        } else {
+            crate::tasks::inactive(TMDB_TASK);
+        }
+        tokio::select! {
+            _ = jobs::TMDB.notified() => {
+                let client = tmdb.borrow().clone();
+                match_metadata(&pool, client).await;
+            }
+            changed = tmdb.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// After matching: wanted titles' details, content ratings, cast and crew, and trailers.
+async fn refresh_the_rest(pool: &sqlx::SqlitePool, tmdb: &tmdb::Client) {
+    match metadata::refresh_wanted(pool, tmdb).await {
         Ok(report) => tracing::info!(
             fetched = report.refreshed,
             errors = report.errors,
@@ -280,7 +320,7 @@ pub(crate) async fn match_metadata(pool: &sqlx::SqlitePool, tmdb: Option<Arc<tmd
             "wanted titles' metadata refresh stopped"
         ),
     }
-    match crate::ratings::refresh(pool, &tmdb).await {
+    match crate::ratings::refresh(pool, tmdb).await {
         Ok(report) => tracing::info!(
             fetched = report.fetched,
             errors = report.errors,
@@ -291,12 +331,12 @@ pub(crate) async fn match_metadata(pool: &sqlx::SqlitePool, tmdb: Option<Arc<tmd
             "content ratings refresh stopped"
         ),
     }
-    match metadata::refresh_credits(pool, &tmdb).await {
+    match metadata::refresh_credits(pool, tmdb).await {
         Ok(fetched) if fetched > 0 => tracing::info!(fetched, "cast and crew fetched"),
         Ok(_) => {}
         Err(err) => tracing::warn!(error = format!("{err:#}"), "fetching cast and crew stopped"),
     }
-    match metadata::refresh_trailers(pool, &tmdb).await {
+    match metadata::refresh_trailers(pool, tmdb).await {
         Ok(fetched) if fetched > 0 => tracing::info!(fetched, "titles' trailers fetched"),
         Ok(_) => {}
         Err(err) => tracing::warn!(error = format!("{err:#}"), "fetching trailers stopped"),
@@ -333,27 +373,34 @@ async fn scan_some(
             Some(folder) => library::scan_folder(pool, library, folder).await,
             None => library::scan(pool, library).await,
         };
-        log_scan(library, folder.as_deref(), scanned);
+        log_scan(pool, library, folder.as_deref(), scanned).await;
     }
     fill_search_keys(pool).await;
 }
 
-fn log_scan(
+/// Logs how a scan went, then names the files it couldn't parse that aren't named yet.
+async fn log_scan(
+    pool: &sqlx::SqlitePool,
     library: &library::Library,
     folder: Option<&str>,
     scanned: anyhow::Result<library::ScanReport>,
 ) {
     match scanned {
-        Ok(report) => tracing::info!(
-            library = library.name,
-            folder,
-            files = report.files,
-            added = report.added,
-            newly_missing = report.newly_missing,
-            unparsed = report.unparsed,
-            skipped = report.skipped,
-            "scan finished"
-        ),
+        Ok(report) => {
+            tracing::info!(
+                library = library.name,
+                folder,
+                files = report.files,
+                added = report.added,
+                newly_missing = report.newly_missing,
+                unparsed = report.unparsed,
+                skipped = report.skipped,
+                "scan finished"
+            );
+            if report.unparsed > 0 {
+                library::unparsed::name_new(pool, library).await;
+            }
+        }
         Err(err) => tracing::error!(
             library = library.name,
             folder,
@@ -367,7 +414,7 @@ fn log_scan(
 pub(crate) async fn scan_all(pool: &sqlx::SqlitePool, libraries: Vec<library::Library>) {
     for library in libraries {
         let scanned = library::scan(pool, &library).await;
-        log_scan(&library, None, scanned);
+        log_scan(pool, &library, None, scanned).await;
     }
     fill_search_keys(pool).await;
 }

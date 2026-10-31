@@ -187,6 +187,9 @@ pub(in super::super) async fn track_values(
 pub(super) struct TrackQuery {
     /// Part of the title, artist or album, case-insensitive.
     pub(super) q: Option<String>,
+    /// What `q` is matched against: `all` (default) or `track`, the track's own title and
+    /// artists only, so an album's name doesn't bring every track on it.
+    pub(super) q_in: Option<String>,
     /// Comma-separated track ids.
     pub(super) id: Option<String>,
     /// Comma-separated album ids.
@@ -209,6 +212,19 @@ pub(super) async fn list_tracks(
     let tracks = ids(query.id.as_deref(), "id")?;
     let albums = ids(query.album_id.as_deref(), "album_id")?;
     let artists = ids(query.artist_id.as_deref(), "artist_id")?;
+    let text = match query.q_in.as_deref().unwrap_or("all") {
+        "all" => {
+            "t.title LIKE ?1 ESCAPE '\\' OR t.artist LIKE ?1 ESCAPE '\\'
+             OR a.title LIKE ?1 ESCAPE '\\' OR t.search_key LIKE ?5 OR a.search_key LIKE ?5"
+        }
+        "track" => {
+            "t.title LIKE ?1 ESCAPE '\\' OR t.artist LIKE ?1 ESCAPE '\\'
+             OR t.album_artist LIKE ?1 ESCAPE '\\' OR a.artist_name LIKE ?1 ESCAPE '\\'
+             OR t.search_key LIKE ?5 OR EXISTS (SELECT 1 FROM music_artists ar
+                 WHERE ar.id = a.artist_id AND ar.search_key LIKE ?5)"
+        }
+        _ => return Err(bad_request("q_in is all or track")),
+    };
     let order = match query.sort.as_deref().unwrap_or("album") {
         "album" => TRACK_ORDER,
         "title" => "coalesce(t.sort_key, t.title) COLLATE NOCASE, t.id",
@@ -218,8 +234,7 @@ pub(super) async fn list_tracks(
     let from = format!(
         "FROM music_tracks t JOIN music_albums a ON a.id = t.album_id
          WHERE t.missing_since IS NULL AND a.missing_since IS NULL AND {}
-           AND (?1 IS NULL OR t.title LIKE ?1 ESCAPE '\\' OR t.artist LIKE ?1 ESCAPE '\\'
-                OR a.title LIKE ?1 ESCAPE '\\' OR t.search_key LIKE ?5 OR a.search_key LIKE ?5)
+           AND (?1 IS NULL OR {text})
            AND (?2 IS NULL OR t.album_id IN (SELECT value FROM json_each(?2)))
            AND (?3 IS NULL OR a.artist_id IN (SELECT value FROM json_each(?3))
                 OR EXISTS (SELECT 1 FROM music_track_artists ta WHERE ta.track_id = t.id
@@ -227,7 +242,7 @@ pub(super) async fn list_tracks(
            AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(t.genres) g
                WHERE g.value = ?4 COLLATE NOCASE))
            AND (?6 IS NULL OR t.id IN (SELECT value FROM json_each(?6)))",
-        current.access.track_sql("t")
+        current.access.track_sql("t"),
     );
     let q = pattern(query.q.as_deref());
     let folded = crate::search_keys::pattern(query.q.as_deref());

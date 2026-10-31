@@ -45,7 +45,11 @@ pub struct FormatInput {
 pub struct ProfileInput {
     /// "radarr" for movies, "sonarr" for series; it can't change once made.
     pub source: String,
-    /// Its name, unique within its source.
+    /// The Manage service whose titles it's for: "movies" for Radarr's, "series" or "anime"
+    /// for Sonarr's; when left out, movies or series. It can't change once made.
+    #[serde(default)]
+    pub service: Option<String>,
+    /// Its name, unique within its service.
     pub name: String,
     /// Whether a file already in the library is replaced by a better release.
     pub upgrade_allowed: bool,
@@ -59,6 +63,11 @@ pub struct ProfileInput {
     pub min_upgrade_format_score: i64,
     /// The audio language wanted: a language code or "original"; None or "any" for any.
     pub language: Option<String>,
+    /// For a movie profile, how far out a film must be before its releases are taken:
+    /// "announced", "in_cinemas" or "released". Left out, a new profile waits until a film is
+    /// released and a changed one keeps its setting.
+    #[serde(default)]
+    pub minimum_availability: Option<String>,
     /// Lowest first.
     pub items: Vec<ItemInput>,
     /// Scores for custom formats of the same source; any other scores 0.
@@ -100,6 +109,23 @@ fn check_name(name: &str) -> Result<String, Refused> {
 fn app(source: &str) -> Result<App, Refused> {
     App::from_source(source)
         .map_err(|_| invalid("source is radarr (for movies) or sonarr (for series)"))
+}
+
+/// The service a profile of `app` is for: the one asked for, which must take the app's
+/// profiles, else the app's own.
+fn service_of(app: App, asked: Option<&str>) -> Result<&'static str, Refused> {
+    let Some(asked) = asked else {
+        return Ok(super::service::default_for(app));
+    };
+    super::service::SERVICES
+        .into_iter()
+        .find(|s| *s == asked && super::service::app_of(s) == Some(app))
+        .ok_or_else(|| {
+            invalid(match app {
+                App::Radarr => "a radarr profile's service is movies",
+                App::Sonarr => "a sonarr profile's service is series or anime",
+            })
+        })
 }
 
 #[cfg(test)]

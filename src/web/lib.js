@@ -7,9 +7,10 @@ const announcer = document.getElementById("announce");
 
 export class SignedOut extends Error {}
 
-// `keepalive` lets a request finish after the page is gone (the last progress report). Paths
-// are under /api/v1, except Aoide's own (`/aoide/…`), which sit beside it.
-export async function api(path, { method = "GET", body, keepalive = false } = {}) {
+// `keepalive` lets a request finish after the page is gone (the last progress report); `signal`
+// cancels it (an AbortError is thrown). Paths are under /api/v1, except Aoide's own
+// (`/aoide/…`), which sit beside it.
+export async function api(path, { method = "GET", body, keepalive = false, signal } = {}) {
   const headers = { "X-Melete-Web": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   let response;
@@ -20,16 +21,20 @@ export async function api(path, { method = "GET", body, keepalive = false } = {}
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: "same-origin",
       keepalive,
+      signal,
     });
-  } catch {
+  } catch (err) {
+    if (err.name === "AbortError") throw err;
     throw new Error("Melete didn't answer. Check that the server is running, then try again.");
   }
   if (response.status === 204) return null;
   const data = await response.json().catch(() => null);
-  if (response.status === 401 && path !== "/auth/web-login") throw new SignedOut();
+  // Signing in answers 401 for a wrong password or code, and when it needs a code.
+  if (response.status === 401 && !path.startsWith("/auth/web-login")) throw new SignedOut();
   if (!response.ok) {
     throw Object.assign(new Error(data?.error ?? `Melete answered ${response.status}.`), {
       status: response.status,
+      data,
     });
   }
   return data;

@@ -85,8 +85,9 @@ Melete serves its own web UI, and two native apps are built against its API:
 
 ## Install with Docker Compose
 
-You need Docker with the Compose plugin. Melete runs as uid 10001 with a read-only root
-filesystem and no capabilities.
+You need Docker with the Compose plugin. Melete runs as uid 10001, or a user you choose (see
+[Running as another user](#running-as-another-user)), with a read-only root filesystem and no
+capabilities.
 
 1. Clone this repository on the server, or check out a release's tag (`git checkout v0.1.0`).
 2. Copy `.env.example` to `.env` next to `compose.yaml` and set the folders. Each must exist;
@@ -103,19 +104,33 @@ filesystem and no capabilities.
    MELETE_MUSIC_DIR=/path/to/music
    ```
 
-   The config and transcode folders must be writable by uid 10001:
+   The config and transcode folders must be writable by Melete's user, uid 10001 unless you
+   choose another, and the libraries readable by it:
 
    ```sh
    sudo install -d -o 10001 -g 10001 /path/to/melete/config /path/to/melete/transcode
    ```
 
    Never commit `.env`: it can hold passwords and keys.
-3. Choose the image. `compose.yaml` builds it from this repository (`build: .`), which takes
-   a while the first time. To use a release instead, replace `build: .` and `image: melete:dev`
-   with the release's image, pinned by its digest (see [Checking a release](#checking-a-release)):
 
-   ```yaml
-   image: ghcr.io/virel0/melete:0.1.0@sha256:<digest>
+   `.env` holds only what must exist before Melete starts: the folders, keys and passwords, and
+   connections such as the seedbox's, each optional and left empty in the example. The
+   services' other settings, such as turning MusicBrainz or lyrics on, are listed commented out:
+   they're usually set in the web UI, under Settings → Outside services. A value set in `.env`
+   wins and can't be changed from the web UI, so uncomment one only to fix it for good.
+3. Choose the image in `.env`; `compose.yaml` itself needn't change. It runs the release it
+   names, `ghcr.io/virel0/melete:0.1.0`. To pin it by its digest (see
+   [Checking a release](#checking-a-release)), or to run another version:
+
+   ```sh
+   MELETE_IMAGE=ghcr.io/virel0/melete:0.1.0@sha256:<digest>
+   ```
+
+   To build from this repository instead, for development, add `compose.build.yaml`; the
+   first build takes a while, and `docker compose up -d --build` builds again after a change:
+
+   ```sh
+   COMPOSE_FILE=compose.yaml:compose.build.yaml
    ```
 4. Without an NVIDIA GPU, remove the `deploy:` block from `compose.yaml` and set
    `MELETE_HWACCEL: none` (the CPU). With one, the host needs the NVIDIA Container Toolkit.
@@ -130,6 +145,19 @@ filesystem and no capabilities.
    ```
 
 The web UI is at `http://<server>:8100/`.
+
+### Updating
+
+Read the release's notes, then name the new version in `MELETE_IMAGE` (or, when it's unset,
+update this repository's checkout: its `compose.yaml` names the newest release), and:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Melete backs up its database before a new version changes it (see
+[Backups and restore](#backups-and-restore)).
 
 ### First run
 
@@ -154,17 +182,46 @@ Each is added through `COMPOSE_FILE` in `.env`, for example
 lists for it:
 
 - `compose.soulseek.yaml`: slskd behind a Gluetun VPN, for Soulseek searches and downloads.
+  Melete's key for slskd's API needs the ReadWrite role and no more (`role=ReadWrite`, as this
+  file sets it): enough to search and download, not to administer slskd. If you run slskd
+  some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.motion.yaml`: the motion cover renderer.
 
 The separator and the renderer are built from this repository (`stems/`, `motion/`). Their
 models are downloaded from their publishers on first start, never shipped.
 
+### Running as another user
+
+Melete runs as uid and gid 10001, its image's own user, unless `MELETE_USER` in `.env` names
+another. Many libraries already belong to a user of their own, often uid 1000; instead of
+changing the ownership of a large or network-mounted library, run Melete as that user:
+
+```sh
+MELETE_USER=1000:1000
+```
+
+Nothing in the image depends on uid 10001: it has no home folder to write to, and writes only to
+the folders compose mounts. Melete's user, whichever it is, needs:
+
+- to read the libraries (read on files, read and execute on folders), and to write to them once
+  automation is on;
+- to read and write the config and transcode folders;
+- to read and write the folders of the optional containers (`.env.example` lists them). The
+  stem separator, the motion cover renderer and slskd run as the same user, so each can read
+  what the other writes.
+
+A share whose top folder gives nothing to others (mode `770`, or anything without read and
+execute for "other") can't be read at all by a user outside its owner and group. The fix is to
+run Melete as that owner, or as a user in that group (`MELETE_USER=10001:<the share's gid>`),
+not to change the library's permissions.
+
 ### Turning on automation
 
 Library mounts are read-only (`:ro`) in `compose.yaml`. Melete can search and decide with them
-read-only, but importing needs write access: drop `:ro` from a library's mount and let uid
-10001 write to that folder on the host. Until then, finished downloads wait on the seedbox.
+read-only, but importing needs write access: drop `:ro` from a library's mount and let
+Melete's user write to that folder on the host. Until then, finished downloads wait on the
+seedbox.
 
 ## Backups and restore
 

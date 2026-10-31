@@ -358,7 +358,11 @@ async fn record_trashed(
 
 /// Moves a file whose trashing couldn't be recorded back out of the trash, logging when that
 /// fails too.
-async fn put_back(from_moved: PathBuf, to_moved: PathBuf, err: &sqlx::Error) -> anyhow::Result<()> {
+pub(super) async fn put_back(
+    from_moved: PathBuf,
+    to_moved: PathBuf,
+    err: &sqlx::Error,
+) -> anyhow::Result<()> {
     let back = tokio::task::spawn_blocking(move || {
         crate::transfer::move_without_replacing(&to_moved, &from_moved)
     })

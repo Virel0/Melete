@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 104] = [
+const MODULES: [(&str, &str); 111] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -46,6 +46,10 @@ const MODULES: [(&str, &str); 104] = [
     ("cards.js", include_str!("../web/cards.js")),
     ("home.js", include_str!("../web/home.js")),
     ("watch-hero.js", include_str!("../web/watch-hero.js")),
+    (
+        "watch-hero-trailer.js",
+        include_str!("../web/watch-hero-trailer.js"),
+    ),
     ("watch-tiles.js", include_str!("../web/watch-tiles.js")),
     ("watch-play.js", include_str!("../web/watch-play.js")),
     ("watch-kind.js", include_str!("../web/watch-kind.js")),
@@ -79,7 +83,12 @@ const MODULES: [(&str, &str); 104] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("two-factor.js", include_str!("../web/two-factor.js")),
     ("languages.js", include_str!("../web/languages.js")),
+    (
+        "playback-prefs.js",
+        include_str!("../web/playback-prefs.js"),
+    ),
     ("favourites.js", include_str!("../web/favourites.js")),
     ("user-access.js", include_str!("../web/user-access.js")),
     ("users.js", include_str!("../web/users.js")),
@@ -173,7 +182,14 @@ const MODULES: [(&str, &str); 104] = [
     ),
     ("manage-artist.js", include_str!("../web/manage-artist.js")),
     ("manage-album.js", include_str!("../web/manage-album.js")),
+    ("manage-want.js", include_str!("../web/manage-want.js")),
+    ("manage-select.js", include_str!("../web/manage-select.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
+    ("manage-find.js", include_str!("../web/manage-find.js")),
+    (
+        "manage-add-form.js",
+        include_str!("../web/manage-add-form.js"),
+    ),
     (
         "manage-activity.js",
         include_str!("../web/manage-activity.js"),
@@ -443,6 +459,87 @@ mod tests {
         }
     }
 
+    /// The top-level arguments of each `replaceChildren(` call in `body`, with the line it's on.
+    /// Quoted text is skipped, so a bracket inside a string doesn't count.
+    fn replace_children_arguments(body: &str) -> Vec<(usize, String)> {
+        let mut found = Vec::new();
+        for (at, _) in body.match_indices("replaceChildren(") {
+            let line = body[..at].matches('\n').count() + 1;
+            let (mut depth, mut quote, mut arg) = (1, None, String::new());
+            for c in body[at + "replaceChildren(".len()..].chars() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'' | '`') => quote = Some(c),
+                    (None, '(' | '[' | '{') => depth += 1,
+                    (None, ')' | ']' | '}') => depth -= 1,
+                    (None, ',') if depth == 1 => {
+                        found.push((line, std::mem::take(&mut arg)));
+                        continue;
+                    }
+                    _ => {}
+                }
+                if depth == 0 {
+                    break;
+                }
+                arg.push(c);
+            }
+            found.push((line, arg));
+        }
+        found
+    }
+
+    #[test]
+    fn the_palette_finds_artists_and_songs_and_a_song_opens_its_album() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let palette = module("palette.js");
+        assert!(palette.contains("music(`/music/artists?${query}`)"));
+        assert!(palette.contains("music(`/music/tracks?${query}&q_in=track&sort=title`)"));
+        assert!(palette.contains("#/music/albums/${t.album_id}?track=${t.id}"));
+        assert!(module("music.js").contains(r#"albumPage(id, ctx, params.get("track"))"#));
+        assert!(module("music-album.js").contains(r#"row.classList.add("found")"#));
+        assert!(module("music-album.js").contains(r#"row.querySelector(".track-play")?.focus("#));
+    }
+
+    #[test]
+    fn full_screen_belongs_to_the_stage_however_it_is_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        // The video's own button stays off where browsers honour that, a double-click on the
+        // picture goes full screen, and the video's own request hands over to the stage.
+        assert!(module("player.js").contains(r#"controlslist: "nofullscreen""#));
+        assert!(
+            module("player.js").contains(r#"addEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        assert!(
+            module("player.js")
+                .contains(r#"removeEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        let keys = module("player-keys.js");
+        assert!(keys.contains(r#"video.addEventListener("dblclick""#));
+        assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    #[test]
+    fn no_module_hands_replace_children_a_null() {
+        // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
+        // own `h` and `append`, which leave it out.
+        let mut nullable = Vec::new();
+        for (name, body) in MODULES {
+            for (line, arg) in replace_children_arguments(body) {
+                let arg = arg.trim();
+                if arg == "null" || arg.ends_with(": null") || arg.ends_with("?? null") {
+                    nullable.push(format!("{name}:{line}"));
+                }
+            }
+        }
+        assert!(nullable.is_empty(), "{nullable:?}");
+        // The scan itself sees a nullable argument where there is one.
+        let sample = r#"nav.replaceChildren(a ? h("a", {}, "(") : null, b);"#;
+        let args = replace_children_arguments(sample);
+        assert_eq!(args.len(), 2);
+        assert!(args[0].1.ends_with(": null"));
+    }
+
     /// Of `dist/hls.light.min.mjs` in https://registry.npmjs.org/hls.js/-/hls.js-1.7.3.tgz, whose
     /// sha512 matched the registry's when it was vendored.
     const HLS_SHA256: &str = "c60e98c83e5b2ce6875ea6ca27e51f63b7a6f00e9d9b64b588c92261bd69d439";
@@ -568,7 +665,16 @@ mod tests {
             ("/web/manage-seasons.js", "/episodes/"),
             ("/web/manage-artist.js", "monitor_new"),
             ("/web/manage-album.js", "track_list"),
-            ("/web/manage-add.js", "/requests/search"),
+            ("/web/manage-want.js", "As Where they go says"),
+            ("/web/manage-title.js", "/web/manage-want.js"),
+            ("/web/manage-artist.js", "/web/manage-want.js"),
+            ("/web/manage-album.js", "/web/manage-want.js"),
+            ("/web/manage-select.js", "/selection"),
+            ("/web/manage-library.js", "all: () => selectAll(v)"),
+            ("/web/manage-find.js", "/requests/search"),
+            ("/web/manage-find.js", r#"["song", "Songs"]"#),
+            ("/web/manage-find.js", "/requests/soulseek"),
+            ("/web/manage-add-form.js", "find-add"),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
         ] {

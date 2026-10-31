@@ -17,7 +17,8 @@ export const QUALITIES = [
   "WEBDL-2160p", "WEBRip-2160p", "Bluray-2160p", "Remux-2160p", "BR-DISK", "Raw-HD",
 ];
 
-export const FOR = { radarr: "movies", sonarr: "series" };
+// Whose titles each app's custom formats are for: Series and Anime share Sonarr's.
+export const FOR = { radarr: "movies", sonarr: "series and anime" };
 
 // A whole number, or null when the box doesn't hold one.
 function whole(input) {
@@ -29,9 +30,10 @@ function whole(input) {
 // ---------- Profiles ----------
 
 // A profile to start a new one from: every quality, none allowed yet.
-export function blankProfile(source) {
+export function blankProfile(source, service = source === "radarr" ? "movies" : "series") {
   return {
     source,
+    service,
     name: "",
     upgrade_allowed: true,
     cutoff: "",
@@ -39,6 +41,7 @@ export function blankProfile(source) {
     cutoff_format_score: 0,
     min_upgrade_format_score: 1,
     language: source === "radarr" ? "original" : null,
+    minimum_availability: "released",
     items: QUALITIES.map((q) => ({ name: q, qualities: [q], allowed: false })),
     formats: [],
   };
@@ -48,18 +51,18 @@ export function blankProfile(source) {
 // custom formats there are; `done(message)` goes back to the list, null for unchanged.
 export function profileEditor({ profile, formats, done, ctx }) {
   const editing = profile.id !== undefined;
-  const name = field(uid("profile-name"), "Name", h("input", { value: profile.name, autocomplete: "off" }), "Unique among the profiles for " + FOR[profile.source] + ".");
+  const name = field(uid("profile-name"), "Name", h("input", { value: profile.name, autocomplete: "off" }), "Unique among the profiles for " + profile.service + ".");
   const upgrades = check(uid("profile-upgrades"), "Upgrade files until they reach the cutoff", profile.upgrade_allowed);
   const q = qualityEditor(profile);
   const scores = scoreFields(profile);
-  const { minScore, cutoffScore, stepScore, language } = scores;
+  const { minScore, cutoffScore, stepScore, language, availability } = scores;
   const { ofKind, scoreInputs } = formatScores(profile, formats);
 
   const foot = actions(editing ? "Save profile" : "Make profile", () => done(null));
   const formEl = h(
     "form",
     { novalidate: true, class: "editor" },
-    h("h2", {}, editing ? `Edit ${profile.name}` : `New profile for ${FOR[profile.source]}`),
+    h("h2", {}, editing ? `Edit ${profile.name}` : `New profile for ${profile.service}`),
     editing && profile.origin === "imported" ? h("p", { class: "note" }, "Once saved here it's Melete's own: importing from " + (profile.source === "radarr" ? "Radarr" : "Sonarr") + " again leaves it alone.") : null,
     name.box,
     h("h3", {}, "Qualities"),
@@ -68,11 +71,13 @@ export function profileEditor({ profile, formats, done, ctx }) {
     h("div", { class: "field" }, h("label", { for: q.cutoff.id }, "Cutoff"), h("p", { class: "note" }, "Upgrades stop once a file is this good."), q.cutoff, q.cutoffError),
     upgrades.el,
     h("h3", {}, "Custom format scores"),
-    ofKind.length ? h("ul", { class: "rows scores" }, scoreInputs.map((s) => s.el)) : h("p", { class: "status" }, `No custom formats for ${FOR[profile.source]} yet.`),
-    minScore.box,
-    cutoffScore.box,
-    stepScore.box,
+    formatsAbout(profile.source, ofKind.length),
+    ofKind.length ? h("ul", { class: "rows scores" }, scoreInputs.map((s) => s.el)) : null,
+    // Without formats every release scores 0, so the score boxes would do nothing; they keep
+    // their values, hidden, until there are formats.
+    h("div", { hidden: !ofKind.length }, minScore.box, cutoffScore.box, stepScore.box),
     language?.box,
+    availability?.box,
     foot.el,
   );
 
@@ -227,17 +232,45 @@ function splitGroup(q, index) {
   announce(`Split ${grouped.name} into ${plural(singles.length, "quality", "qualities")}`);
 }
 
-// The three format-score boxes, and the audio language for a movie profile.
+// When a movie profile starts taking a film's releases (src/search/availability.rs).
+const AVAILABILITY = [
+  ["released", "Once it's out digitally or on disc"],
+  ["in_cinemas", "Once it's in cinemas"],
+  ["announced", "Any time"],
+];
+
+// The three format-score boxes, and the audio language and minimum availability for a movie
+// profile.
 function scoreFields(profile) {
   const number = (label, value, hint) => field(uid("profile-score"), label, h("input", { value: String(value), inputmode: "numeric", class: "year", autocomplete: "off" }), hint);
-  const minScore = number("Lowest format score taken", profile.min_format_score, "Releases whose custom formats add up to less are turned down.");
-  const cutoffScore = number("Upgrade until this format score", profile.cutoff_format_score, "A file at the cutoff quality scoring this much isn't upgraded.");
-  const stepScore = number("Score an upgrade must gain", profile.min_upgrade_format_score, "At the same quality, how much more a release must score to replace a file. At least 1.");
+  const minScore = number("Lowest format score taken", profile.min_format_score, "Releases whose custom formats add up to less are turned down. For example, 0 turns down releases scoring below 0.");
+  const cutoffScore = number("Upgrade until this format score", profile.cutoff_format_score, "A file at the cutoff quality scoring this much isn't upgraded. For example, 100 stops upgrading once a file at the cutoff quality scores 100.");
+  const stepScore = number("Score an upgrade must gain", profile.min_upgrade_format_score, "At the same quality, how much more a release must score to replace a file. For example, 10 only replaces a file with a release scoring at least 10 more. At least 1.");
   const language =
     profile.source === "radarr"
       ? field(uid("profile-language"), "Audio language", h("input", { value: profile.language ?? "", autocomplete: "off", class: "year" }), "A two-letter code (en, ja…), original for the film's own, or any.")
       : null;
-  return { minScore, cutoffScore, stepScore, language };
+  const wanted = profile.minimum_availability ?? "released";
+  const availability =
+    profile.source === "radarr"
+      ? field(uid("profile-availability"), "Take a film's releases", h("select", {}, AVAILABILITY.map(([value, label]) => h("option", { value, selected: value === wanted }, label))), "Before then its releases are turned down. Whatever this says, a WEB or disc release before the film is out that way is refused as a likely fake.")
+      : null;
+  return { minScore, cutoffScore, stepScore, language, availability };
+}
+
+// What custom formats are and where they're made: the whole section while there are none, a
+// line over the scores once there are. The link stays in the service the page is in.
+function formatsAbout(source, count) {
+  const here = location.hash.match(/^#\/admin\/(movies|series|anime)\//)?.[1] ?? (source === "radarr" ? "movies" : "series");
+  const app = source === "radarr" ? "Radarr" : "Sonarr";
+  const what = "Custom formats are rules that match parts of a release name, such as x265, HDR, Dolby Vision or a release group, and give each match a score. A release scores the sum of the formats it matches.";
+  if (count) return h("p", { class: "note" }, `${what} Each format's score for this profile:`);
+  return h(
+    "div",
+    {},
+    h("p", { class: "note" }, `${what} There are none for ${FOR[source]} yet, so every release scores 0; the score settings appear once there are some.`),
+    h("p", { class: "note" }, h("a", { href: `#/admin/${here}/formats` }, "Make custom formats"), `, or import ${app}'s with its profiles from the Profiles page.`),
+  );
 }
 
 // A score box for each custom format of the profile's kind.
@@ -254,9 +287,10 @@ function formatScores(profile, formats) {
 
 // The profile as the form has it, for the API; null after marking what needs fixing.
 function readProfile(profile, { name, upgrades, q, scores, scoreInputs, foot }) {
-  const { minScore, cutoffScore, stepScore, language } = scores;
+  const { minScore, cutoffScore, stepScore, language, availability } = scores;
   const body = {
     source: profile.source,
+    service: profile.service,
     name: name.input.value.trim(),
     upgrade_allowed: upgrades.box.checked,
     cutoff: q.cutoff.value,
@@ -264,6 +298,7 @@ function readProfile(profile, { name, upgrades, q, scores, scoreInputs, foot }) 
     cutoff_format_score: whole(cutoffScore.input),
     min_upgrade_format_score: whole(stepScore.input),
     language: language ? language.input.value.trim() || null : null,
+    minimum_availability: availability ? availability.input.value : null,
     items: q.items.map(({ name, qualities, allowed }) => ({ name, qualities, allowed })),
     formats: [],
   };

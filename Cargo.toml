@@ -18,6 +18,8 @@ encoding_rs = "=0.8.42"
 fancy-regex = "=0.19.2"
 futures-util = { version = "=0.3.34", default-features = false }
 getrandom = "=0.4.3"
+# HMAC-SHA1 for two-factor codes (RFC 6238). Already in the build through russh, at this version.
+hmac = "=0.13.0"
 libc = "=0.2.191"
 quick-xml = "=0.42.0"
 regex = "=1.13.1"

@@ -10,9 +10,12 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 mod answers;
+mod finding;
+mod moved;
 mod releases;
 
 pub use answers::*;
+use moved::*;
 pub use releases::*;
 
 const BASE: &str = "https://musicbrainz.org/ws/2";
@@ -88,12 +91,9 @@ impl Client {
         if !crate::library::tags::is_mbid(id) {
             return Err(Error::NotFound);
         }
-        let url = format!(
-            "{}/release/{id}?inc=release-groups+artist-credits+recordings+media+recording-level-rels\
-             +work-rels+work-level-rels+artist-rels&fmt=json",
-            self.base
-        );
-        let body = self.get(&url).await?;
+        let query = "inc=release-groups+artist-credits+recordings+media+recording-level-rels\
+             +work-rels+work-level-rels+artist-rels&fmt=json";
+        let body = self.lookup("release", id, query).await?;
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
@@ -104,7 +104,7 @@ impl Client {
             query.push_str(&format!(" AND artist:{}", phrase(artist)));
         }
         let url = reqwest::Url::parse_with_params(
-            &format!("{}/release/", self.base),
+            &format!("{}/release", self.base),
             &[("query", query.as_str()), ("limit", "25"), ("fmt", "json")],
         )
         .map_err(|err| Error::Failed(err.to_string()))?;
@@ -119,11 +119,9 @@ impl Client {
         if !crate::library::tags::is_mbid(id) {
             return Err(Error::NotFound);
         }
-        let url = format!(
-            "{}/release-group/{id}?inc=artist-credits&fmt=json",
-            self.base
-        );
-        let body = self.get(&url).await?;
+        let body = self
+            .lookup("release-group", id, "inc=artist-credits&fmt=json")
+            .await?;
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
@@ -137,8 +135,7 @@ impl Client {
         if !crate::library::tags::is_mbid(id) {
             return Err(Error::NotFound);
         }
-        let url = format!("{}/artist/{id}?fmt=json", self.base);
-        let body = self.get(&url).await?;
+        let body = self.lookup("artist", id, "fmt=json").await?;
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
@@ -154,7 +151,7 @@ impl Client {
             let offset = (page * BROWSE_PAGE).to_string();
             let limit = BROWSE_PAGE.to_string();
             let url = reqwest::Url::parse_with_params(
-                &format!("{}/release-group/", self.base),
+                &format!("{}/release-group", self.base),
                 &[
                     ("artist", artist_id),
                     ("type", "album"),
@@ -184,11 +181,13 @@ impl Client {
         if !crate::library::tags::is_mbid(id) {
             return Err(Error::NotFound);
         }
-        let url = format!(
-            "{}/recording/{id}?inc=artist-credits+releases+release-groups&fmt=json",
-            self.base
-        );
-        let body = self.get(&url).await?;
+        let body = self
+            .lookup(
+                "recording",
+                id,
+                "inc=artist-credits+releases+release-groups&fmt=json",
+            )
+            .await?;
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
@@ -209,28 +208,6 @@ impl Client {
             Err(Error::NotFound) => Ok(Vec::new()),
             Err(err) => Err(err),
         }
-    }
-
-    /// Artists called `name`, best first.
-    pub async fn search_artists(&self, name: &str) -> Result<Vec<FoundArtist>, Error> {
-        let found: ArtistSearch = self
-            .find("artist", format!("artist:{}", phrase(name)))
-            .await?;
-        Ok(found.artists)
-    }
-
-    /// Release groups (albums, EPs, singles…) called `title`, by `artist` when given.
-    pub async fn search_albums(
-        &self,
-        title: &str,
-        artist: Option<&str>,
-    ) -> Result<Vec<ReleaseGroupDetail>, Error> {
-        let mut query = format!("releasegroup:{}", phrase(title));
-        if let Some(artist) = artist {
-            query.push_str(&format!(" AND artist:{}", phrase(artist)));
-        }
-        let found: GroupSearch = self.find("release-group", query).await?;
-        Ok(found.release_groups)
     }
 
     /// Recordings (songs as performed) called `title`, by `artist` when given.
@@ -254,7 +231,7 @@ impl Client {
         query: String,
     ) -> Result<T, Error> {
         let url = reqwest::Url::parse_with_params(
-            &format!("{}/{entity}/", self.base),
+            &format!("{}/{entity}", self.base),
             &[("query", query.as_str()), ("limit", FOUND), ("fmt", "json")],
         )
         .map_err(|err| Error::Failed(err.to_string()))?;
@@ -262,8 +239,17 @@ impl Client {
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
-    /// One request at its turn; a busy answer is retried once after a pause.
+    /// One request at its turn; a redirect isn't followed (only an entity's lookup reads one).
     async fn get(&self, url: &str) -> Result<String, Error> {
+        match self.fetch(url).await? {
+            Fetched::Body(body) => Ok(body),
+            Fetched::Moved(status, location) => Err(refused(status, url, location.as_deref())),
+        }
+    }
+
+    /// One request at its turn; a busy answer is retried once after a pause, and a redirect
+    /// is handed back as it came.
+    async fn fetch(&self, url: &str) -> Result<Fetched, Error> {
         for attempt in 0..2 {
             self.wait_turn().await;
             let mut response = self
@@ -284,6 +270,11 @@ impl Client {
             if status == reqwest::StatusCode::NOT_FOUND {
                 return Err(Error::NotFound);
             }
+            if status.is_redirection() {
+                let location = response.headers().get(reqwest::header::LOCATION);
+                let location = location.and_then(|l| l.to_str().ok()).map(str::to_owned);
+                return Ok(Fetched::Moved(status, location));
+            }
             if !status.is_success() {
                 return Err(Error::Failed(format!("answered {status}")));
             }
@@ -299,6 +290,7 @@ impl Client {
                 body.extend_from_slice(&chunk);
             }
             return String::from_utf8(body)
+                .map(Fetched::Body)
                 .map_err(|_| Error::Failed("its answer wasn't text".into()));
         }
         Err(Error::Failed("busy; try again later".into()))
@@ -337,6 +329,42 @@ pub mod testing {
     pub const OK_COMPUTER: &str = "b1392450-e666-3926-a536-22c65f834433";
     pub const PARANOID_ANDROID: &str = "4d4e5f6a-0b1c-4d2e-8f3a-5b6c7d8e9f01";
     pub const PARANOID_ISRC: &str = "GBAYE9700245";
+    /// An OK Computer edition MusicBrainz merged into the one the release fixture is: looking it
+    /// up answers 301 to the survivor, over plain http, as MusicBrainz does.
+    pub const MERGED: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
+    /// The edition the release fixture is, which `MERGED` joined.
+    pub const SURVIVOR: &str = "fba5f8fe-c6c8-4511-8562-c9febf482674";
+    /// Merged into `MERGED`, itself merged: two moves in a row.
+    pub const MERGED_TWICE: &str = "1f1e1d1c-1b1a-4918-8716-151413121110";
+    /// Answers 301 to the survivor's path on another host.
+    pub const MOVED_AWAY: &str = "2f2e2d2c-2b2a-4928-8726-252423222120";
+    /// Answers 301 to an artist, not a release.
+    pub const MOVED_ASIDE: &str = "3f3e3d3c-3b3a-4938-8736-353433323130";
+    /// An artist merged into Radiohead.
+    pub const MERGED_ARTIST: &str = "4f4e4d4c-4b4a-4948-8746-454443424140";
+
+    /// Where the fake says an id moved, if it did.
+    fn moved(kind: &str, id: &str) -> Option<String> {
+        let to = |host: &str, path: String| format!("{host}{path}?fmt=json&inc=secret");
+        let mb = "http://musicbrainz.org";
+        match (kind, id) {
+            ("release", MERGED) => Some(to(mb, format!("/ws/2/release/{SURVIVOR}"))),
+            ("release", MERGED_TWICE) => Some(to(mb, format!("/ws/2/release/{MERGED}"))),
+            ("release", MOVED_AWAY) => Some(to(
+                "https://mirror.example",
+                format!("/ws/2/release/{SURVIVOR}"),
+            )),
+            ("release", MOVED_ASIDE) => Some(to(mb, format!("/ws/2/artist/{RADIOHEAD}"))),
+            ("artist", MERGED_ARTIST) => Some(to(mb, format!("/ws/2/artist/{RADIOHEAD}"))),
+            _ => None,
+        }
+    }
+
+    /// A 301 to `location`.
+    fn redirect(location: String) -> axum::response::Response {
+        let header = [(axum::http::header::LOCATION, location)];
+        (StatusCode::MOVED_PERMANENTLY, header, "").into_response()
+    }
 
     /// A fake MusicBrainz: OK Computer's editions (as the search fixture lists them) are the
     /// release fixture; a search naming "Greatest Hits"
@@ -351,21 +379,24 @@ pub mod testing {
                     |State((log, busy)): State<Fake>, Path(id): Path<String>| async move {
                         log.lock().unwrap().push(format!("release {id}"));
                         if take_busy(&busy) {
-                            return (StatusCode::SERVICE_UNAVAILABLE, "busy".to_owned());
+                            return (StatusCode::SERVICE_UNAVAILABLE, "busy".to_owned()).into_response();
+                        }
+                        if let Some(location) = moved("release", &id) {
+                            return redirect(location);
                         }
                         // Any OK Computer edition the search fixture lists.
                         if super::testing::SEARCH_OK.contains(&id) {
-                            (StatusCode::OK, super::testing::RELEASE.to_owned())
+                            (StatusCode::OK, super::testing::RELEASE.to_owned()).into_response()
                         } else if id == super::testing::CLASSICAL_ID {
-                            (StatusCode::OK, super::testing::CLASSICAL.to_owned())
+                            (StatusCode::OK, super::testing::CLASSICAL.to_owned()).into_response()
                         } else {
-                            (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned())
+                            (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned()).into_response()
                         }
                     },
                 ),
             )
             .route(
-                "/release/",
+                "/release",
                 axum::routing::get(
                     |State((log, busy)): State<Fake>, RawQuery(query): RawQuery| async move {
                         let query = query.unwrap_or_default();
@@ -415,23 +446,26 @@ pub mod testing {
                 axum::routing::get(
                     |State((log, _)): State<Fake>, Path(id): Path<String>| async move {
                         log.lock().unwrap().push(format!("artist {id}"));
-                        if id != super::testing::RADIOHEAD {
-                            return (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned());
+                        if let Some(location) = moved("artist", &id) {
+                            return redirect(location);
                         }
-                        (StatusCode::OK, serde_json::json!({"id": id, "name": "Radiohead"}).to_string())
+                        if id != super::testing::RADIOHEAD {
+                            return (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned()).into_response();
+                        }
+                        (StatusCode::OK, serde_json::json!({"id": id, "name": "Radiohead"}).to_string()).into_response()
                     },
                 ),
             )
             .route(
-                "/artist/",
+                "/artist",
                 axum::routing::get(
                     |State((log, _)): State<Fake>, RawQuery(query): RawQuery| async move {
                         log.lock().unwrap().push(format!("search artist {}", query.unwrap_or_default()));
                         serde_json::json!({"artists": [
                             {"id": super::testing::RADIOHEAD, "name": "Radiohead", "type": "Group",
-                             "country": "GB", "disambiguation": ""},
+                             "country": "GB", "disambiguation": "", "score": 100},
                             {"id": "0a0b0c0d-1e2f-4a5b-8c6d-7e8f9a0b1c2d", "name": "Radiohead", "type": "Person",
-                             "disambiguation": "a tribute act"},
+                             "disambiguation": "a tribute act", "score": 62},
                         ]})
                         .to_string()
                     },
@@ -454,12 +488,13 @@ pub mod testing {
                 ),
             )
             .route(
-                "/recording/",
+                "/recording",
                 axum::routing::get(
                     |State((log, _)): State<Fake>, RawQuery(query): RawQuery| async move {
                         log.lock().unwrap().push(format!("search recording {}", query.unwrap_or_default()));
                         serde_json::json!({"recordings": [{
                             "id": super::testing::PARANOID_ANDROID, "title": "Paranoid Android", "length": 383000,
+                            "score": 100,
                             "artist-credit": [{"name": "Radiohead", "joinphrase": "",
                                 "artist": {"id": super::testing::RADIOHEAD, "name": "Radiohead"}}],
                             "releases": [{"title": "OK Computer", "status": "Official",
@@ -471,14 +506,14 @@ pub mod testing {
                 ),
             )
             .route(
-                "/release-group/",
+                "/release-group",
                 axum::routing::get(
                     |State((log, _)): State<Fake>, RawQuery(query): RawQuery| async move {
                         let query = query.unwrap_or_default();
                         if query.contains("query=") {
                             log.lock().unwrap().push(format!("search release-group {query}"));
                             return (StatusCode::OK, serde_json::json!({"release-groups": [{
-                                "id": super::testing::OK_COMPUTER, "title": "OK Computer",
+                                "id": super::testing::OK_COMPUTER, "title": "OK Computer", "score": 100,
                                 "primary-type": "Album", "secondary-types": [],
                                 "first-release-date": "1997-05-21",
                                 "artist-credit": [{"name": "Radiohead", "joinphrase": "",
@@ -714,6 +749,86 @@ mod tests {
             log[1],
             r#"search release:"OK \"Computer\"" AND artist:"Radiohead""#
         );
+    }
+
+    #[tokio::test]
+    async fn a_merged_id_is_looked_up_again_as_the_one_it_joined() {
+        let (client, log) = testing::start(0).await;
+        // The fake answers 301 to an http:// address on musicbrainz.org: never asked as given,
+        // the survivor is asked for on the client's own address, with the same inc.
+        let release = client.release(testing::MERGED).await.unwrap();
+        assert_eq!(release.id, testing::SURVIVOR);
+        assert_eq!(
+            *log.lock().unwrap(),
+            [
+                format!("release {}", testing::MERGED),
+                format!("release {}", testing::SURVIVOR)
+            ]
+        );
+        let artist = client.artist(testing::MERGED_ARTIST).await.unwrap();
+        assert_eq!(artist.id, testing::RADIOHEAD);
+    }
+
+    #[tokio::test]
+    async fn a_move_elsewhere_or_twice_is_refused_and_says_where() {
+        let (client, log) = testing::start(0).await;
+        let err = client.release(testing::MOVED_AWAY).await.unwrap_err();
+        let said = err.to_string();
+        assert!(said.contains("301"), "{said}");
+        assert!(
+            said.contains(&format!(
+                "https://mirror.example/ws/2/release/{}",
+                testing::SURVIVOR
+            )),
+            "{said}"
+        );
+        assert!(!said.contains("secret"), "never the query: {said}");
+        // Another kind of entity isn't the one asked for.
+        let said = client.release(testing::MOVED_ASIDE).await.unwrap_err();
+        assert!(said.to_string().contains("/ws/2/artist/"), "{said}");
+        // One move is followed, not two.
+        let said = client.release(testing::MERGED_TWICE).await.unwrap_err();
+        assert!(said.to_string().contains("one move"), "{said}");
+        let asked: Vec<String> = log.lock().unwrap().clone();
+        assert_eq!(
+            asked,
+            [
+                format!("release {}", testing::MOVED_AWAY),
+                format!("release {}", testing::MOVED_ASIDE),
+                format!("release {}", testing::MERGED_TWICE),
+                format!("release {}", testing::MERGED),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn searches_use_the_documented_address_without_a_trailing_slash() {
+        let (client, log) = testing::start(0).await;
+        // The fake only answers searches at /release, /artist, /release-group and /recording.
+        assert!(!client.search("OK Computer", None).await.unwrap().is_empty());
+        assert!(!client.find_artists("Radiohead").await.unwrap().is_empty());
+        assert!(
+            !client
+                .find_albums("OK Computer", None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !client
+                .search_songs("Airbag", None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !client
+                .artist_albums(testing::RADIOHEAD)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(log.lock().unwrap().len(), 5);
     }
 
     #[tokio::test]

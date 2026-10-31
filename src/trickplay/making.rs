@@ -13,9 +13,9 @@ pub struct Report {
 }
 
 /// The ffmpeg command line for a file's previews: keyframes only, one at least `INTERVAL`
-/// after the last, scaled to `WIDTH` by `height`, its time logged (`showinfo`), and tiled into
+/// after the last, scaled to `width` by `height`, its time logged (`showinfo`), and tiled into
 /// numbered JPEG sheets in `dir`.
-pub fn args(input: &Path, height: i64, dir: &Path) -> Vec<std::ffi::OsString> {
+pub fn args(input: &Path, width: i64, height: i64, dir: &Path) -> Vec<std::ffi::OsString> {
     let mut args: Vec<std::ffi::OsString> = ["-hide_banner", "-nostdin", "-v", "info"]
         .iter()
         .map(Into::into)
@@ -25,7 +25,7 @@ pub fn args(input: &Path, height: i64, dir: &Path) -> Vec<std::ffi::OsString> {
     file.push(input);
     args.push(file);
     let filters = format!(
-        "select='isnan(prev_selected_t)+gte(t-prev_selected_t,{INTERVAL})',scale={WIDTH}:{height},showinfo,tile={COLUMNS}x{ROWS}"
+        "select='isnan(prev_selected_t)+gte(t-prev_selected_t,{INTERVAL})',scale={width}:{height},showinfo,tile={COLUMNS}x{ROWS}"
     );
     args.extend(
         [
@@ -62,13 +62,14 @@ pub fn logged_times(log: &str) -> Vec<f64> {
         .collect()
 }
 
-/// The height of a picture `WIDTH` wide in the video's shape, even, as encoders want.
-pub fn picture_height(width: i64, height: i64) -> i64 {
-    let h = (WIDTH as f64 * height as f64 / width as f64 / 2.0).round() as i64 * 2;
-    h.clamp(2, WIDTH * 4)
+/// The height of a picture `wide` pixels wide in the shape of a video `width` by `height`,
+/// even, as encoders want.
+pub fn picture_height(wide: i64, width: i64, height: i64) -> i64 {
+    let h = (wide as f64 * height as f64 / width as f64 / 2.0).round() as i64 * 2;
+    h.clamp(2, wide * 4)
 }
 
-/// Makes a file's previews into `dir` (made afresh), with its index.
+/// Makes a file's previews `wide` pixels wide into `dir` (made afresh), with its index.
 ///
 /// # Errors
 ///
@@ -77,13 +78,14 @@ pub async fn make(
     ffmpeg: &Path,
     input: &Path,
     video: (i64, i64),
+    wide: i64,
     dir: &Path,
 ) -> anyhow::Result<Index> {
-    let height = picture_height(video.0, video.1);
+    let height = picture_height(wide, video.0, video.1);
     let _ = tokio::fs::remove_dir_all(dir).await;
     tokio::fs::create_dir_all(dir).await?;
     let run = Command::new(ffmpeg)
-        .args(args(input, height, dir))
+        .args(args(input, wide, height, dir))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -109,7 +111,7 @@ pub async fn make(
     anyhow::ensure!(!times.is_empty(), "ffmpeg found no keyframes");
     let per_sheet = (COLUMNS * ROWS) as usize;
     let index = Index {
-        width: WIDTH,
+        width: wide,
         height,
         columns: COLUMNS,
         rows: ROWS,
@@ -124,40 +126,83 @@ pub async fn make(
     Ok(index)
 }
 
+/// Present videos with a picture, probed in their current version, without previews made from
+/// it, or with previews made at another width than `?1` asks for. One text for counting them
+/// and taking the next, so the two can't drift apart.
+macro_rules! pending_files {
+    () => {
+        "FROM media_files f
+         JOIN libraries l ON l.id = f.library_id
+         JOIN media_probes p ON p.file_id = f.id
+             AND p.size = f.size AND p.modified_at = f.modified_at
+         LEFT JOIN media_trickplay t ON t.file_id = f.id
+         WHERE f.missing_since IS NULL
+           AND json_extract(p.info, '$.video[0].width') > 0
+           AND json_extract(p.info, '$.video[0].height') > 0
+           AND (t.file_id IS NULL OR t.size <> f.size OR t.modified_at <> f.modified_at
+                OR (t.error IS NULL AND t.width <> ?1))"
+    };
+}
+
+/// A file whose previews are to be made.
+#[derive(sqlx::FromRow)]
+struct Pending {
+    id: i64,
+    library: String,
+    rel_path: String,
+    size: i64,
+    modified_at: i64,
+    width: i64,
+    height: i64,
+    /// It has previews of this version already, at another width.
+    remake: bool,
+}
+
 /// Makes previews for every present video not made yet in its current version, one at a
-/// time, while it's turned on (`MELETE_TRICKPLAY`). A file ffmpeg can't read keeps why, and is
-/// looked at again only once it changes.
+/// time, while it's turned on (`MELETE_TRICKPLAY`), at the width chosen
+/// (`MELETE_TRICKPLAY_WIDTH`). Previews made at another width are made again, after the files
+/// with none; the old ones are served until the new ones replace them. A file ffmpeg can't
+/// read keeps why, and is looked at again only once it changes; one that fails at a new width
+/// keeps its old previews and isn't tried at that width again.
 pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyhow::Result<Report> {
     let mut report = Report::default();
+    let total: i64 = sqlx::query_scalar(concat!("SELECT count(*) ", pending_files!()))
+        .bind(super::width(pool).await?)
+        .fetch_one(pool)
+        .await?;
+    let total = usize::try_from(total).unwrap_or_default();
+    let pace = crate::jobs::pace::Pace::start("trickplay", "making seek-bar previews", total);
     loop {
+        // Turned off meanwhile: the run stops, and says it stopped before the end.
         if !crate::settings::trickplay(pool).await? {
             return Ok(report);
         }
-        let next: Option<(i64, String, String, i64, i64, i64, i64)> = sqlx::query_as(
-            "SELECT f.id, l.path, f.rel_path, f.size, f.modified_at,
-                 json_extract(p.info, '$.video[0].width'), json_extract(p.info, '$.video[0].height')
-             FROM media_files f
-             JOIN libraries l ON l.id = f.library_id
-             JOIN media_probes p ON p.file_id = f.id
-                 AND p.size = f.size AND p.modified_at = f.modified_at
-             LEFT JOIN media_trickplay t ON t.file_id = f.id
-             WHERE f.missing_since IS NULL
-               AND json_extract(p.info, '$.video[0].width') > 0
-               AND json_extract(p.info, '$.video[0].height') > 0
-               AND (t.file_id IS NULL OR t.size <> f.size OR t.modified_at <> f.modified_at)
-             ORDER BY f.id LIMIT 1",
-        )
+        let wide = super::width(pool).await?;
+        let next: Option<Pending> = sqlx::query_as(concat!(
+            "SELECT f.id, l.path AS library, f.rel_path, f.size, f.modified_at,
+                 json_extract(p.info, '$.video[0].width') AS width,
+                 json_extract(p.info, '$.video[0].height') AS height,
+                 coalesce(t.size = f.size AND t.modified_at = f.modified_at, 0) AS remake ",
+            pending_files!(),
+            " ORDER BY remake, f.id LIMIT 1"
+        ))
+        .bind(wide)
         .fetch_optional(pool)
         .await?;
-        let Some((id, library, rel_path, size, modified_at, width, height)) = next else {
+        let Some(file) = next else {
+            pace.finish();
             return Ok(report);
         };
-        let making = root.join(format!(".making-{id}-{size}-{modified_at}"));
-        let input = Path::new(&library).join(&rel_path);
-        let made = make(ffmpeg, &input, (width, height), &making).await;
+        let item = pace.item();
+        let making = root.join(format!(
+            ".making-{}-{}-{}",
+            file.id, file.size, file.modified_at
+        ));
+        let input = Path::new(&file.library).join(&file.rel_path);
+        let made = make(ffmpeg, &input, (file.width, file.height), wide, &making).await;
         let error = match made {
             Ok(_) => {
-                let done = version_dir(root, id, size, modified_at);
+                let done = version_dir(root, file.id, file.size, file.modified_at);
                 let _ = tokio::fs::remove_dir_all(&done).await;
                 tokio::fs::rename(&making, &done).await?;
                 report.made += 1;
@@ -166,29 +211,43 @@ pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyh
             Err(err) => {
                 let _ = tokio::fs::remove_dir_all(&making).await;
                 tracing::warn!(
-                    rel_path,
+                    rel_path = file.rel_path,
                     error = format!("{err:#}"),
                     "couldn't make seek-bar previews"
                 );
                 report.failed += 1;
-                Some(format!("{err:#}"))
+                item.failed();
+                // The previews it has stay; it isn't tried at this width again.
+                (!file.remake).then(|| format!("{err:#}"))
             }
         };
-        sqlx::query(
-            "INSERT INTO media_trickplay (file_id, size, modified_at, made_at, error)
-             VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT (file_id) DO UPDATE SET size = excluded.size,
-                 modified_at = excluded.modified_at, made_at = excluded.made_at,
-                 error = excluded.error",
-        )
-        .bind(id)
-        .bind(size)
-        .bind(modified_at)
-        .bind(unix_now())
-        .bind(error)
-        .execute(pool)
-        .await?;
+        record(pool, &file, wide, error).await?;
     }
+}
+
+/// Keeps what making a file's previews came to: made (or kept) at `wide`, or why it failed.
+async fn record(
+    pool: &SqlitePool,
+    file: &Pending,
+    wide: i64,
+    error: Option<String>,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO media_trickplay (file_id, size, modified_at, made_at, error, width)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (file_id) DO UPDATE SET size = excluded.size,
+             modified_at = excluded.modified_at, made_at = excluded.made_at,
+             error = excluded.error, width = excluded.width",
+    )
+    .bind(file.id)
+    .bind(file.size)
+    .bind(file.modified_at)
+    .bind(unix_now())
+    .bind(error)
+    .bind(wide)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

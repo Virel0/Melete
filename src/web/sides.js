@@ -1,6 +1,6 @@
 // The three sides of the web UI and what the header lists for each; shell.js draws them.
 //
-// - Watch, for everyone: Home, Shows, Anime (when a library has the anime category), Movies and
+// - Watch, for everyone: Home, Movies, Shows, Anime (when a library has the anime category) and
 //   My List. Anime is kept apart from shows wherever the web separates them.
 // - Listen, for everyone: the music sections.
 // - Manage, for admins, and only where the way in opens admin pages: Manage's services, each
@@ -35,9 +35,9 @@ export function watchEntries(categories) {
   const list = ({ parts }, kind) => parts[0] === kind && !parts[1];
   return [
     { key: "home", name: "Home", href: "#/", here: ({ parts }) => parts.length === 0 },
+    { key: "movies", name: "Movies", href: "#/movies", here: (route) => list(route, "movies") },
     { key: "shows", name: "Shows", href: "#/shows", here: (route) => list(route, "shows") },
     categories.includes("anime") ? { key: "anime", name: "Anime", href: "#/anime", here: (route) => list(route, "anime") } : null,
-    { key: "movies", name: "Movies", href: "#/movies", here: (route) => list(route, "movies") },
     { key: "favourites", name: "My List", href: "#/favourites", here: (route) => list(route, "favourites") },
   ].filter(Boolean);
 }

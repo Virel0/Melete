@@ -10,6 +10,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 use crate::db::unix_now;
+use crate::jobs::pace::Pace;
 use crate::tmdb::{
     self, ExternalId, MovieDetails, RateLimited, Season, SeriesDetails, Unauthorized,
 };
@@ -125,7 +126,9 @@ async fn match_unmatched_movies(
     .bind(now - RETRY_UNMATCHED)
     .fetch_all(pool)
     .await?;
+    let pace = Pace::start("library", "matching movies on TMDB", movies.len());
     for row in &movies {
+        let item = pace.item();
         match match_movie(tmdb, row).await {
             Ok(Outcome::Matched { details, method }) => {
                 store_movie(pool, &details, now).await?;
@@ -143,9 +146,13 @@ async fn match_unmatched_movies(
                 }
             }
             Ok(outcome) => record_miss(pool, Kind::Movie, row, outcome, now, report).await?,
-            Err(err) => skip(err, "movie", &row.parsed_title, report)?,
+            Err(err) => {
+                item.failed();
+                skip(err, "movie", &row.parsed_title, report)?
+            }
         }
     }
+    pace.finish();
     Ok(())
 }
 
@@ -167,7 +174,9 @@ async fn match_unmatched_series(
     .bind(now - RETRY_UNMATCHED)
     .fetch_all(pool)
     .await?;
+    let pace = Pace::start("library", "matching series on TMDB", series.len());
     for row in &series {
+        let item = pace.item();
         match match_series(tmdb, row).await {
             Ok(Outcome::Matched {
                 details: (details, seasons),
@@ -188,9 +197,13 @@ async fn match_unmatched_series(
                 }
             }
             Ok(outcome) => record_miss(pool, Kind::Series, row, outcome, now, report).await?,
-            Err(err) => skip(err, "series", &row.parsed_title, report)?,
+            Err(err) => {
+                item.failed();
+                skip(err, "series", &row.parsed_title, report)?
+            }
         }
     }
+    pace.finish();
     Ok(())
 }
 
@@ -211,7 +224,9 @@ async fn refresh_stale_movies(
     .bind(tmdb.language())
     .fetch_all(pool)
     .await?;
+    let pace = Pace::start("library", "refreshing movies from TMDB", stale_movies.len());
     for id in stale_movies {
+        let item = pace.item();
         match tmdb.movie(id).await {
             Ok(Some(details)) => {
                 store_movie(pool, &details, now).await?;
@@ -221,9 +236,13 @@ async fn refresh_stale_movies(
                 tmdb_id = id,
                 "TMDB no longer has this movie; keeping the cached copy"
             ),
-            Err(err) => skip(err, "movie refresh", &id.to_string(), report)?,
+            Err(err) => {
+                item.failed();
+                skip(err, "movie refresh", &id.to_string(), report)?
+            }
         }
     }
+    pace.finish();
     Ok(())
 }
 
@@ -243,7 +262,9 @@ async fn refresh_stale_series(
     .bind(tmdb.language())
     .fetch_all(pool)
     .await?;
+    let pace = Pace::start("library", "refreshing series from TMDB", stale_series.len());
     for id in stale_series {
+        let item = pace.item();
         match fetch_series(tmdb, id).await {
             Ok(Some((details, seasons))) => {
                 store_series(pool, &details, &seasons, now).await?;
@@ -253,9 +274,13 @@ async fn refresh_stale_series(
                 tmdb_id = id,
                 "TMDB no longer has this series; keeping the cached copy"
             ),
-            Err(err) => skip(err, "series refresh", &id.to_string(), report)?,
+            Err(err) => {
+                item.failed();
+                skip(err, "series refresh", &id.to_string(), report)?
+            }
         }
     }
+    pace.finish();
     Ok(())
 }
 

@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 320);
+        assert_eq!(checked, 336);
     }
 
     /// The response's fields are exactly the schema's.
@@ -647,7 +647,7 @@ mod openapi {
         let home = get("/api/v1/home".into()).await;
         assert_shape(&spec, "WatchHome", &home);
         assert_shape(&spec, "WatchHomeRow", &home["rows"][0]);
-        assert_shape(&spec, "WatchHomeItem", &home["hero"][0]);
+        assert_shape(&spec, "WatchHomeHeroItem", &home["hero"][0]);
         assert_shape(&spec, "WatchHomeItem", &home["rows"][0]["items"][0]);
     }
 
@@ -2954,6 +2954,83 @@ mod openapi {
     }
 
     #[tokio::test]
+    async fn an_anime_series_takes_only_animes_profiles() {
+        let (pool, app, _artwork) = full_server().await;
+        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
+            .await
+            .unwrap()
+            .unwrap();
+        let (_, token) =
+            crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        // Frieren is wanted as anime; Mushishi is Anime's by its library's category.
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path, category)
+                 VALUES (1, 'Shows', 'shows', '/s', NULL), (2, 'Anime', 'shows', '/a', 'anime');
+             INSERT INTO wanted_series (id, tvdb_id, title, monitored, series_type, library_id,
+                 source, added_at)
+             VALUES (1, 424536, 'Frieren', 1, 'anime', 1, 'manual', 0),
+                    (2, 81189, 'Breaking Bad', 1, 'standard', 1, 'manual', 0),
+                    (3, 79105, 'Mushishi', 1, 'standard', 2, 'manual', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut made = Vec::new();
+        for service in ["series", "anime"] {
+            let input: crate::profiles::edit::ProfileInput = serde_json::from_value(json!({
+                "source": "sonarr", "service": service, "name": "HD-1080p", "upgrade_allowed": true,
+                "cutoff": "WEBDL-1080p", "min_format_score": 0, "cutoff_format_score": 0,
+                "min_upgrade_format_score": 1, "language": null, "formats": [],
+                "items": [{ "name": "WEBDL-1080p", "qualities": ["WEBDL-1080p"], "allowed": true }]
+            }))
+            .unwrap();
+            let id = crate::profiles::edit::create_profile(&pool, &input)
+                .await
+                .unwrap()
+                .unwrap();
+            made.push(id);
+        }
+        let (series_profile, anime_profile) = (made[0], made[1]);
+        let choose = |wanted: i64, profile: i64| {
+            let request = Request::put(format!("/api/v1/wanted/series/{wanted}/profile"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "profile_id": profile }).to_string()))
+                .unwrap();
+            let app = app.clone();
+            async move { app.oneshot(request).await.unwrap().status() }
+        };
+        for anime in [1, 3] {
+            assert_eq!(
+                choose(anime, series_profile).await,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "series {anime} is Anime's"
+            );
+            assert_eq!(choose(anime, anime_profile).await, StatusCode::NO_CONTENT);
+        }
+        assert_eq!(
+            choose(2, anime_profile).await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(choose(2, series_profile).await, StatusCode::NO_CONTENT);
+        let chosen: Vec<Option<i64>> =
+            sqlx::query_scalar("SELECT profile_id FROM wanted_series ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            chosen,
+            [
+                Some(anime_profile),
+                Some(series_profile),
+                Some(anime_profile)
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn import_lists_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
         let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
@@ -3453,6 +3530,43 @@ mod openapi {
             let body: Value = serde_json::from_slice(&bytes).unwrap();
             assert_shape(&spec, schema, &body[0]);
         }
+    }
+
+    #[tokio::test]
+    async fn a_selections_outcome_carries_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
+            .await
+            .unwrap()
+            .unwrap();
+        let (_, token) =
+            crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO wanted_movies (id, tmdb_id, title, monitored, source, added_at)
+                 VALUES (1, 603, 'The Matrix', 1, 'manual', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let body = serde_json::json!({
+            "action": "unmonitor", "wanted_ids": [1, 2], "folders": [], "profile_id": null
+        });
+        let request = Request::post("/api/v1/manage/movies/selection")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        let response = manage::selection_routes(pool, None, None)
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let outcome: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_shape(&spec(), "ManagedSelectionOutcome", &outcome);
+        assert_eq!(outcome["unchanged"][0]["wanted_id"], 2);
     }
 
     #[tokio::test]

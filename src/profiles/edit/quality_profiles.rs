@@ -12,8 +12,10 @@ pub(super) async fn check_profile(
         Ok(name) => name,
         Err(refused) => return Ok(Err(refused)),
     };
-    let app = match app(&input.source) {
-        Ok(app) => app,
+    let found =
+        app(&input.source).and_then(|app| Ok((app, service_of(app, input.service.as_deref())?)));
+    let (app, service) = match found {
+        Ok(found) => found,
         Err(refused) => return Ok(Err(refused)),
     };
     let qualities = match ranked_qualities(input)? {
@@ -32,6 +34,7 @@ pub(super) async fn check_profile(
     }
     Ok(Ok(Checked {
         app,
+        service,
         name,
         cutoff: cutoff.name.trim().to_owned(),
         qualities,
@@ -121,6 +124,11 @@ fn check_scores(input: &ProfileInput) -> anyhow::Result<Result<(), Refused>> {
     {
         return refuse("language is an ISO 639-1 code, original or any".into());
     }
+    if let Some(minimum) = &input.minimum_availability
+        && crate::search::Minimum::parse(minimum).is_none()
+    {
+        return refuse("minimum_availability is announced, in_cinemas or released".into());
+    }
     Ok(Ok(()))
 }
 
@@ -157,6 +165,7 @@ async fn check_formats(
 
 pub(super) struct Checked {
     pub(super) app: App,
+    pub(super) service: &'static str,
     pub(super) name: String,
     pub(super) cutoff: String,
     pub(super) qualities: Vec<RankedQuality>,
@@ -175,26 +184,34 @@ pub async fn create_profile(
 }
 
 /// Changes a quality profile, which becomes Melete's own, so re-imports leave it alone: its id,
-/// or why it was refused. Its source can't change.
+/// or why it was refused. Its source and service can't change; a change that leaves the
+/// service out keeps the profile's.
 pub async fn update_profile(
     pool: &SqlitePool,
     id: i64,
     input: &ProfileInput,
 ) -> anyhow::Result<Result<i64, Refused>> {
-    let source: Option<String> =
-        sqlx::query_scalar("SELECT source FROM quality_profiles WHERE id = ?")
+    let kept: Option<(String, String)> =
+        sqlx::query_as("SELECT source, service FROM quality_profiles WHERE id = ?")
             .bind(id)
             .fetch_optional(pool)
             .await?;
-    let checked = match (source, check_profile(pool, input).await?) {
-        (None, _) => return Ok(Err(Refused::NotFound)),
-        (_, Err(refused)) => return Ok(Err(refused)),
-        (Some(source), Ok(checked)) if source != checked.app.as_str() => {
+    let Some((source, service)) = kept else {
+        return Ok(Err(Refused::NotFound));
+    };
+    let checked = match check_profile(pool, input).await? {
+        Err(refused) => return Ok(Err(refused)),
+        Ok(checked) if source != checked.app.as_str() => {
             return Ok(Err(invalid(
                 "a profile's source can't change; make a new one",
             )));
         }
-        (_, Ok(checked)) => checked,
+        Ok(checked) if input.service.is_some() && service != checked.service => {
+            return Ok(Err(invalid(
+                "a profile's service can't change; make a new one",
+            )));
+        }
+        Ok(checked) => checked,
     };
     write_profile(pool, Some(id), input, &checked).await
 }
@@ -209,11 +226,14 @@ pub(super) async fn write_profile(
     let written: Result<i64, sqlx::Error> = match id {
         None => {
             sqlx::query_scalar(
-                "INSERT INTO quality_profiles (source, name, upgrade_allowed, cutoff, min_format_score,
-                     cutoff_format_score, min_upgrade_format_score, language, updated_at, origin)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete') RETURNING id",
+                "INSERT INTO quality_profiles (source, service, name, upgrade_allowed, cutoff,
+                     min_format_score, cutoff_format_score, min_upgrade_format_score, language,
+                     updated_at, origin, minimum_availability)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete', coalesce(?, 'released'))
+                 RETURNING id",
             )
             .bind(checked.app.as_str())
+            .bind(checked.service)
             .bind(&checked.name)
             .bind(input.upgrade_allowed)
             .bind(&checked.cutoff)
@@ -222,13 +242,14 @@ pub(super) async fn write_profile(
             .bind(input.min_upgrade_format_score)
             .bind(&input.language)
             .bind(unix_now())
+            .bind(&input.minimum_availability)
             .fetch_one(&mut *tx)
             .await
         }
         Some(id) => sqlx::query(
             "UPDATE quality_profiles SET name = ?, upgrade_allowed = ?, cutoff = ?, min_format_score = ?,
                  cutoff_format_score = ?, min_upgrade_format_score = ?, language = ?, updated_at = ?,
-                 origin = 'melete'
+                 origin = 'melete', minimum_availability = coalesce(?, minimum_availability)
              WHERE id = ?",
         )
         .bind(&checked.name)
@@ -239,6 +260,7 @@ pub(super) async fn write_profile(
         .bind(input.min_upgrade_format_score)
         .bind(&input.language)
         .bind(unix_now())
+        .bind(&input.minimum_availability)
         .bind(id)
         .execute(&mut *tx)
         .await
