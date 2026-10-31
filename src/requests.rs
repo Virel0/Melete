@@ -686,6 +686,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn with_one_profile_and_none_set_an_approved_title_gets_that_one() {
+        let r = rig().await;
+        sqlx::query(
+            "INSERT INTO quality_profiles (id, source, service, name, upgrade_allowed, cutoff,
+                 min_format_score, cutoff_format_score, min_upgrade_format_score, updated_at)
+             VALUES (5, 'radarr', 'movies', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (6, 'sonarr', 'series', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (7, 'sonarr', 'anime', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0),
+                    (8, 'sonarr', 'anime', 'UHD', 1, 'Bluray-2160p', 0, 0, 1, 0)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO request_defaults (kind, library_id) VALUES ('series', 2), ('anime', 3)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, movie(603))
+            .await
+            .unwrap()
+            .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, show(1399, None))
+            .await
+            .unwrap()
+            .unwrap();
+        // Anime has two to choose between: none is chosen for it.
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, show(31910, None))
+            .await
+            .unwrap()
+            .unwrap();
+        let series: Vec<(String, Option<i64>)> =
+            sqlx::query_as("SELECT title, profile_id FROM wanted_series ORDER BY title")
+                .fetch_all(&r.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            series,
+            [
+                ("Game of Thrones".into(), Some(6)),
+                ("Naruto Shippuden".into(), None)
+            ]
+        );
+        assert_eq!(
+            wanted_movies(&r.pool).await,
+            [(603, "The Matrix".into(), 1, true, Some(5))]
+        );
+
+        // A second movies profile: there's a choice to make, so none is made for it.
+        sqlx::query(
+            "INSERT INTO quality_profiles (id, source, service, name, upgrade_allowed, cutoff,
+                 min_format_score, cutoff_format_score, min_upgrade_format_score, updated_at)
+             VALUES (9, 'radarr', 'movies', 'UHD', 1, 'Bluray-2160p', 0, 0, 1, 0)",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        create(&r.pool, Some(&r.tmdb), None, &r.bob, movie(604))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(wanted_movies(&r.pool).await[1].4, None);
+    }
+
+    #[tokio::test]
     async fn admins_and_users_let_through_skip_the_wait() {
         let r = rig().await;
         let own = create(&r.pool, Some(&r.tmdb), None, &r.admin, movie(604))
