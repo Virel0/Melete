@@ -1888,6 +1888,41 @@
         }
       }
     },
+    "/api/v1/files/{id}/wrong": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Set a file aside as the wrong one for its title",
+        "description": "Only for a movie or episode file Melete brought in from a download (FileInfo.imported); a file found in the library is never moved. The file goes to its library's trash (restorable with POST /api/v1/trash/{id}/restore, deleted after 30 days), the release it came from is blocklisted, its download is marked failed, and if the title is still monitored it's searched for again (for a season pack's episode, that episode alone) and the best accepted result grabbed. A search that fails then is said in search; the file is set aside all the same.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File id from a movie or episode's files.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Set aside",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WrongFileSetAside"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such movie or episode file in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Melete didn't bring it in from a download (or the file at its name isn't the one a download put there any more), its download is still being brought in, or it couldn't be moved (it changed on disk since it was scanned, or the library isn't writable)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/files/{id}/play": {
       "post": {
         "tags": ["Playback"],
@@ -4475,6 +4510,82 @@
           },
           "409": {
             "description": "What's in the trash isn't the file it put there now, or the library's share is away; nothing was deleted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-checks/{kind}/{id}": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "How a wanted title's downloads fared in the running-time check",
+        "description": "How many of its downloads were held back since the last import or override (their running time didn't match TMDB's, or couldn't be read), the latest with their reasons, and whether Melete has stopped searching for it by itself (after 3).",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-checks/{kind}/{id}/right": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Say a wanted title's runtime is right after all",
+        "description": "From now, while TMDB's runtime for it stays what it is, a movie's downloads are checked against how long its last held-back download ran (or not checked, when that couldn't be read), and a series' aren't checked. The count starts again and Melete searches for it by itself again.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -8829,7 +8940,8 @@
                 "taken_off",
                 "blocklisted",
                 "extra_found",
-                "renamed"
+                "renamed",
+                "set_aside"
               ]
             }
           },
@@ -11797,6 +11909,7 @@
         "type": "object",
         "required": [
           "id",
+          "imported",
           "path",
           "size",
           "modified_at",
@@ -11810,6 +11923,10 @@
         ],
         "properties": {
           "id": {"type": "integer"},
+          "imported": {
+            "type": "boolean",
+            "description": "Whether Melete brought this file in from a download, rather than finding it in the library, and it's still the file it placed (same size, last change, inode and device). Only such a file can be set aside as the wrong one (POST /api/v1/files/{id}/wrong); false for extras."
+          },
           "path": {"type": "string", "description": "Relative to the library folder."},
           "size": {"type": "integer"},
           "modified_at": {"type": "integer"},
@@ -12777,6 +12894,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
+          "minimum_availability",
           "origin",
           "items",
           "formats"
@@ -12806,6 +12924,10 @@
           "language": {
             "type": ["string", "null"],
             "description": "Audio language wanted: an ISO 639-1 code, original or any. Radarr profiles only."
+          },
+          "minimum_availability": {
+            "enum": ["announced", "in_cinemas", "released"],
+            "description": "How far out a film must be before its releases are taken: any time, from its cinema release, or from its digital, disc or TV release. Whatever this says, a WEB or TV release before the film's digital or TV release, a disc release before its disc release and a cinema recording before its cinema release are refused as most likely fakes, when that date is known. Radarr profiles only; series profiles keep released and don't use it."
           },
           "origin": {
             "enum": ["imported", "melete"],
@@ -13450,6 +13572,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
+          "minimum_availability",
           "items",
           "formats"
         ],
@@ -13471,6 +13594,10 @@
           "language": {
             "type": ["string", "null"],
             "description": "An ISO 639-1 code, original or any; null for none (as in Sonarr)."
+          },
+          "minimum_availability": {
+            "enum": ["announced", "in_cinemas", "released", null],
+            "description": "How far out a film must be before a movie profile takes its releases. null for a series profile; null, a new profile gets released and a changed one keeps its setting (an older client that leaves it out gets the same)."
           },
           "items": {
             "type": "array",
@@ -13988,6 +14115,47 @@
         },
         "additionalProperties": false
       },
+      "WrongFileSetAside": {
+        "type": "object",
+        "required": ["trash_id", "download_id", "release", "search"],
+        "properties": {
+          "trash_id": {"type": "integer", "description": "Its trash entry, for POST /api/v1/trash/{id}/restore."},
+          "download_id": {"type": "integer", "description": "The download it came from, now failed."},
+          "release": {"type": "string", "description": "The release it came from, now blocklisted."},
+          "search": {"type": "string", "description": "What searching again did, in words."}
+        },
+        "additionalProperties": false
+      },
+      "RuntimeCheckStatus": {
+        "type": "object",
+        "required": ["failures", "stopped", "reasons", "overridden", "override_seconds"],
+        "properties": {
+          "failures": {"type": "integer", "description": "Downloads held back since the last import or override."},
+          "stopped": {"type": "boolean", "description": "Whether Melete has stopped searching for it by itself (3 or more)."},
+          "reasons": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/RuntimeCheckFailure"},
+            "description": "The latest held-back downloads (up to 5), newest last."
+          },
+          "overridden": {"type": "boolean", "description": "Whether an admin's \"the runtime is right after all\" holds now (TMDB's runtime is what it was then)."},
+          "override_seconds": {
+            "type": ["number", "null"],
+            "description": "While the override holds, the running time a movie's downloads are checked against; null when nothing is checked."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuntimeCheckFailure": {
+        "type": "object",
+        "required": ["at", "download_id", "release", "reason"],
+        "properties": {
+          "at": {"type": "integer", "description": "Unix seconds."},
+          "download_id": {"type": "integer"},
+          "release": {"type": "string"},
+          "reason": {"type": "string", "description": "Why it was held back, in words."}
+        },
+        "additionalProperties": false
+      },
       "TrashedFile": {
         "type": "object",
         "required": [
@@ -13998,6 +14166,7 @@
           "size",
           "download_id",
           "replaced_by",
+          "reason",
           "trashed_at",
           "delete_after"
         ],
@@ -14007,10 +14176,14 @@
           "rel_path": {"type": "string", "description": "Where it was, relative to the library's folder."},
           "trash_path": {"type": "string", "description": "Where it is now, relative to the library's folder."},
           "size": {"type": "integer"},
-          "download_id": {"type": ["integer", "null"], "description": "The upgrade that replaced it."},
+          "download_id": {"type": ["integer", "null"], "description": "The upgrade that replaced it, or for a wrong file the download it came from."},
           "replaced_by": {
             "type": "string",
-            "description": "The file that replaced it, relative to the library's folder."
+            "description": "The file that replaced it, relative to the library's folder; empty for a wrong file."
+          },
+          "reason": {
+            "enum": ["upgrade", "wrong"],
+            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong); its history says set_aside, not upgraded."
           },
           "trashed_at": {"type": "integer", "description": "Unix seconds."},
           "delete_after": {
@@ -16859,7 +17032,8 @@
               "tmdb_off",
               "tmdb_refused",
               "tmdb_failing",
-              "titles_unmatched"
+              "titles_unmatched",
+              "runtime_checks_failed"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -16867,7 +17041,7 @@
           "count": {"type": "integer", "description": "How many things it's about."},
           "id": {
             "type": ["integer", "null"],
-            "description": "The indexer (indexer_failed) or library (files_missing, files_unparsed, disk_nearly_full) it's about."
+            "description": "The indexer (indexer_failed), library (files_missing, files_unparsed, disk_nearly_full) or wanted movie or series (runtime_checks_failed: GET /api/v1/runtime-checks/{kind}/{id}) it's about."
           }
         }
       },
@@ -17351,7 +17525,8 @@
               "taken_off",
               "blocklisted",
               "extra_found",
-              "renamed"
+              "renamed",
+              "set_aside"
             ]
           },
           "title": {

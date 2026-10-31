@@ -17,9 +17,11 @@ use crate::release::{self, Episodes};
 
 mod retiring;
 mod trash;
+mod wrong;
 
 pub use retiring::*;
 pub use trash::*;
+pub use wrong::*;
 
 /// The trash folder at the top of each library; scans skip names starting with a dot.
 pub const TRASH: &str = ".melete-trash";

@@ -126,6 +126,7 @@ fn anime_profile(source: &str, scores: Vec<ScoreInput>) -> ProfileInput {
         cutoff_format_score: 300,
         min_upgrade_format_score: 1,
         language: Some("any".into()),
+        minimum_availability: None,
         items: vec![tier("1080p", "1080p"), tier("2160p", "2160p")],
         formats: scores,
     }

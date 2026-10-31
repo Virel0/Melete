@@ -192,7 +192,7 @@ impl Client {
         self.get_found(&path, &[("external_source", source)]).await
     }
 
-    /// A movie's earliest digital and physical release in any country; `None` when TMDB has
+    /// A movie's earliest digital, physical and TV release in any country; `None` when TMDB has
     /// no movie with this id.
     pub async fn release_dates(&self, id: i64) -> anyhow::Result<Option<ReleaseDates>> {
         #[derive(Deserialize)]
@@ -217,7 +217,7 @@ impl Client {
         else {
             return Ok(None);
         };
-        // TMDB's release types: 4 is digital, 5 physical.
+        // TMDB's release types: 4 is digital, 5 physical, 6 TV.
         let earliest = |kind: i64| {
             reply
                 .results
@@ -240,6 +240,7 @@ impl Client {
         Ok(Some(ReleaseDates {
             digital: earliest(4),
             physical: earliest(5),
+            tv: earliest(6),
         }))
     }
 
