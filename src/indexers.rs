@@ -577,7 +577,7 @@ mod own_tests {
         asked.lock().unwrap().clear();
         let _ = test(&pool, &client, id).await.unwrap().unwrap();
         let asked = asked.lock().unwrap();
-        assert!(asked[0].contains("apikey=the-key"), "{asked:?}");
+        assert!(asked[0].contains("apikey=the-key"), "the key sent whole");
     }
 
     #[tokio::test]

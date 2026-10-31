@@ -47,7 +47,7 @@ async fn plain_database(dir: &Path) -> SqlitePool {
     .execute(&pool)
     .await
     .unwrap();
-    let alice = auth::create_user(&pool, "alice", "a-long-password".into(), false)
+    let alice = auth::create_user(&pool, "alice", auth::generate_password().unwrap(), false)
         .await
         .unwrap()
         .unwrap();
@@ -204,7 +204,7 @@ async fn a_switched_database_refuses_plain_secrets() {
     .execute(&pool)
     .await
     .unwrap();
-    let user = auth::create_user(&pool, "alice", "a-long-password".into(), false)
+    let user = auth::create_user(&pool, "alice", auth::generate_password().unwrap(), false)
         .await
         .unwrap()
         .unwrap();
