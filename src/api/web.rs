@@ -659,6 +659,7 @@ mod tests {
             ("/web/manage-select.js", "/selection"),
             ("/web/manage-library.js", "all: () => selectAll(v)"),
             ("/web/manage-add.js", "/requests/search"),
+            ("/web/manage-add.js", r#"["song", "Songs"]"#),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
         ] {

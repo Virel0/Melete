@@ -1059,3 +1059,89 @@ async fn each_request_says_its_service_and_a_list_narrows_to_one() {
     let (status, _) = send(&app, "GET", "/api/v1/requests?service=films", &admin, None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// Music's Add new: songs found on MusicBrainz by title and artist, and one added as an admin
+/// adds, with where it goes and its profile, and not monitored (a song is searched for once).
+#[tokio::test]
+async fn admins_find_songs_and_add_one_as_add_new_does() {
+    use crate::musicbrainz::testing::{self, PARANOID_ANDROID};
+    let pool = db::open_in_memory().await;
+    sqlx::query(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (4, 'music', 'music', '/music')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let profile = crate::music_profiles::lossless(&pool).await.unwrap();
+    let admin = token(&pool, "admin", true).await;
+    let (mb, log) = testing::start(0).await;
+    let app = routes(pool.clone(), Some(Arc::new(mb)), Sources::default());
+
+    let (status, found) = send(
+        &app,
+        "GET",
+        "/api/v1/requests/search?kind=song&q=Paranoid%20Android&artist=Radiohead",
+        &admin,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        (
+            &found[0]["kind"],
+            &found[0]["mb_recording_id"],
+            &found[0]["artist"]
+        ),
+        (
+            &json!("song"),
+            &json!(PARANOID_ANDROID),
+            &json!("Radiohead")
+        )
+    );
+    let searched = log.lock().unwrap().join("\n");
+    assert!(searched.contains("search recording"), "{searched}");
+
+    let add = |monitored: Option<bool>| {
+        let mut body = json!({"kind": "song", "mb_recording_id": PARANOID_ANDROID,
+            "library_id": 4, "music_profile_id": profile, "search_now": false});
+        if let Some(on) = monitored {
+            body["monitored"] = json!(on);
+        }
+        body
+    };
+    let (status, refused) = send(
+        &app,
+        "POST",
+        "/api/v1/requests",
+        &admin,
+        Some(add(Some(true))),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a song isn't monitored: {refused}"
+    );
+    let (status, added) = send(&app, "POST", "/api/v1/requests", &admin, Some(add(None))).await;
+    assert_eq!(status, StatusCode::CREATED, "{added}");
+    assert_eq!(
+        (&added["state"], added["search_started"].as_bool()),
+        (&json!("approved"), Some(false))
+    );
+    let wanted: (i64, String, String, i64, i64) = sqlx::query_as(
+        "SELECT id, title, mb_recording_id, library_id, music_profile_id FROM wanted_songs",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        wanted,
+        (
+            added["wanted_id"].as_i64().unwrap(),
+            "Paranoid Android".into(),
+            PARANOID_ANDROID.into(),
+            4,
+            profile
+        )
+    );
+}

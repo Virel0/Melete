@@ -21,6 +21,7 @@ const SEARCHES = {
   music: [
     ["artist", "Artists"],
     ["album", "Albums"],
+    ["song", "Songs"],
   ],
 };
 const LIBRARY_KIND = { movies: "movies", series: "shows", anime: "shows", music: "music" };
@@ -42,12 +43,22 @@ function searchPart(page) {
   const kinds = SEARCHES[page.key];
   const q = h("input", { id: "add-q", type: "search", autocomplete: "off", spellcheck: "false", required: true });
   const kind = kinds.length > 1 ? h("select", { id: "add-kind" }, kinds.map(([k, words]) => h("option", { value: k }, words))) : null;
+  // An album or a song can be narrowed to one artist.
+  const by = kind ? h("input", { id: "add-by", type: "search", autocomplete: "off", spellcheck: "false", maxlength: 200 }) : null;
+  const byBox = by ? h("div", { hidden: true }, h("label", { for: "add-by" }, "By artist (optional)"), by) : null;
+  const label = h("label", { for: "add-q" }, page.key === "music" ? "Artist name" : "Title");
   const results = h("div", { class: "add-results", "aria-live": "polite" });
+  kind?.addEventListener("change", () => {
+    label.textContent = kind.value === "artist" ? "Artist name" : kind.value === "song" ? "Song title" : "Album title";
+    byBox.hidden = kind.value === "artist";
+    results.replaceChildren();
+  });
   const search = h(
     "form",
     { class: "search-row", role: "search", novalidate: true },
-    h("div", {}, h("label", { for: "add-q" }, page.key === "music" ? "Artist or album" : "Title"), q),
     kind ? h("div", {}, h("label", { for: "add-kind" }, "Look for"), kind) : null,
+    h("div", {}, label, q),
+    byBox,
     h("button", { type: "submit" }, page.key === "music" ? "Search MusicBrainz" : "Search TMDB"),
   );
   search.addEventListener("submit", async (event) => {
@@ -55,9 +66,11 @@ function searchPart(page) {
     const words = q.value.trim();
     if (!words) return q.focus();
     const asked = kind?.value ?? kinds[0][0];
+    const params = new URLSearchParams({ kind: asked, q: words });
+    if (byBox && !byBox.hidden && by.value.trim()) params.set("artist", by.value.trim());
     results.replaceChildren(h("p", { class: "status" }, "Searching…"));
     try {
-      const found = await api(`/requests/search?${new URLSearchParams({ kind: asked, q: words })}`);
+      const found = await api(`/requests/search?${params}`);
       if (!page.ctx.current()) return;
       results.replaceChildren(
         found.length
@@ -111,11 +124,13 @@ function candidateRow(page, c) {
 
 // Where it goes, its profile, monitored, searched for now, and a series' seasons.
 function addForm(page, c) {
-  const id = `add-${c.kind}-${c.tmdb_id ?? c.mb_artist_id ?? c.mb_release_group_id}`;
+  const id = `add-${c.kind}-${c.tmdb_id ?? c.mb_recording_id ?? c.mb_release_group_id ?? c.mb_artist_id}`;
   const music = page.key === "music";
+  // A song isn't monitored: it's searched for on Soulseek, once.
+  const song = c.kind === "song";
   const library = page.libraries.length > 1 ? h("select", { id: `${id}-library` }, h("option", { value: "" }, "As Where they go says"), page.libraries.map((l) => h("option", { value: String(l.id) }, l.name))) : null;
   const profile = h("select", { id: `${id}-profile` }, h("option", { value: "" }, "As Where they go says"), page.profiles.map((p) => h("option", { value: String(p.id) }, p.name)));
-  const monitored = h("input", { type: "checkbox", id: `${id}-monitored`, checked: true });
+  const monitored = song ? null : h("input", { type: "checkbox", id: `${id}-monitored`, checked: true });
   const now = h("input", { type: "checkbox", id: `${id}-now`, checked: true });
   const seasons = c.kind === "series" ? h("input", { id: `${id}-seasons`, inputmode: "numeric", placeholder: "1, 2", "aria-describedby": `${id}-seasons-hint` }) : null;
   const said = h("p", { class: "form-result", role: "status" });
@@ -126,7 +141,7 @@ function addForm(page, c) {
     library ? h("div", { class: "field" }, h("label", { for: library.id }, "Library"), library) : null,
     h("div", { class: "field" }, h("label", { for: profile.id }, music ? "Music profile" : "Profile"), profile),
     seasons ? h("div", { class: "field" }, h("label", { for: seasons.id }, "Seasons to monitor"), h("p", { class: "note", id: `${id}-seasons-hint` }, "Season numbers with commas; leave empty for every season but the specials."), seasons) : null,
-    h("div", { class: "check" }, monitored, h("label", { for: monitored.id }, "Monitored: looked for by searches and RSS syncs")),
+    monitored ? h("div", { class: "check" }, monitored, h("label", { for: monitored.id }, "Monitored: looked for by searches and RSS syncs")) : null,
     h("div", { class: "check" }, now, h("label", { for: now.id }, "Search for it now")),
     h("div", { class: "form-actions" }, submit, said),
   );
@@ -142,9 +157,10 @@ function addForm(page, c) {
       tmdb_id: c.tmdb_id ?? undefined,
       mb_artist_id: c.kind === "artist" ? c.mb_artist_id : undefined,
       mb_release_group_id: c.kind === "album" ? c.mb_release_group_id : undefined,
+      mb_recording_id: song ? c.mb_recording_id : undefined,
       library_id: library?.value ? Number(library.value) : undefined,
       [music ? "music_profile_id" : "profile_id"]: profile.value ? Number(profile.value) : undefined,
-      monitored: monitored.checked,
+      monitored: monitored?.checked,
       search_now: now.checked,
       seasons: chosen ?? undefined,
     };
@@ -167,9 +183,11 @@ function addForm(page, c) {
 function added(page, c, r) {
   if (r.state !== "approved" || r.wanted_id === null) return [`Asked for, but it couldn't be placed: choose where it goes under Requests, To decide.`];
   const service = r.service === "anime" || r.service === "series" ? r.service : page.key;
-  const where = c.kind === "artist" ? `#/admin/music/artist/${r.wanted_id}` : c.kind === "album" ? null : `#/admin/${service}/title/${r.wanted_id}`;
-  const searched = r.search_started ? " Searching for it now." : "";
-  return [`Added ${c.title}${c.kind === "album" ? ", with its artist" : ""}.${searched} `, where ? h("a", { href: where }, "Open its page") : null].filter(Boolean);
+  const pages = { artist: `#/admin/music/artist/${r.wanted_id}`, album: null, song: "#/admin/music/songs" };
+  const where = c.kind in pages ? pages[c.kind] : `#/admin/${service}/title/${r.wanted_id}`;
+  const searched = r.search_started ? (c.kind === "song" ? " Searching Soulseek for it now." : " Searching for it now.") : "";
+  const open = c.kind === "song" ? "Open Wanted songs" : "Open its page";
+  return [`Added ${c.title}${c.kind === "album" ? ", with its artist" : ""}.${searched} `, where ? h("a", { href: where }, open) : null].filter(Boolean);
 }
 
 // Needs a match: the titles of this service TMDB couldn't settle (a series in an anime library
