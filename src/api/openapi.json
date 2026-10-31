@@ -13676,7 +13676,7 @@
           "step": {
             "type": "string",
             "enum": ["wanted", "searching", "downloading", "transferring", "importing", "in_library", "failed"],
-            "description": "In order: wanted, searching (looking for a download), downloading, transferring (copying home, or waiting to be), importing (tagging and measuring), in_library; or failed."
+            "description": "In order: wanted, searching (looking for a download), downloading, transferring (copying home, or waiting to be), importing (tagging and measuring, or for up to two minutes after an import while its new folder is matched to the title it was grabbed for), in_library; or failed."
           },
           "percent": {"type": ["number", "null"], "description": "How much is downloaded, while downloading."},
           "message": {"type": ["string", "null"], "description": "The latest word on it, in plain words."},
