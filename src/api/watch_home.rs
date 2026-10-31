@@ -125,9 +125,9 @@ async fn home(
         ("continue_watching", continuing),
         ("next_up", next_up),
         ("favourites", favourites),
+        ("latest_movies", plain(&movies)),
         ("latest_shows", plain(&shows)),
         ("latest_anime", plain(&anime)),
-        ("latest_movies", plain(&movies)),
     ];
     let wanted: Vec<TitleRef> = hero
         .iter()
