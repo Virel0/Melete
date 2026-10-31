@@ -4,7 +4,8 @@
 use super::*;
 
 /// Each video service whose requests have no default profile while it has several to choose
-/// from, as a note in its own area: one approved without a choice gets none.
+/// from, as a note in its own area: one approved without a choice gets none (with one, it
+/// gets that one).
 pub(super) async fn requests_without_profile(
     pool: &SqlitePool,
     found: &mut Found,
@@ -74,7 +75,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        // Series has only one, so nothing to choose between; Movies and Anime have a choice to make.
+        // Series has only one, which its requests get; Movies and Anime have a choice to make.
         let found = notes(check(&pool).await.unwrap());
         assert_eq!(
             found
