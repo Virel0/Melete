@@ -134,7 +134,19 @@ function setUpForm(ctx, say) {
   });
 }
 
-// The key, as text and as a link for the app, and the first code that turns it on.
+// The setup link as a QR code for the app to scan: the SVG the server drew, put in the page as
+// it is (never loaded from a URL, which would put the secret in one). Null without one.
+function qrCode(svg) {
+  if (!svg) return null;
+  const drawn = new DOMParser().parseFromString(svg, "image/svg+xml").documentElement;
+  if (drawn.nodeName !== "svg") return null;
+  const code = document.importNode(drawn, true);
+  code.setAttribute("role", "img");
+  code.setAttribute("aria-label", "QR code of the key, for an authenticator app to scan");
+  return h("div", { class: "qr-code" }, code);
+}
+
+// The key, as a QR code, as text and as a link for the app, and the first code that turns it on.
 function confirmStep(setup, ctx) {
   const code = field("two-factor-code", "Code from the app", codeInput(), "The six digits it shows for Melete now.");
   const confirm = form([code], "Turn on two-factor sign-in", async () => {
@@ -158,10 +170,21 @@ function confirmStep(setup, ctx) {
   const cancel = h("button", { type: "button", class: "quiet" }, "Cancel");
   cancel.addEventListener("click", () => ctx.reload("Two-factor sign-in is still off."));
   confirm.querySelector(".form-actions").append(cancel);
+  const qr = qrCode(setup.qr);
   return [
-    h("p", {}, "1. Add Melete to your authenticator app: type in this key, or open the link on the phone with the app."),
-    secret("Key", setup.secret, "Time-based, six digits, every 30 seconds. It's shown only until you turn two-factor sign-in on."),
-    h("p", {}, h("a", { href: setup.uri }, "Open in an authenticator app")),
+    h(
+      "p",
+      {},
+      qr
+        ? "1. Add Melete to your authenticator app: scan this code with the app, type in the key, or open the link on the phone with the app."
+        : "1. Add Melete to your authenticator app: type in this key, or open the link on the phone with the app.",
+    ),
+    h(
+      "div",
+      { class: "two-factor-key" },
+      qr,
+      h("div", {}, secret("Key", setup.secret, "Time-based, six digits, every 30 seconds. It's shown only until you turn two-factor sign-in on."), h("p", {}, h("a", { href: setup.uri }, "Open in an authenticator app"))),
+    ),
     h("p", {}, "2. Enter the code the app shows, to check it works and turn it on."),
     confirm,
   ];

@@ -18,6 +18,7 @@ use crate::db::unix_now;
 use crate::secrets;
 
 mod challenges;
+pub mod qr;
 mod record;
 pub mod totp;
 

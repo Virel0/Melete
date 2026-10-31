@@ -341,7 +341,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Start setting up two-factor sign-in",
-        "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
+        "description": "Needs your password. Answers a new secret, in base32 for typing in, as an `otpauth://` link for a tap, and as that link drawn as a QR code for a phone to scan, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
         "requestBody": {
           "required": true,
           "content": {
@@ -11107,7 +11107,7 @@
       },
       "TwoFactorSetup": {
         "type": "object",
-        "required": ["secret", "uri"],
+        "required": ["secret", "uri", "qr"],
         "properties": {
           "secret": {
             "type": "string",
@@ -11116,6 +11116,10 @@
           "uri": {
             "type": "string",
             "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"
+          },
+          "qr": {
+            "type": ["string", "null"],
+            "description": "The `uri` as a QR code: an SVG document, black on white with its margin, sized by whatever holds it. Drawn by the server; it holds the secret, so it is kept and cached no more than the secret. Null only for a link too long to draw, which a username can't make."
           }
         },
         "additionalProperties": false
