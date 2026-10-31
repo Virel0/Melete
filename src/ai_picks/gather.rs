@@ -19,10 +19,12 @@ pub(super) struct Watched {
 /// A candidate as the database gives it: series, id, title, year, genres, overview.
 type CandidateRow = (bool, i64, String, Option<i64>, String, Option<String>);
 
-/// A candidate, with the id it's told by.
+/// A candidate, with the id it's told by. A trending one not in the library is `requestable`,
+/// its `title` holding its TMDB id.
 pub(super) struct Candidate {
     pub title: Title,
     pub told: Told,
+    pub requestable: Option<super::trending::Requestable>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -153,6 +155,7 @@ async fn candidates(
                     &genres(Some(&genres_json)),
                     overview.as_deref(),
                 ),
+                requestable: None,
             },
         )
         .collect())

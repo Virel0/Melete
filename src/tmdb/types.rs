@@ -281,6 +281,9 @@ pub struct Listed {
     pub overview: Option<String>,
     /// The poster's file on TMDB's image server, such as `/abc.jpg`.
     pub poster_path: Option<String>,
+    /// Its genres, as TMDB's genre ids.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub genre_ids: Vec<i64>,
 }
 
 #[derive(Debug, Deserialize)]

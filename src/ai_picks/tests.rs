@@ -429,3 +429,191 @@ async fn at_most_two_calls_run_at_once_and_the_rest_wait() {
         "their places are free again"
     );
 }
+
+/// A fake TMDB with this week's trending movies: Calm (in the library), Tide (900, rated 16),
+/// Dune Sea (901, rated 6) and Unrated (902, no rating known and none to fetch); and trending
+/// series: Harbour (950, rated 6).
+async fn trending_tmdb(pool: &SqlitePool) -> (crate::tmdb::testing::FakeTmdb, crate::tmdb::Client) {
+    use crate::tmdb::testing::{FakeTmdb, Reply};
+    sqlx::raw_sql(
+        "INSERT INTO tmdb_ratings (tv, tmdb_id, certifications, age, fetched_at) VALUES
+             (0, 900, '{}', 16, 4102444800), (0, 901, '{}', 6, 4102444800),
+             (1, 950, '{}', 6, 4102444800);",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/trending/movie/week",
+        vec![Reply::ok(json!({ "results": [
+            { "id": 2, "title": "Calm", "release_date": "2001-01-01", "genre_ids": [18] },
+            { "id": 900, "title": "Tide", "release_date": "2024-05-01", "genre_ids": [28],
+              "overview": "Loud." },
+            { "id": 901, "title": "Dune Sea", "release_date": "2025-03-02",
+              "genre_ids": [12, 18, 10751, 14], "poster_path": "/dune.jpg",
+              "overview": "A girl crosses a desert of sand and memory to find the sea her grandmother sang about." },
+            { "id": 902, "title": "Unrated", "release_date": "2025-01-01", "genre_ids": [] }
+        ]}))],
+    )
+    .reply(
+        "/trending/tv/week",
+        vec![Reply::ok(json!({ "results": [
+            { "id": 950, "name": "Harbour", "first_air_date": "2023-09-09", "genre_ids": [18] }
+        ]}))],
+    );
+    let client = fake.start().await;
+    (fake, client)
+}
+
+async fn discovery_on(pool: &SqlitePool) {
+    sqlx::query(
+        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_DISCOVERY', 'on', 0)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn trending_titles_are_candidates_only_with_trending_and_similar_titles_on() {
+    let (pool, me, everything, _, _) = library().await;
+    turn_on(&pool).await;
+    let (tmdb_fake, tmdb) = trending_tmdb(&pool).await;
+    let (fake, api) = fake::start().await;
+    *fake.content.lock().unwrap() =
+        r#"{"picks": [{"id": "c4", "reason": "Loud and new"}, {"id": "c1", "reason": "After dark"}]}"#
+            .into();
+    let client = fake::client(&api);
+
+    // Off: nothing is asked of TMDB, and only the library is offered.
+    make_for_viewer_with(&pool, &client, Some(&tmdb), me, &everything)
+        .await
+        .unwrap();
+    assert!(
+        tmdb_fake.log.lock().unwrap().is_empty(),
+        "nothing asked of TMDB"
+    );
+    let (_, told_off) = told(&fake, 0);
+    assert_eq!(
+        titles_told(&told_off["candidates"]),
+        ["Late", "Calm", "Loud"]
+    );
+
+    // On: the trending titles not in the library are offered too, told as library titles are.
+    discovery_on(&pool).await;
+    make_for_viewer_with(&pool, &client, Some(&tmdb), me, &everything)
+        .await
+        .unwrap();
+    let asked = tmdb_fake.log.lock().unwrap().clone();
+    assert_eq!(
+        asked,
+        ["/trending/movie/week", "/trending/tv/week"],
+        "only which chart"
+    );
+    let (body, told_on) = told(&fake, 1);
+    assert_eq!(
+        titles_told(&told_on["candidates"]),
+        [
+            "Late", "Calm", "Loud", "Tide", "Dune Sea", "Unrated", "Harbour"
+        ]
+    );
+    assert_eq!(
+        told_on["candidates"][4],
+        json!({ "id": "c5", "title": "Dune Sea", "year": 2025,
+                "genres": ["Adventure", "Drama", "Family"],
+                "premise": "A girl crosses a desert of sand and memory to find the…" })
+    );
+    assert!(
+        !body.to_string().contains("901"),
+        "not even its TMDB id goes to the AI"
+    );
+
+    // c4 is Tide and c1 Late: the picks keep the model's order, the trending one by kind and
+    // TMDB id.
+    let client = Arc::new(client);
+    let served = for_viewer_with(&pool, Some(&client), Some(&Arc::new(tmdb)), me, &everything)
+        .await
+        .unwrap();
+    assert_eq!(served.status, Status::Ready);
+    let tide = Requestable {
+        series: false,
+        tmdb_id: 900,
+        title: "Tide".into(),
+        year: Some(2024),
+        poster_path: None,
+        reason: "Loud and new".into(),
+    };
+    let late = Pick {
+        title: Title {
+            series: false,
+            id: 5,
+        },
+        reason: "After dark".into(),
+    };
+    assert_eq!(
+        served.ranked,
+        [Ranked::Requestable(tide), Ranked::Library(late.clone())]
+    );
+    assert_eq!(
+        served.picks,
+        std::slice::from_ref(&late),
+        "the library's alone"
+    );
+
+    // With trending and similar titles turned off, the trending one isn't served.
+    sqlx::query("DELETE FROM settings WHERE name = 'MELETE_DISCOVERY'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let served = for_viewer(&pool, Some(&client), me, &everything)
+        .await
+        .unwrap();
+    assert_eq!(served.ranked, [Ranked::Library(late)]);
+}
+
+#[tokio::test]
+async fn a_restricted_viewer_is_never_offered_a_trending_title_over_their_age() {
+    let (pool, _, _, child, limited) = library().await;
+    turn_on(&pool).await;
+    discovery_on(&pool).await;
+    let (tmdb_fake, tmdb) = trending_tmdb(&pool).await;
+    let (fake, api) = fake::start().await;
+    *fake.content.lock().unwrap() = r#"{"picks": [{"id": "c2", "reason": "Sandy"}]}"#.into();
+    let client = fake::client(&api);
+    make_for_viewer_with(&pool, &client, Some(&tmdb), child, &limited)
+        .await
+        .unwrap();
+    // Tide is rated 16 and Unrated has no rating to be judged by; only their TMDB ids were
+    // asked about, for a rating.
+    let (_, told) = told(&fake, 0);
+    assert_eq!(
+        titles_told(&told["candidates"]),
+        ["Calm", "Dune Sea", "Harbour"]
+    );
+    let asked = tmdb_fake.log.lock().unwrap().clone();
+    assert_eq!(
+        asked,
+        [
+            "/trending/movie/week",
+            "/trending/tv/week",
+            "/movie/902/release_dates"
+        ]
+    );
+    let served = for_viewer_with(&pool, Some(&Arc::new(client)), None, child, &limited)
+        .await
+        .unwrap();
+    assert!(matches!(
+        &served.ranked[..],
+        [Ranked::Requestable(Requestable { tmdb_id: 901, .. })]
+    ));
+    // Should its rating rise past theirs, it's no longer served.
+    sqlx::query("UPDATE tmdb_ratings SET age = 16 WHERE tmdb_id = 901")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let served = for_viewer(&pool, Some(&Arc::new(fake::client(&api))), child, &limited)
+        .await
+        .unwrap();
+    assert!(served.ranked.is_empty());
+}

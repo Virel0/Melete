@@ -6,7 +6,7 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 
 use super::*;
-use crate::ai_picks::{self, Like, Status, Title};
+use crate::ai_picks::{self, Like, Ranked, Requestable, Status, Title};
 
 fn title_ref(title: Title) -> TitleRef {
     TitleRef {
@@ -22,7 +22,8 @@ pub(super) async fn featured(
     me: i64,
     access: &Access,
 ) -> Result<Vec<Entry>, ApiError> {
-    let served = ai_picks::for_viewer(pool, outside.ai.as_ref(), me, access).await?;
+    let (ai, tmdb) = (outside.ai.as_ref(), outside.tmdb.as_ref());
+    let served = ai_picks::for_viewer_with(pool, ai, tmdb, me, access).await?;
     Ok(served
         .picks
         .into_iter()
@@ -59,7 +60,21 @@ pub(super) async fn like(
     )
 }
 
-/// Titles with their reasons as the answer gives them: what a tile shows of each, from its card.
+/// The TMDB id a title in the library is matched to, when it is.
+async fn tmdb_id_of(pool: &SqlitePool, title: TitleRef) -> sqlx::Result<Option<i64>> {
+    let id: Option<Option<i64>> = sqlx::query_scalar(if title.series {
+        "SELECT match_tmdb_id FROM series WHERE id = ?"
+    } else {
+        "SELECT match_tmdb_id FROM movies WHERE id = ?"
+    })
+    .bind(title.id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(id.flatten())
+}
+
+/// Titles in the library with their reasons as the answer gives them: what a tile shows of
+/// each, from its card, and its TMDB id.
 async fn items(
     pool: &SqlitePool,
     me: i64,
@@ -68,17 +83,51 @@ async fn items(
 ) -> Result<Vec<Value>, ApiError> {
     let wanted: Vec<TitleRef> = titles.iter().map(|(t, _)| *t).collect();
     let cards = Cards::load(pool, me, access, &wanted).await?;
-    Ok(titles
-        .iter()
-        .filter_map(|(title, reason)| {
-            let card = cards.item(&Entry::plain(*title))?;
-            Some(json!({
-                "kind": card["kind"], "id": card["id"], "title": card["title"],
-                "year": card["year"], "poster": card["poster"], "backdrop": card["backdrop"],
-                "reason": reason,
-            }))
-        })
-        .collect())
+    let mut out = Vec::new();
+    for (title, reason) in titles {
+        let Some(card) = cards.item(&Entry::plain(*title)) else {
+            continue;
+        };
+        out.push(json!({
+            "kind": card["kind"], "id": card["id"], "tmdb_id": tmdb_id_of(pool, *title).await?,
+            "requestable": false, "title": card["title"], "year": card["year"],
+            "poster": card["poster"], "backdrop": card["backdrop"], "reason": reason,
+        }));
+    }
+    Ok(out)
+}
+
+/// A trending pick not in the library as the answer gives it: by kind and TMDB id, with no id
+/// in the library, its poster only when the artwork route would serve it.
+async fn requestable_item(pool: &SqlitePool, pick: &Requestable) -> Result<Value, ApiError> {
+    let poster =
+        crate::api::discover::poster(pool, pick.poster_path.as_deref(), pick.series, pick.tmdb_id)
+            .await?;
+    Ok(json!({
+        "kind": if pick.series { "series" } else { "movie" }, "id": null,
+        "tmdb_id": pick.tmdb_id, "requestable": true, "title": pick.title, "year": pick.year,
+        "poster": poster, "backdrop": null, "reason": pick.reason,
+    }))
+}
+
+/// The viewer's picks in the model's order, those in the library and those to ask for.
+async fn ranked_items(
+    pool: &SqlitePool,
+    me: i64,
+    access: &Access,
+    ranked: &[Ranked],
+) -> Result<Vec<Value>, ApiError> {
+    let mut out = Vec::new();
+    for pick in ranked {
+        match pick {
+            Ranked::Library(p) => {
+                let titles = [(title_ref(p.title), Some(p.reason.clone()))];
+                out.extend(items(pool, me, access, &titles).await?);
+            }
+            Ranked::Requestable(r) => out.push(requestable_item(pool, r).await?),
+        }
+    }
+    Ok(out)
 }
 
 /// The viewer's "Featured for you": the picks as they stand, and where they stand.
@@ -88,7 +137,8 @@ pub(super) async fn picks(
 ) -> Result<Json<Value>, ApiError> {
     let pool = &state.pool;
     let me = current.user.id;
-    let served = ai_picks::for_viewer(pool, state.outside.ai.as_ref(), me, &current.access).await?;
+    let (ai, tmdb) = (state.outside.ai.as_ref(), state.outside.tmdb.as_ref());
+    let served = ai_picks::for_viewer_with(pool, ai, tmdb, me, &current.access).await?;
     let (status, message) = match &served.status {
         Status::Off => (
             "off",
@@ -122,16 +172,11 @@ pub(super) async fn picks(
             Some(format!("Your picks couldn't be made: {why}")),
         ),
     };
-    let titles: Vec<(TitleRef, Option<String>)> = served
-        .picks
-        .into_iter()
-        .map(|p| (title_ref(p.title), Some(p.reason)))
-        .collect();
     Ok(Json(json!({
         "status": status,
         "message": message,
         "made_at": served.made_at,
-        "picks": items(pool, me, &current.access, &titles).await?,
+        "picks": ranked_items(pool, me, &current.access, &served.ranked).await?,
     })))
 }
 

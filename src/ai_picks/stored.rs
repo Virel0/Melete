@@ -7,7 +7,8 @@ use super::*;
 pub(super) struct Kept {
     /// What the viewer had watched when they were made; empty for titles like one.
     pub history: String,
-    pub picks: Vec<Pick>,
+    /// In the model's order; titles like one are always in the library.
+    pub picks: Vec<Ranked>,
     pub made_at: Option<i64>,
     pub error: Option<String>,
     /// When making them was last started.
@@ -68,7 +69,7 @@ pub(super) async fn keep_viewer(
     pool: &SqlitePool,
     user: i64,
     history: &str,
-    picks: &[Pick],
+    picks: &[Ranked],
 ) -> anyhow::Result<()> {
     let now = unix_now();
     sqlx::query(
