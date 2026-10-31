@@ -18241,7 +18241,7 @@
           },
           "hero_trailers": {
             "enum": ["off", "large_screens", "everywhere"],
-            "description": "Where the Watch home's hero plays its picks' trailers, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. A trailer in the title's folder comes first; one online only while an admin has trailers online on."
+            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder, else a clip of the title itself, converted at 720p only on the home network; it doesn't play trailers online."
           }
         },
         "additionalProperties": false
