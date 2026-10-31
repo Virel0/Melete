@@ -1,16 +1,18 @@
 //! Secrets kept in the database, sealed: outside services' keys and passwords set from the web
 //! UI, indexers' API keys, two-factor secrets, and search results' links (which can carry a
-//! key or a passkey). Each is encrypted with AES-256-GCM (aws-lc-rs,
-//! the TLS library already in the build) under a random 256-bit key in the data folder's
-//! `secrets.key`, apart from `melete.db`, with a fresh random nonce per value. What a value is
-//! (its setting, or which user's two-factor secret) is bound in as associated data, so a sealed
-//! value can't be moved to another place and still open. Backups copy only the database, so a
-//! backup alone holds no readable secret.
+//! key or a passkey). Each is encrypted with AES-256-GCM (aws-lc-rs, the TLS library already in
+//! the build) under a random 256-bit key in the data folder's `secrets.key`, apart from
+//! `melete.db`, with a fresh random nonce per value. Each is bound, as associated data, to where
+//! it's kept: a setting to its name and a two-factor secret to its user, so neither opens moved
+//! to another; indexers' keys, download links and guids only to their column. Sealing keeps the
+//! secrets from someone who can read the database or a backup without the key file; it doesn't
+//! stop someone who can write the database. Backups copy only the database.
 //!
 //! A database is switched to sealed storage once, at the server's first start after upgrading
 //! (see [`startup`]): its plain values are sealed then, and from that point the database
-//! refuses plain ones (triggers) and reading one fails. A database not switched yet, as a test
-//! opens one, keeps them plain as before.
+//! refuses plain ones (triggers) and reading one fails; the backup copies made before are
+//! sealed in place after it. A database not switched yet, as a test opens one, keeps them plain
+//! as before.
 //!
 //! Nothing here logs a value or puts one in an error; errors name what can't be read.
 
@@ -20,8 +22,10 @@ use aws_lc_rs::aead::{AES_256_GCM, Aad, NONCE_LEN, Nonce, RandomizedNonceKey};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
+mod copies;
 mod key_file;
 pub mod recovery;
+mod sealing;
 pub mod startup;
 
 pub use key_file::KEY_FILE;

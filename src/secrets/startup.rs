@@ -1,14 +1,15 @@
 //! The server's start: the key is read (made when there's none and nothing needs one), every
 //! stored secret is checked to open with it, and a database not switched yet has its plain
-//! secrets sealed, once. A secret that can't be read stops the start, saying which and how to
-//! recover; `melete secrets clear` is one way back.
+//! secrets sealed, once, then the backup copies made before it too. A secret that can't be read
+//! stops the start, saying which and how to recover; `melete secrets clear` is one way back.
 
 use std::path::Path;
 
 use anyhow::bail;
 use sqlx::SqlitePool;
 
-use super::{INDEXER_KEY, Key, Unreadable, key_file, opened_bytes, opened_text, sealing};
+use super::key_file::{self, Found};
+use super::{INDEXER_KEY, Key, Unreadable, opened_bytes, opened_text, sealing};
 use crate::db::unix_now;
 use crate::settings;
 
@@ -22,8 +23,11 @@ pub struct Unreadables {
     pub settings: Vec<(String, Unreadable)>,
     /// Indexers' keys, by indexer id and name, with why.
     pub indexers: Vec<(i64, String, Unreadable)>,
-    /// Users whose two-factor secret can't be read, by name, with why.
+    /// Users whose two-factor sign-in is on and whose secret can't be read, by name, with why.
     pub two_factor: Vec<(String, Unreadable)>,
+    /// Two-factor setups still waiting for their first code whose secret can't be read, by user
+    /// id and name: worthless without it, so `melete secrets clear` removes them.
+    pub setups: Vec<(i64, String)>,
     /// Search results whose download link or guid can't be read, by id.
     pub links: Vec<i64>,
 }
@@ -34,16 +38,22 @@ impl Unreadables {
         self.settings.is_empty()
             && self.indexers.is_empty()
             && self.two_factor.is_empty()
+            && self.setups.is_empty()
             && self.links.is_empty()
     }
 }
 
 /// Reads the key in `data_dir` (made there when there's none and nothing is sealed), checks
-/// every stored secret opens with it, and seals the plain ones of a database not switched yet.
-/// Fails, saying which secrets and how to recover, when one can't be read.
+/// every stored secret opens with it, and seals the plain ones of a database not switched yet,
+/// then those of the backup copies. Fails, saying which secrets and how to recover, when one
+/// can't be read.
 pub async fn prepare(pool: &SqlitePool, data_dir: &Path) -> anyhow::Result<Key> {
     let path = data_dir.join(super::KEY_FILE);
-    let found = key_file::read(&path)?;
+    let found = match key_file::read(&path)? {
+        Found::Key(key) => Some(key),
+        Found::Missing => None,
+        Found::Garbled => bail!("{}", super::recovery::garbled(&path, pool).await?),
+    };
     let unreadable = unreadable(pool, found.as_ref()).await?;
     if !unreadable.is_empty() {
         bail!(
@@ -66,6 +76,13 @@ pub async fn prepare(pool: &SqlitePool, data_dir: &Path) -> anyhow::Result<Key> 
         tracing::info!(
             sealed,
             "stored secrets are sealed from now on; keep secrets.key, and back it up apart from the database"
+        );
+    }
+    let in_copies = super::copies::seal_copies(pool, data_dir, &key).await?;
+    if in_copies > 0 {
+        tracing::info!(
+            sealed = in_copies,
+            "sealed the secrets the backup copies kept in plain text"
         );
     }
     Ok(key)
@@ -93,16 +110,18 @@ pub async fn unreadable(pool: &SqlitePool, key: Option<&Key>) -> sqlx::Result<Un
             found.indexers.push((id, name, why));
         }
     }
-    let rows: Vec<(i64, String, Vec<u8>)> = sqlx::query_as(
-        "SELECT t.user_id, u.username, t.secret FROM two_factor t JOIN users u ON u.id = t.user_id
-         ORDER BY u.username",
+    let rows: Vec<(i64, String, Vec<u8>, bool)> = sqlx::query_as(
+        "SELECT t.user_id, u.username, t.secret, t.confirmed_at IS NOT NULL
+         FROM two_factor t JOIN users u ON u.id = t.user_id ORDER BY u.username",
     )
     .fetch_all(pool)
     .await?;
-    for (user_id, username, secret) in rows {
+    for (user_id, username, secret, on) in rows {
         let what = super::two_factor(user_id);
-        if let Err(why) = opened_bytes(key, sealing, &what, &secret, TWO_FACTOR_LEN) {
-            found.two_factor.push((username, why));
+        match opened_bytes(key, sealing, &what, &secret, TWO_FACTOR_LEN) {
+            Ok(_) => {}
+            Err(why) if on => found.two_factor.push((username, why)),
+            Err(_) => found.setups.push((user_id, username)),
         }
     }
     found.links = unreadable_links(pool, key, sealing).await?;
@@ -133,105 +152,43 @@ async fn unreadable_links(
 }
 
 /// Switches the database to sealed secrets: seals each one kept plain with `key` and marks it
-/// switched, together. How many were sealed; None when it was switched already.
+/// switched, together, with `secure_delete` on so the old bytes are overwritten; then vacuums
+/// the database and empties its WAL, so no freed page or old frame keeps them. How many were
+/// sealed; None when it was switched already.
 pub async fn switch(pool: &SqlitePool, key: &Key) -> anyhow::Result<Option<usize>> {
-    let mut tx = pool.begin().await?;
+    let mut conn = pool.acquire().await?;
+    sqlx::query("PRAGMA secure_delete = ON")
+        .execute(&mut *conn)
+        .await?;
+    let switched = seal_and_mark(&mut conn, key).await;
+    if matches!(switched, Ok(Some(_))) {
+        sqlx::query("VACUUM").execute(&mut *conn).await?;
+        // An in-memory database has no WAL; the answer says nothing that matters here.
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&mut *conn)
+            .await?;
+    }
+    sqlx::query("PRAGMA secure_delete = OFF")
+        .execute(&mut *conn)
+        .await?;
+    switched
+}
+
+/// Seals what's plain and marks the database switched, in one transaction.
+async fn seal_and_mark(
+    conn: &mut sqlx::SqliteConnection,
+    key: &Key,
+) -> anyhow::Result<Option<usize>> {
+    use sqlx::Connection;
+    let mut tx = conn.begin().await?;
     if sealing(&mut *tx).await? {
         return Ok(None);
     }
-    let sealed = seal_settings(&mut tx, key).await?
-        + seal_indexers(&mut tx, key).await?
-        + seal_two_factor(&mut tx, key).await?
-        + seal_links(&mut tx, key).await?;
+    let sealed = super::sealing::seal_all(&mut tx, key).await?;
     sqlx::query("INSERT INTO secrets_sealed (id, sealed_at) VALUES (1, ?)")
         .bind(unix_now())
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
     Ok(Some(sealed))
-}
-
-/// The open transaction a switch runs in.
-type Switching = sqlx::Transaction<'static, sqlx::Sqlite>;
-
-/// Seals the secret settings kept plain; how many.
-async fn seal_settings(tx: &mut Switching, key: &Key) -> anyhow::Result<usize> {
-    let rows: Vec<(String, String)> = sqlx::query_as("SELECT name, value FROM settings")
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut sealed = 0;
-    for (name, value) in rows {
-        if settings::is_secret(&name) && !super::is_sealed_text(&value) {
-            sqlx::query("UPDATE settings SET value = ? WHERE name = ?")
-                .bind(key.seal_text(&super::setting(&name), &value)?)
-                .bind(&name)
-                .execute(&mut **tx)
-                .await?;
-            sealed += 1;
-        }
-    }
-    Ok(sealed)
-}
-
-/// Seals the indexers' keys kept plain; how many.
-async fn seal_indexers(tx: &mut Switching, key: &Key) -> anyhow::Result<usize> {
-    let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, api_key FROM indexers")
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut sealed = 0;
-    for (id, api_key) in rows {
-        if !api_key.is_empty() && !super::is_sealed_text(&api_key) {
-            sqlx::query("UPDATE indexers SET api_key = ? WHERE id = ?")
-                .bind(key.seal_text(INDEXER_KEY, &api_key)?)
-                .bind(id)
-                .execute(&mut **tx)
-                .await?;
-            sealed += 1;
-        }
-    }
-    Ok(sealed)
-}
-
-/// Seals the two-factor secrets kept plain; how many.
-async fn seal_two_factor(tx: &mut Switching, key: &Key) -> anyhow::Result<usize> {
-    let rows: Vec<(i64, Vec<u8>)> = sqlx::query_as("SELECT user_id, secret FROM two_factor")
-        .fetch_all(&mut **tx)
-        .await?;
-    let mut sealed = 0;
-    for (user_id, secret) in rows.into_iter().filter(|(_, s)| s.len() == TWO_FACTOR_LEN) {
-        sqlx::query("UPDATE two_factor SET secret = ? WHERE user_id = ?")
-            .bind(key.seal_bytes(&super::two_factor(user_id), &secret)?)
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await?;
-        sealed += 1;
-    }
-    Ok(sealed)
-}
-
-/// Seals search results' download links and guids kept plain; how many results.
-async fn seal_links(tx: &mut Switching, key: &Key) -> anyhow::Result<usize> {
-    let rows: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, download_url, guid FROM release_decisions
-         WHERE download_url != '' OR guid != ''",
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    let seal = |what: &str, link: &Option<String>| -> anyhow::Result<Option<String>> {
-        Ok(match link {
-            Some(link) if !link.is_empty() && !super::is_sealed_text(link) => {
-                Some(key.seal_text(what, link)?)
-            }
-            other => other.clone(),
-        })
-    };
-    for (id, download_url, guid) in &rows {
-        sqlx::query("UPDATE release_decisions SET download_url = ?, guid = ? WHERE id = ?")
-            .bind(seal(super::DOWNLOAD_URL, download_url)?)
-            .bind(seal(super::GUID, guid)?)
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    Ok(rows.len())
 }
