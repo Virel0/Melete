@@ -36,6 +36,29 @@ fn wrong(message: impl Into<String>) -> Checked {
     }
 }
 
+/// Whether service `key`'s Test tries to reach something; the rest are settings of Melete's own,
+/// with nothing to connect to.
+pub fn connects(key: &str) -> bool {
+    matches!(
+        key,
+        "tmdb"
+            | "musicbrainz"
+            | "lyrics"
+            | "slskd"
+            | "downloads"
+            | "seedbox"
+            | "flaresolverr"
+            | "translation"
+            | "oidc"
+            | "openrouter"
+            | "opensubtitles"
+    )
+}
+
+/// The Test's answer for a setting of Melete's own.
+const NOTHING_TO_CONNECT_TO: &str =
+    "There's nothing to connect to: it's a setting of Melete's own.";
+
 /// Tests service `key` as `config` sets it up.
 pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Result<Checked> {
     Ok(match key {
@@ -112,7 +135,7 @@ pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Res
                 Err(failure) => wrong(format!("{failure}.")),
             },
         },
-        _ => ok("There's nothing to connect to: it's a setting of Melete's own."),
+        _ => ok(NOTHING_TO_CONNECT_TO),
     })
 }
 
@@ -342,6 +365,17 @@ mod tests {
         );
         let gone = config(&[("MELETE_LIBRETRANSLATE_URL", "http://127.0.0.1:9".to_owned())]);
         assert!(!said("translation", &gone).await.ok);
+    }
+
+    /// What the settings page offers a Test for is exactly what the Test tries to reach.
+    #[tokio::test]
+    async fn only_services_with_something_to_reach_are_testable() {
+        let none = config(&[]);
+        for service in crate::settings::SERVICES {
+            let own = said(service.key, &none).await.message == NOTHING_TO_CONNECT_TO;
+            assert_eq!(connects(service.key), !own, "{}", service.key);
+        }
+        assert!(!connects("auto_dj") && connects("tmdb"));
     }
 
     #[tokio::test]
