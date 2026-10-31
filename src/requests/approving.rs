@@ -132,6 +132,19 @@ async fn series_profile(
     ))
 }
 
+/// The profile chosen or set, else the service's only profile: with one to choose from, a title
+/// approved without a choice still gets it, and so can be grabbed.
+async fn or_sole(
+    pool: &SqlitePool,
+    profile_id: Option<i64>,
+    service: &str,
+) -> anyhow::Result<Option<i64>> {
+    Ok(match profile_id {
+        Some(id) => Some(id),
+        None => crate::profiles::service::sole(pool, service).await?,
+    })
+}
+
 pub(super) async fn approve_as(
     pool: &SqlitePool,
     tmdb: Option<&tmdb::Client>,
@@ -235,6 +248,7 @@ pub(crate) async fn want_from_tmdb(
             Ok(placed) => placed,
             Err(refused) => return Ok(Err(refused)),
         };
+        let profile_id = or_sole(pool, profile_id, "movies").await?;
         let placement = Placement {
             monitored: true,
             quality_profile: None,
@@ -264,7 +278,7 @@ pub(crate) async fn want_from_tmdb(
             Err(refused) => return Ok(Err(refused)),
         };
         let profile_id = match series_profile(pool, choice, profile_id, defaults).await? {
-            Ok(id) => id,
+            Ok(id) => or_sole(pool, id, defaults).await?,
             Err(refused) => return Ok(Err(refused)),
         };
         // Seasons the approver listed are monitored once it's on the list.

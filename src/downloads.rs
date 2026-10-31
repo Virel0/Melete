@@ -14,12 +14,16 @@ use sqlx::SqlitePool;
 use crate::db::unix_now;
 use crate::deluge;
 
+mod clearing;
+mod copying;
 mod fetching;
 mod following;
 mod grabbing;
 mod records;
 mod removing;
 
+pub use clearing::*;
+pub use copying::*;
 pub use fetching::*;
 pub use following::*;
 pub use grabbing::*;
@@ -42,7 +46,8 @@ pub struct Pipeline {
 /// How often Deluge is asked about downloads in progress.
 const FOLLOW_EVERY: Duration = Duration::from_secs(60);
 
-/// Follows downloads on the seedbox for as long as the server runs.
+/// Follows downloads on the seedbox for as long as the server runs, and removes imported
+/// torrents from Deluge when that's turned on.
 pub async fn follow(pool: SqlitePool, pipeline: std::sync::Arc<Pipeline>) {
     loop {
         if let Err(err) = refresh(&pool, &pipeline.deluge).await {
@@ -51,8 +56,22 @@ pub async fn follow(pool: SqlitePool, pipeline: std::sync::Arc<Pipeline>) {
                 "couldn't check downloads in Deluge"
             );
         }
+        if let Err(err) = clear(&pool, &pipeline.deluge).await {
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "couldn't remove imported torrents from Deluge"
+            );
+        }
         tokio::time::sleep(FOLLOW_EVERY).await;
     }
+}
+
+/// Removes imported torrents from Deluge as the settings say, read afresh each time.
+async fn clear(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Result<()> {
+    if let Some(clearing) = Clearing::from_settings(pool).await? {
+        clear_imported(pool, deluge, &clearing).await?;
+    }
+    Ok(())
 }
 
 /// Why a release wasn't grabbed.
@@ -312,6 +331,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn with_secrets_sealed_a_releases_link_is_kept_sealed_and_still_grabs() {
+        let pool = db::open_in_memory().await;
+        let base = indexer().await;
+        let ids = releases(&pool, &[format!("{base}/t?apikey=k"), format!("{base}/t")]).await;
+        crate::secrets::startup::switch(&pool, crate::secrets::key().unwrap())
+            .await
+            .unwrap();
+        let kept: String =
+            sqlx::query_scalar("SELECT download_url FROM release_decisions WHERE id = ?")
+                .bind(ids[0])
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(kept.starts_with("sealed:v1:") && !kept.contains("apikey"));
+        let (p, _) = pipeline().await;
+        let download = grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(download.infohash.as_deref(), Some(MOVIE_HASH));
+    }
+
+    #[tokio::test]
     async fn never_grabs_a_blocklisted_release_under_any_name() {
         let pool = db::open_in_memory().await;
         let base = indexer().await;
@@ -454,6 +496,39 @@ mod tests {
             (state.as_str(), message.as_deref(), missing),
             ("downloading", Some("queued with slskd"), None)
         );
+    }
+
+    #[tokio::test]
+    async fn a_torrent_counts_as_added_here_only_when_melete_added_it() {
+        let added_here = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, bool>("SELECT added_here FROM downloads")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        };
+        let base = indexer().await;
+        let pool = db::open_in_memory().await;
+        let ids = releases(&pool, &[format!("{base}/t"), String::new()]).await;
+        let (p, _fake) = pipeline().await;
+        grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(added_here(pool).await);
+
+        // In Deluge already (another app's, or added by hand): someone else's.
+        let pool = db::open_in_memory().await;
+        let ids = releases(&pool, &[format!("{base}/t"), String::new()]).await;
+        let (p, fake) = pipeline().await;
+        fake.lock().unwrap().torrents.insert(
+            MOVIE_HASH.into(),
+            testing::status("Some.Movie", "Downloading", 40.0, false),
+        );
+        grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!added_here(pool).await);
     }
 
     #[tokio::test]

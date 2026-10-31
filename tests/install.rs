@@ -1,6 +1,7 @@
 //! What an install runs: `compose.yaml` pulls the published release of this version unless
 //! `.env` names another image, and building from source is an override of its own, so neither
-//! choice means editing a tracked file. The same goes for the user Melete runs as.
+//! choice means editing a tracked file. The same goes for the user Melete runs as, the GPU and
+//! the libraries.
 
 use std::path::Path;
 
@@ -68,4 +69,38 @@ fn the_default_user_is_the_images_own() {
     assert!(has("groupadd --system --gid 10001 melete"), "its group");
     assert!(has("useradd --system --uid 10001 --gid melete"), "its user");
     assert!(has("USER melete"));
+}
+
+#[test]
+fn transcoding_is_on_the_cpu_unless_the_gpu_file_is_added() {
+    let compose = read("compose.yaml");
+    assert_eq!(
+        lines_with(&compose, "MELETE_HWACCEL"),
+        ["MELETE_HWACCEL: ${MELETE_HWACCEL:-none}"],
+        "the CPU unless .env says otherwise"
+    );
+    assert!(
+        lines_with(&compose, "deploy").is_empty() && !compose.contains("driver: nvidia"),
+        "no GPU reserved: compose starts on a host without the NVIDIA Container Toolkit"
+    );
+    let nvidia = read("compose.nvidia.yaml");
+    assert_eq!(
+        lines_with(&nvidia, "MELETE_HWACCEL"),
+        ["MELETE_HWACCEL: ${MELETE_HWACCEL:-nvenc}"]
+    );
+    assert_eq!(lines_with(&nvidia, "deploy"), ["deploy:"]);
+    assert_eq!(lines_with(&nvidia, "- driver"), ["- driver: nvidia"]);
+    assert!(
+        lines_with(&nvidia, "image").is_empty() && lines_with(&nvidia, "build").is_empty(),
+        "it only gives Melete the GPU"
+    );
+}
+
+#[test]
+fn a_hosts_own_compose_file_is_never_tracked() {
+    let ignored = read(".gitignore");
+    assert!(
+        ignored.lines().any(|l| l.trim() == "/compose.local.yaml"),
+        "library changes go in compose.local.yaml, which updates never touch"
+    );
 }

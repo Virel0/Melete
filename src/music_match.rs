@@ -16,10 +16,14 @@ use crate::musicbrainz::{self, Found, Release, credit_line};
 
 mod by_hand;
 mod deciding;
+mod grabbed;
+mod merged;
 mod storing;
 
 pub use by_hand::*;
 use deciding::*;
+use grabbed::*;
+use merged::*;
 use storing::*;
 
 /// Errors in a row after which a run stops (MusicBrainz is down or refusing).
@@ -80,7 +84,7 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
     );
     for album in albums {
         let item = pace.item();
-        let outcome = match decide(mb, &album).await {
+        let outcome = match decide_album(pool, mb, &album).await? {
             Ok(outcome) => outcome,
             Err(err) => {
                 item.failed();
@@ -118,6 +122,23 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
     }
     crate::jobs::WORKS.notify_one();
     Ok(report)
+}
+
+/// An album's release: within the release group it was grabbed for when Melete imported it
+/// for a wanted album and the group has an edition that fits, else as its tags or a search say.
+async fn decide_album(
+    pool: &SqlitePool,
+    mb: &musicbrainz::Client,
+    album: &Album,
+) -> anyhow::Result<Result<Outcome, musicbrainz::Error>> {
+    if let Some(grabbed) = grabbed_for(pool, album.id).await? {
+        match decide_grabbed(mb, album, &grabbed).await {
+            Ok(Some(outcome)) => return Ok(Ok(outcome)),
+            Ok(None) => {}
+            Err(err) => return Ok(Err(err)),
+        }
+    }
+    Ok(decide(mb, album).await)
 }
 
 /// Records what matching decided for one album, and counts it.
@@ -203,7 +224,8 @@ async fn store_match(
 }
 
 /// Fetches again the matched releases cached without their works or their tracks' artist
-/// credits, one at a time at the client's pace.
+/// credits, one at a time at the client's pace. One MusicBrainz has merged into another since
+/// has its albums moved to the one it joined.
 async fn refetch_stale(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyhow::Result<usize> {
     let releases: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT r.id FROM mb_releases r JOIN music_albums a ON a.match_release_id = r.id
@@ -216,14 +238,11 @@ async fn refetch_stale(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyhow::R
     let (mut done, mut in_a_row) = (0, 0);
     for id in releases {
         match mb.release(&id).await {
-            // Merged into another since: as when it's gone, it keeps what it has.
+            // Merged into another since: its albums move to the one it joined.
             Ok(release) if release.id != id => {
-                sqlx::query(
-                    "UPDATE mb_releases SET with_works = 1, with_track_credits = 1 WHERE id = ?",
-                )
-                .bind(&id)
-                .execute(pool)
-                .await?;
+                in_a_row = 0;
+                move_to_survivor(pool, &id, &release).await?;
+                done += 1;
             }
             Ok(release) => {
                 in_a_row = 0;
@@ -725,6 +744,115 @@ pub(crate) mod tests {
             log.lock().unwrap().len(),
             before,
             "asked once, not every run"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_album_on_a_since_merged_release_moves_to_the_one_it_joined() {
+        let pool = seeded().await;
+        let (mb, _log) = testing::start(0).await;
+        match_pending(&pool, &mb).await.unwrap();
+        // As if matched to the merged id before MusicBrainz merged it: cached without works,
+        // and the album's tracks linked to nothing yet.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO mb_releases (id, release_group_id, title, artist_credit, fetched_at)
+                 VALUES ('{merged}', 'g', 'OK Computer', '[]', 0);
+             UPDATE music_albums SET match_release_id = '{merged}', match_release_group_id = 'g'
+                 WHERE id = 1;
+             UPDATE music_tracks SET match_recording_id = NULL, match_track_id = NULL;",
+            merged = testing::MERGED,
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        match_pending(&pool, &mb).await.unwrap();
+        let album: (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = sqlx::query_as(
+            "SELECT match_status, match_method, match_release_id, match_release_group_id
+                 FROM music_albums WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            album,
+            (
+                Some("matched".into()),
+                Some("tags".into()),
+                Some(testing::SURVIVOR.into()),
+                Some(testing::OK_COMPUTER.into())
+            )
+        );
+        let linked: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM music_tracks WHERE album_id = 1 AND match_track_id IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(linked, 12, "its tracks linked to the survivor's");
+        let cached = |id: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, bool>("SELECT with_works FROM mb_releases WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+        assert_eq!(cached(testing::SURVIVOR).await, Some(true));
+        assert_eq!(
+            cached(testing::MERGED).await,
+            None,
+            "the merged release goes once nothing points at it"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_imported_album_is_matched_within_the_group_it_was_grabbed_for() {
+        let pool = seeded().await;
+        // Named its own way, so a search by its name finds nothing that fits.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+                 seen_generation)
+                 VALUES (5, 1, 'dir:Radiohead/OK Computer (1997)', 'OK Computer (Remastered)', 1,
+                     'Radiohead', 'Radiohead/OK Computer (1997)', 1);
+             INSERT INTO wanted_artists (id, mb_artist_id, name, monitored, monitor_new, source,
+                 added_at)
+                 VALUES (1, '{artist}', 'Radiohead', 1, 'none', 'manual', 0);
+             INSERT INTO wanted_albums (id, wanted_artist_id, mb_release_group_id, title, monitored,
+                 source, added_at)
+                 VALUES (1, 1, '{group}', 'OK Computer', 1, 'manual', 0);
+             INSERT INTO downloads (infohash, title, wanted_album_id, decision, state, destination,
+                 added_at, updated_at)
+                 VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Radiohead - OK Computer', 1,
+                     '{{}}', 'imported', '/m/Radiohead/OK Computer (1997)', 0, 0);",
+            artist = testing::RADIOHEAD,
+            group = testing::OK_COMPUTER,
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (mb, _log) = testing::start(0).await;
+        match_pending(&pool, &mb).await.unwrap();
+        let matched: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT match_status, match_method, match_release_group_id FROM music_albums
+             WHERE id = 5",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            matched,
+            (
+                Some("matched".into()),
+                Some("search".into()),
+                Some(testing::OK_COMPUTER.into())
+            )
         );
     }
 
