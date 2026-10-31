@@ -9,6 +9,7 @@
 mod access;
 mod admin_health;
 mod ai;
+mod ai_picks;
 mod album_fix;
 mod album_search;
 mod aoide;
@@ -76,6 +77,7 @@ mod requests;
 mod romanise;
 mod rottentomatoes;
 mod rss;
+mod runtime_checks;
 mod search;
 mod search_keys;
 mod search_missing;

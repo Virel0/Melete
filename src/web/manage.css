@@ -37,6 +37,7 @@
   z-index: 2;
 }
 .selected-count { margin: 0; font-weight: 600; }
+.selection-hint { flex-basis: 100%; margin: 0; }
 
 /* Posters: each with its name, year and state under it. */
 .library-grid { margin-block-start: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(8rem, 40vw), 1fr)); }
@@ -95,6 +96,14 @@ h2.part { font-size: var(--step-1); margin-block: var(--space-6) var(--space-2);
 .title-panel h2.part { margin-block-start: 0; }
 h3.part-sub { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
 @media (max-width: 40rem) { .manage-head { grid-template-columns: 6rem minmax(0, 1fr); gap: var(--space-3); } }
+/* A title only in the library: what not being wanted means, and Monitor with its profile. */
+.want-box { margin-block: var(--space-3); }
+.want-box .note { margin: 0 0 var(--space-2); }
+.want-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2) var(--space-4); }
+.want-form .field, .want-form .check { margin: 0; }
+.want-form .check { min-height: 2.75rem; }
+.want-form select { width: min(100%, 18rem); }
+.want-box .form-result:not(:empty) { margin-block-start: var(--space-2); }
 
 /* A monitoring switch is the switch tools.css draws, with its state in words inside it. */
 .manage-body button.switch { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text); }
@@ -120,3 +129,13 @@ table.releases tr.accepted th .path { font-weight: 600; }
 .marks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-1) 0 0; font-size: var(--step--1); }
 .add-form { margin-block-start: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
 .add-form select, .add-form input:not([type="checkbox"]) { width: min(100%, 24rem); }
+/* Add new's search as you type: a group per kind, each result with its poster or cover. */
+.find-words input { width: min(100%, 28rem); }
+.find-said { margin-block: var(--space-2) 0; }
+.find-group h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-1); }
+.rows > li.find-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: start; }
+.find-row > .art { aspect-ratio: 2 / 3; border-radius: var(--radius-s); overflow: hidden; background: var(--surface-raised); }
+.find-row > .art.square { aspect-ratio: 1 / 1; }
+.find-row > .art img { width: 100%; height: 100%; object-fit: cover; }
+.add-results[aria-busy="true"] { opacity: 0.6; }
+.soulseek-offer { margin-block-start: var(--space-3); }

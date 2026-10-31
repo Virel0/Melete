@@ -141,9 +141,9 @@ async fn rows_hold_their_titles_in_order_with_anime_apart() {
         [
             "continue_watching",
             "next_up",
+            "latest_movies",
             "latest_shows",
-            "latest_anime",
-            "latest_movies"
+            "latest_anime"
         ]
     );
     assert_eq!(titles(row(&home, "continue_watching")), ["movie:2"]);
@@ -261,9 +261,9 @@ async fn favourites_come_after_next_up_newest_first() {
             "continue_watching",
             "next_up",
             "favourites",
+            "latest_movies",
             "latest_shows",
-            "latest_anime",
-            "latest_movies"
+            "latest_anime"
         ]
     );
     let favourites = row(&home, "favourites");
@@ -290,7 +290,7 @@ async fn empty_rows_are_left_out_and_each_user_sees_their_own() {
     let home = home_of(&f, &other).await;
     assert_eq!(
         keys(&home),
-        ["latest_shows", "latest_anime", "latest_movies"],
+        ["latest_movies", "latest_shows", "latest_anime"],
         "nothing to continue or watch next"
     );
     assert_eq!(row(&home, "latest_movies")[0]["progress"], Value::Null);
@@ -344,3 +344,7 @@ async fn needs_a_signed_in_user() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+mod because;
+mod hero_trailer;
+mod picks;

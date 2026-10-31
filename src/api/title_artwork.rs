@@ -54,6 +54,11 @@ impl ArtworkState {
         }
     }
 
+    /// TMDB, when it's set up.
+    pub(super) fn tmdb(&self) -> Option<Arc<tmdb::Client>> {
+        self.tmdb.clone()
+    }
+
     /// The ffmpeg binary, which also resizes titles' own images.
     pub(super) fn ffmpeg(&self) -> &std::path::Path {
         &self.ffmpeg
