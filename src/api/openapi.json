@@ -196,6 +196,72 @@
         }
       }
     },
+    "/api/v1/auth/login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish signing in with a second-factor code",
+        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Each wrong code here is added to the user's own record (`GET /me/two-factor`), without where it came from. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/auth/web-login/second-factor": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Finish the web UI's sign-in with a second-factor code",
+        "description": "Like `/auth/login/second-factor`, for a challenge from `/auth/web-login`: the session goes into the `melete_session` cookie, as `/auth/web-login` would have set it. A challenge from one route doesn't finish at the other.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in; the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "401": {
+            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "410": {
+            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong codes for this user: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "tags": ["Accounts"],
@@ -248,6 +314,141 @@
           "422": {"$ref": "#/components/responses/Unprocessable"},
           "429": {
             "description": "Too many wrong passwords",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Whether your two-factor sign-in is on",
+        "description": "With your latest changes to it, newest first: turning it on or off, from your account or on the server's command line, and wrong codes typed at sign-in (counted together within an hour of the last; where they were typed from isn't kept), so you can tell if your password is known. Never the secret.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorStatus"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/me/two-factor/setup": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Start setting up two-factor sign-in",
+        "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The secret, until confirmed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorSetup"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is on already: turn it off first",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/confirm": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in on with a first code",
+        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {"code": {"type": "string", "description": "Six digits."}}
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "On"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong code (`reason`: `wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "No setup is waiting for a code, or it's on already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/me/two-factor/off": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Turn two-factor sign-in off",
+        "description": "Needs your password and a current code. Nothing is signed out. Without the device for codes, an admin removes it on the server with `melete user reset-password <name>`, which sets a new password too.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["password", "code"],
+                "properties": {
+                  "password": {"type": "string"},
+                  "code": {"type": "string", "description": "Six digits."}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Off"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Wrong password (`reason`: `wrong_password`) or code (`wrong_code`)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
+          },
+          "409": {
+            "description": "Two-factor sign-in is off already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "Too many wrong passwords or codes: locked for 15 minutes",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -2210,7 +2411,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Nothing leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `because_you_watched` (one row for each of the 3 titles you finished most recently, newest first, an episode counting as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, and the decade; a title has to share a collection, a genre or a person. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
         "responses": {
           "200": {
             "description": "OK",
@@ -3775,48 +3976,6 @@
           },
           "502": {
             "description": "TMDB or MusicBrainz didn't answer",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/requests/soulseek": {
-      "get": {
-        "tags": ["Requests"],
-        "x-melete-access": "admin",
-        "x-melete-scope": "full",
-        "summary": "Look on Soulseek for music MusicBrainz doesn't know",
-        "description": "What Add new offers when MusicBrainz finds nothing: the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": true,
-            "description": "The words, as typed.",
-            "schema": {"type": "string", "minLength": 1, "maxLength": 200}
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "What Soulseek's users share",
-            "content": {
-              "application/json": {
-                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekSong"}}
-              }
-            }
-          },
-          "400": {
-            "description": "q empty or too long",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "409": {
-            "description": "slskd isn't set up",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "502": {
-            "description": "slskd didn't answer, isn't signed in to Soulseek, or is busy with another search",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -8757,45 +8916,6 @@
         }
       }
     },
-    "/api/v1/manage/{service}/selection": {
-      "post": {
-        "tags": ["Admin"],
-        "x-melete-access": "admin",
-        "x-melete-scope": "full",
-        "summary": "Change many of a managed list's titles at once",
-        "description": "What a managed list's selection bar does, for up to 100 titles a request; a larger selection is sent in batches. `monitor` monitors titles on the wanted list (`wanted_ids`) and puts titles only in the library (`folders`, a list row's `movie_id`, `series_id` or `artist_id`) on it, monitored, in the library each is in, with `profile_id` or else the request defaults' profile, as approving an admin's add does but without a request of its own and without a search (a run for what's missing does that). A movie or series is named by its TMDB match and looked up on TMDB; an artist by their MusicBrainz id and looked up on MusicBrainz, wanting every studio album it lists and their new ones. `unmonitor`, `profile` (with `profile_id`) and `remove` (taken off the wanted list; files stay) change titles on the wanted list only. Each title is changed on its own: one that can't be is left as it is and listed with why.",
-        "parameters": [
-          {
-            "name": "service",
-            "in": "path",
-            "required": true,
-            "description": "movies, series, anime or artists, as the managed lists are named.",
-            "schema": {"enum": ["movies", "series", "anime", "artists"]}
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelection"}}}
-        },
-        "responses": {
-          "200": {
-            "description": "What changed, and what didn't with why",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelectionOutcome"}}}
-          },
-          "400": {"$ref": "#/components/responses/BadRequest"},
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {"$ref": "#/components/responses/Forbidden"},
-          "404": {
-            "description": "No such service",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "422": {
-            "description": "The profile isn't one for this service's titles",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
     "/api/v1/wanted/artists/follows": {
       "get": {
         "tags": ["Admin"],
@@ -10432,202 +10552,80 @@
         }
       }
     },
-    "/api/v1/auth/login/second-factor": {
-      "post": {
-        "tags": ["Accounts"],
-        "x-melete-access": "public",
-        "summary": "Finish signing in with a second-factor code",
-        "description": "For a user with two-factor sign-in on, `/auth/login` answers a right password with a `SecondFactorNeeded` challenge instead of a token. Send it here with the six-digit code from the user's authenticator app (TOTP: RFC 6238, HMAC-SHA1, 30-second steps; the steps just before and after now are taken too) to get the session the password alone would have given, named with the device name the sign-in started with. A challenge lasts 5 minutes and signs in once; a wrong code leaves it for another try. A code is taken once: never again, nor any code of an earlier step. Each wrong code here is added to the user's own record (`GET /me/two-factor`), without where it came from. Wrong codes count per user, wherever they are typed (here, the web route, confirming setup and turning it off): five lock that user's codes for 15 minutes.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
-        },
-        "responses": {
-          "200": {
-            "description": "Signed in",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginResponse"}}}
-          },
-          "401": {
-            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
-          },
-          "410": {
-            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"},
-          "429": {
-            "description": "Too many wrong codes for this user: locked for 15 minutes",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/auth/web-login/second-factor": {
-      "post": {
-        "tags": ["Accounts"],
-        "x-melete-access": "public",
-        "summary": "Finish the web UI's sign-in with a second-factor code",
-        "description": "Like `/auth/login/second-factor`, for a challenge from `/auth/web-login`: the session goes into the `melete_session` cookie, as `/auth/web-login` would have set it. A challenge from one route doesn't finish at the other.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecondFactorRequest"}}}
-        },
-        "responses": {
-          "200": {
-            "description": "Signed in; the cookie is set",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
-          },
-          "401": {
-            "description": "Wrong code (`reason`: `wrong_code`); the challenge stays usable while it lasts. It's added to the user's record (`GET /me/two-factor`)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
-          },
-          "410": {
-            "description": "The challenge ran out, was used, was for the other sign-in route or never existed: sign in with the password again",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"},
-          "429": {
-            "description": "Too many wrong codes for this user: locked for 15 minutes",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/me/two-factor": {
+    "/api/v1/requests/soulseek": {
       "get": {
-        "tags": ["Accounts"],
-        "x-melete-access": "user",
-        "x-melete-scope": "read",
-        "summary": "Whether your two-factor sign-in is on",
-        "description": "With your latest changes to it, newest first: turning it on or off, from your account or on the server's command line, and wrong codes typed at sign-in (counted together within an hour of the last; where they were typed from isn't kept), so you can tell if your password is known. Never the secret.",
+        "tags": ["Requests"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Look on Soulseek for music MusicBrainz doesn't know",
+        "description": "What Add new offers when MusicBrainz finds nothing: the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "The words, as typed.",
+            "schema": {"type": "string", "minLength": 1, "maxLength": 200}
+          }
+        ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorStatus"}}}
+            "description": "What Soulseek's users share",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekSong"}}}
+            }
           },
-          "401": {"$ref": "#/components/responses/Unauthorized"}
+          "400": {
+            "description": "q empty or too long",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "slskd isn't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "slskd didn't answer, isn't signed in to Soulseek, or is busy with another search",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
         }
       }
     },
-    "/api/v1/me/two-factor/setup": {
+    "/api/v1/manage/{service}/selection": {
       "post": {
-        "tags": ["Accounts"],
-        "x-melete-access": "user",
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
         "x-melete-scope": "full",
-        "summary": "Start setting up two-factor sign-in",
-        "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
+        "summary": "Change many of a managed list's titles at once",
+        "description": "What a managed list's selection bar does, for up to 100 titles a request; a larger selection is sent in batches. `monitor` monitors titles on the wanted list (`wanted_ids`) and puts titles only in the library (`folders`, a list row's `movie_id`, `series_id` or `artist_id`) on it, monitored, in the library each is in, with `profile_id` or else the request defaults' profile, as approving an admin's add does but without a request of its own and without a search (a run for what's missing does that). A movie or series is named by its TMDB match and looked up on TMDB; an artist by their MusicBrainz id and looked up on MusicBrainz, wanting every studio album it lists and their new ones. `unmonitor`, `profile` (with `profile_id`) and `remove` (taken off the wanted list; files stay) change titles on the wanted list only. Each title is changed on its own: one that can't be is left as it is and listed with why.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "description": "movies, series, anime or artists, as the managed lists are named.",
+            "schema": {"enum": ["movies", "series", "anime", "artists"]}
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}
-            }
-          }
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelection"}}}
         },
         "responses": {
           "200": {
-            "description": "The secret, until confirmed",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TwoFactorSetup"}}}
+            "description": "What changed, and what didn't with why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelectionOutcome"}}}
           },
+          "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {
-            "description": "Wrong password (`reason`: `wrong_password`)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
-          },
-          "409": {
-            "description": "Two-factor sign-in is on already: turn it off first",
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such service",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"},
-          "429": {
-            "description": "Too many wrong passwords or codes: locked for 15 minutes",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/me/two-factor/confirm": {
-      "post": {
-        "tags": ["Accounts"],
-        "x-melete-access": "user",
-        "x-melete-scope": "full",
-        "summary": "Turn two-factor sign-in on with a first code",
-        "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["code"],
-                "properties": {"code": {"type": "string", "description": "Six digits."}}
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {"description": "On"},
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {
-            "description": "Wrong code (`reason`: `wrong_code`)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
-          },
-          "409": {
-            "description": "No setup is waiting for a code, or it's on already",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"},
-          "429": {
-            "description": "Too many wrong passwords or codes: locked for 15 minutes",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/me/two-factor/off": {
-      "post": {
-        "tags": ["Accounts"],
-        "x-melete-access": "user",
-        "x-melete-scope": "full",
-        "summary": "Turn two-factor sign-in off",
-        "description": "Needs your password and a current code. Nothing is signed out. Without the device for codes, an admin removes it on the server with `melete user reset-password <name>`, which sets a new password too.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["password", "code"],
-                "properties": {
-                  "password": {"type": "string"},
-                  "code": {"type": "string", "description": "Six digits."}
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {"description": "Off"},
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {
-            "description": "Wrong password (`reason`: `wrong_password`) or code (`wrong_code`)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refusal"}}}
-          },
-          "409": {
-            "description": "Two-factor sign-in is off already",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          },
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"},
-          "429": {
-            "description": "Too many wrong passwords or codes: locked for 15 minutes",
+          "422": {
+            "description": "The profile isn't one for this service's titles",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -10814,6 +10812,86 @@
           "current_password": {"type": "string"},
           "new_password": {"type": "string", "minLength": 8, "maxLength": 1024}
         }
+      },
+      "Refusal": {
+        "type": "object",
+        "required": ["error", "reason"],
+        "properties": {
+          "error": {"type": "string"},
+          "reason": {
+            "enum": ["wrong_password", "wrong_code"],
+            "description": "Which was wrong, for an app to point at the right field."
+          }
+        },
+        "additionalProperties": false,
+        "description": "An error that also says which of the request's secrets was wrong."
+      },
+      "SecondFactorNeeded": {
+        "type": "object",
+        "required": ["error", "second_factor", "challenge", "expires_in"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Says a code is needed, for an app that doesn't know this step to show."
+          },
+          "second_factor": {"const": "totp", "description": "What the code is: six digits from an authenticator app."},
+          "challenge": {"type": "string", "description": "Starts with m2f_. Finishes the sign-in once, with the code."},
+          "expires_in": {"type": "integer", "description": "Seconds the challenge lasts: 300."}
+        },
+        "additionalProperties": false
+      },
+      "SecondFactorRequest": {
+        "type": "object",
+        "required": ["challenge", "code"],
+        "properties": {
+          "challenge": {"type": "string"},
+          "code": {"type": "string", "description": "Six digits; spaces around them are ignored."}
+        }
+      },
+      "TwoFactorStatus": {
+        "type": "object",
+        "required": ["on", "on_since", "changes"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Signing in with the password asks for a code."},
+          "on_since": {"type": ["integer", "null"], "description": "Unix seconds; null while it's off."},
+          "changes": {
+            "type": "array",
+            "description": "The 20 latest, newest first.",
+            "items": {
+              "type": "object",
+              "required": ["change", "made_from", "at", "count"],
+              "properties": {
+                "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
+                "made_from": {
+                  "enum": ["account", "server", "sign_in"],
+                  "description": "The user's account, the server's command line, or signing in (wrong codes)."
+                },
+                "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "1, except for wrong codes counted together."
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TwoFactorSetup": {
+        "type": "object",
+        "required": ["secret", "uri"],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "160 bits in base32 (no padding), to type into an authenticator app."
+          },
+          "uri": {
+            "type": "string",
+            "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"
+          }
+        },
+        "additionalProperties": false
       },
       "TokenInfo": {
         "type": "object",
@@ -12301,10 +12379,30 @@
       },
       "WatchHomeRow": {
         "type": "object",
-        "required": ["key", "items"],
+        "required": ["key", "seed", "items"],
         "properties": {
           "key": {
-            "enum": ["continue_watching", "next_up", "favourites", "latest_movies", "latest_shows", "latest_anime"]
+            "enum": [
+              "continue_watching",
+              "next_up",
+              "favourites",
+              "because_you_watched",
+              "latest_shows",
+              "latest_anime",
+              "latest_movies"
+            ],
+            "description": "`because_you_watched` comes up to three times, one row for each title in its `seed`; every other key once at most."
+          },
+          "seed": {
+            "type": ["object", "null"],
+            "required": ["kind", "id", "title"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The movie's or series' id."},
+              "title": {"type": "string"}
+            },
+            "additionalProperties": false,
+            "description": "For `because_you_watched`: the title the row's titles are like, one you finished (an episode counts as its series). Null for every other row."
           },
           "items": {
             "type": "array",
@@ -16680,6 +16778,17 @@
         },
         "additionalProperties": false
       },
+      "TaskProgress": {
+        "type": "object",
+        "required": ["what", "done", "total", "failed"],
+        "properties": {
+          "what": {"type": "string", "description": "The step, in plain words, such as \"probing files\"."},
+          "done": {"type": "integer", "description": "Items done so far."},
+          "total": {"type": "integer", "description": "Items in this run; it grows when more become due meanwhile."},
+          "failed": {"type": "integer", "description": "Of those done, the ones that failed."}
+        },
+        "additionalProperties": false
+      },
       "ManagedMoviePage": {
         "type": "object",
         "required": ["total", "counts", "items"],
@@ -17197,74 +17306,6 @@
         },
         "additionalProperties": false
       },
-      "SoulseekSong": {
-        "type": "object",
-        "required": ["title", "artist", "users", "formats"],
-        "properties": {
-          "title": {"type": "string"},
-          "artist": {"type": ["string", "null"], "description": "When the file's name or its folder says."},
-          "users": {"type": "integer", "description": "How many users share it."},
-          "formats": {"type": "array", "items": {"type": "string"}, "description": "As its files' names end: FLAC, MP3…"}
-        },
-        "additionalProperties": false
-      },
-      "ManagedSelection": {
-        "type": "object",
-        "required": ["action", "wanted_ids", "folders", "profile_id"],
-        "properties": {
-          "action": {"type": "string", "enum": ["monitor", "unmonitor", "profile", "remove"]},
-          "wanted_ids": {
-            "type": "array",
-            "items": {"type": "integer"},
-            "description": "Titles on the wanted list: a managed list row's `wanted_id`. May be empty."
-          },
-          "folders": {
-            "type": "array",
-            "items": {"type": "integer"},
-            "description": "Titles only in the library, for `monitor` only (empty otherwise): a row's `movie_id`, `series_id` or `artist_id`."
-          },
-          "profile_id": {
-            "type": ["integer", "null"],
-            "description": "For `profile`, the one set (needed); for `monitor`, the one titles only in the library are wanted with, null for the request defaults' profile; null for the others. A quality profile of the service's kind, or a music profile for artists."
-          }
-        },
-        "additionalProperties": false
-      },
-      "ManagedSelectionOutcome": {
-        "type": "object",
-        "required": ["changed", "wanted", "unchanged"],
-        "properties": {
-          "changed": {"type": "integer", "description": "Titles changed."},
-          "wanted": {
-            "type": "array",
-            "description": "Titles only in the library that are on the wanted list now.",
-            "items": {
-              "type": "object",
-              "required": ["folder", "wanted_id"],
-              "properties": {
-                "folder": {"type": "integer"},
-                "wanted_id": {"type": "integer", "description": "Its wanted entry, as a managed list row's `wanted_id`."}
-              },
-              "additionalProperties": false
-            }
-          },
-          "unchanged": {
-            "type": "array",
-            "description": "Titles left as they were.",
-            "items": {
-              "type": "object",
-              "required": ["wanted_id", "folder", "why"],
-              "properties": {
-                "wanted_id": {"type": ["integer", "null"], "description": "Its wanted entry, when it was one."},
-                "folder": {"type": ["integer", "null"], "description": "Its folder, when it was only in the library."},
-                "why": {"type": "string"}
-              },
-              "additionalProperties": false
-            }
-          }
-        },
-        "additionalProperties": false
-      },
       "WantedAgain": {
         "type": "object",
         "required": ["kind", "wanted_id"],
@@ -17350,7 +17391,10 @@
         "type": "object",
         "required": ["width", "height", "columns", "rows", "sheets", "times"],
         "properties": {
-          "width": {"type": "integer", "description": "Each picture's width in pixels: 320, 480 or 640, as chosen in Settings when they were made."},
+          "width": {
+            "type": "integer",
+            "description": "Each picture's width in pixels: 320, 480 or 640, as chosen in Settings when they were made."
+          },
           "height": {"type": "integer", "description": "Each picture's height in pixels, in the video's shape."},
           "columns": {"type": "integer", "description": "Pictures across a sheet."},
           "rows": {"type": "integer", "description": "Pictures down a sheet."},
@@ -17677,94 +17721,78 @@
         },
         "additionalProperties": false
       },
-      "Refusal": {
+      "SoulseekSong": {
         "type": "object",
-        "required": ["error", "reason"],
+        "required": ["title", "artist", "users", "formats"],
         "properties": {
-          "error": {"type": "string"},
-          "reason": {
-            "enum": ["wrong_password", "wrong_code"],
-            "description": "Which was wrong, for an app to point at the right field."
+          "title": {"type": "string"},
+          "artist": {"type": ["string", "null"], "description": "When the file's name or its folder says."},
+          "users": {"type": "integer", "description": "How many users share it."},
+          "formats": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "As its files' names end: FLAC, MP3…"
           }
-        },
-        "additionalProperties": false,
-        "description": "An error that also says which of the request's secrets was wrong."
-      },
-      "SecondFactorNeeded": {
-        "type": "object",
-        "required": ["error", "second_factor", "challenge", "expires_in"],
-        "properties": {
-          "error": {
-            "type": "string",
-            "description": "Says a code is needed, for an app that doesn't know this step to show."
-          },
-          "second_factor": {"const": "totp", "description": "What the code is: six digits from an authenticator app."},
-          "challenge": {"type": "string", "description": "Starts with m2f_. Finishes the sign-in once, with the code."},
-          "expires_in": {"type": "integer", "description": "Seconds the challenge lasts: 300."}
         },
         "additionalProperties": false
       },
-      "SecondFactorRequest": {
+      "ManagedSelection": {
         "type": "object",
-        "required": ["challenge", "code"],
+        "required": ["action", "wanted_ids", "folders", "profile_id"],
         "properties": {
-          "challenge": {"type": "string"},
-          "code": {"type": "string", "description": "Six digits; spaces around them are ignored."}
-        }
-      },
-      "TwoFactorStatus": {
-        "type": "object",
-        "required": ["on", "on_since", "changes"],
-        "properties": {
-          "on": {"type": "boolean", "description": "Signing in with the password asks for a code."},
-          "on_since": {"type": ["integer", "null"], "description": "Unix seconds; null while it's off."},
-          "changes": {
+          "action": {"type": "string", "enum": ["monitor", "unmonitor", "profile", "remove"]},
+          "wanted_ids": {
             "type": "array",
-            "description": "The 20 latest, newest first.",
+            "items": {"type": "integer"},
+            "description": "Titles on the wanted list: a managed list row's `wanted_id`. May be empty."
+          },
+          "folders": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Titles only in the library, for `monitor` only (empty otherwise): a row's `movie_id`, `series_id` or `artist_id`."
+          },
+          "profile_id": {
+            "type": ["integer", "null"],
+            "description": "For `profile`, the one set (needed); for `monitor`, the one titles only in the library are wanted with, null for the request defaults' profile; null for the others. A quality profile of the service's kind, or a music profile for artists."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedSelectionOutcome": {
+        "type": "object",
+        "required": ["changed", "wanted", "unchanged"],
+        "properties": {
+          "changed": {"type": "integer", "description": "Titles changed."},
+          "wanted": {
+            "type": "array",
+            "description": "Titles only in the library that are on the wanted list now.",
             "items": {
               "type": "object",
-              "required": ["change", "made_from", "at", "count"],
+              "required": ["folder", "wanted_id"],
               "properties": {
-                "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
-                "made_from": {
-                  "enum": ["account", "server", "sign_in"],
-                  "description": "The user's account, the server's command line, or signing in (wrong codes)."
-                },
-                "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
-                "count": {
+                "folder": {"type": "integer"},
+                "wanted_id": {
                   "type": "integer",
-                  "minimum": 1,
-                  "description": "1, except for wrong codes counted together."
+                  "description": "Its wanted entry, as a managed list row's `wanted_id`."
                 }
-              }
+              },
+              "additionalProperties": false
+            }
+          },
+          "unchanged": {
+            "type": "array",
+            "description": "Titles left as they were.",
+            "items": {
+              "type": "object",
+              "required": ["wanted_id", "folder", "why"],
+              "properties": {
+                "wanted_id": {"type": ["integer", "null"], "description": "Its wanted entry, when it was one."},
+                "folder": {"type": ["integer", "null"], "description": "Its folder, when it was only in the library."},
+                "why": {"type": "string"}
+              },
+              "additionalProperties": false
             }
           }
-        },
-        "additionalProperties": false
-      },
-      "TwoFactorSetup": {
-        "type": "object",
-        "required": ["secret", "uri"],
-        "properties": {
-          "secret": {
-            "type": "string",
-            "description": "160 bits in base32 (no padding), to type into an authenticator app."
-          },
-          "uri": {
-            "type": "string",
-            "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"
-          }
-        },
-        "additionalProperties": false
-      },
-      "TaskProgress": {
-        "type": "object",
-        "required": ["what", "done", "total", "failed"],
-        "properties": {
-          "what": {"type": "string", "description": "The step, in plain words, such as \"probing files\"."},
-          "done": {"type": "integer", "description": "Items done so far."},
-          "total": {"type": "integer", "description": "Items in this run; it grows when more become due meanwhile."},
-          "failed": {"type": "integer", "description": "Of those done, the ones that failed."}
         },
         "additionalProperties": false
       }

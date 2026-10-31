@@ -1,6 +1,6 @@
 // Watch's home, from `/home` in one request: the hero stepping between picks (what you're
-// partway through, then the newest), then Continue watching, Next up, My List and the latest
-// shows, anime and movies. A row with nothing in it isn't there; a home with nothing at all
+// partway through, then the newest), then Continue watching, Next up, My List, "Because you
+// watched …" for what you finished most recently, and the latest shows, anime and movies. A row with nothing in it isn't there; a home with nothing at all
 // says so, with a way to ask for something.
 
 import { SignedOut, api, h, show } from "/web/lib.js";
@@ -51,7 +51,11 @@ export async function home(gen) {
   const top = hero(answer.hero, { watching });
   leaving.push(top.stop);
   top.spotlight.add(answer.hero);
-  const rows = answer.rows.map(({ key, items }) => {
+  const rows = answer.rows.map(({ key, seed, items }) => {
+    // One for each title you finished, so each has its own id.
+    if (key === "because_you_watched" && seed) {
+      return row(`because-${seed.kind}-${seed.id}`, `Because you watched ${seed.title}`, items, { spotlight: top.spotlight, watching });
+    }
     const about = ROWS[key];
     return about ? row(key, about.heading, items, { wide: about.wide, more: about.more, spotlight: top.spotlight, watching }) : null;
   });
