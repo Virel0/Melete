@@ -74,6 +74,7 @@ pub fn part(path: &str) -> Part {
         "me" => Part::Always,
         "users" if api == "users/directory" => Part::Always,
         "movies" | "series" if api.ends_with("/match") || api.ends_with("/rescan") => Part::Admin,
+        "files" if api.ends_with("/wrong") => Part::Admin,
         "movies" | "series" | "artwork" | "calendar" | "files" | "stream" | "hls" | "browse"
         | "discover" | "items" | "people" | "collections" | "offline" | "home" => Part::Video,
         "music"
