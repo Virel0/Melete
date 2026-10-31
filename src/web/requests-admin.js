@@ -14,12 +14,13 @@ const LIBRARY_KIND = { movie: "movies", series: "shows", artist: "music", album:
 // that Manage service's requests and defaults.
 export async function decide(ctx) {
   const only = ctx.requestsService ? `&service=${ctx.requestsService}` : "";
-  const [page, declined, libraries, profiles, musicProfiles] = await Promise.all([
+  const [page, declined, libraries, profiles, musicProfiles, set] = await Promise.all([
     api(`/requests?all=true&state=requested&limit=200${only}`),
     api(`/requests?all=true&state=declined&limit=50${only}`),
     api("/libraries"),
     api("/profiles"),
     api("/music/profiles"),
+    api("/requests/settings"),
   ]);
   if (!ctx.current()) return [];
   const rows = page.items.map((r) => {
@@ -33,16 +34,23 @@ export async function decide(ctx) {
       h("option", { value: "" }, "As set under Where they go"),
       libraries.filter((l) => l.kind === LIBRARY_KIND[r.kind]).map((l) => h("option", { value: l.id }, l.name)),
     );
+    const choices = music ? musicProfiles : profiles.filter((p) => p.service === r.service);
+    // With several profiles and none set for its kind, approving asks for one: without it,
+    // nothing would be grabbed. With one, that one is used.
+    const mustChoose = !music && choices.length > 1 && !set.defaults.find((d) => d.kind === r.service)?.profile_id;
     const profile = h(
       "select",
       { id: `approve-profile-${r.id}`, class: "compact" },
-      h("option", { value: "" }, "As set under Where they go"),
-      (music ? musicProfiles : profiles.filter((p) => p.service === r.service)).map((p) =>
-        h("option", { value: p.id }, p.name),
-      ),
+      h("option", { value: "" }, mustChoose ? "Choose one" : "As set under Where they go"),
+      choices.map((p) => h("option", { value: p.id }, p.name)),
     );
     const approve = h("button", { type: "button" }, "Approve");
     approve.addEventListener("click", async () => {
+      if (mustChoose && !profile.value) {
+        choose.open = true;
+        said.textContent = `Choose a profile: none is set for these requests under Where they go, so it wouldn't be grabbed.`;
+        return profile.focus();
+      }
       const body = {};
       if (library.value) body.library_id = Number(library.value);
       if (profile.value) body[music ? "music_profile_id" : "profile_id"] = Number(profile.value);
@@ -201,7 +209,7 @@ export async function settings(ctx) {
       h(
         "select",
         {},
-        h("option", { value: "" }, music ? "FLAC preferred (the preset)" : "None chosen"),
+        h("option", { value: "" }, music ? "FLAC preferred (the preset)" : choices.length === 1 ? `${choices[0].name}, the only one` : "None chosen"),
         choices.map((p) => h("option", { value: p.id, selected: p.id === chosen }, p.name)),
       ),
     );
