@@ -23,6 +23,17 @@ pub(super) fn check_ratings_country(get: &impl Fn(&str) -> Option<String>) -> an
     }
 }
 
+/// `MELETE_TRICKPLAY_WIDTH`, checked: one of the widths Settings offers. Read where it's used, as
+/// it can change while running.
+pub(super) fn check_trickplay_width(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<()> {
+    match get(crate::trickplay::WIDTH_SETTING).filter(|v| !v.trim().is_empty()) {
+        Some(value) if crate::trickplay::known_width(&value).is_none() => {
+            bail!("MELETE_TRICKPLAY_WIDTH={value:?} should be 320, 480 or 640")
+        }
+        _ => Ok(()),
+    }
+}
+
 /// `MELETE_METADATA_LANGUAGE`: a TMDB language such as `fr-FR`, `en-US` when unset or empty.
 pub(super) fn metadata_language(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<String> {
     match get("MELETE_METADATA_LANGUAGE").filter(|v| !v.is_empty()) {

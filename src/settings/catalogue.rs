@@ -173,7 +173,7 @@ pub const SERVICES: &[Service] = &[
             field(
                 "MELETE_SLSKD_API_KEY",
                 "API key",
-                "One of the keys in slskd's web.authentication.api_keys.",
+                "One of the keys in slskd's web.authentication.api_keys, with the ReadWrite role and no more.",
                 Input::Secret,
             ),
             field(
@@ -240,7 +240,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "flaresolverr",
         name: "FlareSolverr",
-        about: "Reaching trackers behind Cloudflare's browser check (Uindex).",
+        about: "Reaching trackers behind Cloudflare's browser check (Uindex), through FlareSolverr or a solver that copies its API, such as Byparr. The Test checks the solver answers and fetches no page, so whether it gets past a check shows on the first search through it.",
         fields: &[field(
             "MELETE_FLARESOLVERR_URL",
             "FlareSolverr's address",
@@ -294,7 +294,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "openrouter",
         name: "AI features (OpenRouter)",
-        about: "Finding movies and series by describing them, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; nothing about the library or who asked. OpenRouter is asked to use only providers that don't keep or train on it. Each search costs a little on the OpenRouter account; each user may make 30 an hour.",
+        about: "Finding movies and series by describing them, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; nothing about the library or who asked. With AI picks on, \"Featured for you\" and titles like one are chosen there too: for each person, the titles they finished or are watching recently (about 15) with their year and up to three genres, and candidate titles from the library they may see, each with its year, up to three genres and a premise of about 12 words. Never a name, an account, a file path or anything else about the household. OpenRouter is asked to use only providers that don't keep or train on it. Each search costs a little on the OpenRouter account; each user may make 30 an hour. Picks are kept and made again at most once a day for each person while what they watch stays the same, and titles like one once a week; each person may start 30 such requests an hour, and at most 2 run at once.",
         fields: &[
             field(
                 "MELETE_OPENROUTER_KEY",
@@ -307,6 +307,12 @@ pub const SERVICES: &[Service] = &[
                 "Model",
                 "An OpenRouter model id. Empty: openrouter/auto, which picks one for each request.",
                 Input::Text,
+            ),
+            field(
+                "MELETE_AI_PICKS",
+                "AI picks",
+                "\"Featured for you\" and titles like one, chosen by the model. Off by default: each person's recent viewing goes to OpenRouter, as above.",
+                Input::Toggle { on: "on" },
             ),
         ],
     },
@@ -395,13 +401,23 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "trickplay",
         name: "Seek-bar previews",
-        about: "Small pictures on the seek bar, so you can see where a seek lands: one every 10 seconds of each video, from its keyframes, about 50 to 100 KB a minute of video (5 to 10 MB for a two-hour film), kept in the data folder (trickplay/) and removed when the file changes or goes. Nothing leaves the server.",
-        fields: &[field(
-            "MELETE_TRICKPLAY",
-            "Make seek-bar previews",
-            "The first run reads every video once, one at a time, which takes a while on a large library.",
-            Input::Toggle { on: "on" },
-        )],
+        about: "Small pictures on the seek bar, so you can see where a seek lands: one every 10 seconds of each video, from its keyframes, about 50 to 100 KB a minute of video at 320 pixels wide (5 to 10 MB for a two-hour film), kept in the data folder (trickplay/) and removed when the file changes or goes. Nothing leaves the server.",
+        fields: &[
+            field(
+                "MELETE_TRICKPLAY",
+                "Make seek-bar previews",
+                "The first run reads every video once, one at a time, which takes a while on a large library.",
+                Input::Toggle { on: "on" },
+            ),
+            field(
+                crate::trickplay::WIDTH_SETTING,
+                "Preview width",
+                "Wider pictures look sharper on large screens and take more room. A change makes every preview again in the background, one file at a time; the old ones are shown until then.",
+                Input::Choice {
+                    options: crate::trickplay::WIDTH_CHOICES,
+                },
+            ),
+        ],
     },
     Service {
         key: "offline_copies",
