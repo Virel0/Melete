@@ -15,6 +15,8 @@ services:
     ports:
       - "8100:8100"
     environment:
+      # The libraries. Adding or dropping one is a compose.local.yaml of your own, not an edit
+      # here (README.md, Other library folders).
       MELETE_LIBRARY_MOVIES: movies:/media/movies
       MELETE_LIBRARY_SHOWS: shows:/media/shows
       MELETE_LIBRARY_ANIME: shows,anime:/media/anime
@@ -64,9 +66,9 @@ services:
       MELETE_SEEDBOX_PASSWORD: ${MELETE_SEEDBOX_PASSWORD:-}
       MELETE_SEEDBOX_HOST_KEY: ${MELETE_SEEDBOX_HOST_KEY:-}
       MELETE_SEEDBOX_PATHS: ${MELETE_SEEDBOX_PATHS:-}
-      # Transcode on the NVIDIA GPU (needs nvidia-container-toolkit on the host).
-      MELETE_HWACCEL: nvenc
-      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+      # What transcodes run on: the CPU (none) unless .env says nvenc. An NVIDIA GPU is
+      # compose.nvidia.yaml, added through COMPOSE_FILE in .env.
+      MELETE_HWACCEL: ${MELETE_HWACCEL:-none}
     # The host's folders come from .env (see .env.example). Each must be set: an unset one
     # stops compose rather than letting Docker create it, owned by root.
     volumes:
@@ -83,13 +85,6 @@ services:
       - ${MELETE_SHOWS_DIR:?set MELETE_SHOWS_DIR in .env}:/media/shows:ro
       - ${MELETE_ANIME_DIR:?set MELETE_ANIME_DIR in .env}:/media/anime:ro
       - ${MELETE_MUSIC_DIR:?set MELETE_MUSIC_DIR in .env}:/media/music:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     read_only: true
     cap_drop: [ALL]
     security_opt:

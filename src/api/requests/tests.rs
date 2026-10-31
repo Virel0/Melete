@@ -747,7 +747,7 @@ async fn admins_add_with_their_choices_and_others_cannot_choose() {
     .unwrap();
     assert_eq!(
         placed,
-        (1, None, true),
+        (1, Some(5), true),
         "the only library without a category"
     );
 

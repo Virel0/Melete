@@ -81,6 +81,7 @@ mod runtime_checks;
 mod search;
 mod search_keys;
 mod search_missing;
+mod secrets;
 mod seedbox;
 mod segments;
 mod service_check;
@@ -139,6 +140,8 @@ async fn main() -> anyhow::Result<()> {
     if !args.is_empty() {
         return cli::run_command(&pool, &args).await;
     }
+    // Before anything reads a secret: the key is loaded, and every stored secret opens with it.
+    secrets::install(secrets::startup::prepare(&pool, &data_dir).await?)?;
     let config = settings::load(&pool).await?;
     // Artist searches a restart cut off would otherwise show as running for ever. Not for a
     // command run beside the server, whose searches are still running.

@@ -190,6 +190,40 @@ export async function profilesFor(kind) {
   return all.filter((p) => !kind.profiles.service || p.service === kind.profiles.service);
 }
 
+// A wanted title's profile: its name, or for one with none (approved with nothing to choose
+// it), says so with a picker to choose one there; `short` says it in two words, for a table.
+// `done(message)` draws it again.
+export function profileOrPicker(ctx, kind, t, profiles, done, short = false) {
+  if (!t.wanted || t.profile || !kind.profiles.service) return t.profile ?? "—";
+  const none = h("span", {}, short ? "None chosen" : "None chosen: nothing is grabbed until one is.");
+  if (!profiles.length) return none;
+  const said = h("span", { class: "note", role: "status" });
+  const pick = h("select", { class: "compact", "aria-label": `Profile for ${t.title}` }, h("option", { value: "" }, "Choose a profile"), profiles.map((p) => h("option", { value: String(p.id) }, p.name)));
+  const set = h("button", { type: "submit", class: "quiet" }, "Set profile");
+  const form = h("form", { class: "profile-pick", novalidate: true }, none, " ", pick, " ", set, " ", said);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!pick.value) {
+      said.textContent = "Choose one first.";
+      return pick.focus();
+    }
+    const name = pick.selectedOptions[0].textContent;
+    set.disabled = pick.disabled = true;
+    said.textContent = "Saving…";
+    try {
+      await api(`${kind.wanted}/${t.wanted_id}/profile`, { method: "PUT", body: { profile_id: Number(pick.value) } });
+      const message = `Set ${name} on ${t.title}.`;
+      announce(message);
+      done(message);
+    } catch (err) {
+      if (err instanceof SignedOut) return ctx.signedOut();
+      said.textContent = err.message;
+      set.disabled = pick.disabled = false;
+    }
+  });
+  return form;
+}
+
 const STEP = { downloading: "Downloading", transferring: "Copying home", importing: "Placing in the library" };
 
 // A title's state for the key's marks, and its words: the file's quality, how far a download

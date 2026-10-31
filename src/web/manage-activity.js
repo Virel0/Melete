@@ -138,7 +138,7 @@ export async function historyFor(ctx) {
   return [
     group(
       "History",
-      h("p", { class: "note" }, "Searched, grabbed, imported, failed, replaced by an upgrade, taken off, blocklisted, extras found and files renamed, kept a year."),
+      h("p", { class: "note" }, "Searched, grabbed, imported, failed, replaced by an upgrade, taken off, blocklisted, extras found, files renamed and torrents removed from Deluge, kept a year."),
       h("div", { class: "field" }, h("label", { for: "history-kind" }, "Show"), pick),
       box,
       more,
