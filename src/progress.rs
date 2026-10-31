@@ -9,6 +9,10 @@ use sqlx::SqlitePool;
 
 use crate::db::unix_now;
 
+mod wanted;
+
+use wanted::*;
+
 /// How long a finished download stays in the activity list.
 const RECENT_SECONDS: i64 = 24 * 3600;
 /// Entries in the activity list at most.
@@ -52,6 +56,8 @@ pub struct Progress {
     pub source: Option<String>,
     /// When the download last changed; null for a state worked out from the library.
     pub updated_at: Option<i64>,
+    /// While the download is copied home: how far that has got.
+    pub copied: Option<crate::downloads::Copying>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -71,6 +77,11 @@ struct DownloadRow {
     episode: Option<i64>,
     /// The wanted title's name, when it's still wanted.
     wanted_title: Option<String>,
+    copied: Option<i64>,
+    copy_total: Option<i64>,
+    copy_rate: Option<i64>,
+    /// Imported in the last two minutes into a title folder not matched yet.
+    settling: bool,
 }
 
 /// The step a download stands at.
@@ -124,25 +135,57 @@ fn from_download(row: DownloadRow) -> Progress {
         (Some(s), None) => format!("{base}, season {s}"),
         _ => base,
     };
-    let step = download_step(&row.state, row.message.as_deref());
+    // Just imported, and its title not matched yet: still importing, as far as anyone looking
+    // can tell, until it shows with its poster and details.
+    let step = if row.settling {
+        Step::Importing
+    } else {
+        download_step(&row.state, row.message.as_deref())
+    };
+    let copied = crate::downloads::Copying::of(
+        &row.state,
+        row.message.as_deref(),
+        (row.copied, row.copy_total, row.copy_rate),
+    );
     Progress {
         kind,
         wanted_id,
         title,
         step,
         percent: (step == Step::Downloading).then_some(row.progress),
-        message: download_message(&row),
+        message: if row.settling {
+            Some("matching it to its TMDB entry".into())
+        } else {
+            download_message(&row)
+        },
         download_id: Some(row.id),
         source: Some(row.source.clone()),
         updated_at: Some(row.updated_at),
+        copied,
     }
 }
 
 const DOWNLOAD_COLUMNS: &str = "SELECT d.id, d.source, d.title, d.state, d.progress, d.message,
         d.updated_at, d.wanted_movie_id, d.wanted_series_id, d.wanted_album_id, d.wanted_song_id,
-        d.season, d.episode,
+        d.season, d.episode, d.copied, d.copy_total, d.copy_rate,
         coalesce(m.title, s.title, al.title || ' by ' || ar.name, so.title || ' by ' || so.artist)
-            AS wanted_title
+            AS wanted_title,
+        -- Imported in the last two minutes into a movie or series folder not matched yet.
+        (d.state = 'imported' AND d.updated_at >= CAST(strftime('%s', 'now') AS INTEGER) - 120
+         AND EXISTS (
+             SELECT 1 FROM libraries l
+             JOIN movies f ON f.library_id = l.id AND d.wanted_movie_id IS NOT NULL
+             WHERE f.match_status IS NULL AND f.missing_since IS NULL
+               AND (d.destination = rtrim(l.path, '/') || '/' || f.rel_path
+                    OR substr(d.destination, 1, length(rtrim(l.path, '/') || '/' || f.rel_path) + 1)
+                       = rtrim(l.path, '/') || '/' || f.rel_path || '/')
+             UNION ALL
+             SELECT 1 FROM libraries l
+             JOIN series f ON f.library_id = l.id AND d.wanted_series_id IS NOT NULL
+             WHERE f.match_status IS NULL AND f.missing_since IS NULL
+               AND (d.destination = rtrim(l.path, '/') || '/' || f.rel_path
+                    OR substr(d.destination, 1, length(rtrim(l.path, '/') || '/' || f.rel_path) + 1)
+                       = rtrim(l.path, '/') || '/' || f.rel_path || '/'))) AS settling
      FROM downloads d
      LEFT JOIN wanted_movies m ON m.id = d.wanted_movie_id
      LEFT JOIN wanted_series s ON s.id = d.wanted_series_id
@@ -185,6 +228,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Progress>> {
             download_id: None,
             source: None,
             updated_at: Some(started),
+            copied: None,
         })
         .collect();
     all.extend(rows.into_iter().map(from_download));
@@ -200,72 +244,6 @@ pub fn kind(path: &str) -> Option<&'static str> {
         "songs" => Some("song"),
         _ => None,
     }
-}
-
-/// What one wanted item has in place of a download: its title, whether it's on disk, and
-/// whether something looks out for it on its own.
-struct Wanted {
-    title: String,
-    on_disk: bool,
-    looked_for: bool,
-}
-
-async fn wanted(pool: &SqlitePool, kind: &str, id: i64) -> anyhow::Result<Option<Wanted>> {
-    let row: Option<(String, bool, bool)> = match kind {
-        "movie" => {
-            sqlx::query_as(
-                "SELECT w.title,
-                        EXISTS (SELECT 1 FROM media_files f WHERE f.movie_id = w.movie_id
-                                AND f.missing_since IS NULL),
-                        w.monitored = 1
-                 FROM wanted_movies w WHERE w.id = ?",
-            )
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-        }
-        "series" => {
-            sqlx::query_as(
-                "SELECT w.title,
-                        EXISTS (SELECT 1 FROM media_files f WHERE f.series_id = w.series_id
-                                AND f.missing_since IS NULL),
-                        w.monitored = 1
-                 FROM wanted_series w WHERE w.id = ?",
-            )
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-        }
-        "album" => {
-            sqlx::query_as(
-                "SELECT w.title || ' by ' || a.name,
-                        EXISTS (SELECT 1 FROM music_albums m WHERE m.missing_since IS NULL
-                                AND w.mb_release_group_id IN (m.mb_release_group_id, m.match_release_group_id)),
-                        w.monitored = 1 AND a.monitored = 1
-                 FROM wanted_albums w JOIN wanted_artists a ON a.id = w.wanted_artist_id
-                 WHERE w.id = ?",
-            )
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-        }
-        // A song is in the library once a download of it is; nothing looks for songs on its
-        // own, so one waits for a search.
-        "song" => {
-            sqlx::query_as(
-                "SELECT title || ' by ' || artist, 0, 0 FROM wanted_songs WHERE id = ?",
-            )
-            .bind(id)
-            .fetch_optional(pool)
-            .await?
-        }
-        _ => None,
-    };
-    Ok(row.map(|(title, on_disk, looked_for)| Wanted {
-        title,
-        on_disk,
-        looked_for,
-    }))
 }
 
 /// How one wanted item is getting on; None when it isn't wanted.
@@ -307,6 +285,8 @@ pub async fn of(
     let progress = match latest {
         // On disk is where a request ends, even while an upgrade of it downloads.
         Some(d) if under_way(&d) && !wanted.on_disk => from_download(d),
+        // Just imported, its title not matched yet.
+        Some(d) if d.settling => from_download(d),
         // On disk, or imported and waiting for the next scan to see it.
         latest if wanted.on_disk || latest.as_ref().is_some_and(|d| d.state == "imported") => {
             Progress {
@@ -319,6 +299,7 @@ pub async fn of(
                 download_id: latest.as_ref().map(|d| d.id),
                 source: latest.map(|d| d.source),
                 updated_at: None,
+                copied: None,
             }
         }
         latest => {
@@ -348,6 +329,7 @@ pub async fn of(
                 download_id: failed.as_ref().map(|d| d.id),
                 source: failed.map(|d| d.source),
                 updated_at: None,
+                copied: None,
             }
         }
     };
@@ -745,5 +727,56 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(step().await, Step::InLibrary, "episode 2 is left out");
+    }
+
+    #[tokio::test]
+    async fn an_import_is_importing_until_its_title_is_matched_or_a_while_has_passed() {
+        let pool = fixture().await;
+        // The movie just imported into a new folder, scanned but not matched yet.
+        sqlx::raw_sql(
+            "INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation)
+                 VALUES (6, 1, 'Missing (2024)', 'Missing', 1);
+             UPDATE downloads SET state = 'imported', destination = '/m/Missing (2024)'
+                 WHERE id = 10;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let step = |pool: SqlitePool| async move {
+            let one = of(&pool, "movie", 2).await.unwrap().unwrap();
+            let listed = list(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|p| p.download_id == Some(10))
+                .unwrap();
+            assert_eq!(one.step, listed.step);
+            (one.step, one.message)
+        };
+        assert_eq!(
+            step(pool.clone()).await,
+            (
+                Step::Importing,
+                Some("matching it to its TMDB entry".to_owned())
+            )
+        );
+
+        sqlx::query("UPDATE movies SET match_status = 'matched' WHERE id = 6")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(step(pool.clone()).await.0, Step::InLibrary);
+
+        // Not matched, but imported more than two minutes ago: it shows anyway.
+        sqlx::query("UPDATE movies SET match_status = NULL WHERE id = 6")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE downloads SET updated_at = ? WHERE id = 10")
+            .bind(unix_now() - 121)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(step(pool.clone()).await.0, Step::InLibrary);
     }
 }

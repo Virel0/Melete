@@ -17,6 +17,7 @@ use crate::tmdb::{
 
 mod choose;
 mod credits;
+mod imported;
 mod manual;
 mod matching;
 mod nfo;
@@ -26,6 +27,7 @@ mod wanted;
 
 pub use choose::*;
 pub use credits::refresh_credits;
+use imported::*;
 pub use manual::*;
 use matching::*;
 use nfo::*;
@@ -101,6 +103,9 @@ pub async fn refresh(pool: &SqlitePool, tmdb: &tmdb::Client) -> anyhow::Result<R
     let now = unix_now();
     let mut report = RefreshReport::default();
 
+    // What Melete imported for a wanted title is that title: matched before anything is
+    // searched for.
+    match_imported(pool, tmdb, now, &mut report).await?;
     match_unmatched_movies(pool, tmdb, now, &mut report).await?;
     match_unmatched_series(pool, tmdb, now, &mut report).await?;
     refresh_stale_movies(pool, tmdb, now, &mut report).await?;

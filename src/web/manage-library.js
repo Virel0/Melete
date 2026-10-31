@@ -6,7 +6,7 @@
 
 import { SignedOut, announce, api, h, number, plural, size } from "/web/lib.js";
 import { clip, emptyState, failed, placeholders, stateKey } from "/web/page-parts.js";
-import { KINDS, attentionStrip, profilesFor, stateOf, titleHref } from "/web/manage-parts.js";
+import { KINDS, attentionStrip, profileOrPicker, profilesFor, stateOf, titleHref } from "/web/manage-parts.js";
 import { folderOf, selectKey, selectionBar } from "/web/manage-select.js";
 import { searchMissing } from "/web/wanted-missing.js";
 import { art } from "/web/cards.js";
@@ -428,7 +428,7 @@ function table(v) {
             music ? null : cell("Year", t.year ? String(t.year) : "—", { class: "num" }),
             cell("State", stateOf(t)),
             cell("Monitored", !t.wanted ? "Not wanted" : t.monitored ? "Yes" : "No"),
-            cell("Profile", t.profile ?? "—"),
+            cell("Profile", profileOrPicker(v.ctx, v.kind, t, v.profiles, (message) => reloadKeeping(v, message), true)),
             cell("Library", t.library ?? "—"),
             cell("Size", t.size ? size(t.size) : "—", { class: "r" }),
           ),

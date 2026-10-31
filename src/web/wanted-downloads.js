@@ -4,6 +4,7 @@
 import { confirmInline, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, plural, seasonName, size } from "/web/lib.js";
 import { searchResults } from "/web/wanted.js";
+import { copyingBar } from "/web/progress.js";
 
 const STATES = {
   downloading: "Downloading",
@@ -105,9 +106,11 @@ function downloadRow(d, actions, found) {
       " ",
       h("span", { class: `badge state-${d.state}` }, stateName(d)),
       d.source === "soulseek" ? [" ", h("span", { class: "badge" }, "Soulseek")] : null,
-      d.state === "downloading" || d.state === "transferring"
-        ? h("p", {}, h("progress", { max: 100, value: d.progress, "aria-label": `${d.title}: ${Math.round(d.progress)}%` }), ` ${Math.round(d.progress)}%`)
-        : null,
+      d.state === "transferring" && d.copied
+        ? copyingBar(d.title, d.copied)
+        : d.state === "downloading" || d.state === "transferring"
+          ? h("p", {}, h("progress", { max: 100, value: d.progress, "aria-label": `${d.title}: ${Math.round(d.progress)}%` }), ` ${Math.round(d.progress)}%`)
+          : null,
       h(
         "p",
         { class: "note" },

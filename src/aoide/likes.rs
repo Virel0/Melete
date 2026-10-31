@@ -1,13 +1,15 @@
-//! A listener's liked tracks, read from their sync log and written into it the way an Aoide
-//! device does, so the log stays the one place likes are kept and every device sees a like
-//! the web set.
+//! A listener's liked tracks and albums, read from their sync log and written into it the way
+//! an Aoide device does, so the log stays the one place likes are kept and every device sees a
+//! like the web set.
 //!
-//! A like is a row of the `likes` entity: its own id, the track (`jellyfinId`, Melete's
-//! track id, and `contentKey`), `liked` (false is a dislike), `updatedAt`, `deleted` and
-//! `originDevice`. Rows merge whole: the later `updatedAt` wins, a tie going to the greater
-//! `originDevice`. A track has one row: when two devices each made one, the one that wins
-//! that comparison stays and the other goes. Withdrawing a like deletes its row (a delete op
-//! carrying the row with `deleted` set).
+//! A track's like is a row of the `likes` entity: its own id, the track (`jellyfinId`,
+//! Melete's track id, and `contentKey`), `liked` (false is a dislike), `updatedAt`, `deleted`
+//! and `originDevice`. An album's is a row of `album_likes`, the same but for `albumId`, the
+//! album's id, in place of `jellyfinId`: a record of its own rather than a flag on a track's,
+//! so devices that don't know albums can be liked never see one. Rows merge whole: the later
+//! `updatedAt` wins, a tie going to the greater `originDevice`. A track or album has one row:
+//! when two devices each made one, the one that wins that comparison stays and the other goes.
+//! Withdrawing a like deletes its row (a delete op carrying the row with `deleted` set).
 
 use std::collections::HashMap;
 
@@ -18,14 +20,42 @@ use super::listening::normalise;
 use super::playlists::Row;
 use super::writing::{self, Change, WriteError};
 
+mod albums;
+pub use albums::liked_albums;
+
+/// What a like names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Track,
+    Album,
+}
+
+impl Kind {
+    /// The entity its rows are kept as.
+    pub fn entity(self) -> &'static str {
+        match self {
+            Self::Track => "likes",
+            Self::Album => "album_likes",
+        }
+    }
+
+    /// The row's field naming the track or album.
+    fn id_key(self) -> &'static str {
+        match self {
+            Self::Track => "jellyfinId",
+            Self::Album => "albumId",
+        }
+    }
+}
+
 /// A like row as a device holds it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Like {
     /// The row's id.
     pub id: String,
-    /// The track's id as written.
-    pub jellyfin_id: String,
-    /// The track's content key.
+    /// The track's or album's id as written.
+    pub item_id: String,
+    /// The track's or album's content key.
     pub content_key: String,
     /// True for a like, false for a dislike.
     pub liked: bool,
@@ -40,7 +70,7 @@ pub struct Like {
 impl Like {
     /// A row from an op's payload, or None when a device couldn't read it: a field missing or
     /// of the wrong type, or an id that isn't the op's.
-    fn read(entity_id: &str, operation: &str, payload: &str) -> Option<Self> {
+    fn read(kind: Kind, entity_id: &str, operation: &str, payload: &str) -> Option<Self> {
         let Ok(Value::Object(raw)) = serde_json::from_str::<Value>(payload) else {
             return None;
         };
@@ -53,7 +83,7 @@ impl Like {
         };
         let like = Self {
             id: text("id")?,
-            jellyfin_id: text("jellyfinId")?,
+            item_id: text(kind.id_key())?,
             content_key: text("contentKey")?,
             liked: flag("liked")?,
             updated_at: row.get("updatedAt")?.as_i64()?,
@@ -75,10 +105,10 @@ impl Like {
     }
 
     /// The row as its payload.
-    fn to_row(&self) -> Map<String, Value> {
+    fn to_row(&self, kind: Kind) -> Map<String, Value> {
         let mut row = Map::new();
         row.insert("id".into(), self.id.clone().into());
-        row.insert("jellyfinId".into(), self.jellyfin_id.clone().into());
+        row.insert(kind.id_key().into(), self.item_id.clone().into());
         row.insert("contentKey".into(), self.content_key.clone().into());
         row.insert("liked".into(), self.liked.into());
         row.insert("updatedAt".into(), self.updated_at.into());
@@ -105,12 +135,15 @@ fn camel(key: &str) -> String {
     out
 }
 
-/// The rows after applying `ops` (entity id, operation, payload) in order, as a device's
-/// merge does, by row id.
-pub fn fold<'a>(ops: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>) -> Vec<Like> {
+/// The rows after applying `ops` (entity id, operation, payload) of `kind`'s entity in order,
+/// as a device's merge does, by row id.
+pub fn fold<'a>(
+    kind: Kind,
+    ops: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+) -> Vec<Like> {
     let mut rows: HashMap<String, Like> = HashMap::new();
     for (entity_id, operation, payload) in ops {
-        let Some(incoming) = Like::read(entity_id, operation, payload) else {
+        let Some(incoming) = Like::read(kind, entity_id, operation, payload) else {
             continue;
         };
         if rows
@@ -121,7 +154,7 @@ pub fn fold<'a>(ops: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>) -> V
         }
         let clash = rows
             .values()
-            .find(|r| r.jellyfin_id == incoming.jellyfin_id && r.id != incoming.id)
+            .find(|r| r.item_id == incoming.item_id && r.id != incoming.id)
             .cloned();
         if let Some(clash) = clash {
             if !incoming.beats(&clash) {
@@ -134,33 +167,39 @@ pub fn fold<'a>(ops: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>) -> V
     rows.into_values().collect()
 }
 
-/// Every like row `user_id` has, as their devices hold them.
+/// Every like row of `kind` `user_id` has, as their devices hold them.
 ///
 /// # Errors
 ///
 /// Fails when the database does.
-pub async fn rows(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Like>> {
+pub async fn rows(pool: &SqlitePool, kind: Kind, user_id: i64) -> sqlx::Result<Vec<Like>> {
     let ops: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT entity_id, operation, payload FROM aoide_ops
-         WHERE user_id = ? AND entity = 'likes' ORDER BY seq",
+         WHERE user_id = ? AND entity = ? ORDER BY seq",
     )
     .bind(user_id)
+    .bind(kind.entity())
     .fetch_all(pool)
     .await?;
     Ok(fold(
+        kind,
         ops.iter()
             .map(|(e, o, p)| (e.as_str(), o.as_str(), p.as_str())),
     ))
 }
 
-/// The tracks `user_id` likes, newest like first: (Melete's track id, or None when the row
-/// names something that isn't one; the row).
+/// The tracks or albums `user_id` likes, newest like first: (Melete's id, or None when the
+/// row names something that isn't one; the row).
 ///
 /// # Errors
 ///
 /// Fails when the database does.
-pub async fn liked(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<(Option<i64>, Like)>> {
-    let mut liked: Vec<Like> = rows(pool, user_id)
+pub async fn liked(
+    pool: &SqlitePool,
+    kind: Kind,
+    user_id: i64,
+) -> sqlx::Result<Vec<(Option<i64>, Like)>> {
+    let mut liked: Vec<Like> = rows(pool, kind, user_id)
         .await?
         .into_iter()
         .filter(|r| r.liked && !r.deleted)
@@ -172,34 +211,29 @@ pub async fn liked(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<(Option<
     });
     Ok(liked
         .into_iter()
-        .map(|r| (normalise(&r.jellyfin_id).parse().ok(), r))
+        .map(|r| (normalise(&r.item_id).parse().ok(), r))
         .collect())
 }
 
-/// Likes or unlikes `track_id` for `user_id`, as a device of theirs named `device` would at
-/// `now`: liking writes the track's row (its own, if it has one) liked and not deleted;
-/// unliking deletes its row when that's a like. Nothing is written when it's already so.
-/// False only when liking a track that isn't in the library.
+/// Likes or unlikes the track or album `id` for `user_id`, as a device of theirs named
+/// `device` would at `now`: liking writes its row (its own, if it has one; for an album, else
+/// one its content key left behind, see [`held`]) liked and not deleted; unliking deletes its
+/// row when that's a like. Nothing is written when it's already so. False only when liking a
+/// track or album that isn't in the library.
 ///
 /// # Errors
 ///
 /// A database error, or no randomness for a new row's id.
 pub async fn set(
     pool: &SqlitePool,
+    kind: Kind,
     user_id: i64,
     device: &str,
-    track_id: i64,
+    id: i64,
     like: bool,
     now: i64,
 ) -> Result<bool, WriteError> {
-    let wanted = track_id.to_string();
-    // The track's row, as the device that made it holds it; the latest if ids were written
-    // two ways.
-    let held = rows(pool, user_id)
-        .await?
-        .into_iter()
-        .filter(|r| normalise(&r.jellyfin_id) == wanted)
-        .reduce(|a, b| if b.beats(&a) { b } else { a });
+    let held = held(pool, kind, user_id, id).await?;
     let row = match (held, like) {
         (Some(held), true) if held.liked && !held.deleted => return Ok(true),
         // Only a like is withdrawn here; a dislike stays.
@@ -215,13 +249,21 @@ pub async fn set(
             ..held
         },
         (None, true) => {
-            let Some(link) = writing::track_link(pool, track_id).await? else {
+            let link = match kind {
+                Kind::Track => writing::track_link(pool, id)
+                    .await?
+                    .map(|l| (l.jellyfin_id, l.content_key)),
+                Kind::Album => writing::album_link(pool, id)
+                    .await?
+                    .map(|l| (l.album_id, l.content_key)),
+            };
+            let Some((item_id, content_key)) = link else {
                 return Ok(false);
             };
             Like {
                 id: writing::new_id()?,
-                jellyfin_id: link.jellyfin_id,
-                content_key: link.content_key,
+                item_id,
+                content_key,
                 liked: true,
                 updated_at: now,
                 deleted: false,
@@ -230,12 +272,38 @@ pub async fn set(
         }
     };
     let change = Change {
-        entity: "likes",
+        entity: kind.entity(),
         delete: row.deleted,
-        row: row.to_row(),
+        row: row.to_row(kind),
     };
     writing::append(pool, user_id, device, vec![change], now).await?;
     Ok(true)
+}
+
+/// The row a change to the track or album `id` goes into, as the device that made it holds
+/// it: the one naming it (the latest, if ids were written two ways); for a present album with
+/// none, one its content key left behind ([`albums::left_behind`]).
+async fn held(
+    pool: &SqlitePool,
+    kind: Kind,
+    user_id: i64,
+    id: i64,
+) -> Result<Option<Like>, WriteError> {
+    let wanted = id.to_string();
+    let (own, others): (Vec<Like>, Vec<Like>) = rows(pool, kind, user_id)
+        .await?
+        .into_iter()
+        .partition(|r| normalise(&r.item_id) == wanted);
+    if let Some(own) = own
+        .into_iter()
+        .reduce(|a, b| if b.beats(&a) { b } else { a })
+    {
+        return Ok(Some(own));
+    }
+    Ok(match kind {
+        Kind::Track => None,
+        Kind::Album => albums::left_behind(pool, others, id).await?,
+    })
 }
 
 #[cfg(test)]
