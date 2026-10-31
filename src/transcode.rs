@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -49,8 +49,12 @@ pub const SEGMENT_SECONDS: f64 = 6.0;
 const AHEAD_PAUSE: i64 = 30;
 /// …and let it carry on once the viewer is within this many.
 const AHEAD_RESUME: i64 = 15;
-/// Segments kept behind the viewer, for small rewinds.
-const KEEP_BEHIND: i64 = 5;
+/// Segments kept behind the viewer at most: ten minutes of six-second segments, so going back
+/// plays at once instead of starting ffmpeg again…
+const KEEP_BEHIND: i64 = 100;
+/// …and the most they may take on disk for one viewer, whatever their length (a remux's
+/// segments are large).
+const KEEP_BEHIND_BYTES: u64 = 1 << 30;
 /// A request this close past what's made waits for ffmpeg instead of restarting it.
 const WAIT_AHEAD: i64 = 4;
 const IDLE: Duration = Duration::from_secs(60);
@@ -129,6 +133,10 @@ pub struct Transcoder {
     gpu: Mutex<GpuState>,
     /// Names each ffmpeg run's folder, so a restart never shares one with the run it replaces.
     runs: AtomicU64,
+    /// Segments, and bytes, kept behind a viewer at most ([`KEEP_BEHIND`],
+    /// [`KEEP_BEHIND_BYTES`]).
+    keep_segments: AtomicI64,
+    keep_bytes: AtomicU64,
 }
 
 impl Transcoder {
@@ -154,7 +162,16 @@ impl Transcoder {
             running: Mutex::new(HashMap::new()),
             gpu: Mutex::default(),
             runs: AtomicU64::new(0),
+            keep_segments: AtomicI64::new(KEEP_BEHIND),
+            keep_bytes: AtomicU64::new(KEEP_BEHIND_BYTES),
         })
+    }
+
+    /// Other limits on what's kept behind a viewer, for tests.
+    #[cfg(test)]
+    pub(super) fn keep_behind(&self, segments: i64, bytes: u64) {
+        self.keep_segments.store(segments, Ordering::Relaxed);
+        self.keep_bytes.store(bytes, Ordering::Relaxed);
     }
 
     /// The ffmpeg binary it runs.
@@ -209,11 +226,22 @@ impl Transcoder {
         for r in running.values_mut() {
             let progress = r.progress();
             let finished = progress.finished.unwrap_or(r.start - 1);
-            if let Some(signal) = throttle(finished - r.last_segment, r.paused) {
+            let ahead = finished - r.last_segment;
+            let signal = if r.keyframes.is_some() {
+                throttle_copy(ahead, r.paused)
+            } else {
+                throttle(ahead, r.paused)
+            };
+            if let Some(signal) = signal {
                 r.signal(signal);
                 r.paused = signal == libc::SIGSTOP;
             }
-            let keep_from = r.last_segment - KEEP_BEHIND;
+            let keep_from = keep_from(
+                r,
+                &progress.chunks,
+                self.keep_segments.load(Ordering::Relaxed),
+                self.keep_bytes.load(Ordering::Relaxed),
+            );
             let passed = r.deleted_below.max(r.start)..keep_from;
             for n in passed.clone() {
                 let _ = std::fs::remove_file(r.dir.join(format!("seg{n}.{}", r.extension)));
@@ -280,6 +308,8 @@ impl Transcoder {
                             Some(Ok(())) => Next::Restart,
                             None => {
                                 let frontier = finished.map_or(r.start, |f| f + 1);
+                                // Starting again at the segment is quicker than waiting for
+                                // ffmpeg to get there, even for a copy (measured).
                                 if n > frontier + WAIT_AHEAD || n < r.deleted_below {
                                     Next::Restart
                                 } else {
