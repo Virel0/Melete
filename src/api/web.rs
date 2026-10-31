@@ -174,6 +174,7 @@ const MODULES: [(&str, &str); 105] = [
     ),
     ("manage-artist.js", include_str!("../web/manage-artist.js")),
     ("manage-album.js", include_str!("../web/manage-album.js")),
+    ("manage-want.js", include_str!("../web/manage-want.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
     (
         "manage-activity.js",
@@ -650,6 +651,10 @@ mod tests {
             ("/web/manage-seasons.js", "/episodes/"),
             ("/web/manage-artist.js", "monitor_new"),
             ("/web/manage-album.js", "track_list"),
+            ("/web/manage-want.js", "As Where they go says"),
+            ("/web/manage-title.js", "/web/manage-want.js"),
+            ("/web/manage-artist.js", "/web/manage-want.js"),
+            ("/web/manage-album.js", "/web/manage-want.js"),
             ("/web/manage-add.js", "/requests/search"),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
