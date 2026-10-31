@@ -6,7 +6,7 @@ services:
   melete:
     # The published release. MELETE_IMAGE in .env pins another version or a digest; building
     # from this repository instead is compose.build.yaml.
-    image: ${MELETE_IMAGE:-ghcr.io/virel0/melete:0.2.0}
+    image: ${MELETE_IMAGE:-ghcr.io/virel0/melete:0.3.0}
     # The uid:gid Melete runs as: the image's own user unless MELETE_USER in .env names
     # another, such as the library's owner.
     user: "${MELETE_USER:-10001:10001}"
