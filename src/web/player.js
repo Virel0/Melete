@@ -4,7 +4,7 @@
 // Progress goes back to the server every 10 seconds and on leaving.
 
 import { SignedOut, announce, api, clock, episodeLabel, h, loading, show } from "/web/lib.js";
-import { SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
+import { HLS_MODULE, SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
 import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
@@ -12,9 +12,6 @@ import { offlinePanel } from "/web/player-offline.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
 
-// Vendored, unchanged, from the hls.js 1.7.3 npm release. Loaded only when a
-// conversion plays in a browser without HLS of its own.
-const HLS_MODULE = "/web/hls-1.7.3.mjs";
 const REPORT_EVERY_MS = 10_000;
 
 // ---------- The page ----------

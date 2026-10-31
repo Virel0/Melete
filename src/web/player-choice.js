@@ -7,6 +7,9 @@ import { languageName } from "/web/lib.js";
 
 export const probe = document.createElement("video");
 export const mse = window.ManagedMediaSource ?? window.MediaSource;
+// Vendored, unchanged, from the hls.js 1.7.3 npm release. Loaded only when a
+// conversion plays in a browser without HLS of its own.
+export const HLS_MODULE = "/web/hls-1.7.3.mjs";
 
 function videoCodec(v) {
   const tenBit = /10/.test(v.pixel_format ?? "");

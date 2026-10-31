@@ -28,6 +28,10 @@ use crate::library::{AUDIO_EXTENSIONS, COVER_NAMES, IMAGE_EXTENSIONS};
 use crate::search::Target;
 use crate::seedbox::{Connection, Seedbox};
 
+/// A download's message while its copied files are checked against its title, before any is
+/// placed: copy progress isn't shown then, since the copy is done.
+pub const CHECKING: &str = "checking it's the right title by its running time";
+
 mod again;
 mod cleanup;
 mod copy;

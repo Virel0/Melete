@@ -51,8 +51,8 @@ export async function animeIds() {
 
 const known = new Map();
 
-// { href, label } for playing `item` (a home or list item: kind, id, episode, progress), or a
-// promise of it; null when there's nothing to play.
+// { href, label, file_id } for playing `item` (a home or list item: kind, id, episode,
+// progress), or a promise of it; null when there's nothing to play.
 export function playTarget(item) {
   const key = `${item.kind}:${item.id}`;
   const now = fromItem(item);
@@ -76,15 +76,17 @@ function fromItem(item) {
   if (item.kind === "series" && episode?.file_id) {
     const code = episodeCode(episode.season, episode.episode);
     const href = playHref(episode.file_id, { series: item.id, season: episode.season, episode: episode.episode });
+    const file_id = episode.file_id;
     if (partway(progress) && progress.file_id === episode.file_id) {
-      return { href, label: ["Resume", [code, timeLeft(progress)].filter(Boolean).join(" · ")].join(" ") };
+      return { href, label: ["Resume", [code, timeLeft(progress)].filter(Boolean).join(" · ")].join(" "), file_id };
     }
-    return { href, label: code ? `Play ${code}` : "Play" };
+    return { href, label: code ? `Play ${code}` : "Play", file_id };
   }
   if (item.kind === "movie" && progress?.file_id) {
-    const href = playHref(progress.file_id, { movie: item.id });
-    if (partway(progress)) return { href, label: `Resume · ${timeLeft(progress)}` };
-    if (progress.watched) return { href: playHref(progress.file_id, { movie: item.id }, true), label: "Play again" };
+    const { file_id } = progress;
+    const href = playHref(file_id, { movie: item.id });
+    if (partway(progress)) return { href, label: `Resume · ${timeLeft(progress)}`, file_id };
+    if (progress.watched) return { href: playHref(file_id, { movie: item.id }, true), label: "Play again", file_id };
   }
   return null;
 }
@@ -96,7 +98,7 @@ async function lookUp(item) {
     const file = movie.files[0];
     if (!file) return null;
     const length = runtime(movie.runtime_minutes);
-    return { href: playHref(file.id, { movie: item.id }), label: length ? `Play · ${length}` : "Play" };
+    return { href: playHref(file.id, { movie: item.id }), label: length ? `Play · ${length}` : "Play", file_id: file.id };
   }
   const series = await api(`/series/${item.id}`);
   const seasons = series.seasons.filter((s) => s.available > 0).sort((a, b) => (a.season === 0) - (b.season === 0) || a.season - b.season);
@@ -108,5 +110,6 @@ async function lookUp(item) {
   return {
     href: playHref(first.files[0].id, { series: item.id, season: seasons[0].season, episode: first.episode }),
     label: `Play ${code}`,
+    file_id: first.files[0].id,
   };
 }

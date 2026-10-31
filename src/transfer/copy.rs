@@ -56,7 +56,7 @@ pub(super) async fn copy_all(
         tracker.file_done(file.size).await?;
     }
     if let Some(check) = check {
-        say(pool, id, "checking how long it runs").await?;
+        say(pool, id, super::CHECKING).await?;
         verify::check_staged(check, &staged).await?;
     }
     place_all(pool, id, staged, placed).await

@@ -14,7 +14,7 @@ import { seasonsPart } from "/web/manage-seasons.js";
 import { wantPanel } from "/web/manage-want.js";
 import { fixMatch } from "/web/settings.js";
 import { art } from "/web/cards.js";
-import { copyingBar } from "/web/progress.js";
+import { checking, copyingBar } from "/web/progress.js";
 
 const DOWNLOAD_STATES = { downloading: "Downloading", completed: "On the seedbox", transferring: "Copying home", imported: "In the library", failed: "Failed" };
 
@@ -224,7 +224,7 @@ function activityPart(v) {
         "div",
         {},
         h("span", { class: "path" }, d.title),
-        h("p", {}, d.state === "failed" ? stateLabel("failed", `Failed${d.message ? `: ${d.message}` : ""}`) : stateLabel("coming", `${DOWNLOAD_STATES[d.state] ?? d.state}${d.state === "downloading" ? ` ${Math.round(d.progress)}%` : ""}`)),
+        h("p", {}, d.state === "failed" ? stateLabel("failed", `Failed${d.message ? `: ${d.message}` : ""}`) : stateLabel("coming", checking(d) ? "Checking it's the right title" : `${DOWNLOAD_STATES[d.state] ?? d.state}${d.state === "downloading" ? ` ${Math.round(d.progress)}%` : ""}`)),
         d.state === "transferring" && d.copied ? copyingBar(d.title, d.copied) : null,
         d.season !== null && !v.movies ? h("p", { class: "note" }, d.episode === null ? `Season ${d.season}` : `Season ${d.season}, episode ${d.episode}`) : null,
       ),

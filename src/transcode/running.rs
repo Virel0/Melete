@@ -178,6 +178,21 @@ pub(super) fn throttle(ahead: i64, paused: bool) -> Option<libc::c_int> {
     }
 }
 
+/// [`throttle`] for a run that copies the video, which is cheap to keep going: it pauses this many
+/// segments ahead and carries on within the second, so a viewer who skips ahead mostly finds
+/// what they want made already.
+pub(super) fn throttle_copy(ahead: i64, paused: bool) -> Option<libc::c_int> {
+    const PAUSE: i64 = 100;
+    const RESUME: i64 = 50;
+    if !paused && ahead > PAUSE {
+        Some(libc::SIGSTOP)
+    } else if paused && ahead < RESUME {
+        Some(libc::SIGCONT)
+    } else {
+        None
+    }
+}
+
 /// Stops the run asked for least recently, freeing its slot, if nobody has asked it for
 /// anything in [`TAKE_OVER_AFTER`]; [`TranscodeError::Busy`] when every run is in use.
 pub(super) fn take_quietest_slot(
@@ -193,4 +208,27 @@ pub(super) fn take_quietest_slot(
         r.stop();
     }
     Ok(())
+}
+
+/// The first segment kept behind the viewer of `r`: the newest ones before where they are, as
+/// many as fit within `segments` and `bytes` (each segment's file, or a copy's chunks of it).
+pub(super) fn keep_from(r: &Running, chunks: &[(i64, String)], segments: i64, bytes: u64) -> i64 {
+    let oldest = r.deleted_below.max(r.start);
+    let (mut from, mut kept) = (r.last_segment, 0u64);
+    while from > oldest && r.last_segment - from < segments {
+        let n = from - 1;
+        let size = |name: &str| std::fs::metadata(r.dir.join(name)).map_or(0, |m| m.len());
+        let segment = size(&format!("seg{n}.{}", r.extension))
+            + chunks
+                .iter()
+                .filter(|(of, _)| *of == n)
+                .map(|(_, chunk)| size(chunk))
+                .sum::<u64>();
+        if kept + segment > bytes {
+            break;
+        }
+        kept += segment;
+        from = n;
+    }
+    from
 }
