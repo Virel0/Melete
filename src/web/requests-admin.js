@@ -36,7 +36,7 @@ export async function decide(ctx) {
     );
     const choices = music ? musicProfiles : profiles.filter((p) => p.service === r.service);
     // With several profiles and none set for its kind, approving asks for one: without it,
-    // nothing would be grabbed.
+    // nothing would be grabbed. With one, that one is used.
     const mustChoose = !music && choices.length > 1 && !set.defaults.find((d) => d.kind === r.service)?.profile_id;
     const profile = h(
       "select",
@@ -209,7 +209,7 @@ export async function settings(ctx) {
       h(
         "select",
         {},
-        h("option", { value: "" }, music ? "FLAC preferred (the preset)" : "None chosen"),
+        h("option", { value: "" }, music ? "FLAC preferred (the preset)" : choices.length === 1 ? `${choices[0].name}, the only one` : "None chosen"),
         choices.map((p) => h("option", { value: p.id, selected: p.id === chosen }, p.name)),
       ),
     );
