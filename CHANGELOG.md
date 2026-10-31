@@ -7,6 +7,44 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-31
+
+### Upgrading from 0.2.0
+
+Nothing to do: no database changes, no new settings. Apps that ask for converted video keep
+getting what they got before unless they use the new fields below.
+
+### Added
+
+- **Copy mode keeps what the player can take.** A transcode with `video_codec: copy` can list the
+  audio codecs the player takes (`audio_codecs`: `aac`, `ac3`, `eac3`, `flac`, `alac`) and whether
+  it shows Dolby Vision (`dolby_vision`). Audio it takes is copied unchanged, so E-AC-3 keeps its
+  Atmos. Lossless audio it can't take (TrueHD, DTS-HD MA, PCM) becomes FLAC or ALAC instead of AAC,
+  and Dolby Vision profile 8 is labelled as Dolby Vision instead of HDR10.
+- **Playlist pictures from the web and the API.** A playlist's owner sets or removes its picture on
+  the playlist's page (Picture, beside Rename and Delete), or with `PUT` and `DELETE` on
+  `/api/v1/playlists/{id}/image`. It reaches the Aoide apps through sync, as a rename does.
+
+### Changed
+
+- **The Watch home's hero plays previews.** A pick plays its trailer when its folder has one (converted
+  when the browser can't play it as it is), and otherwise 40 seconds of the title itself, muted,
+  from where you left off or a little way in. Conversions are only asked for on the home network,
+  and a preview never counts as watching. The hero no longer uses YouTube. The setting is now
+  called "Play previews on the Watch home".
+- **Going back plays at once.** Up to ten minutes (at most a gigabyte) of converted video stays
+  behind where you are, so seeking back doesn't restart the conversion. Copy mode also works
+  further ahead, so skipping forward within ten minutes finds its part ready.
+- A download whose files are copied and being checked against its title says "Checking it's the
+  right title" instead of still showing the copy's progress.
+
+### Fixed
+
+- The hero showed YouTube's player error instead of a trailer: YouTube's player won't play
+  without a referrer, which Melete's pages never send.
+- Dolby Vision profile 5 copied as it is was labelled as Dolby Vision without the configuration
+  record players need, in conversions and offline copies.
+
 ## [0.2.0] - 2026-10-31
 
 ### Upgrading from 0.1.0
@@ -160,6 +198,7 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Virel0/Melete/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Virel0/Melete/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
