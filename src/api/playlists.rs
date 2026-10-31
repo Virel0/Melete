@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Extension, Json, Router, middleware};
@@ -31,6 +31,14 @@ pub fn routes(pool: SqlitePool) -> Router {
         .route(
             "/api/v1/playlists/{id}",
             get(one).put(update).delete(remove_playlist),
+        )
+        .route(
+            "/api/v1/playlists/{id}/image",
+            put(set_image)
+                .delete(remove_image)
+                .layer(DefaultBodyLimit::max(
+                    crate::aoide::library::MAX_IMAGE_BYTES,
+                )),
         )
         .route("/api/v1/playlists/{id}/items", post(add_items))
         .route(

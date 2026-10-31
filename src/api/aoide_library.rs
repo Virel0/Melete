@@ -70,6 +70,17 @@ async fn put_image(
     if !library::is_hash(&hash) {
         return Err(bad_hash());
     }
+    let mime = image_type(&headers, &body)?;
+    let actual = library::sha256_hex(&body);
+    if actual != hash {
+        return Err(bad(format!("the body hashes to {actual}, not {hash}")));
+    }
+    library::store_image(&pool, current.user.id, &hash, &mime, &body, now_ms()).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// An uploaded image's type, from its Content-Type: JPEG, PNG or WebP, and not empty.
+pub(super) fn image_type(headers: &HeaderMap, body: &[u8]) -> Result<String, ApiError> {
     let mime = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -85,12 +96,7 @@ async fn put_image(
     if body.is_empty() {
         return Err(bad("no image bytes were sent"));
     }
-    let actual = library::sha256_hex(&body);
-    if actual != hash {
-        return Err(bad(format!("the body hashes to {actual}, not {hash}")));
-    }
-    library::store_image(&pool, current.user.id, &hash, &mime, &body, now_ms()).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(mime)
 }
 
 /// An image the user stored, or someone they share a playlist with did.

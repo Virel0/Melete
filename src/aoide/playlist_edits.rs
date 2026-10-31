@@ -209,12 +209,56 @@ pub async fn rename(
         }
         None => {}
     }
+    save_row(pool, editor, &playlist, row).await
+}
+
+/// Checks the playlist is the user's own hand-made one, before anything is stored for it.
+///
+/// # Errors
+///
+/// When it isn't the user's own hand-made playlist, or a read error.
+pub async fn editable(pool: &SqlitePool, editor: &Editor<'_>, id: &str) -> Result<(), EditError> {
+    own(pool, editor, id).await.map(|_| ())
+}
+
+/// Sets the playlist's picture to the image stored under `hash`, or clears it with `None`.
+///
+/// # Errors
+///
+/// When it isn't the user's own hand-made playlist, or a write error.
+pub async fn set_image(
+    pool: &SqlitePool,
+    editor: &Editor<'_>,
+    id: &str,
+    hash: Option<&str>,
+) -> Result<(), EditError> {
+    let (playlist, editor) = own(pool, editor, id).await?;
+    let mut row = playlist.row.clone();
+    match hash {
+        Some(hash) => {
+            row.insert("imageHash".into(), hash.into());
+        }
+        // Left out, as a device clears it.
+        None => {
+            row.remove("imageHash");
+        }
+    }
+    save_row(pool, &editor, &playlist, row).await
+}
+
+/// Writes `row` over the playlist's, stamping the fields the change gave a new value, as a
+/// device compares the row it writes with the one it held (a field cleared isn't one).
+/// Nothing is written when nothing changed.
+async fn save_row(
+    pool: &SqlitePool,
+    editor: &Editor<'_>,
+    playlist: &Playlist,
+    row: Row,
+) -> Result<(), EditError> {
     if row == playlist.row {
         return Ok(());
     }
     let mut stamps = held_stamps(&playlist.stamps);
-    // The fields the change gave a new value, as a device compares the row it writes with
-    // the one it held; a field cleared isn't one.
     for (key, value) in &row {
         if playlist.row.get(key) != Some(value) {
             stamps.insert(key.clone(), editor.now);
