@@ -40,14 +40,7 @@ pub fn whole_file_args(
     if plan.codec == VideoCodec::Copy {
         push(&["-c:v", "copy"]);
         if plan.fmp4 {
-            push(&[
-                "-tag:v",
-                if plan.dolby_vision_only {
-                    "dvh1"
-                } else {
-                    "hvc1"
-                },
-            ]);
+            copied_hevc_tag(plan, &mut args);
         }
     } else {
         let mut plan = plan.clone();

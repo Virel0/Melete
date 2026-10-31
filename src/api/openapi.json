@@ -12413,7 +12413,7 @@
           "audio_mode": {
             "enum": ["normal", "dialogue", "levelled"],
             "default": "normal",
-            "description": "What the converted audio sounds like (it applies to copy too, whose audio is converted). normal: as mixed. dialogue: mild compression on top (above −24 dB reduced 3 to 1, then raised 6 dB), so speech is easier to follow at a low volume or on small speakers. levelled: a steady loudness of −16 LUFS, peaks under −1.5 dBTP, so quiet and loud parts and files play at about the same volume. Playing a file as it is never changes its sound; ask for a conversion (copy keeps the picture) to use these."
+            "description": "What the converted audio sounds like (it applies to copy too, whose audio is then converted rather than copied). normal: as mixed. dialogue: mild compression on top (above −24 dB reduced 3 to 1, then raised 6 dB), so speech is easier to follow at a low volume or on small speakers. levelled: a steady loudness of −16 LUFS, peaks under −1.5 dBTP, so quiet and loud parts and files play at about the same volume. Playing a file as it is never changes its sound; ask for a conversion (copy keeps the picture) to use these."
           },
           "burn_subtitle": {
             "type": "string",
@@ -12423,7 +12423,18 @@
           "video_codec": {
             "enum": ["h264", "hevc", "copy"],
             "default": "h264",
-            "description": "h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, only the audio converted to AAC, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it."
+            "description": "h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, and the audio converted to AAC unless audio_codecs says the player takes it, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it."
+          },
+          "audio_codecs": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"enum": ["aac", "ac3", "eac3", "flac", "alac"]},
+            "description": "For copy: the audio codecs the player takes in HLS. Audio in one of them is copied as it is (E-AC-3 keeps its Atmos) when audio_channels asks for all its channels and audio_mode is normal. Lossless audio (TrueHD, DTS-HD MA, PCM, FLAC, ALAC) the player can't take as it is becomes FLAC, else ALAC, when listed, at audio_channels; anything else becomes AAC. FLAC and ALAC need HEVC's fragmented MP4 segments: with H.264 video they become AAC. TrueHD's Atmos is lost in any conversion. Ignored for offline copies, which are AAC."
+          },
+          "dolby_vision": {
+            "type": "boolean",
+            "default": false,
+            "description": "For copy: the player shows Dolby Vision profiles 5 and 8, so a profile 8 file's video is labelled Dolby Vision (dvh1, with its configuration record) rather than as its HDR10, HLG or SDR picture. Profile 5 is labelled Dolby Vision whatever this says, as it has no other picture; profile 7 is copied as its HDR10 picture. Ignored for offline copies."
           }
         }
       },

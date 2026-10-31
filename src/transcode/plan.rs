@@ -27,15 +27,21 @@ pub struct Plan {
     pub ten_bit: bool,
     /// Fragmented MP4 segments with an init section (HEVC), rather than MPEG-TS.
     pub fmp4: bool,
-    /// Dolby Vision with no picture of its own for players without it (profile 5): copied
-    /// video is tagged dvh1, which such players refuse rather than show with wrong colours.
+    /// Dolby Vision with no picture of its own for players without it (profile 5), tone-mapped
+    /// with its metadata when converted.
     pub dolby_vision_only: bool,
+    /// Copied video labelled as Dolby Vision (dvh1, with its configuration record): profile 5
+    /// always, which players without Dolby Vision refuse rather than show with wrong colours,
+    /// and profile 8 for players that show it.
+    pub dolby_vision: bool,
     /// For copied video, where segments start; set by the caller from [`keyframes`].
     pub keyframes: Option<Arc<Keyframes>>,
     /// The video bit rate to encode at, in bits per second.
     pub bitrate: i64,
     /// The audio stream's index in the file; None when it has no audio.
     pub audio: Option<i64>,
+    /// What the audio becomes.
+    pub audio_codec: AudioCodec,
     /// Audio channels in the output: what was asked (2 by default), but no more than the
     /// source has.
     pub channels: i64,
@@ -43,6 +49,20 @@ pub struct Plan {
     pub burn: Option<Burn>,
     /// ffmpeg's audio filters: the downmix to stereo and the audio mode's; None for none.
     pub audio_filter: Option<String>,
+}
+
+/// What the audio becomes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudioCodec {
+    /// AAC: what every player takes.
+    #[default]
+    Aac,
+    /// The track as it is, for copied video whose player takes its codec.
+    Copy,
+    /// Lossless audio the player can't take as it is, kept lossless.
+    Flac,
+    /// As [`AudioCodec::Flac`], for players that take ALAC but not FLAC.
+    Alac,
 }
 
 /// A subtitle track drawn into the picture.
@@ -151,6 +171,17 @@ pub fn plan(
         && matches!(picture, Picture::Hdr10 | Picture::Hlg);
     // An SDR base layer (Dolby Vision 8.2) needs none.
     let tonemap = codec != VideoCodec::Copy && picture != Picture::Sdr && !keep_hdr;
+    let fmp4 = codec == VideoCodec::Hevc || (codec == VideoCodec::Copy && video.codec == "hevc");
+    // Profile 7's enhancement layer is Blu-ray's own: players show its HDR10 base.
+    let profile = video.dolby_vision.as_ref().and_then(|d| d.profile);
+    let dolby_vision = codec == VideoCodec::Copy
+        && fmp4
+        && (picture == Picture::DolbyVisionOnly
+            || (settings.dolby_vision == Some(true) && matches!(profile, Some(5 | 8))));
+    let audio_codec = match audio {
+        Some(a) if codec == VideoCodec::Copy => audio_codec(a, settings, channels, fmp4),
+        _ => AudioCodec::Aac,
+    };
     Ok(Plan {
         input,
         duration,
@@ -165,11 +196,13 @@ pub fn plan(
             && high_bit_depth
             && !tonemap
             && settings.burn_subtitle.is_none(),
-        fmp4: codec == VideoCodec::Hevc || (codec == VideoCodec::Copy && video.codec == "hevc"),
+        fmp4,
         dolby_vision_only: picture == Picture::DolbyVisionOnly,
+        dolby_vision,
         keyframes: None,
         bitrate,
         audio: audio.map(|a| a.index),
+        audio_codec,
         channels,
         burn,
         audio_filter: audio.and_then(|a| {
@@ -238,6 +271,43 @@ fn picture_burn(
             None => None,
         },
     )
+}
+
+/// The audio for copied video: copied when the player takes its codec and nothing changes its
+/// sound, kept lossless when it is and the player takes FLAC or ALAC (in fMP4 only), else AAC.
+/// TrueHD's Atmos is lost whatever: no open encoder writes it, and HLS players don't take
+/// TrueHD.
+fn audio_codec(
+    audio: &crate::probe::AudioStream,
+    settings: &Settings,
+    channels: i64,
+    fmp4: bool,
+) -> AudioCodec {
+    let takes = |codec: &str| {
+        settings
+            .audio_codecs
+            .iter()
+            .flatten()
+            .any(|c| c == codec && (fmp4 || !matches!(codec, "flac" | "alac")))
+    };
+    let unchanged = channels == audio.channels.unwrap_or(2)
+        && settings.audio_mode.unwrap_or_default() == AudioMode::Normal;
+    let lossless = matches!(audio.codec.as_str(), "truehd" | "mlp" | "flac" | "alac")
+        || audio.codec.starts_with("pcm_")
+        || (audio.codec == "dts"
+            && audio
+                .profile
+                .as_deref()
+                .is_some_and(|p| p.starts_with("DTS-HD MA")));
+    if takes(&audio.codec) && unchanged {
+        AudioCodec::Copy
+    } else if lossless && takes("flac") {
+        AudioCodec::Flac
+    } else if lossless && takes("alac") {
+        AudioCodec::Alac
+    } else {
+        AudioCodec::Aac
+    }
 }
 
 /// The audio stream asked for, else the default one, else the first.

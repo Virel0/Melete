@@ -20,7 +20,16 @@ pub struct Settings {
     pub video_codec: Option<VideoCodec>,
     /// What the converted audio sounds like; default normal.
     pub audio_mode: Option<AudioMode>,
+    /// For copied video: the audio codecs the player takes in HLS, by ffprobe's names (see
+    /// [`AUDIO_CODECS`]), so audio it can play is copied and lossless audio stays lossless.
+    pub audio_codecs: Option<Vec<String>>,
+    /// For copied video: the player shows Dolby Vision profiles 5 and 8.
+    pub dolby_vision: Option<bool>,
 }
+
+/// The audio codecs a player can say it takes in HLS: MPEG-TS carries the first three, fMP4
+/// all five.
+pub const AUDIO_CODECS: [&str; 5] = ["aac", "ac3", "eac3", "flac", "alac"];
 
 /// What the video becomes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +40,8 @@ pub enum VideoCodec {
     H264,
     /// HEVC in fragmented MP4 segments, keeping HDR10 and HLG as they are.
     Hevc,
-    /// The file's own H.264 or HEVC video, unchanged; only the audio is converted.
+    /// The file's own H.264 or HEVC video, unchanged; the audio converted unless the player
+    /// takes it as it is.
     Copy,
 }
 
@@ -65,6 +75,13 @@ impl Settings {
         };
         if self.burn_subtitle.as_deref().is_some_and(|t| !track_id(t)) {
             return Err("burn_subtitle is a track id from the subtitle list, like s3 or x1a2b3c4d");
+        }
+        if self
+            .audio_codecs
+            .as_ref()
+            .is_some_and(|c| c.len() > 10 || c.iter().any(|c| !AUDIO_CODECS.contains(&c.as_str())))
+        {
+            return Err("audio_codecs lists up to 10 codecs from aac, ac3, eac3, flac and alac");
         }
         let changes_picture =
             self.max_height.is_some() || self.max_bitrate.is_some() || self.burn_subtitle.is_some();
