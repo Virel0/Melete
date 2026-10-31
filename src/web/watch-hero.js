@@ -1,8 +1,8 @@
 // The hero at the top of Watch's pages: one title large (its textless backdrop cropped around
 // its subject, logo or title, facts, logline, and Play saying what it will do, More info and
 // My List), stepping between picks every 16 seconds or by its buttons. It holds still while
-// pointed at or focused, can be paused, and doesn't move by itself for those who ask for less
-// motion.
+// pointed at or focused, or while a pick's trailer plays (watch-hero-trailer.js), can be paused,
+// and doesn't move by itself for those who ask for less motion.
 //
 // hero(picks, { watching }) → { el, spotlight, stop }:
 // - `watching` maps a series id to the row entry that names its episode (partway through, or
@@ -10,12 +10,13 @@
 // - `spotlight.add(items)` says which titles the tiles are; `spotlight.watch(list)` lets a
 //   row's tiles show their title here after a moment's hover or focus, going back to the pick
 //   a moment after they're left.
-// - `stop()` ends the stepping, for leaving the page.
+// - `stop()` ends the stepping and any trailer, for leaving the page.
 
 import { SignedOut, announce, h, runtime } from "/web/lib.js";
 import { signIn } from "/web/page-state.js";
 import { myListToggle } from "/web/favourites.js";
 import { icon } from "/web/music-controls.js";
+import { heroTrailer } from "/web/watch-hero-trailer.js";
 import { partway, playTarget, titleHref } from "/web/watch-play.js";
 
 const STEP_MS = 16_000;
@@ -56,11 +57,13 @@ export function hero(picks, { watching = new Map() } = {}) {
     held: false,
     paused: stillness.matches,
   };
+  const art = h("div", { class: "hero-art" }, p.art);
+  p.trailer = heroTrailer(art);
   const steps = stepControls(p);
   p.el = h(
     "section",
     { class: "hero", "aria-roledescription": "carousel", "aria-label": "Picks" },
-    h("div", { class: "hero-art" }, p.art),
+    art,
     h(
       "div",
       { class: "hero-body" },
@@ -69,6 +72,7 @@ export function hero(picks, { watching = new Map() } = {}) {
       p.facts,
       p.logline,
       h("div", { class: "actions" }, p.play, p.info, p.list.el),
+      p.trailer.el,
       steps.el,
     ),
   );
@@ -78,12 +82,16 @@ export function hero(picks, { watching = new Map() } = {}) {
   p.el.addEventListener("focusout", (event) => (p.held = p.el.contains(event.relatedTarget)));
   if (p.picks.length) draw(p, p.picks[0]);
   const timer = setInterval(() => {
-    if (p.paused || p.held || document.hidden || p.picks.length < 2 || p.shown !== p.picks[p.at]) return;
+    if (p.paused || p.held || p.trailer.playing() || document.hidden || p.picks.length < 2 || p.shown !== p.picks[p.at]) return;
     p.at = (p.at + 1) % p.picks.length;
     draw(p, p.picks[p.at]);
     steps.mark();
   }, STEP_MS);
-  return { el: p.el, spotlight: spotlight(p, enrich), stop: () => clearInterval(timer) };
+  const stop = () => {
+    clearInterval(timer);
+    p.trailer.stop();
+  };
+  return { el: p.el, spotlight: spotlight(p, enrich), stop };
 }
 
 // Previous, a dot per pick, next, and Pause (left out when motion is turned down, since the
@@ -143,6 +151,9 @@ function draw(p, item) {
   p.info.setAttribute("aria-label", `More info: ${item.title}`);
   p.list.show(item);
   aimPlay(p, item);
+  // A pick's trailer, after a few seconds on it; a tile's title shown here plays none.
+  if (p.picks.includes(item)) p.trailer.show(item);
+  else p.trailer.stop();
 }
 
 // Play, once what it does is known; gone when there's nothing to play.

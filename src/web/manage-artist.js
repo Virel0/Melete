@@ -11,6 +11,7 @@ import { KINDS, monitorSwitch, profilesFor, stateOf } from "/web/manage-parts.js
 import { searchAndChoose, searchAndGrab } from "/web/manage-search.js";
 import { historyPart } from "/web/manage-history.js";
 import { searchEveryAlbum } from "/web/wanted-music.js";
+import { wantPanel } from "/web/manage-want.js";
 import { art } from "/web/cards.js";
 
 const NEW = [
@@ -45,7 +46,7 @@ export async function artistPage(ctx) {
   const [albums, here, profiles, loads] = await Promise.all([
     t.wanted ? api(`/wanted/artists/${t.wanted_id}/albums`) : [],
     t.artist_id ? api(`/music/artists/${t.artist_id}`).catch(() => null) : null,
-    t.wanted ? profilesFor(kind).catch(() => []) : [],
+    profilesFor(kind).catch(() => []),
     t.wanted ? api("/downloads") : [],
   ]);
   if (!ctx.current()) return [];
@@ -81,7 +82,17 @@ function header(v) {
         { class: "manage-head-facts" },
         h("div", { class: "title-line" }, h("h1", {}, t.title), monitor),
         h("p", { class: "title-state" }, stateOf(t)),
-        t.wanted ? null : h("p", { class: "note" }, "Not on the wanted list, so Melete doesn't look for their albums. Add them under Add new."),
+        t.wanted
+          ? null
+          : wantPanel(ctx, {
+              note: "Not on the wanted list, so Melete doesn't look for their albums. Monitoring wants every studio album MusicBrainz lists for them, and follows their new ones.",
+              request: t.mb_artist_id ? { kind: "artist", mb_artist_id: t.mb_artist_id } : null,
+              why: "Their files don't say which MusicBrainz artist they are, so they can't be wanted yet.",
+              library: t.library,
+              profiles: v.profiles,
+              music: true,
+              opened: (r) => `#/admin/music/artist/${r.wanted_id}`,
+            }),
         h("dl", { class: "kv" }, facts.map(([k, val]) => [h("dt", {}, k), h("dd", {}, val)])),
         toolbar(v, panel, said),
         said,

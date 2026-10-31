@@ -54,7 +54,7 @@ pub(super) fn lyrics_matching_and_aoide(
         .merge(aoide_next::routes(pool.clone()))
 }
 
-/// Titles' artwork, media and the Watch home, importing from the arrs, releases, quality
+/// Titles' artwork and media, importing from the arrs, releases, quality
 /// profiles, indexers, searching, and songs.
 pub(super) fn title_routes(
     router: Router,
@@ -67,7 +67,6 @@ pub(super) fn title_routes(
 ) -> Router {
     router
         .merge(title_artwork::routes_from(artwork.clone()))
-        .merge(watch_home::routes(pool.clone(), artwork.clone()))
         .merge(media::routes_with(
             pool.clone(),
             artwork_dir,
@@ -98,6 +97,7 @@ pub(super) fn account_routes(
     router
         .merge(progress::routes(pool.clone()))
         .merge(languages::routes(pool.clone()))
+        .merge(preferences::routes(pool.clone()))
         .merge(favourites::routes(pool.clone()))
         .merge(access::routes(pool.clone()))
         .merge(playlists::routes(pool.clone()))
@@ -124,6 +124,11 @@ pub(super) fn wanting_routes(
 ) -> Router {
     router
         .merge(wanted_removed::routes(
+            pool.clone(),
+            tmdb.clone(),
+            musicbrainz.clone(),
+        ))
+        .merge(manage::selection_routes(
             pool.clone(),
             tmdb.clone(),
             musicbrainz.clone(),
