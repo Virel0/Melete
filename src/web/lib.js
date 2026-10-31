@@ -12,13 +12,15 @@ export class SignedOut extends Error {}
 // (`/aoide/…`), which sit beside it.
 export async function api(path, { method = "GET", body, keepalive = false, signal } = {}) {
   const headers = { "X-Melete-Web": "1" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A file (a Blob) goes as it is, with its own type; anything else as JSON.
+  const file = body instanceof Blob;
+  if (body !== undefined) headers["Content-Type"] = file ? body.type : "application/json";
   let response;
   try {
     response = await fetch(path.startsWith("/aoide/") ? path : `/api/v1${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined || file ? body : JSON.stringify(body),
       credentials: "same-origin",
       keepalive,
       signal,

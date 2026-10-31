@@ -2,9 +2,12 @@
 //! tracks, each written into the sync log as an Aoide device of the user's would write it, as
 //! the session the request came with. Answers with the playlist as `GET` gives it after.
 
+use axum::body::Bytes;
+use axum::http::HeaderMap;
 use serde::{Deserialize, Deserializer};
 
 use super::*;
+use crate::aoide::library;
 use crate::aoide::playlist_edits::{self, EditError, Editor};
 use crate::aoide::writing::session_device;
 use crate::db::now_ms;
@@ -127,6 +130,63 @@ pub(super) async fn update(
     )
     .await
     .map_err(failed)?;
+    Ok(Json(
+        detail(&pool, &current.access, current.user.id, &id).await?,
+    ))
+}
+
+/// Whether the bytes start as an image of that type does.
+fn looks_like(mime: &str, bytes: &[u8]) -> bool {
+    match mime {
+        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        _ => false,
+    }
+}
+
+/// Sets the playlist's picture: the image is stored as the devices store theirs, under the
+/// SHA-256 of its bytes, then named in the playlist.
+pub(super) async fn set_image(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let mime = super::super::aoide_library::image_type(&headers, &body)?;
+    if !looks_like(&mime, &body) {
+        return Err(super::super::bad_request(
+            "the file isn't the JPEG, PNG or WebP image its Content-Type says",
+        ));
+    }
+    let device = session_device(current.token_id);
+    let editor = editor(&current, &device);
+    playlist_edits::editable(&pool, &editor, &id)
+        .await
+        .map_err(failed)?;
+    let hash = library::sha256_hex(&body);
+    library::store_image(&pool, current.user.id, &hash, &mime, &body, editor.now).await?;
+    playlist_edits::set_image(&pool, &editor, &id, Some(&hash))
+        .await
+        .map_err(failed)?;
+    Ok(Json(
+        detail(&pool, &current.access, current.user.id, &id).await?,
+    ))
+}
+
+/// Clears the playlist's picture; the image stays stored, as unnamed artwork does until it's
+/// reclaimed.
+pub(super) async fn remove_image(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let device = session_device(current.token_id);
+    let editor = editor(&current, &device);
+    playlist_edits::set_image(&pool, &editor, &id, None)
+        .await
+        .map_err(failed)?;
     Ok(Json(
         detail(&pool, &current.access, current.user.id, &id).await?,
     ))

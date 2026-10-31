@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 336);
+        assert_eq!(checked, 338);
     }
 
     /// The response's fields are exactly the schema's.

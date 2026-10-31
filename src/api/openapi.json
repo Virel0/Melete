@@ -6770,6 +6770,94 @@
         }
       }
     },
+    "/api/v1/playlists/{id}/image": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set a playlist's picture",
+        "description": "The body is the image itself: JPEG, PNG or WebP, up to 5 MB, its bytes starting as that type's do. It's stored as the Aoide devices store artwork, under the SHA-256 of its bytes (so `image_url` is `/aoide/images/{hash}`), then named in the playlist (`imageHash`), written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, show it after their next pull. Only the playlist's owner edits it here, and a smart playlist is edited on the devices.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+            "image/png": {"schema": {"type": "string", "format": "binary"}},
+            "image/webp": {"schema": {"type": "string", "format": "binary"}}
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The playlist as it is now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistDetail"}}}
+          },
+          "400": {
+            "description": "Not JPEG, PNG or WebP, empty, or bytes that aren't the type they're sent as",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, a deleted one, or one that's neither yours nor shared with you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "A smart playlist, edited on the devices",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "413": {
+            "description": "Over 5 MB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Remove a playlist's picture",
+        "description": "Clears `imageHash`, written into your Aoide sync log as a device would clear it. The image itself stays stored, as artwork no playlist names does until it's reclaimed (`/aoide/images/orphans/reclaim`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The playlist as it is now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistDetail"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, a deleted one, or one that's neither yours nor shared with you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "A smart playlist, edited on the devices",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/playlists/{id}/items": {
       "post": {
         "tags": ["Music"],

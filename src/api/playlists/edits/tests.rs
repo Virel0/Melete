@@ -565,3 +565,106 @@ async fn bad_requests_are_refused_before_anything_is_written() {
         .unwrap();
     assert_eq!(count, 3, "the playlist and two changes to its notes");
 }
+
+/// A PNG's signature and a few bytes: enough for the type check.
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really the rest of a picture";
+
+/// Sends `body` as an upload of type `mime`.
+async fn upload(
+    f: &Fixture,
+    token: &str,
+    uri: &str,
+    mime: &str,
+    body: Vec<u8>,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, mime)
+        .body(Body::from(body))
+        .unwrap();
+    let response = f.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+async fn images_held(f: &Fixture) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM aoide_images")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_picture_set_on_the_web_reaches_the_device() {
+    let mut d = made_on_the_web().await;
+    d.sync().await;
+    let uri = format!("/api/v1/playlists/{}/image", d.id);
+    let (status, body) = upload(&d.f, &d.web, &uri, "image/png", PNG.to_vec()).await;
+    let hash = crate::aoide::library::sha256_hex(PNG);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["image_url"], format!("/aoide/images/{hash}"));
+    let alice: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'alice'")
+        .fetch_one(&d.f.pool)
+        .await
+        .unwrap();
+    let held = crate::aoide::library::image_seen_by(&d.f.pool, alice, &hash)
+        .await
+        .unwrap();
+    assert_eq!(held, Some((PNG.to_vec(), "image/png".to_owned())));
+
+    // The phone gets the picture as a device's change, its own field stamped.
+    let new = d.sync().await;
+    assert_eq!(new.len(), 1);
+    let row = &new[0]["payload"];
+    assert_eq!(row["imageHash"], hash.as_str());
+    assert_eq!(row["fieldUpdatedAt"]["imageHash"], row["updatedAt"]);
+    assert_eq!(row["name"], "Late Night", "the rest of the row as it was");
+    assert_eq!(on_device(&d.seen).0[&d.id]["imageHash"], hash.as_str());
+
+    // The same picture again changes nothing.
+    upload(&d.f, &d.web, &uri, "image/png", PNG.to_vec()).await;
+    assert!(d.sync().await.is_empty());
+
+    let (status, body) = d.web("DELETE", &uri, None).await;
+    assert_eq!((status, &body["image_url"]), (StatusCode::OK, &Value::Null));
+    d.sync().await;
+    assert!(on_device(&d.seen).0[&d.id].get("imageHash").is_none());
+}
+
+#[tokio::test]
+async fn a_picture_is_refused_before_anything_is_stored() {
+    let d = made_on_the_web().await;
+    let uri = format!("/api/v1/playlists/{}/image", d.id);
+    let refused = [
+        ("image/gif", PNG.to_vec(), StatusCode::BAD_REQUEST),
+        ("image/png", Vec::new(), StatusCode::BAD_REQUEST),
+        ("image/jpeg", PNG.to_vec(), StatusCode::BAD_REQUEST),
+        ("image/webp", b"<html>".to_vec(), StatusCode::BAD_REQUEST),
+        (
+            "image/png",
+            [PNG, &vec![0; crate::aoide::library::MAX_IMAGE_BYTES]].concat(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ];
+    for (mime, body, expected) in refused {
+        let (status, said) = upload(&d.f, &d.web, &uri, mime, body).await;
+        assert_eq!(status, expected, "{mime}: {said}");
+    }
+    // Someone else's playlist: no such playlist for them, and nothing stored.
+    let bob = session(&d.f, "bob").await;
+    let (status, _) = upload(&d.f, &bob, &uri, "image/png", PNG.to_vec()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call(&d.f, &bob, "DELETE", &uri, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(images_held(&d.f).await, 0);
+    let (_, still) = d
+        .web("GET", &format!("/api/v1/playlists/{}", d.id), None)
+        .await;
+    assert_eq!(still["image_url"], Value::Null);
+}
