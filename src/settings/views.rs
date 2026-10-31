@@ -44,10 +44,53 @@ pub struct ServiceView {
     pub about: &'static str,
     /// Whether it's in use as things stand.
     pub on: bool,
+    /// Whether its Test tries to reach something; a setting of Melete's own has nothing to
+    /// connect to.
+    pub testable: bool,
+    /// The component beside Melete it needs, if any, and whether it's set up.
+    pub component: Option<Component>,
+    /// The service it only works with, by key, when there's one: it's shown under that one, and
+    /// stays off while that one is.
+    pub needs: Option<&'static str>,
     /// Its settings, in the order they're shown.
     pub fields: Vec<FieldView>,
 }
 
+/// A component beside Melete that a setting needs, such as Auto DJ the stem separator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Component {
+    /// What it is, as a sentence names it: "stem separator".
+    pub name: &'static str,
+    /// Whether Melete is set up to reach it (its folders are set). Whether it's running
+    /// shows only when it's given work.
+    pub set_up: bool,
+}
+
+/// The component beside Melete that service `key` needs, as `config` sets it up.
+fn component(config: &Config, key: &str) -> Option<Component> {
+    match key {
+        "auto_dj" => Some(Component {
+            name: "stem separator",
+            set_up: config.stems.is_some(),
+        }),
+        "motion_covers" => Some(Component {
+            name: "motion cover renderer",
+            set_up: config.motion_jobs.is_some(),
+        }),
+        _ => None,
+    }
+}
+
+/// The service a feature only works with, by key: trending and similar titles and trailers
+/// online ask TMDB for what they show.
+pub fn needs(key: &str) -> Option<&'static str> {
+    match key {
+        "discovery" | "trailers" => Some("tmdb"),
+        _ => None,
+    }
+}
+
+/// Whether a service is in use, leaving aside the one it needs.
 pub(super) fn on(config: &Config, key: &str) -> bool {
     match key {
         "tmdb" => config.tmdb_token.is_some(),
@@ -70,8 +113,8 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "offline_copies" => config.offline_copies,
         // Whole scans always run, on their schedule.
         "scans" => true,
-        "discovery" => config.discovery && config.tmdb_token.is_some(),
-        "trailers" => config.trailers_online && config.tmdb_token.is_some(),
+        "discovery" => config.discovery,
+        "trailers" => config.trailers_online,
         "oidc" => config.oidc.is_some(),
         "openrouter" => config.openrouter.is_some(),
         "opensubtitles" => config.opensubtitles.is_some(),
@@ -91,7 +134,10 @@ pub fn views(
             key: service.key,
             name: service.name,
             about: service.about,
-            on: on(config, service.key),
+            on: on(config, service.key) && needs(service.key).is_none_or(|n| on(config, n)),
+            testable: crate::service_check::connects(service.key),
+            component: component(config, service.key),
+            needs: needs(service.key),
             fields: service
                 .fields
                 .iter()
@@ -117,4 +163,50 @@ pub fn views(
                 .collect(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The views with these settings in the environment and nothing stored.
+    fn with(pairs: &'static [(&'static str, &'static str)]) -> Vec<ServiceView> {
+        let env = move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        };
+        let config = Config::from_env_and(env).unwrap();
+        views(&config, &HashMap::new(), &env)
+    }
+
+    /// What a service needs, and whether it's on.
+    fn of(views: &[ServiceView], key: &str) -> (Option<&'static str>, bool) {
+        let view = views.iter().find(|s| s.key == key).unwrap();
+        (view.needs, view.on)
+    }
+
+    #[test]
+    fn what_needs_tmdb_says_so_and_is_off_without_its_token() {
+        let without = with(&[("MELETE_DISCOVERY", "on"), ("MELETE_TRAILERS_ONLINE", "on")]);
+        assert_eq!(of(&without, "discovery"), (Some("tmdb"), false));
+        assert_eq!(of(&without, "trailers"), (Some("tmdb"), false));
+        assert_eq!(of(&without, "tmdb"), (None, false));
+        assert_eq!(of(&without, "musicbrainz").0, None);
+
+        let token = with(&[
+            ("MELETE_DISCOVERY", "on"),
+            ("MELETE_TRAILERS_ONLINE", "on"),
+            ("MELETE_TMDB_TOKEN", "token"),
+        ]);
+        assert_eq!(of(&token, "discovery"), (Some("tmdb"), true));
+        assert_eq!(of(&token, "trailers"), (Some("tmdb"), true));
+        // Each service needed is one there is, and needs nothing itself.
+        for view in &token {
+            if let Some(needed) = view.needs {
+                assert_eq!(of(&token, needed).0, None, "{}", view.key);
+            }
+        }
+    }
 }

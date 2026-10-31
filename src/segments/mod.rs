@@ -28,6 +28,7 @@ use anyhow::Context;
 use sqlx::SqlitePool;
 
 use crate::db::unix_now;
+use crate::jobs::pace::Pace;
 use fingerprint::{frames, seconds, shared};
 
 /// Episodes shorter than this aren't looked at.
@@ -151,28 +152,35 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Re
             _ => seasons.push(vec![row]),
         }
     }
-    let mut report = Report::default();
-    for season in seasons {
+    seasons.retain(|season| {
         let pending = season.iter().any(|r| !r.current);
         let mut numbers: Vec<i64> = season.iter().map(|r| r.episode).collect();
         numbers.dedup();
-        if pending && numbers.len() >= 2 {
-            look_through(pool, ffmpeg, &season, &mut report).await?;
-        }
+        pending && numbers.len() >= 2
+    });
+    let total = seasons.iter().flatten().filter(|r| !r.current).count();
+    let pace = Pace::start("segments", "looking for intros and credits", total);
+    let mut report = Report::default();
+    for season in seasons {
+        look_through(pool, ffmpeg, &season, &mut report, &pace).await?;
     }
+    pace.finish();
     Ok(report)
 }
 
-/// Looks at a season's pending episodes, each against its nearest others.
+/// Looks at a season's pending episodes, each against its nearest others, each counted in
+/// `pace`.
 async fn look_through(
     pool: &SqlitePool,
     ffmpeg: &Path,
     season: &[Row],
     report: &mut Report,
+    pace: &Pace,
 ) -> anyhow::Result<()> {
     let mut prints: HashMap<i64, Decoded> = HashMap::new();
     let mut fresh: Vec<i64> = season.iter().filter(|r| r.current).map(|r| r.id).collect();
     for row in season.iter().filter(|r| !r.current) {
+        let item = pace.item();
         if let Entry::Vacant(entry) = prints.entry(row.id) {
             entry.insert(decode(ffmpeg, row).await);
         }
@@ -186,6 +194,7 @@ async fn look_through(
                 );
                 record(pool, row, Some(why), None, None).await?;
                 report.failed += 1;
+                item.failed();
                 continue;
             }
             Decoded::Later => continue,
