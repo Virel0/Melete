@@ -17,7 +17,8 @@ pub struct Copying {
 
 impl Copying {
     /// What the transfer wrote of a download (`copied`, `copy_total`, `copy_rate`), while it's
-    /// being copied home (`transferring`, and not yet tagging an album); None otherwise.
+    /// being copied home (`transferring`, not yet tagging an album, and not yet checked
+    /// against its title); None otherwise.
     pub fn of(
         state: &str,
         message: Option<&str>,
@@ -25,6 +26,10 @@ impl Copying {
     ) -> Option<Copying> {
         use crate::progress::{Step, download_step};
         if state != "transferring" || download_step(state, message) != Step::Transferring {
+            return None;
+        }
+        // Copied already, and being checked before anything is placed.
+        if message == Some(crate::transfer::CHECKING) {
             return None;
         }
         let (Some(bytes), Some(total), rate) = written else {
@@ -43,6 +48,16 @@ impl Copying {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn not_shown_while_the_copied_files_are_checked() {
+        let written = (Some(4_000), Some(4_000), Some(1_000));
+        assert_eq!(
+            Copying::of("transferring", Some(crate::transfer::CHECKING), written),
+            None
+        );
+        assert!(Copying::of("transferring", Some("copying 1 of 1: a.mkv"), written).is_some());
+    }
 
     #[test]
     fn shown_only_while_copying_home_with_the_time_left_rounded_up() {
