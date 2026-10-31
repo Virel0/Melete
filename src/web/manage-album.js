@@ -5,7 +5,8 @@
 
 import { SignedOut, api, clock, h, plural } from "/web/lib.js";
 import { emptyState, failed, stateLabel } from "/web/page-parts.js";
-import { monitorSwitch } from "/web/manage-parts.js";
+import { KINDS, monitorSwitch, profilesFor } from "/web/manage-parts.js";
+import { wantPanel } from "/web/manage-want.js";
 import { searchAndChoose, searchAndGrab } from "/web/manage-search.js";
 import { eventRow } from "/web/manage-history.js";
 import { albumState } from "/web/manage-artist.js";
@@ -30,11 +31,12 @@ export async function albumPage(ctx) {
   const { wanted, artist, downloads } = asked ? await loadWanted(ctx.id, artistId) : { wanted: null, artist: null, downloads: [] };
   const albumId = folder ?? wanted?.album_id;
   const here = albumId ? await api(`/music/albums/${albumId}`).catch((err) => (err.status === 404 ? null : Promise.reject(err))) : null;
+  const profiles = here && !wanted ? await profilesFor(KINDS.music).catch(() => []) : [];
   if (!ctx.current()) return [];
   if (!wanted && !here) return [h("h1", {}, "Not found"), emptyState("Music has no such album. It may have been taken off the list.", { href: "#/admin/music/library", label: "Go to Music" })];
   const title = wanted?.title ?? here.title;
   ctx.setTitle(title);
-  const v = { ctx, wanted, artist, here, downloads, t: artist ?? { monitored: true } };
+  const v = { ctx, wanted, artist, here, downloads, profiles, t: artist ?? { monitored: true } };
   return [header(v, title), tracksPart(v), wanted && artist ? albumHistory(v, title) : null];
 }
 
@@ -80,6 +82,7 @@ function header(v, title) {
         ),
         by ? h("p", { class: "by-line" }, "by ", by) : null,
         h("p", { class: "title-state" }, stateLabel(mark, words)),
+        wanted ? null : want(v),
         h("dl", { class: "kv" }, facts.map(([k, val]) => [h("dt", {}, k), h("dd", {}, val)])),
         actions,
         said,
@@ -87,6 +90,25 @@ function header(v, title) {
     ),
     results,
   ];
+}
+
+// Not wanted: Monitor wants it, with its artist (who isn't followed for anything else), and
+// opens its wanted page under that artist.
+function want(v) {
+  const { ctx, here } = v;
+  return wantPanel(ctx, {
+    note: "Not on the wanted list. Monitoring it puts it there, with its artist.",
+    request: here.mb_release_group_id ? { kind: "album", mb_release_group_id: here.mb_release_group_id } : null,
+    why: "Its files don't say which MusicBrainz album it is, so it can't be wanted yet: fix its match first.",
+    library: here.library,
+    profiles: v.profiles,
+    music: true,
+    opened: async (r) => {
+      const rows = await api(`/manage/artists?${new URLSearchParams({ folder: here.artist_id, limit: 1 })}`);
+      const artist = rows.items[0]?.wanted_id;
+      return artist ? `#/admin/music/album/${r.wanted_id}?artist=${artist}` : null;
+    },
+  });
 }
 
 // Its tracks, disc by disc, each with its length and format.

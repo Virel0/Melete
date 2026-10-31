@@ -143,8 +143,8 @@ impl Client {
             .map_err(failed)?;
         let started: SearchState = match response.status() {
             status if status.is_success() => read(response).await?,
-            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
-                anyhow::bail!("slskd refused the API key ({})", response.status())
+            status @ (reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN) => {
+                return Err(turned_down(status, "search"));
             }
             reqwest::StatusCode::TOO_MANY_REQUESTS => {
                 anyhow::bail!("slskd is busy with another search; try again shortly")
@@ -285,34 +285,36 @@ pub fn new_batch_id() -> anyhow::Result<String> {
 }
 
 impl Client {
-    /// Whether slskd is signed in to the Soulseek network, as it says.
-    pub async fn signed_in(&self) -> anyhow::Result<bool> {
+    /// How slskd says it is, from its application state: the route that tells whether it's
+    /// signed in to Soulseek and that a key with the ReadWrite role may read (`/server` needs
+    /// an administrator's key).
+    pub async fn status(&self) -> anyhow::Result<Status> {
         let response = self
-            .request(reqwest::Method::GET, "/server")
+            .request(reqwest::Method::GET, "/application")
             .send()
             .await
             .map_err(failed)?;
-        anyhow::ensure!(
-            response.status().is_success(),
-            "slskd answered {}",
-            response.status()
-        );
+        if !response.status().is_success() {
+            return Err(turned_down(response.status(), "read how it is"));
+        }
         let state: serde_json::Value = read(response).await?;
-        Ok(state["isLoggedIn"] == true)
+        Ok(Status {
+            version: state["version"]["current"].as_str().map(str::to_owned),
+            signed_in: state["server"]["isLoggedIn"] == true,
+        })
     }
 
-    /// Fails unless slskd shares nothing: nothing is ever shared from this server.
+    /// Fails unless slskd shares nothing: nothing is ever shared from this server. Its list of
+    /// shares is readable with a ReadWrite key.
     pub async fn ensure_not_sharing(&self) -> anyhow::Result<()> {
         let response = self
             .request(reqwest::Method::GET, "/shares")
             .send()
             .await
             .map_err(failed)?;
-        anyhow::ensure!(
-            response.status().is_success(),
-            "slskd answered {} when asked what it shares",
-            response.status()
-        );
+        if !response.status().is_success() {
+            return Err(turned_down(response.status(), "read what it shares"));
+        }
         // Each host's shares: {"local": [...]}.
         let hosts: std::collections::HashMap<String, Vec<serde_json::Value>> =
             read(response).await?;
@@ -429,6 +431,42 @@ impl Client {
     }
 }
 
+/// What slskd says of itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Status {
+    /// Its version, e.g. "0.26.2", when it says.
+    pub version: Option<String>,
+    /// Whether it's signed in to the Soulseek network.
+    pub signed_in: bool,
+}
+
+/// slskd answered but turned the key away: one it doesn't know, or one whose role is too low.
+/// Says which, and the role the key needs.
+#[derive(Debug)]
+pub struct TurnedDown(String);
+
+impl std::fmt::Display for TurnedDown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for TurnedDown {}
+
+/// Why slskd didn't do what Melete asked (`asked`), in words an admin can act on.
+fn turned_down(status: reqwest::StatusCode, asked: &str) -> anyhow::Error {
+    match status {
+        reqwest::StatusCode::UNAUTHORIZED => {
+            TurnedDown(format!("slskd refused the API key ({status})")).into()
+        }
+        reqwest::StatusCode::FORBIDDEN => TurnedDown(format!(
+            "slskd won't let this key {asked} ({status}); Melete's key needs slskd's ReadWrite role"
+        ))
+        .into(),
+        status => anyhow::anyhow!("slskd answered {status} when asked to {asked}"),
+    }
+}
+
 /// A request that didn't get an answer, without its URL.
 fn failed(err: reqwest::Error) -> anyhow::Error {
     anyhow::anyhow!("slskd: {}", err.without_url())
@@ -474,6 +512,10 @@ pub mod testing {
         pub shared: usize,
         /// Whether it says it isn't signed in to Soulseek.
         pub signed_out: bool,
+        /// Whether it turns the key away from every route, as from a key whose role is too low.
+        pub forbidden: bool,
+        /// Times an administrator's route was asked for.
+        pub admin_asked: usize,
         /// Its address.
         pub base: String,
         /// Enqueue requests' bodies, as sent.
@@ -497,6 +539,27 @@ pub mod testing {
 
     fn authorized(headers: &HeaderMap) -> bool {
         headers.get("x-api-key").and_then(|v| v.to_str().ok()) == Some(KEY)
+    }
+
+    /// As slskd answers a route any role may read: 401 to a key it doesn't know, 403 when the
+    /// key's role is set too low for everything.
+    fn allowed(headers: &HeaderMap, seen: &Seen) -> Result<(), StatusCode> {
+        match (authorized(headers), seen.forbidden) {
+            (false, _) => Err(StatusCode::UNAUTHORIZED),
+            (true, true) => Err(StatusCode::FORBIDDEN),
+            (true, false) => Ok(()),
+        }
+    }
+
+    /// As slskd answers an administrator's route to a ReadWrite key.
+    async fn admin_only(State(fake): State<Fake>, headers: HeaderMap) -> StatusCode {
+        let mut seen = fake.seen.lock().unwrap();
+        seen.admin_asked += 1;
+        if authorized(&headers) {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::UNAUTHORIZED
+        }
     }
 
     /// A fake slskd whose searches finish after `polls` looks and answer with `responses`.
@@ -580,29 +643,40 @@ pub mod testing {
                     },
                 ),
             )
+            // An administrator's routes, which the ReadWrite key Melete is given can't read.
+            .route("/api/v0/server", get(admin_only))
+            .route("/api/v0/options", get(admin_only))
             .route(
-                "/api/v0/server",
+                "/api/v0/application",
                 get(|State(fake): State<Fake>, headers: HeaderMap| async move {
-                    if !authorized(&headers) {
-                        return StatusCode::UNAUTHORIZED.into_response();
+                    let seen = fake.seen.lock().unwrap();
+                    if let Err(status) = allowed(&headers, &seen) {
+                        return status.into_response();
                     }
-                    let signed_in = !fake.seen.lock().unwrap().signed_out;
+                    let signed_in = !seen.signed_out;
                     axum::Json(serde_json::json!({
-                        "isConnected": signed_in, "isLoggedIn": signed_in,
-                        "state": if signed_in { "Connected, LoggedIn" } else { "Disconnected" },
+                        "version": {"full": "0.26.2.0", "current": "0.26.2"},
+                        "server": {
+                            "isConnected": signed_in, "isLoggedIn": signed_in,
+                            "state": if signed_in { "Connected, LoggedIn" } else { "Disconnected" },
+                        },
+                        "shares": {"directories": seen.shared, "files": seen.shared * 10},
                     }))
                     .into_response()
                 }),
             )
             .route(
                 "/api/v0/shares",
-                get(|State(fake): State<Fake>| async move {
+                get(|State(fake): State<Fake>, headers: HeaderMap| async move {
                     let mut seen = fake.seen.lock().unwrap();
+                    if let Err(status) = allowed(&headers, &seen) {
+                        return status.into_response();
+                    }
                     seen.shares_asked += 1;
                     let shares: Vec<serde_json::Value> = (0..seen.shared)
                         .map(|n| serde_json::json!({"id": format!("share{n}")}))
                         .collect();
-                    axum::Json(serde_json::json!({ "local": shares }))
+                    axum::Json(serde_json::json!({ "local": shares })).into_response()
                 }),
             )
             .route(
@@ -756,6 +830,40 @@ mod tests {
                 .iter()
                 .any(|r| r.starts_with("DELETE"))
         );
+    }
+
+    /// slskd's administrator routes turn a ReadWrite key away; nothing Melete asks needs them.
+    /// A key whose role is too low is told apart from a wrong one, and nothing goes ahead.
+    #[tokio::test]
+    async fn a_read_write_key_is_enough_and_a_lower_role_is_named() {
+        let (client, seen) = testing::start(answer(), 1).await;
+        let status = client.status().await.unwrap();
+        assert_eq!(
+            status,
+            Status {
+                version: Some("0.26.2".into()),
+                signed_in: true
+            }
+        );
+        client.ensure_not_sharing().await.unwrap();
+        client.search("Radiohead OK Computer").await.unwrap();
+        assert_eq!(seen.lock().unwrap().admin_asked, 0);
+
+        seen.lock().unwrap().forbidden = true;
+        let refused = [
+            client.status().await.unwrap_err(),
+            client.ensure_not_sharing().await.unwrap_err(),
+            client.search("Radiohead OK Computer").await.unwrap_err(),
+        ];
+        for err in refused {
+            assert!(err.is::<TurnedDown>(), "{err}");
+            assert!(
+                err.to_string()
+                    .ends_with("(403 Forbidden); Melete's key needs slskd's ReadWrite role"),
+                "{err}"
+            );
+        }
+        assert_eq!(seen.lock().unwrap().texts, ["Radiohead OK Computer"]);
     }
 
     #[tokio::test]

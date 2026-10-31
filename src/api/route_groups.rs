@@ -129,6 +129,11 @@ pub(super) fn wanting_routes(
             tmdb.clone(),
             musicbrainz.clone(),
         ))
+        .merge(manage::selection_routes(
+            pool.clone(),
+            tmdb.clone(),
+            musicbrainz.clone(),
+        ))
         .merge(requests::routes(
             pool.clone(),
             musicbrainz,
