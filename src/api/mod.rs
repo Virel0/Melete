@@ -140,6 +140,8 @@ pub struct Kept {
     pub oidc: Arc<crate::oidc::Pending>,
     /// Each user's AI searches in the last hour.
     pub ai_searches: Arc<ai::Searches>,
+    /// What AI picks may spend: each user's calls in the last hour, and those running.
+    pub ai_budget: Arc<crate::ai::Budget>,
 }
 
 /// Every route the server answers, keeping nothing from an API built before.
@@ -216,6 +218,11 @@ pub fn server_with(
     let router = music_routes(router, &pool, data_dir, &artwork_dir, coverart, converter);
     let router =
         lyrics_matching_and_aoide(router, &pool, data_dir, lyrics, translator, &musicbrainz);
+    let router = router.merge(watch_home::routes_with_ai(
+        pool.clone(),
+        artwork.clone(),
+        ai_client.clone(),
+    ));
     let router = title_routes(router, &pool, artwork_dir, images, artwork, &tmdb, &slskd);
     let router = account_routes(router, &pool, kept, oidc_client, limiter, ai_client)
         .merge(stems::routes(pool.clone()))

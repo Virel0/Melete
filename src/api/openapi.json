@@ -2411,7 +2411,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `because_you_watched` (one row for each of the 3 titles you finished most recently, newest first, an episode counting as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, and the decade; a title has to share a collection, a genre or a person. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `featured_for_you` (your AI picks while AI picks are on, as `/ai/picks` gives them, never waited for), `because_you_watched` (one row for each of the 3 titles you finished most recently, newest first, an episode counting as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, and the decade; a title has to share a collection, a genre or a person. With AI picks on, a row holds the AI's titles like it (as `/movies/{id}/similar` gives them) once they're made. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
         "responses": {
           "200": {
             "description": "OK",
@@ -10352,6 +10352,64 @@
         }
       }
     },
+    "/api/v1/ai/picks": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Featured for you",
+        "description": "Up to 12 titles from the library chosen for you by the AI from what you've watched, with a reason each, while an admin has AI picks on (Settings → Outside services → AI features; off by default). What's sent to OpenRouter: the titles you finished or are watching recently (about 15, an episode counting as its series), each with its year and up to three genres, and up to 60 candidate titles from the library that you may see and haven't watched, each by an opaque id with its title, year, up to three genres and a premise of about 12 words. Never a name, an account, a file path or anything else about the household. Your picks are kept and served at once; new ones are made in the background when what you watched changes or they're a day old, at most every 10 minutes, and take the old ones' place only once they're made. Each AI call started for you counts against 30 an hour (as AI search does, retries included) and the server runs at most 2 at once; past either, with none made yet, `status` says so. A title you've watched since, or may no longer see, is left out. When they're off, not set up, not made yet or failing, `picks` is empty and `status` and `message` say why; the Watch home's `featured_for_you` row has the same picks.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiPicks"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/movies/{id}/similar": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Titles like a movie",
+        "description": "Up to 12 titles in the library like this one that you may see and haven't watched, most alike first: with AI picks on (Settings, off by default), the AI's (`source` `ai`, each with its reason), made once for everyone who sees the same titles, kept a week and made in the background, so until they are, and with AI picks off, Melete's own likeness (`source` `library`, as the home's \"because you watched\" rows work it out, without reasons). Only titles you may see were sent to the AI as candidates for you. Each AI call started for you counts against 30 an hour (as AI search does, retries after a failure included) and the server runs at most 2 at once; past either, or until they're made, this is Melete's own likeness, and `status` says why.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SimilarTitles"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such title that you may see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/series/{id}/similar": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Titles like a series",
+        "description": "Up to 12 titles in the library like this one that you may see and haven't watched, most alike first: with AI picks on (Settings, off by default), the AI's (`source` `ai`, each with its reason), made once for everyone who sees the same titles, kept a week and made in the background, so until they are, and with AI picks off, Melete's own likeness (`source` `library`, as the home's \"because you watched\" rows work it out, without reasons). Only titles you may see were sent to the AI as candidates for you. Each AI call started for you counts against 30 an hour (as AI search does, retries after a failure included) and the server runs at most 2 at once; past either, or until they're made, this is Melete's own likeness, and `status` says why.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SimilarTitles"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such title that you may see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/me/favourites": {
       "get": {
         "tags": ["Browse"],
@@ -12368,6 +12426,53 @@
         },
         "additionalProperties": false
       },
+      "AiPicks": {
+        "type": "object",
+        "required": ["status", "message", "made_at", "picks"],
+        "properties": {
+          "status": {
+            "enum": ["ready", "off", "unavailable", "no_history", "working", "limited", "busy", "failed"],
+            "description": "`ready`: made (and maybe being made again). `off`: an admin hasn't turned AI picks on. `unavailable`: OpenRouter isn't set up. `no_history`: nothing watched to pick from. `working`: being made for the first time; ask again in a minute. `limited`: none made, and you've started as many AI calls as you may this hour (30, as for AI search). `busy`: none made, and the server is running as many AI calls as it may at once (2); ask again in a minute. `failed`: making them failed and there are none from before."
+          },
+          "message": {
+            "type": ["string", "null"],
+            "description": "What `status` means, in words to show; null when `ready`."
+          },
+          "made_at": {"type": ["integer", "null"], "description": "When the picks were made, in Unix seconds."},
+          "picks": {"type": "array", "items": {"$ref": "#/components/schemas/AiPick"}, "maxItems": 12}
+        },
+        "additionalProperties": false
+      },
+      "AiPick": {
+        "type": "object",
+        "required": ["kind", "id", "title", "year", "poster", "backdrop", "reason"],
+        "properties": {
+          "kind": {"enum": ["movie", "series"]},
+          "id": {"type": "integer", "description": "The movie's or series' id in the library."},
+          "title": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
+          "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280)."},
+          "reason": {
+            "type": ["string", "null"],
+            "description": "Why, in a few words, such as \"Like Heat, a tense crime thriller\"; null when the AI didn't choose it. It's text a model wrote: show it as plain text, never as markup."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SimilarTitles": {
+        "type": "object",
+        "required": ["status", "source", "items"],
+        "properties": {
+          "status": {
+            "enum": ["ai", "off", "making", "limited", "busy"],
+            "description": "Whether the AI's are here: `ai`, they are. Else these are Melete's own: `off`, AI picks are off or OpenRouter isn't set up; `making`, the AI's are being made; `limited`, you've started as many AI calls as you may this hour (30, as for AI search); `busy`, the server is running as many AI calls as it may at once (2)."
+          },
+          "source": {"enum": ["ai", "library"], "description": "Who chose them: the AI, or Melete's own likeness."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/AiPick"}, "maxItems": 12}
+        },
+        "additionalProperties": false
+      },
       "WatchHome": {
         "type": "object",
         "required": ["hero", "rows"],
@@ -12386,6 +12491,7 @@
               "continue_watching",
               "next_up",
               "favourites",
+              "featured_for_you",
               "because_you_watched",
               "latest_shows",
               "latest_anime",

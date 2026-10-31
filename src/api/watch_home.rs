@@ -28,6 +28,7 @@ use crate::access::Access;
 
 mod because;
 mod cards;
+mod picks;
 
 use cards::*;
 
@@ -43,18 +44,40 @@ struct HomeState {
     outside: because::Outside,
 }
 
-/// The Watch home route, for everyone signed in. `artwork` works out the hero's textless
-/// backdrops, logos and focal points, with TMDB when it's set up, which also recommends titles
-/// like those the user finished while trending and similar titles are on.
-pub(super) fn routes(pool: SqlitePool, artwork: ArtworkState) -> Router {
+/// The Watch home, AI picks and titles like one, for everyone signed in. `artwork` works out
+/// the hero's textless backdrops, logos and focal points, with TMDB when it's set up, which
+/// also recommends titles like those the user finished while trending and similar titles are
+/// on; `ai` makes AI picks while they're on.
+pub(super) fn routes_with_ai(
+    pool: SqlitePool,
+    artwork: ArtworkState,
+    ai: Option<Arc<crate::ai::Client>>,
+) -> Router {
     let tmdb = artwork.tmdb();
-    routes_with(pool, artwork, tmdb)
+    routes_from(pool, artwork, tmdb, ai)
 }
 
+/// The routes without OpenRouter, for tests.
+#[cfg(test)]
+fn routes(pool: SqlitePool, artwork: ArtworkState) -> Router {
+    routes_with_ai(pool, artwork, None)
+}
+
+/// The routes with TMDB but without OpenRouter, for tests.
+#[cfg(test)]
 fn routes_with(
     pool: SqlitePool,
     artwork: ArtworkState,
     tmdb: Option<Arc<crate::tmdb::Client>>,
+) -> Router {
+    routes_from(pool, artwork, tmdb, None)
+}
+
+fn routes_from(
+    pool: SqlitePool,
+    artwork: ArtworkState,
+    tmdb: Option<Arc<crate::tmdb::Client>>,
+    ai: Option<Arc<crate::ai::Client>>,
 ) -> Router {
     let auth = AppState {
         pool: pool.clone(),
@@ -63,9 +86,13 @@ fn routes_with(
     let outside = because::Outside {
         tmdb,
         recommended: Arc::default(),
+        ai,
     };
     Router::new()
         .route("/api/v1/home", get(home))
+        .route("/api/v1/ai/picks", get(picks::picks))
+        .route("/api/v1/movies/{id}/similar", get(picks::movie_like))
+        .route("/api/v1/series/{id}/similar", get(picks::series_like))
         .route_layer(middleware::from_fn_with_state(auth, require_user))
         .with_state(HomeState {
             pool,
@@ -108,6 +135,7 @@ async fn home(
     let anime = latest_series(pool, access, true).await?;
     let movies = latest_movies(pool, access).await?;
     let because = because::rows(pool, &state.outside, me, access).await?;
+    let featured = picks::featured(pool, &state.outside, me, access).await?;
 
     // The hero: what's being watched first, then the newest of everything.
     let mut newest: Vec<&(TitleRef, i64)> = shows.iter().chain(&anime).chain(&movies).collect();
@@ -133,6 +161,7 @@ async fn home(
         .iter()
         .chain(rows.iter().flat_map(|(_, entries)| entries))
         .chain(because.iter().flat_map(|(_, entries)| entries))
+        .chain(&featured)
         .map(|e| e.title)
         .chain(because.iter().map(|(seed, _)| *seed))
         .collect();
@@ -152,16 +181,17 @@ async fn home(
     let item = |e: &Entry| cards.item(e);
     Ok(Json(json!({
         "hero": hero.iter().filter_map(item).collect::<Vec<_>>(),
-        "rows": rows_json(&cards, &rows, &because),
+        "rows": rows_json(&cards, &rows, &featured, &because),
     })))
 }
 
-/// The rows as the answer gives them, the "because you watched" ones after the user's own
-/// (continue watching, next up, favourites); each left out when nothing in it is there to
-/// show, and a "because you watched" one also when its title isn't.
+/// The rows as the answer gives them, "featured for you" and the "because you watched" ones
+/// after the user's own (continue watching, next up, favourites); each left out when nothing
+/// in it is there to show, and a "because you watched" one also when its title isn't.
 fn rows_json(
     cards: &Cards,
     rows: &[(&str, Vec<Entry>)],
+    featured: &[Entry],
     because: &[(TitleRef, Vec<Entry>)],
 ) -> Vec<Value> {
     let row = |key: &str, seed: Value, entries: &[Entry]| {
@@ -181,6 +211,7 @@ fn rows_json(
     let draw = |(key, entries): &&(&str, Vec<Entry>)| row(key, Value::Null, entries);
     own.iter()
         .filter_map(draw)
+        .chain(row("featured_for_you", Value::Null, featured))
         .chain(alike())
         .chain(rest.iter().filter_map(draw))
         .collect()

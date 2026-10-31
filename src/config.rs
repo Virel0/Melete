@@ -188,6 +188,8 @@ impl Config {
         // Watching the folders: read where it's used (`settings`), as it can change while
         // running, and checked here.
         switch(&get, "MELETE_SCAN_WATCH")?;
+        // AI picks: read where they're made (`ai_picks`), as they can change while running.
+        switch(&get, "MELETE_AI_PICKS")?;
         check_ratings_country(&get)?;
         // Posters of titles not in the library: read where they're served (`settings`), checked
         // here.

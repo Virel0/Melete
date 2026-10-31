@@ -54,7 +54,7 @@ pub(super) fn lyrics_matching_and_aoide(
         .merge(aoide_next::routes(pool.clone()))
 }
 
-/// Titles' artwork, media and the Watch home, importing from the arrs, releases, quality
+/// Titles' artwork and media, importing from the arrs, releases, quality
 /// profiles, indexers, searching, and songs.
 pub(super) fn title_routes(
     router: Router,
@@ -67,7 +67,6 @@ pub(super) fn title_routes(
 ) -> Router {
     router
         .merge(title_artwork::routes_from(artwork.clone()))
-        .merge(watch_home::routes(pool.clone(), artwork.clone()))
         .merge(media::routes_with(
             pool.clone(),
             artwork_dir,

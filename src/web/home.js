@@ -1,7 +1,8 @@
 // Watch's home, from `/home` in one request: the hero stepping between picks (what you're
-// partway through, then the newest), then Continue watching, Next up, My List, "Because you
-// watched …" for what you finished most recently, and the latest shows, anime and movies. A row with nothing in it isn't there; a home with nothing at all
-// says so, with a way to ask for something.
+// partway through, then the newest), then Continue watching, Next up, My List, Featured for you
+// (AI picks, while they're on), "Because you watched …" for what you finished most recently,
+// and the latest shows, anime and movies. A row with nothing in it isn't there; a home with
+// nothing at all says so, with a way to ask for something.
 
 import { SignedOut, api, h, show } from "/web/lib.js";
 import { generation, leaving } from "/web/page-state.js";
@@ -15,6 +16,7 @@ const ROWS = {
   continue_watching: { heading: "Continue watching", wide: true },
   next_up: { heading: "Next up", wide: true },
   favourites: { heading: "My List", more: { href: "#/favourites", label: "All of My List" } },
+  featured_for_you: { heading: "Featured for you" },
   latest_shows: { heading: "Latest shows", more: { href: "#/shows", label: "All shows" } },
   latest_anime: { heading: "Latest anime", more: { href: "#/anime", label: "All anime" } },
   latest_movies: { heading: "Latest movies", more: { href: "#/movies", label: "All movies" } },
