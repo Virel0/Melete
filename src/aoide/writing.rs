@@ -198,6 +198,45 @@ pub fn content_key(artist: &str, album: &str, title: &str, seconds: Option<f64>)
     format!("{}|{}|{}|{seconds}", fold(artist), fold(album), fold(title))
 }
 
+/// How a row names an album: its id (`albumId`, Melete's album id) and the content key a
+/// device relinks it by when the id stops resolving.
+pub struct AlbumLink {
+    /// Melete's album id, as text.
+    pub album_id: String,
+    /// `artist|album`, as the apps fold it.
+    pub content_key: String,
+}
+
+/// A present album's link, made from what the music API shows of it: its artist (else
+/// "Unknown Artist") and title. None when the album isn't in the library.
+///
+/// # Errors
+///
+/// Fails when the database does.
+pub async fn album_link(pool: &SqlitePool, album_id: i64) -> sqlx::Result<Option<AlbumLink>> {
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT title, artist_name FROM music_albums WHERE id = ? AND missing_since IS NULL",
+    )
+    .bind(album_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(title, artist)| AlbumLink {
+        album_id: album_id.to_string(),
+        content_key: album_content_key(&artist, &title),
+    }))
+}
+
+/// The apps' fingerprint of an album: its artist ("Unknown Artist" when it has none) and
+/// title, folded as a track's are, joined with `|`.
+pub fn album_content_key(artist: &str, title: &str) -> String {
+    let artist = if artist.trim().is_empty() {
+        "Unknown Artist"
+    } else {
+        artist
+    };
+    format!("{}|{}", fold(artist), fold(title))
+}
+
 /// Accents and case folded away, trimmed, then one pass collapsing double spaces: the apps'
 /// order of operations.
 fn fold(text: &str) -> String {
@@ -229,6 +268,12 @@ mod tests {
             content_key(" Björk ", "Homogenic", "Jóga    x", None),
             "bjork|homogenic|joga  x|0"
         );
+    }
+
+    #[test]
+    fn album_keys_fold_as_track_keys_do() {
+        assert_eq!(album_content_key(" Björk ", "Homogénic"), "bjork|homogenic");
+        assert_eq!(album_content_key("  ", "Demos"), "unknown artist|demos");
     }
 
     #[test]

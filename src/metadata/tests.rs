@@ -1302,6 +1302,131 @@ async fn cast_crew_and_collections_come_with_library_titles() {
     assert!(fake.log.lock().unwrap().is_empty());
 }
 
+/// A download imported for a wanted title, into `destination`.
+async fn imported_into(
+    pool: &SqlitePool,
+    column: &str,
+    wanted: i64,
+    destination: &str,
+    state: &str,
+) {
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO downloads (infohash, title, {column}, decision, state, destination, added_at,
+             updated_at)
+         VALUES (lower(hex(randomblob(20))), 'Some.Release', ?, '{{}}', ?, ?, 0, 0)"
+    )))
+    .bind(wanted)
+    .bind(state)
+    .bind(destination)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Severance's folder in a shows library, wanted, with an episode imported into its season folder.
+async fn an_imported_episode(pool: &SqlitePool) {
+    let shows: i64 = sqlx::query_scalar(
+        "INSERT INTO libraries (name, kind, path) VALUES ('shows', 'shows', '/media/s') RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    insert_title(pool, "series", shows, "Severance (2022)", (None, None)).await;
+    sqlx::query(
+        "INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type, source,
+             added_at)
+         VALUES (1, 371980, 95396, 'Severance', 1, 'standard', 'manual', 0)",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    let season = "/media/s/Severance (2022)/Season 01";
+    imported_into(pool, "wanted_series_id", 1, season, "imported").await;
+}
+
+/// The matched folders of `table`, by path, with their TMDB id and how they were matched.
+async fn matched(pool: &SqlitePool, table: &str) -> Vec<(String, Option<i64>, Option<String>)> {
+    statuses(pool, table)
+        .await
+        .into_iter()
+        .filter(|(_, status, ..)| status.as_deref() == Some("matched"))
+        .map(|(rel, _, id, method)| (rel, id, method))
+        .collect()
+}
+
+#[tokio::test]
+async fn imported_titles_are_matched_to_what_they_were_grabbed_for_at_once() {
+    let pool = db::open_in_memory().await;
+    let movies = library(&pool, LibraryKind::Movies).await;
+    for rel in ["Dune (2021)", "Two Titles (2020)", "Still Copying (2019)"] {
+        insert_title(&pool, "movies", movies, rel, (None, None)).await;
+    }
+    sqlx::query(
+        "INSERT INTO wanted_movies (id, tmdb_id, title, monitored, source, added_at) VALUES
+             (1, 438631, 'Dune', 1, 'manual', 0), (2, 1, 'One', 1, 'manual', 0),
+             (3, 2, 'Two', 1, 'manual', 0), (4, 3, 'Still Copying', 1, 'manual', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (wanted, folder, state) in [
+        (1, "Dune (2021)", "imported"),
+        // Downloads for two different titles in one folder: which it is isn't sure.
+        (2, "Two Titles (2020)", "imported"),
+        (3, "Two Titles (2020)", "imported"),
+        // Not imported yet.
+        (4, "Still Copying (2019)", "transferring"),
+    ] {
+        let destination = format!("/media/x/{folder}");
+        imported_into(&pool, "wanted_movie_id", wanted, &destination, state).await;
+    }
+    an_imported_episode(&pool).await;
+
+    // TMDB answers only for the titles themselves: nothing is searched for.
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/movie/438631",
+        vec![Reply::ok(movie(438631, "Dune", "2021-09-15"))],
+    )
+    .reply(
+        "/tv/95396?append_to_response=external_ids",
+        vec![Reply::ok(json!({
+            "id": 95396, "name": "Severance", "first_air_date": "2022-02-17",
+            "seasons": [{ "season_number": 1 }],
+            "external_ids": { "imdb_id": "tt11280740", "tvdb_id": 371980 }
+        }))],
+    )
+    .reply(
+        "/tv/95396?append_to_response=season/1",
+        vec![Reply::ok(json!({ "id": 95396, "name": "Severance",
+            "season/1": { "episodes": [
+                { "id": 1, "season_number": 1, "episode_number": 1, "name": "Good News About Hell" }
+            ]}
+        }))],
+    );
+    let tmdb = fake.start().await;
+    refresh(&pool, &tmdb).await.unwrap();
+
+    assert_eq!(
+        matched(&pool, "movies").await,
+        [("Dune (2021)".into(), Some(438631), Some("import".into()))]
+    );
+    assert_eq!(
+        matched(&pool, "series").await,
+        [(
+            "Severance (2022)".into(),
+            Some(95396),
+            Some("import".into())
+        )]
+    );
+    let episode: String =
+        sqlx::query_scalar("SELECT name FROM tmdb_episodes WHERE series_tmdb_id = 95396")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(episode, "Good News About Hell", "its details came with it");
+}
+
 #[tokio::test]
 async fn a_tv_films_premiere_is_kept_with_its_release_dates() {
     let pool = db::open_in_memory().await;

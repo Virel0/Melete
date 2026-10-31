@@ -46,6 +46,8 @@ pub struct Download {
     /// A finished Soulseek download waiting to be imported: its place in line (1 is next), as
     /// songs go first, so a requested track never waits behind album work.
     pub import_position: Option<i64>,
+    /// While it's copied home: how far that has got.
+    pub copied: Option<Copying>,
 }
 
 /// A download as stored: `replaces` is JSON.
@@ -70,10 +72,18 @@ pub(super) struct DownloadRow {
     pub(super) destination: Option<String>,
     pub(super) replaces: String,
     pub(super) import_position: Option<i64>,
+    pub(super) copied: Option<i64>,
+    pub(super) copy_total: Option<i64>,
+    pub(super) copy_rate: Option<i64>,
 }
 
 impl From<DownloadRow> for Download {
     fn from(r: DownloadRow) -> Self {
+        let copied = Copying::of(
+            &r.state,
+            r.message.as_deref(),
+            (r.copied, r.copy_total, r.copy_rate),
+        );
         Download {
             id: r.id,
             source: r.source,
@@ -95,6 +105,7 @@ impl From<DownloadRow> for Download {
             // Written by the query above as an array of strings.
             replaces: serde_json::from_str(&r.replaces).unwrap_or_default(),
             import_position: r.import_position,
+            copied,
         }
     }
 }
@@ -102,6 +113,7 @@ impl From<DownloadRow> for Download {
 pub(super) const DOWNLOAD_COLUMNS: &str =
     "SELECT id, source, infohash, title, wanted_movie_id, wanted_series_id, wanted_album_id,
         wanted_song_id, season, episode, state, progress, size, message, added_at, completed_at, destination,
+        copied, copy_total, copy_rate,
         (SELECT json_group_array(json_extract(value, '$.rel_path')) FROM json_each(replaces))
             AS replaces,
         -- In the order soulseek_import takes them: songs first, then the longest finished.
