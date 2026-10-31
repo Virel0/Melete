@@ -16,11 +16,13 @@ use crate::musicbrainz::{self, Found, Release, credit_line};
 
 mod by_hand;
 mod deciding;
+mod grabbed;
 mod merged;
 mod storing;
 
 pub use by_hand::*;
 use deciding::*;
+use grabbed::*;
 use merged::*;
 use storing::*;
 
@@ -82,7 +84,7 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
     );
     for album in albums {
         let item = pace.item();
-        let outcome = match decide(mb, &album).await {
+        let outcome = match decide_album(pool, mb, &album).await? {
             Ok(outcome) => outcome,
             Err(err) => {
                 item.failed();
@@ -120,6 +122,23 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
     }
     crate::jobs::WORKS.notify_one();
     Ok(report)
+}
+
+/// An album's release: within the release group it was grabbed for when Melete imported it
+/// for a wanted album and the group has an edition that fits, else as its tags or a search say.
+async fn decide_album(
+    pool: &SqlitePool,
+    mb: &musicbrainz::Client,
+    album: &Album,
+) -> anyhow::Result<Result<Outcome, musicbrainz::Error>> {
+    if let Some(grabbed) = grabbed_for(pool, album.id).await? {
+        match decide_grabbed(mb, album, &grabbed).await {
+            Ok(Some(outcome)) => return Ok(Ok(outcome)),
+            Ok(None) => {}
+            Err(err) => return Ok(Err(err)),
+        }
+    }
+    Ok(decide(mb, album).await)
 }
 
 /// Records what matching decided for one album, and counts it.
@@ -790,6 +809,50 @@ pub(crate) mod tests {
             cached(testing::MERGED).await,
             None,
             "the merged release goes once nothing points at it"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_imported_album_is_matched_within_the_group_it_was_grabbed_for() {
+        let pool = seeded().await;
+        // Named its own way, so a search by its name finds nothing that fits.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+                 seen_generation)
+                 VALUES (5, 1, 'dir:Radiohead/OK Computer (1997)', 'OK Computer (Remastered)', 1,
+                     'Radiohead', 'Radiohead/OK Computer (1997)', 1);
+             INSERT INTO wanted_artists (id, mb_artist_id, name, monitored, monitor_new, source,
+                 added_at)
+                 VALUES (1, '{artist}', 'Radiohead', 1, 'none', 'manual', 0);
+             INSERT INTO wanted_albums (id, wanted_artist_id, mb_release_group_id, title, monitored,
+                 source, added_at)
+                 VALUES (1, 1, '{group}', 'OK Computer', 1, 'manual', 0);
+             INSERT INTO downloads (infohash, title, wanted_album_id, decision, state, destination,
+                 added_at, updated_at)
+                 VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Radiohead - OK Computer', 1,
+                     '{{}}', 'imported', '/m/Radiohead/OK Computer (1997)', 0, 0);",
+            artist = testing::RADIOHEAD,
+            group = testing::OK_COMPUTER,
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (mb, _log) = testing::start(0).await;
+        match_pending(&pool, &mb).await.unwrap();
+        let matched: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT match_status, match_method, match_release_group_id FROM music_albums
+             WHERE id = 5",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            matched,
+            (
+                Some("matched".into()),
+                Some("search".into()),
+                Some(testing::OK_COMPUTER.into())
+            )
         );
     }
 
