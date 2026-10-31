@@ -1012,3 +1012,6 @@ async fn copying_home_counts_from_a_resumed_part_file_up_to_the_total() {
     );
     assert!(log.iter().all(|(_, total)| *total == 3_000_000));
 }
+
+mod holding;
+mod verifying;

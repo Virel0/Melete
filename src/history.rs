@@ -1,5 +1,5 @@
 //! What happened to each wanted title, newest first: searched, grabbed, imported, failed,
-//! upgraded, taken off, blocklisted. The database writes each event where the thing is recorded
+//! upgraded, taken off, blocklisted, a file set aside as the wrong one. The database writes each event where the thing is recorded
 //! (migration `title_events`); this lists them per service, per kind and per title, and a
 //! title's past searches.
 
@@ -7,7 +7,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 /// The kinds of event.
-pub const KINDS: [&str; 10] = [
+pub const KINDS: [&str; 11] = [
     "searched",
     "grabbed",
     "imported",
@@ -17,6 +17,7 @@ pub const KINDS: [&str; 10] = [
     "blocklisted",
     "extra_found",
     "renamed",
+    "set_aside",
     "removed_from_deluge",
 ];
 

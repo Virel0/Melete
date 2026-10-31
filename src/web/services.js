@@ -122,7 +122,8 @@ export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
     ctx.reload(`${s.name} saved, and in use now.`);
     return null;
   });
-  saving.querySelector(".form-actions").append(test);
+  // A setting of Melete's own has nothing to connect to, so no test.
+  if (s.testable) saving.querySelector(".form-actions").append(test);
   // Everything set in .env: nothing here to save, only to test.
   if (s.fields.every((f) => f.from === "environment")) saving.querySelector("button[type=submit]").hidden = true;
   const extra = [];
@@ -159,8 +160,9 @@ export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
     h(needed ? "h4" : "h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
     h("p", { class: "note" }, s.about),
     why,
+    s.component && h("p", { class: "note" }, s.component.set_up ? `The ${s.component.name} is set up.` : `The ${s.component.name} isn't set up, so this can't run yet.`),
     saving,
-    tested,
+    s.testable && tested,
     extra,
     features.length
       ? [

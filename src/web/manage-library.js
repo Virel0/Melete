@@ -6,11 +6,14 @@
 
 import { SignedOut, announce, api, h, number, plural, size } from "/web/lib.js";
 import { clip, emptyState, failed, placeholders, stateKey } from "/web/page-parts.js";
-import { KINDS, attentionStrip, profileOrPicker, profilesFor, selectionBar, stateOf, titleHref } from "/web/manage-parts.js";
+import { KINDS, attentionStrip, profileOrPicker, profilesFor, stateOf, titleHref } from "/web/manage-parts.js";
+import { folderOf, selectKey, selectionBar } from "/web/manage-select.js";
 import { searchMissing } from "/web/wanted-missing.js";
 import { art } from "/web/cards.js";
 
 const PAGE_SIZE = 100;
+// Titles fetched a page at a time when selecting all shown: the most a list gives.
+const ALL_PAGE = 500;
 
 // The filters, each with how it narrows the managed list and where its count comes from.
 const SHOWS = [
@@ -72,7 +75,18 @@ export async function libraryPage(ctx) {
   v.list = h("div", { class: "library-list" }, placeholders(kind.many, { kind: v.view === "table" ? "rows" : "cards" }));
   v.more = h("div", { class: "more" });
   v.runs = h("div", { class: "library-runs" });
-  v.selection = selectionBar(ctx, kind, { selected: () => [...v.chosen.values()], profiles, done: (message) => reloadKeeping(v, message) });
+  v.selection = selectionBar(ctx, kind, {
+    selected: () => [...v.chosen.values()],
+    profiles,
+    done: (message) => reloadKeeping(v, message),
+    all: () => selectAll(v),
+    clear: () => {
+      v.chosen.clear();
+      v.selection.update();
+      draw(v);
+    },
+    shown: () => v.total ?? 0,
+  });
   v.selection.bar.hidden = true;
   const parts = [
     heading,
@@ -268,6 +282,7 @@ async function reload(v) {
   if (stale()) return;
   v.items = page.items;
   v.total = page.total;
+  v.selection.update();
   drawFilters(v, page.counts, { off, wanted });
   draw(v);
   const narrowed = Boolean((v.show && !v.fixed) || v.q || v.library);
@@ -326,16 +341,35 @@ function draw(v) {
   v.list.replaceChildren(v.view === "table" ? table(v) : posters(v));
 }
 
+// A box to tick on each title while selecting; one only in the library can be monitored, which
+// puts it on the wanted list.
 function tick(v, t) {
   if (!v.selecting) return null;
-  if (t.wanted_id === null) return h("span", { class: "tick-none", title: "Not on the wanted list, so there's nothing to change" });
-  const box = h("input", { type: "checkbox", "aria-label": `Select ${t.title}`, checked: v.chosen.has(t.wanted_id) });
+  if (t.wanted_id === null && folderOf(t) === null) return h("span", { class: "tick-none" });
+  const key = selectKey(t);
+  const box = h("input", { type: "checkbox", "aria-label": `Select ${t.title}`, checked: v.chosen.has(key) });
   box.addEventListener("change", () => {
-    if (box.checked) v.chosen.set(t.wanted_id, t);
-    else v.chosen.delete(t.wanted_id);
+    if (box.checked) v.chosen.set(key, t);
+    else v.chosen.delete(key);
     v.selection.update();
   });
   return box;
+}
+
+// Select all shown: every title the filters show, page by page, not only those drawn. A change
+// of filter meanwhile leaves the selection as it was.
+async function selectAll(v) {
+  const mine = v.reloads;
+  const all = [];
+  for (let offset = 0; ; offset += ALL_PAGE) {
+    const page = await api(`${v.kind.list}?${query(v, { limit: ALL_PAGE, offset })}`);
+    if (!v.ctx.current() || mine !== v.reloads) return;
+    all.push(...page.items);
+    if (page.items.length < ALL_PAGE || all.length >= page.total) break;
+  }
+  for (const t of all) if (t.wanted_id !== null || folderOf(t) !== null) v.chosen.set(selectKey(t), t);
+  v.selection.update();
+  draw(v);
 }
 
 // A title's name, linked to its page here.
