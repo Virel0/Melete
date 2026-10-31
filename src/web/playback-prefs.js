@@ -31,13 +31,13 @@ export async function playbackGroup() {
   );
   const trailers = field(
     "hero-trailers",
-    "Play trailers on the Watch home",
+    "Play previews on the Watch home",
     h(
       "select",
       {},
       HERO_TRAILERS.map(([value, label]) => h("option", { value, selected: value === saved.hero_trailers }, label)),
     ),
-    "Muted, after a few seconds on a pick, with buttons to unmute and stop. Never when your device asks for less motion.",
+    "A pick's trailer when it has one in its folder, else a clip of the title, muted, after a few seconds on it, with buttons to unmute and stop. Never when your device asks for less motion.",
   );
   const saving = form([autoplay, countdown, trailers], "Save playback", async () => {
     const seconds = Number(countdown.input.value);
