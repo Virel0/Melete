@@ -7,8 +7,47 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
+### Upgrading from 0.1.0
+
+- **Back up `secrets.key`.** On its first start 0.2.0 creates `secrets.key` in the data folder
+  and seals every stored secret with it (API keys, passwords, two-factor secrets, links that can
+  carry a tracker passkey), including inside the existing backup copies. Backups copy only the
+  database, so keep a copy of `secrets.key` somewhere safe apart from them: without it Melete
+  won't start, and the way back is putting the key back or clearing and re-entering those
+  secrets (`melete secrets clear`).
+- **GPU transcoding needs `compose.nvidia.yaml`.** `compose.yaml` no longer reserves a GPU. Add
+  `compose.nvidia.yaml` to `COMPOSE_FILE` in `.env`, or Melete transcodes on the CPU.
+- **The image comes from `.env`.** `compose.yaml` runs `${MELETE_IMAGE:-ghcr.io/virel0/melete:0.2.0}`;
+  building from source is `compose.build.yaml`. Undo any local edit of `compose.yaml` before
+  pulling, and set what you need in `.env` or `compose.local.yaml` instead.
+- **Settings in `.env.example` are now commented out.** A value in `.env` locks a setting in the
+  web UI; remove lines such as `MELETE_MUSICBRAINZ` or `MELETE_LYRICS` from `.env` to manage them
+  in Settings.
+- `MELETE_USER` runs the container as another uid (for example `1000:1000`, to match an existing
+  library's owner).
+
 ### Added
 
+- **Two-factor sign-in** with an authenticator app (TOTP), optional for every user, set up from
+  Your account with a QR code. Quick Connect, OpenID Connect and API keys are unaffected;
+  `melete user reset-password` can remove it.
+- **The Watch home:** "Because you watched" rows, AI picks ("Featured for you", off by default,
+  through the existing OpenRouter key), and the hero playing a pick's trailer. "More like this"
+  on a title's page. Auto-play of the next episode and its countdown as a per-user setting.
+- **Never importing a fake:** a download's running time is checked against TMDB before anything
+  is placed, a film's releases wait until it can be out in that form (a minimum availability per
+  profile), and an admin can set aside a wrong file Melete imported ("Wrong file?", to the trash).
+  After three failed checks for a title, its automatic searches stop and health says so.
+- **Manage:** Monitor on a title that's only in the library, Select all with bulk monitoring, live
+  word-based search in Add new (with songs, and a Soulseek fallback for music), separate quality
+  profiles for Series and Anime, TMDB matching as its own task with health findings.
+- **Downloads:** copying progress ("Copying home: 1.2 of 4.3 GB"), an option to remove imported
+  torrents from Deluge, imported titles matched at once instead of showing up grey, and requests
+  given their service's only profile (or a health note asking for one).
+- Seek-bar previews at 320, 480 or 640 pixels wide.
+- Progress lines for long background jobs, and the files a scan couldn't parse, named once each.
 - Albums can be liked. An album's like is a sync record of its own (`album_likes`), so it
   reaches Aoide's apps the way a song's does. The web has Like on an album's page, a heart on
   every album card in Listen, and a Liked albums page. A liked album stays liked when a rescan
@@ -16,8 +55,22 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - Ctrl+K search finds artists and songs. A song opens its album with the song picked out.
 - `q_in=track` on `GET /api/v1/music/tracks` matches a track's own title and artist only.
 
+### Changed
+
+- Watch lists Movies, Shows, Anime, in its sidebar and on the home.
+- Settings: what needs TMDB sits under TMDB, a setting locked by `.env` names its variable and the
+  way out, and only real outside services offer a Test.
+- The default log leaves out the tag reader's per-file warnings, with one summary line a scan.
+
 ### Fixed
 
+- Signing in no longer fails with "database is locked" during a large first scan.
+- Soulseek works with a ReadWrite key; a Torznab feed without a key is asked without one, and a
+  refusal is blamed on the key only when the feed says so; the FlareSolverr check accepts
+  compatible solvers such as Byparr.
+- A title taken off the list can be asked for again.
+- The Aoide import no longer stops at a playlist that was exported to Jellyfin.
+- Settings fit a phone's width.
 - The web player no longer shows "null" beside Full screen for a movie or an episode without a
   neighbour, nor does the music queue, the AI search or a Soulseek download's Remove.
 - Double-clicking the picture takes the player full screen, and the video's own full-screen
@@ -30,6 +83,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   rather than comparing each new file with every file in its library.
 - An album tagged with a MusicBrainz release that has since been merged into another matches
   the surviving release, instead of every lookup failing with "answered 301".
+
+### Security
+
+- Stored secrets are sealed at rest (AES-256-GCM) with a key kept outside the database.
+- The SFTP library (russh) is updated to 0.65 for its advisories; none of them was reachable from
+  Melete, which only signs in to the pinned seedbox with a password.
 
 ## [0.1.0] - 2026-10-29
 
@@ -101,5 +160,6 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Virel0/Melete/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
