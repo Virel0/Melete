@@ -647,7 +647,7 @@ mod openapi {
         let home = get("/api/v1/home".into()).await;
         assert_shape(&spec, "WatchHome", &home);
         assert_shape(&spec, "WatchHomeRow", &home["rows"][0]);
-        assert_shape(&spec, "WatchHomeItem", &home["hero"][0]);
+        assert_shape(&spec, "WatchHomeHeroItem", &home["hero"][0]);
         assert_shape(&spec, "WatchHomeItem", &home["rows"][0]["items"][0]);
     }
 

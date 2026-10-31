@@ -1,5 +1,6 @@
 //! A user's playback preferences, kept per user so they follow them to every app: whether the
-//! next episode starts by itself, and how long the countdown before it lasts.
+//! next episode starts by itself, how long the countdown before it lasts, and where the Watch
+//! home's hero plays its picks' trailers.
 
 use std::sync::Arc;
 
@@ -15,6 +16,9 @@ use super::{ApiError, bad_request};
 /// The shortest and longest countdown before the next episode, in seconds.
 const COUNTDOWN: std::ops::RangeInclusive<i64> = 5..=30;
 
+/// Where the Watch home's hero plays its picks' trailers, as kept and given.
+const HERO_TRAILERS: [&str; 3] = ["off", "large_screens", "everywhere"];
+
 /// A user's playback preferences, as the API gives them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Playback {
@@ -22,6 +26,8 @@ pub struct Playback {
     pub autoplay_next: bool,
     /// How long the countdown lasts.
     pub countdown_seconds: i64,
+    /// Where the hero plays trailers: `off`, `large_screens` (not on a phone) or `everywhere`.
+    pub hero_trailers: String,
 }
 
 impl Default for Playback {
@@ -29,6 +35,7 @@ impl Default for Playback {
         Playback {
             autoplay_next: true,
             countdown_seconds: 10,
+            hero_trailers: "large_screens".into(),
         }
     }
 }
@@ -47,31 +54,36 @@ pub fn routes(pool: SqlitePool) -> Router {
 
 /// A user's preferences; the defaults for one who hasn't set any.
 pub async fn playback(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Playback> {
-    let row: Option<(bool, i64)> = sqlx::query_as(
-        "SELECT autoplay_next, countdown_seconds FROM user_playback WHERE user_id = ?",
+    let row: Option<(bool, i64, String)> = sqlx::query_as(
+        "SELECT autoplay_next, countdown_seconds, hero_trailers FROM user_playback
+         WHERE user_id = ?",
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await?;
     Ok(match row {
         None => Playback::default(),
-        Some((autoplay_next, countdown_seconds)) => Playback {
+        Some((autoplay_next, countdown_seconds, hero_trailers)) => Playback {
             autoplay_next,
             countdown_seconds,
+            hero_trailers,
         },
     })
 }
 
 async fn set_playback(pool: &SqlitePool, user_id: i64, p: &Playback) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO user_playback (user_id, autoplay_next, countdown_seconds, updated_at)
-         VALUES (?, ?, ?, ?)
+        "INSERT INTO user_playback
+             (user_id, autoplay_next, countdown_seconds, hero_trailers, updated_at)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE SET autoplay_next = excluded.autoplay_next,
-             countdown_seconds = excluded.countdown_seconds, updated_at = excluded.updated_at",
+             countdown_seconds = excluded.countdown_seconds,
+             hero_trailers = excluded.hero_trailers, updated_at = excluded.updated_at",
     )
     .bind(user_id)
     .bind(p.autoplay_next)
     .bind(p.countdown_seconds)
+    .bind(&p.hero_trailers)
     .bind(crate::db::unix_now())
     .execute(pool)
     .await?;
@@ -92,6 +104,7 @@ async fn show(
 struct Change {
     autoplay_next: Option<bool>,
     countdown_seconds: Option<i64>,
+    hero_trailers: Option<String>,
 }
 
 async fn change(
@@ -112,6 +125,15 @@ async fn change(
             )));
         }
         kept.countdown_seconds = seconds;
+    }
+    if let Some(where_) = body.hero_trailers {
+        if !HERO_TRAILERS.contains(&where_.as_str()) {
+            return Err(bad_request(&format!(
+                "hero_trailers is one of {}",
+                HERO_TRAILERS.join(", ")
+            )));
+        }
+        kept.hero_trailers = where_;
     }
     set_playback(&pool, current.user.id, &kept).await?;
     Ok(Json(kept))

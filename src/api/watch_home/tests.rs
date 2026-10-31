@@ -346,4 +346,5 @@ async fn needs_a_signed_in_user() {
 }
 
 mod because;
+mod hero_trailer;
 mod picks;

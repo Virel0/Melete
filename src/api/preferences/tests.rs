@@ -44,7 +44,8 @@ async fn the_next_episode_starts_by_itself_after_ten_seconds_until_a_user_says_o
     let app = routes(pool.clone());
     let viewer = token(&pool, "viewer").await;
     let other = token(&pool, "other").await;
-    let defaults = json!({ "autoplay_next": true, "countdown_seconds": 10 });
+    let defaults =
+        json!({ "autoplay_next": true, "countdown_seconds": 10, "hero_trailers": "large_screens" });
     assert_eq!(
         send(&app, &viewer, "GET", None).await,
         (StatusCode::OK, defaults.clone())
@@ -55,14 +56,14 @@ async fn the_next_episode_starts_by_itself_after_ten_seconds_until_a_user_says_o
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         body,
-        json!({ "autoplay_next": false, "countdown_seconds": 10 })
+        json!({ "autoplay_next": false, "countdown_seconds": 10, "hero_trailers": "large_screens" })
     );
     // A field left out keeps its value.
     let longer = json!({ "countdown_seconds": 25 });
     send(&app, &viewer, "PUT", Some(longer)).await;
     assert_eq!(
         send(&app, &viewer, "GET", None).await.1,
-        json!({ "autoplay_next": false, "countdown_seconds": 25 })
+        json!({ "autoplay_next": false, "countdown_seconds": 25, "hero_trailers": "large_screens" })
     );
     // Each user's own.
     assert_eq!(send(&app, &other, "GET", None).await.1, defaults);
@@ -99,7 +100,7 @@ async fn a_countdown_out_of_range_or_an_unknown_field_is_refused_and_nothing_cha
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
         send(&app, &viewer, "GET", None).await.1,
-        json!({ "autoplay_next": true, "countdown_seconds": 10 })
+        json!({ "autoplay_next": true, "countdown_seconds": 10, "hero_trailers": "large_screens" })
     );
     // The bounds themselves are kept.
     for seconds in [5, 30] {
@@ -108,4 +109,40 @@ async fn a_countdown_out_of_range_or_an_unknown_field_is_refused_and_nothing_cha
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["countdown_seconds"], json!(seconds));
     }
+}
+
+#[tokio::test]
+async fn the_hero_plays_trailers_on_large_screens_until_a_user_says_otherwise() {
+    let pool = db::open_in_memory().await;
+    let app = routes(pool.clone());
+    let viewer = token(&pool, "viewer").await;
+    assert_eq!(
+        send(&app, &viewer, "GET", None).await.1["hero_trailers"],
+        "large_screens"
+    );
+    for where_ in ["everywhere", "off"] {
+        let body = json!({ "hero_trailers": where_ });
+        let (status, kept) = send(&app, &viewer, "PUT", Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{kept}");
+        assert_eq!(kept["hero_trailers"], where_);
+        assert_eq!(kept["autoplay_next"], true, "the rest kept");
+    }
+    let (status, body) = send(
+        &app,
+        &viewer,
+        "PUT",
+        Some(json!({ "hero_trailers": "phones" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("off, large_screens, everywhere")
+    );
+    assert_eq!(
+        send(&app, &viewer, "GET", None).await.1["hero_trailers"],
+        "off"
+    );
 }
