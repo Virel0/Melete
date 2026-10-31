@@ -1,5 +1,5 @@
 // What was set aside, each with a way back: releases on the blocklist, titles taken off the
-// wanted list, and files an upgrade replaced, in the trash.
+// wanted list, and files in the trash (replaced by an upgrade, or set aside as the wrong file).
 
 import { confirmInline, group, when } from "/web/forms.js";
 import { SignedOut, api, h, plural, size } from "/web/lib.js";
@@ -163,7 +163,7 @@ export async function trash(ctx) {
         "div",
         {},
         h("span", { class: "path" }, t.rel_path),
-        h("p", { class: "note" }, `${library(t.library_id)}, ${size(t.size)}. Replaced by ${t.replaced_by} on ${when(t.trashed_at)}.`),
+        h("p", { class: "note" }, `${library(t.library_id)}, ${size(t.size)}. ${t.reason === "wrong" ? "Set aside as the wrong file" : `Replaced by ${t.replaced_by}`} on ${when(t.trashed_at)}.`),
         h("p", { class: "note" }, days ? `Deleted in ${plural(days, "day", "days")}.` : "Deleted at the next clean-up."),
       ),
       actions,

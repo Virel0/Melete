@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 105] = [
+const MODULES: [(&str, &str); 111] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -46,6 +46,10 @@ const MODULES: [(&str, &str); 105] = [
     ("cards.js", include_str!("../web/cards.js")),
     ("home.js", include_str!("../web/home.js")),
     ("watch-hero.js", include_str!("../web/watch-hero.js")),
+    (
+        "watch-hero-trailer.js",
+        include_str!("../web/watch-hero-trailer.js"),
+    ),
     ("watch-tiles.js", include_str!("../web/watch-tiles.js")),
     ("watch-play.js", include_str!("../web/watch-play.js")),
     ("watch-kind.js", include_str!("../web/watch-kind.js")),
@@ -81,6 +85,10 @@ const MODULES: [(&str, &str); 105] = [
     ("account.js", include_str!("../web/account.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),
     ("languages.js", include_str!("../web/languages.js")),
+    (
+        "playback-prefs.js",
+        include_str!("../web/playback-prefs.js"),
+    ),
     ("favourites.js", include_str!("../web/favourites.js")),
     ("user-access.js", include_str!("../web/user-access.js")),
     ("users.js", include_str!("../web/users.js")),
@@ -174,7 +182,14 @@ const MODULES: [(&str, &str); 105] = [
     ),
     ("manage-artist.js", include_str!("../web/manage-artist.js")),
     ("manage-album.js", include_str!("../web/manage-album.js")),
+    ("manage-want.js", include_str!("../web/manage-want.js")),
+    ("manage-select.js", include_str!("../web/manage-select.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
+    ("manage-find.js", include_str!("../web/manage-find.js")),
+    (
+        "manage-add-form.js",
+        include_str!("../web/manage-add-form.js"),
+    ),
     (
         "manage-activity.js",
         include_str!("../web/manage-activity.js"),
@@ -650,7 +665,16 @@ mod tests {
             ("/web/manage-seasons.js", "/episodes/"),
             ("/web/manage-artist.js", "monitor_new"),
             ("/web/manage-album.js", "track_list"),
-            ("/web/manage-add.js", "/requests/search"),
+            ("/web/manage-want.js", "As Where they go says"),
+            ("/web/manage-title.js", "/web/manage-want.js"),
+            ("/web/manage-artist.js", "/web/manage-want.js"),
+            ("/web/manage-album.js", "/web/manage-want.js"),
+            ("/web/manage-select.js", "/selection"),
+            ("/web/manage-library.js", "all: () => selectAll(v)"),
+            ("/web/manage-find.js", "/requests/search"),
+            ("/web/manage-find.js", r#"["song", "Songs"]"#),
+            ("/web/manage-find.js", "/requests/soulseek"),
+            ("/web/manage-add-form.js", "find-add"),
             ("/web/manage-activity.js", "/manage/anime"),
             ("/web/manage-settings.js", "How files are handled"),
         ] {

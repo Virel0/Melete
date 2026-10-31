@@ -1301,3 +1301,41 @@ async fn cast_crew_and_collections_come_with_library_titles() {
     assert_eq!(refresh_credits(&pool, &tmdb).await.unwrap(), 0);
     assert!(fake.log.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_tv_films_premiere_is_kept_with_its_release_dates() {
+    let pool = db::open_in_memory().await;
+    sqlx::query(
+        "INSERT INTO wanted_movies (tmdb_id, title, year, monitored, source, added_at)
+         VALUES (77, 'A TV Film', 2099, 1, 'radarr', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/movie/77",
+        vec![Reply::ok(movie(77, "A TV Film", "2099-06-01"))],
+    )
+    .reply(
+        "/movie/77/release_dates",
+        vec![Reply::ok(json!({ "id": 77, "results": [
+            { "iso_3166_1": "US", "release_dates": [
+                { "release_date": "2099-06-03T00:00:00.000Z", "type": 6 }
+            ]},
+            { "iso_3166_1": "GB", "release_dates": [
+                { "release_date": "2099-06-01T00:00:00.000Z", "type": 6 }
+            ]}
+        ]}))],
+    );
+    let tmdb = fake.start().await;
+    refresh_wanted(&pool, &tmdb).await.unwrap();
+    let dates: (Option<String>, Option<String>, bool) = sqlx::query_as(
+        "SELECT digital_release, tv_release, release_dates_at IS NOT NULL FROM tmdb_movies
+         WHERE tmdb_id = 77",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(dates, (None, Some("2099-06-01".into()), true));
+}

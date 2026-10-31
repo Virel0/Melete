@@ -344,3 +344,7 @@ async fn needs_a_signed_in_user() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+mod because;
+mod hero_trailer;
+mod picks;
