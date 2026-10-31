@@ -21,6 +21,7 @@ import { SignedOut, api, h } from "/web/lib.js";
 import { badgeText, currentHealth } from "/web/health.js";
 import { SERVICES, findingsOf, placeOf, serviceSidebar } from "/web/manage-services.js";
 import { stateLabel } from "/web/page-parts.js";
+import { forgetAlbumLikes } from "/web/music-album-likes.js";
 import { forgetListenLists } from "/web/music-sidebar.js";
 import { placeSidebar } from "/web/sidebar.js";
 import { SIDES, listenEntries, listenSidebar, sideOf, watchEntries } from "/web/sides.js";
@@ -169,6 +170,7 @@ export function stopShell() {
   side = "watch";
   last = {};
   save();
+  forgetAlbumLikes();
   forgetListenLists();
   placeSidebar(null);
 }

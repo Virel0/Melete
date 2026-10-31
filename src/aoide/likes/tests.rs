@@ -7,7 +7,10 @@ fn row(id: &str, track: &str, liked: bool, at: i64, device: &str, deleted: bool)
 }
 
 fn folded(ops: &[(&str, &str, String)]) -> Vec<Like> {
-    let mut rows = fold(ops.iter().map(|(e, o, p)| (*e, *o, p.as_str())));
+    let mut rows = fold(
+        Kind::Track,
+        ops.iter().map(|(e, o, p)| (*e, *o, p.as_str())),
+    );
     rows.sort_by(|a, b| a.id.cmp(&b.id));
     rows
 }
@@ -96,9 +99,17 @@ async fn liking_writes_the_tracks_own_row_and_unliking_deletes_it() {
         .await
         .unwrap()
     };
-    assert!(set(&pool, user.id, "token-1", 7, true, 1000).await.unwrap());
+    assert!(
+        set(&pool, Kind::Track, user.id, "token-1", 7, true, 1000)
+            .await
+            .unwrap()
+    );
     // Liked already: nothing more is written.
-    assert!(set(&pool, user.id, "token-1", 7, true, 2000).await.unwrap());
+    assert!(
+        set(&pool, Kind::Track, user.id, "token-1", 7, true, 2000)
+            .await
+            .unwrap()
+    );
     let written = ops(pool.clone()).await;
     assert_eq!(written.len(), 1);
     let (device, entity_id, operation, payload) = &written[0];
@@ -109,12 +120,12 @@ async fn liking_writes_the_tracks_own_row_and_unliking_deletes_it() {
             r#"{{"contentKey":"bjork|homogenic|joga|305","deleted":false,"id":"{entity_id}","jellyfinId":"7","liked":true,"originDevice":"token-1","updatedAt":1000}}"#
         )
     );
-    let liked = liked(&pool, user.id).await.unwrap();
+    let liked = liked(&pool, Kind::Track, user.id).await.unwrap();
     assert_eq!(liked.len(), 1);
     assert_eq!(liked[0].0, Some(7));
 
     assert!(
-        set(&pool, user.id, "token-2", 7, false, 3000)
+        set(&pool, Kind::Track, user.id, "token-2", 7, false, 3000)
             .await
             .unwrap()
     );
@@ -122,19 +133,26 @@ async fn liking_writes_the_tracks_own_row_and_unliking_deletes_it() {
     let (_, again, operation, payload) = &written[1];
     assert_eq!((again, operation.as_str()), (entity_id, "delete"));
     assert!(payload.contains(r#""deleted":true"#) && payload.contains(r#""updatedAt":3000"#));
-    assert!(self::liked(&pool, user.id).await.unwrap().is_empty());
+    assert!(
+        self::liked(&pool, Kind::Track, user.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     // Liked again: the same row comes back.
-    set(&pool, user.id, "token-2", 7, true, 4000).await.unwrap();
+    set(&pool, Kind::Track, user.id, "token-2", 7, true, 4000)
+        .await
+        .unwrap();
     let written = ops(pool.clone()).await;
     assert_eq!(&written[2].1, entity_id);
     // A track that isn't in the library can't be liked; unliking it is nothing to do.
     assert!(
-        !set(&pool, user.id, "token-2", 99, true, 5000)
+        !set(&pool, Kind::Track, user.id, "token-2", 99, true, 5000)
             .await
             .unwrap()
     );
     assert!(
-        set(&pool, user.id, "token-2", 99, false, 5000)
+        set(&pool, Kind::Track, user.id, "token-2", 99, false, 5000)
             .await
             .unwrap()
     );
@@ -157,13 +175,17 @@ async fn unliking_leaves_a_dislike_alone() {
     super::super::sync::push(&pool, user.id, "phone", vec![op], 1)
         .await
         .unwrap();
-    assert!(set(&pool, user.id, "web", 7, false, 200).await.unwrap());
+    assert!(
+        set(&pool, Kind::Track, user.id, "web", 7, false, 200)
+            .await
+            .unwrap()
+    );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM aoide_ops")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(count, 1, "nothing written");
-    assert!(liked(&pool, user.id).await.unwrap().is_empty());
+    assert!(liked(&pool, Kind::Track, user.id).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -184,9 +206,29 @@ async fn an_unlike_in_the_same_millisecond_still_counts() {
     .execute(&pool)
     .await
     .unwrap();
-    set(&pool, user.id, "web", 7, true, 1000).await.unwrap();
-    set(&pool, user.id, "web", 7, false, 1000).await.unwrap();
-    assert!(liked(&pool, user.id).await.unwrap().is_empty());
-    let rows = rows(&pool, user.id).await.unwrap();
+    set(&pool, Kind::Track, user.id, "web", 7, true, 1000)
+        .await
+        .unwrap();
+    set(&pool, Kind::Track, user.id, "web", 7, false, 1000)
+        .await
+        .unwrap();
+    assert!(liked(&pool, Kind::Track, user.id).await.unwrap().is_empty());
+    let rows = rows(&pool, Kind::Track, user.id).await.unwrap();
     assert_eq!((rows[0].updated_at, rows[0].deleted), (1001, true));
+}
+
+#[test]
+fn album_likes_name_their_album_and_a_track_row_isnt_one() {
+    let album = r#"{"albumId":"3","contentKey":"a|b","deleted":false,"id":"A","liked":true,"originDevice":"d","updatedAt":1}"#;
+    let rows = fold(
+        Kind::Album,
+        [
+            ("A", "upsert", album),
+            ("T", "upsert", row("T", "7", true, 1, "d", false).as_str()),
+        ],
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0].id.as_str(), rows[0].item_id.as_str()), ("A", "3"));
+    assert_eq!(rows[0].to_row(Kind::Album)["albumId"], "3");
+    assert!(fold(Kind::Track, [("A", "upsert", album)]).is_empty());
 }
