@@ -132,8 +132,12 @@ pub struct Trashed {
     pub size: i64,
     /// The download whose upgrade replaced it; None once that download is gone.
     pub download_id: Option<i64>,
-    /// The file that replaced it, relative to the library's folder.
+    /// The file that replaced it, relative to the library's folder; empty for a file set aside
+    /// as the wrong one.
     pub replaced_by: String,
+    /// Why it's in the trash: "upgrade", replaced by a better release, or "wrong", set aside by
+    /// an admin as the wrong file for its title.
+    pub reason: String,
     /// When it went to the trash, in Unix seconds.
     pub trashed_at: i64,
     /// When it will be deleted.
@@ -143,8 +147,8 @@ pub struct Trashed {
 /// Files in the trash now, newest first.
 pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Trashed>> {
     Ok(sqlx::query_as(
-        "SELECT id, library_id, rel_path, trash_path, size, download_id, replaced_by, trashed_at,
-             trashed_at + ? AS delete_after
+        "SELECT id, library_id, rel_path, trash_path, size, download_id, replaced_by, reason,
+             trashed_at, trashed_at + ? AS delete_after
          FROM trashed_files WHERE deleted_at IS NULL AND restored_at IS NULL
          ORDER BY trashed_at DESC, id DESC",
     )

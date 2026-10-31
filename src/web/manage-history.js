@@ -1,6 +1,7 @@
 // A title's history on its Manage page: what happened to it, newest first (searched, grabbed,
-// imported, failed, upgraded, taken off, blocklisted, an extra found, a file renamed), and its
-// searches still kept, each of whose results can be shown again without searching.
+// imported, failed, upgraded, taken off, blocklisted, an extra found, a file renamed or set aside
+// as the wrong one), and its searches still kept, each of whose results can be shown again
+// without searching.
 
 import { when } from "/web/forms.js";
 import { SignedOut, api, append, h, number, plural, seasonName } from "/web/lib.js";
@@ -18,6 +19,7 @@ export const EVENTS = {
   blocklisted: ["Blocklisted", "failed"],
   extra_found: ["Extra found", "have"],
   renamed: ["Renamed or replaced", "off"],
+  set_aside: ["Set aside as the wrong file", "failed"],
 };
 
 const PAGE = 25;

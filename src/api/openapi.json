@@ -137,7 +137,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [{"$ref": "#/components/schemas/Error"}, {"$ref": "#/components/schemas/SecondFactorNeeded"}]
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/Error"},
+                    {"$ref": "#/components/schemas/SecondFactorNeeded"}
+                  ]
                 }
               }
             }
@@ -176,7 +179,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [{"$ref": "#/components/schemas/Error"}, {"$ref": "#/components/schemas/SecondFactorNeeded"}]
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/Error"},
+                    {"$ref": "#/components/schemas/SecondFactorNeeded"}
+                  ]
                 }
               }
             }
@@ -338,7 +344,11 @@
         "description": "Needs your password. Answers a new secret, in base32 for typing in and as an `otpauth://` link for a QR code or a tap, to put in an authenticator app. It is shown only here (never cached), and only until a first code confirms it; starting again before then replaces it. Signing in doesn't change until it's confirmed.",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}}}
+          "content": {
+            "application/json": {
+              "schema": {"type": "object", "required": ["password"], "properties": {"password": {"type": "string"}}}
+            }
+          }
         },
         "responses": {
           "200": {
@@ -372,7 +382,15 @@
         "description": "The six-digit code the authenticator app shows for the secret setup gave. From then on, signing in with the password asks for a code (`/auth/login/second-factor`). Nothing is signed out: sessions and API keys keep working. Quick Connect and signing in through an identity provider don't ask for a code. Wrong codes count as at `/auth/login/second-factor`; a confirm with no setup waiting, or with it on already, answers 409 and doesn't count.",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "required": ["code"], "properties": {"code": {"type": "string", "description": "Six digits."}}}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {"code": {"type": "string", "description": "Six digits."}}
+              }
+            }
+          }
         },
         "responses": {
           "204": {"description": "On"},
@@ -403,7 +421,18 @@
         "description": "Needs your password and a current code. Nothing is signed out. Without the device for codes, an admin removes it on the server with `melete user reset-password <name>`, which sets a new password too.",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "required": ["password", "code"], "properties": {"password": {"type": "string"}, "code": {"type": "string", "description": "Six digits."}}}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["password", "code"],
+                "properties": {
+                  "password": {"type": "string"},
+                  "code": {"type": "string", "description": "Six digits."}
+                }
+              }
+            }
+          }
         },
         "responses": {
           "204": {"description": "Off"},
@@ -1030,7 +1059,13 @@
         "description": "The key stops working at once, as when its owner revokes it. The user's other keys and their sessions keep working.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "User id.", "schema": {"type": "integer"}},
-          {"name": "key_id", "in": "path", "required": true, "description": "Key id from the user's key list.", "schema": {"type": "integer"}}
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "description": "Key id from the user's key list.",
+            "schema": {"type": "integer"}
+          }
         ],
         "responses": {
           "204": {"description": "Revoked"},
@@ -1853,6 +1888,41 @@
         }
       }
     },
+    "/api/v1/files/{id}/wrong": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Set a file aside as the wrong one for its title",
+        "description": "Only for a movie or episode file Melete brought in from a download (FileInfo.imported); a file found in the library is never moved. The file goes to its library's trash (restorable with POST /api/v1/trash/{id}/restore, deleted after 30 days), the release it came from is blocklisted, its download is marked failed, and if the title is still monitored it's searched for again (for a season pack's episode, that episode alone) and the best accepted result grabbed. A search that fails then is said in search; the file is set aside all the same.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File id from a movie or episode's files.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Set aside",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WrongFileSetAside"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such movie or episode file in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Melete didn't bring it in from a download (or the file at its name isn't the one a download put there any more), its download is still being brought in, or it couldn't be moved (it changed on disk since it was scanned, or the library isn't writable)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/files/{id}/play": {
       "post": {
         "tags": ["Playback"],
@@ -2242,13 +2312,7 @@
         "summary": "Mark a season or a whole series watched or unwatched",
         "description": "Every episode file of the season, or of the whole series (specials included) when no season is given, that is present and the caller may see, all at once. Each is marked as marking it alone would: the next play starts from the beginning. Files already as asked are left alone.",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "description": "Series id.",
-            "schema": {"type": "integer"}
-          }
+          {"name": "id", "in": "path", "required": true, "description": "Series id.", "schema": {"type": "integer"}}
         ],
         "requestBody": {
           "required": true,
@@ -2259,7 +2323,11 @@
                 "required": ["watched"],
                 "properties": {
                   "watched": {"type": "boolean"},
-                  "season": {"type": "integer", "minimum": 0, "description": "Only this season (0 for specials). Without it, the whole series."}
+                  "season": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Only this season (0 for specials). Without it, the whole series."
+                  }
                 },
                 "additionalProperties": false
               }
@@ -2378,7 +2446,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `latest_shows`, `latest_anime` and `latest_movies` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Nothing leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `featured_for_you` (your AI picks while AI picks are on, as `/ai/picks` gives them, never waited for), `because_you_watched` (one row for each of the 3 titles you finished most recently, newest first, an episode counting as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, and the decade; a title has to share a collection, a genre or a person. With AI picks on, a row holds the AI's titles like it (as `/movies/{id}/similar` gives them) once they're made. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
         "responses": {
           "200": {
             "description": "OK",
@@ -3900,7 +3968,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Find something to ask for",
-        "description": "Movies and series on TMDB (its first page of results), artists, albums and songs on MusicBrainz (20 at most), best first, each marked in the library, wanted, or asked for by you already. Only the words searched for are sent. For a user with a highest rating, a title outside the library is listed only when it's rated that age or under: its rating is fetched from TMDB when Melete doesn't have it (only the title's TMDB id leaves the server, paced, and kept a month), and a title rated above it or not rated is left out.",
+        "description": "Movies and series on TMDB (its first page of results), artists, albums and songs on MusicBrainz (20 at most), best first, each marked in the library, wanted, or asked for by you already. MusicBrainz is searched by words: each word on its own and loosely (a typo, a missing colon or a left-out word still finds it), the words as one phrase counting most; its results come by its score, then by how closely the name matches. Only the words searched for are sent. For a user with a highest rating, a title outside the library is listed only when it's rated that age or under: its rating is fetched from TMDB when Melete doesn't have it (only the title's TMDB id leaves the server, paced, and kept a month), and a title rated above it or not rated is left out.",
         "parameters": [
           {
             "name": "kind",
@@ -4442,6 +4510,82 @@
           },
           "409": {
             "description": "What's in the trash isn't the file it put there now, or the library's share is away; nothing was deleted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-checks/{kind}/{id}": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "How a wanted title's downloads fared in the running-time check",
+        "description": "How many of its downloads were held back since the last import or override (their running time didn't match TMDB's, or couldn't be read), the latest with their reasons, and whether Melete has stopped searching for it by itself (after 3).",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/runtime-checks/{kind}/{id}/right": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Say a wanted title's runtime is right after all",
+        "description": "From now, while TMDB's runtime for it stays what it is, a movie's downloads are checked against how long its last held-back download ran (or not checked, when that couldn't be read), and a series' aren't checked. The count starts again and Melete searches for it by itself again.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "movie or series.",
+            "schema": {"enum": ["movie", "series"]}
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The wanted movie's or series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeCheckStatus"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such wanted title",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -8224,7 +8368,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Test an outside service's connection",
-        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr must say it's ready. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
+        "description": "As the service is set up, or as it would be with the body's values (the same {values: {...}} saving takes; nothing is saved). TMDB checks the token, MusicBrainz looks up a placeholder artist, slskd must answer, be signed in to Soulseek and share nothing, Deluge must take the password and be connected to its daemon, the seedbox must match its host key and list its folder, FlareSolverr (or a solver that copies its API) must answer. A setting of Melete's own (testable false) has nothing to connect to, and says so. Nothing about the household is sent. A service that doesn't work is still a 200, with ok false and why.",
         "parameters": [
           {"name": "key", "in": "path", "required": true, "description": "The service.", "schema": {"type": "string"}}
         ],
@@ -8796,7 +8940,8 @@
                 "taken_off",
                 "blocklisted",
                 "extra_found",
-                "renamed"
+                "renamed",
+                "set_aside"
               ]
             }
           },
@@ -9832,7 +9977,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A file's seek-bar previews",
-        "description": "Where each picture is and when it's from, for showing a preview as the viewer moves along the seek bar. Made in the background while seek-bar previews are on (Settings, off by default): a picture every 10 seconds at most, from the file's keyframes, 320 pixels wide, tiled into JPEG sheets. Fetch a sheet from a stream link: `{stream_url}/trickplay/{n}.jpg`. Times are the file's own, as direct play and every conversion keep them.",
+        "description": "Where each picture is and when it's from, for showing a preview as the viewer moves along the seek bar. Made in the background while seek-bar previews are on (Settings, off by default): a picture every 10 seconds at most, from the file's keyframes, 320, 480 or 640 pixels wide as chosen in Settings (320 by default; `width` and `height` say which), tiled into JPEG sheets. After the width changes, the previews are made again in the background, and these are the old ones until then. Fetch a sheet from a stream link: `{stream_url}/trickplay/{n}.jpg`. Times are the file's own, as direct play and every conversion keep them.",
         "parameters": [
           {
             "name": "id",
@@ -10270,6 +10415,114 @@
         }
       }
     },
+    "/api/v1/me/playback": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your playback preferences",
+        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown, and the Watch home's hero plays trailers on screens larger than a phone's.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaybackPreferences"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "put": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set your playback preferences",
+        "description": "Each field left out keeps its value, so an app that doesn't know a newer preference never resets it. A field Melete doesn't know is refused.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The preferences to change; each one left out keeps its value.",
+                "properties": {
+                  "autoplay_next": {"type": "boolean"},
+                  "countdown_seconds": {"type": "integer", "minimum": 5, "maximum": 30},
+                  "hero_trailers": {"enum": ["off", "large_screens", "everywhere"]}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "As kept, every field",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaybackPreferences"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/ai/picks": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Featured for you",
+        "description": "Up to 12 titles from the library chosen for you by the AI from what you've watched, with a reason each, while an admin has AI picks on (Settings → Outside services → AI features; off by default). What's sent to OpenRouter: the titles you finished or are watching recently (about 15, an episode counting as its series), each with its year and up to three genres, and up to 60 candidate titles from the library that you may see and haven't watched, each by an opaque id with its title, year, up to three genres and a premise of about 12 words. Never a name, an account, a file path or anything else about the household. Your picks are kept and served at once; new ones are made in the background when what you watched changes or they're a day old, at most every 10 minutes, and take the old ones' place only once they're made. Each AI call started for you counts against 30 an hour (as AI search does, retries included) and the server runs at most 2 at once; past either, with none made yet, `status` says so. A title you've watched since, or may no longer see, is left out. When they're off, not set up, not made yet or failing, `picks` is empty and `status` and `message` say why; the Watch home's `featured_for_you` row has the same picks.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiPicks"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/movies/{id}/similar": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Titles like a movie",
+        "description": "Up to 12 titles in the library like this one that you may see and haven't watched, most alike first: with AI picks on (Settings, off by default), the AI's (`source` `ai`, each with its reason), made once for everyone who sees the same titles, kept a week and made in the background, so until they are, and with AI picks off, Melete's own likeness (`source` `library`, as the home's \"because you watched\" rows work it out, without reasons). Only titles you may see were sent to the AI as candidates for you. Each AI call started for you counts against 30 an hour (as AI search does, retries after a failure included) and the server runs at most 2 at once; past either, or until they're made, this is Melete's own likeness, and `status` says why.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SimilarTitles"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such title that you may see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/series/{id}/similar": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Titles like a series",
+        "description": "Up to 12 titles in the library like this one that you may see and haven't watched, most alike first: with AI picks on (Settings, off by default), the AI's (`source` `ai`, each with its reason), made once for everyone who sees the same titles, kept a week and made in the background, so until they are, and with AI picks off, Melete's own likeness (`source` `library`, as the home's \"because you watched\" rows work it out, without reasons). Only titles you may see were sent to the AI as candidates for you. Each AI call started for you counts against 30 an hour (as AI search does, retries after a failure included) and the server runs at most 2 at once; past either, or until they're made, this is Melete's own likeness, and `status` says why.",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SimilarTitles"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such title that you may see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/me/favourites": {
       "get": {
         "tags": ["Browse"],
@@ -10469,6 +10722,85 @@
           "401": {"$ref": "#/components/responses/Unauthorized"}
         }
       }
+    },
+    "/api/v1/requests/soulseek": {
+      "get": {
+        "tags": ["Requests"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Look on Soulseek for music MusicBrainz doesn't know",
+        "description": "What Add new offers when MusicBrainz finds nothing: the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "The words, as typed.",
+            "schema": {"type": "string", "minLength": 1, "maxLength": 200}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What Soulseek's users share",
+            "content": {
+              "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekSong"}}}
+            }
+          },
+          "400": {
+            "description": "q empty or too long",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "slskd isn't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "slskd didn't answer, isn't signed in to Soulseek, or is busy with another search",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/manage/{service}/selection": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Change many of a managed list's titles at once",
+        "description": "What a managed list's selection bar does, for up to 100 titles a request; a larger selection is sent in batches. `monitor` monitors titles on the wanted list (`wanted_ids`) and puts titles only in the library (`folders`, a list row's `movie_id`, `series_id` or `artist_id`) on it, monitored, in the library each is in, with `profile_id` or else the request defaults' profile, as approving an admin's add does but without a request of its own and without a search (a run for what's missing does that). A movie or series is named by its TMDB match and looked up on TMDB; an artist by their MusicBrainz id and looked up on MusicBrainz, wanting every studio album it lists and their new ones. `unmonitor`, `profile` (with `profile_id`) and `remove` (taken off the wanted list; files stay) change titles on the wanted list only. Each title is changed on its own: one that can't be is left as it is and listed with why.",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "description": "movies, series, anime or artists, as the managed lists are named.",
+            "schema": {"enum": ["movies", "series", "anime", "artists"]}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelection"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "What changed, and what didn't with why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ManagedSelectionOutcome"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such service",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "422": {
+            "description": "The profile isn't one for this service's titles",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10657,7 +10989,10 @@
         "required": ["error", "reason"],
         "properties": {
           "error": {"type": "string"},
-          "reason": {"enum": ["wrong_password", "wrong_code"], "description": "Which was wrong, for an app to point at the right field."}
+          "reason": {
+            "enum": ["wrong_password", "wrong_code"],
+            "description": "Which was wrong, for an app to point at the right field."
+          }
         },
         "additionalProperties": false,
         "description": "An error that also says which of the request's secrets was wrong."
@@ -10666,7 +11001,10 @@
         "type": "object",
         "required": ["error", "second_factor", "challenge", "expires_in"],
         "properties": {
-          "error": {"type": "string", "description": "Says a code is needed, for an app that doesn't know this step to show."},
+          "error": {
+            "type": "string",
+            "description": "Says a code is needed, for an app that doesn't know this step to show."
+          },
           "second_factor": {"const": "totp", "description": "What the code is: six digits from an authenticator app."},
           "challenge": {"type": "string", "description": "Starts with m2f_. Finishes the sign-in once, with the code."},
           "expires_in": {"type": "integer", "description": "Seconds the challenge lasts: 300."}
@@ -10695,9 +11033,16 @@
               "required": ["change", "made_from", "at", "count"],
               "properties": {
                 "change": {"enum": ["two_factor_on", "two_factor_off", "wrong_sign_in_code"]},
-                "made_from": {"enum": ["account", "server", "sign_in"], "description": "The user's account, the server's command line, or signing in (wrong codes)."},
+                "made_from": {
+                  "enum": ["account", "server", "sign_in"],
+                  "description": "The user's account, the server's command line, or signing in (wrong codes)."
+                },
                 "at": {"type": "integer", "description": "Unix seconds; for wrong codes, the latest."},
-                "count": {"type": "integer", "minimum": 1, "description": "1, except for wrong codes counted together."}
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "1, except for wrong codes counted together."
+                }
               }
             }
           }
@@ -10708,8 +11053,14 @@
         "type": "object",
         "required": ["secret", "uri"],
         "properties": {
-          "secret": {"type": "string", "description": "160 bits in base32 (no padding), to type into an authenticator app."},
-          "uri": {"type": "string", "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"}
+          "secret": {
+            "type": "string",
+            "description": "160 bits in base32 (no padding), to type into an authenticator app."
+          },
+          "uri": {
+            "type": "string",
+            "description": "otpauth://totp/Melete:<username>?secret=…&issuer=Melete&algorithm=SHA1&digits=6&period=30"
+          }
         },
         "additionalProperties": false
       },
@@ -11558,6 +11909,7 @@
         "type": "object",
         "required": [
           "id",
+          "imported",
           "path",
           "size",
           "modified_at",
@@ -11571,6 +11923,10 @@
         ],
         "properties": {
           "id": {"type": "integer"},
+          "imported": {
+            "type": "boolean",
+            "description": "Whether Melete brought this file in from a download, rather than finding it in the library, and it's still the file it placed (same size, last change, inode and device). Only such a file can be set aside as the wrong one (POST /api/v1/files/{id}/wrong); false for extras."
+          },
           "path": {"type": "string", "description": "Relative to the library folder."},
           "size": {"type": "integer"},
           "modified_at": {"type": "integer"},
@@ -12095,7 +12451,10 @@
         "type": "object",
         "required": ["changed"],
         "properties": {
-          "changed": {"type": "integer", "description": "How many files this changed: marked, unmarked or set back to the start."}
+          "changed": {
+            "type": "integer",
+            "description": "How many files this changed: marked, unmarked or set back to the start."
+          }
         },
         "additionalProperties": false
       },
@@ -12185,21 +12544,89 @@
         },
         "additionalProperties": false
       },
+      "AiPicks": {
+        "type": "object",
+        "required": ["status", "message", "made_at", "picks"],
+        "properties": {
+          "status": {
+            "enum": ["ready", "off", "unavailable", "no_history", "working", "limited", "busy", "failed"],
+            "description": "`ready`: made (and maybe being made again). `off`: an admin hasn't turned AI picks on. `unavailable`: OpenRouter isn't set up. `no_history`: nothing watched to pick from. `working`: being made for the first time; ask again in a minute. `limited`: none made, and you've started as many AI calls as you may this hour (30, as for AI search). `busy`: none made, and the server is running as many AI calls as it may at once (2); ask again in a minute. `failed`: making them failed and there are none from before."
+          },
+          "message": {
+            "type": ["string", "null"],
+            "description": "What `status` means, in words to show; null when `ready`."
+          },
+          "made_at": {"type": ["integer", "null"], "description": "When the picks were made, in Unix seconds."},
+          "picks": {"type": "array", "items": {"$ref": "#/components/schemas/AiPick"}, "maxItems": 12}
+        },
+        "additionalProperties": false
+      },
+      "AiPick": {
+        "type": "object",
+        "required": ["kind", "id", "title", "year", "poster", "backdrop", "reason"],
+        "properties": {
+          "kind": {"enum": ["movie", "series"]},
+          "id": {"type": "integer", "description": "The movie's or series' id in the library."},
+          "title": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
+          "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280)."},
+          "reason": {
+            "type": ["string", "null"],
+            "description": "Why, in a few words, such as \"Like Heat, a tense crime thriller\"; null when the AI didn't choose it. It's text a model wrote: show it as plain text, never as markup."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SimilarTitles": {
+        "type": "object",
+        "required": ["status", "source", "items"],
+        "properties": {
+          "status": {
+            "enum": ["ai", "off", "making", "limited", "busy"],
+            "description": "Whether the AI's are here: `ai`, they are. Else these are Melete's own: `off`, AI picks are off or OpenRouter isn't set up; `making`, the AI's are being made; `limited`, you've started as many AI calls as you may this hour (30, as for AI search); `busy`, the server is running as many AI calls as it may at once (2)."
+          },
+          "source": {"enum": ["ai", "library"], "description": "Who chose them: the AI, or Melete's own likeness."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/AiPick"}, "maxItems": 12}
+        },
+        "additionalProperties": false
+      },
       "WatchHome": {
         "type": "object",
         "required": ["hero", "rows"],
         "properties": {
-          "hero": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeItem"}, "maxItems": 8},
+          "hero": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeHeroItem"}, "maxItems": 8},
           "rows": {"type": "array", "items": {"$ref": "#/components/schemas/WatchHomeRow"}}
         },
         "additionalProperties": false
       },
       "WatchHomeRow": {
         "type": "object",
-        "required": ["key", "items"],
+        "required": ["key", "seed", "items"],
         "properties": {
           "key": {
-            "enum": ["continue_watching", "next_up", "favourites", "latest_shows", "latest_anime", "latest_movies"]
+            "enum": [
+              "continue_watching",
+              "next_up",
+              "favourites",
+              "featured_for_you",
+              "because_you_watched",
+              "latest_shows",
+              "latest_anime",
+              "latest_movies"
+            ],
+            "description": "`because_you_watched` comes up to three times, one row for each title in its `seed`; every other key once at most."
+          },
+          "seed": {
+            "type": ["object", "null"],
+            "required": ["kind", "id", "title"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The movie's or series' id."},
+              "title": {"type": "string"}
+            },
+            "additionalProperties": false,
+            "description": "For `because_you_watched`: the title the row's titles are like, one you finished (an episode counts as its series). Null for every other row."
           },
           "items": {
             "type": "array",
@@ -12313,6 +12740,122 @@
         },
         "additionalProperties": false
       },
+      "WatchHomeHeroItem": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "year",
+          "genres",
+          "runtime_minutes",
+          "overview",
+          "poster",
+          "backdrop",
+          "backdrop_focus",
+          "textless_backdrop",
+          "textless_backdrop_focus",
+          "logo",
+          "added_at",
+          "unwatched_episodes",
+          "episode",
+          "progress",
+          "trailer"
+        ],
+        "properties": {
+          "kind": {"enum": ["movie", "series"]},
+          "id": {"type": "integer", "description": "The movie's or series' id."},
+          "title": {"type": "string", "description": "TMDB's title when matched, else parsed from the folder name."},
+          "year": {"type": ["integer", "null"]},
+          "genres": {"type": "array", "items": {"type": "string"}, "description": "From TMDB; empty when unmatched."},
+          "runtime_minutes": {"type": ["integer", "null"], "description": "Movies only."},
+          "overview": {"type": ["string", "null"], "description": "TMDB's overview, for the logline."},
+          "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280)."},
+          "backdrop_focus": {
+            "type": ["object", "null"],
+            "required": ["x", "y"],
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "From the left edge (0) to the right (1)."
+              },
+              "y": {"type": "number", "minimum": 0, "maximum": 1, "description": "From the top (0) to the bottom (1)."}
+            },
+            "additionalProperties": false,
+            "description": "Where the backdrop's subject is (its detail, by edge strength), to crop around."
+          },
+          "textless_backdrop": {
+            "type": ["string", "null"],
+            "description": "Artwork URL (w1280): TMDB's best-voted backdrop without text."
+          },
+          "textless_backdrop_focus": {
+            "type": ["object", "null"],
+            "required": ["x", "y"],
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "From the left edge (0) to the right (1)."
+              },
+              "y": {"type": "number", "minimum": 0, "maximum": 1, "description": "From the top (0) to the bottom (1)."}
+            },
+            "additionalProperties": false,
+            "description": "Where the backdrop's subject is (its detail, by edge strength), to crop around."
+          },
+          "logo": {"type": ["string", "null"], "description": "Artwork URL (w500), a PNG with transparency."},
+          "added_at": {
+            "type": ["integer", "null"],
+            "description": "When the title came in (its first file still here), in Unix seconds: for a \"new\" badge."
+          },
+          "unwatched_episodes": {
+            "type": ["integer", "null"],
+            "description": "Series only: episodes on disk you haven't watched, each once however many files have it, specials aside."
+          },
+          "episode": {
+            "type": ["object", "null"],
+            "required": ["file_id", "season", "episode", "name", "still"],
+            "properties": {
+              "file_id": {"type": "integer", "description": "The episode's file, to play."},
+              "season": {"type": ["integer", "null"]},
+              "episode": {"type": ["integer", "null"]},
+              "name": {"type": ["string", "null"]},
+              "still": {"type": ["string", "null"], "description": "Artwork URL (w300)."}
+            },
+            "additionalProperties": false,
+            "description": "The episode this entry is about: the one you're partway through, or the next one. Null elsewhere."
+          },
+          "progress": {
+            "type": ["object", "null"],
+            "required": ["file_id", "position_seconds", "duration_seconds", "watched", "updated_at"],
+            "properties": {
+              "file_id": {"type": "integer"},
+              "position_seconds": {"type": "number"},
+              "duration_seconds": {"type": ["number", "null"]},
+              "watched": {"type": "boolean"},
+              "updated_at": {"type": "integer"}
+            },
+            "additionalProperties": false,
+            "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
+          },
+          "trailer": {
+            "type": ["object", "null"],
+            "required": ["source", "file_id", "embed_url"],
+            "properties": {
+              "source": {"enum": ["folder", "online"], "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). `online`: TMDB's, in YouTube's privacy-enhanced player, given only while an admin has trailers online on."},
+              "file_id": {"type": ["integer", "null"], "description": "For `folder`: the trailer's id. Null for `online`."},
+              "embed_url": {"type": ["string", "null"], "description": "For `online`: the player's address on youtube-nocookie.com. Null for `folder`."}
+            },
+            "additionalProperties": false,
+            "description": "The pick's trailer: one in its folder first, else (only while trailers online are on) TMDB's. Null when there's none. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
+          }
+        },
+        "description": "A hero pick: a row's item, and where its trailer comes from.",
+        "additionalProperties": false
+      },
       "ArrConnection": {
         "type": "object",
         "required": ["url", "api_key"],
@@ -12351,6 +12894,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
+          "minimum_availability",
           "origin",
           "items",
           "formats"
@@ -12380,6 +12924,10 @@
           "language": {
             "type": ["string", "null"],
             "description": "Audio language wanted: an ISO 639-1 code, original or any. Radarr profiles only."
+          },
+          "minimum_availability": {
+            "enum": ["announced", "in_cinemas", "released"],
+            "description": "How far out a film must be before its releases are taken: any time, from its cinema release, or from its digital, disc or TV release. Whatever this says, a WEB or TV release before the film's digital or TV release, a disc release before its disc release and a cinema recording before its cinema release are refused as most likely fakes, when that date is known. Radarr profiles only; series profiles keep released and don't use it."
           },
           "origin": {
             "enum": ["imported", "melete"],
@@ -13024,6 +13572,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
+          "minimum_availability",
           "items",
           "formats"
         ],
@@ -13045,6 +13594,10 @@
           "language": {
             "type": ["string", "null"],
             "description": "An ISO 639-1 code, original or any; null for none (as in Sonarr)."
+          },
+          "minimum_availability": {
+            "enum": ["announced", "in_cinemas", "released", null],
+            "description": "How far out a film must be before a movie profile takes its releases. null for a series profile; null, a new profile gets released and a changed one keeps its setting (an older client that leaves it out gets the same)."
           },
           "items": {
             "type": "array",
@@ -13562,6 +14115,47 @@
         },
         "additionalProperties": false
       },
+      "WrongFileSetAside": {
+        "type": "object",
+        "required": ["trash_id", "download_id", "release", "search"],
+        "properties": {
+          "trash_id": {"type": "integer", "description": "Its trash entry, for POST /api/v1/trash/{id}/restore."},
+          "download_id": {"type": "integer", "description": "The download it came from, now failed."},
+          "release": {"type": "string", "description": "The release it came from, now blocklisted."},
+          "search": {"type": "string", "description": "What searching again did, in words."}
+        },
+        "additionalProperties": false
+      },
+      "RuntimeCheckStatus": {
+        "type": "object",
+        "required": ["failures", "stopped", "reasons", "overridden", "override_seconds"],
+        "properties": {
+          "failures": {"type": "integer", "description": "Downloads held back since the last import or override."},
+          "stopped": {"type": "boolean", "description": "Whether Melete has stopped searching for it by itself (3 or more)."},
+          "reasons": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/RuntimeCheckFailure"},
+            "description": "The latest held-back downloads (up to 5), newest last."
+          },
+          "overridden": {"type": "boolean", "description": "Whether an admin's \"the runtime is right after all\" holds now (TMDB's runtime is what it was then)."},
+          "override_seconds": {
+            "type": ["number", "null"],
+            "description": "While the override holds, the running time a movie's downloads are checked against; null when nothing is checked."
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuntimeCheckFailure": {
+        "type": "object",
+        "required": ["at", "download_id", "release", "reason"],
+        "properties": {
+          "at": {"type": "integer", "description": "Unix seconds."},
+          "download_id": {"type": "integer"},
+          "release": {"type": "string"},
+          "reason": {"type": "string", "description": "Why it was held back, in words."}
+        },
+        "additionalProperties": false
+      },
       "TrashedFile": {
         "type": "object",
         "required": [
@@ -13572,6 +14166,7 @@
           "size",
           "download_id",
           "replaced_by",
+          "reason",
           "trashed_at",
           "delete_after"
         ],
@@ -13581,10 +14176,14 @@
           "rel_path": {"type": "string", "description": "Where it was, relative to the library's folder."},
           "trash_path": {"type": "string", "description": "Where it is now, relative to the library's folder."},
           "size": {"type": "integer"},
-          "download_id": {"type": ["integer", "null"], "description": "The upgrade that replaced it."},
+          "download_id": {"type": ["integer", "null"], "description": "The upgrade that replaced it, or for a wrong file the download it came from."},
           "replaced_by": {
             "type": "string",
-            "description": "The file that replaced it, relative to the library's folder."
+            "description": "The file that replaced it, relative to the library's folder; empty for a wrong file."
+          },
+          "reason": {
+            "enum": ["upgrade", "wrong"],
+            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong); its history says set_aside, not upgraded."
           },
           "trashed_at": {"type": "integer", "description": "Unix seconds."},
           "delete_after": {
@@ -15725,7 +16324,8 @@
           "detail",
           "in_library",
           "wanted",
-          "requested"
+          "requested",
+          "poster"
         ],
         "properties": {
           "kind": {"type": "string", "enum": ["movie", "series", "artist", "album", "song"]},
@@ -15754,6 +16354,10 @@
           "requested": {
             "type": ["integer", "null"],
             "description": "Your request for it still open (asked for or approved): its id."
+          },
+          "poster": {
+            "type": ["string", "null"],
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
           }
         },
         "additionalProperties": false
@@ -15930,7 +16534,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "needs", "fields"],
+        "required": ["key", "name", "about", "on", "testable", "component", "fields", "needs"],
         "properties": {
           "key": {
             "type": "string",
@@ -15960,13 +16564,33 @@
           },
           "name": {"type": "string"},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
-          "on": {"type": "boolean", "description": "Whether it's in use as things stand: never while the service it needs is off."},
+          "on": {
+            "type": "boolean",
+            "description": "Whether it's in use as things stand: never while the service it needs is off."
+          },
+          "testable": {
+            "type": "boolean",
+            "description": "Whether its test (POST /api/v1/settings/services/{key}/test) tries to reach something. False for a setting of Melete's own, which has nothing to connect to."
+          },
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}},
+          "component": {
+            "type": ["object", "null"],
+            "description": "The component beside Melete it needs (Auto DJ the stem separator, motion covers their renderer), or null.",
+            "required": ["name", "set_up"],
+            "properties": {
+              "name": {"type": "string", "description": "What it is, as a sentence names it, e.g. \"stem separator\"."},
+              "set_up": {
+                "type": "boolean",
+                "description": "Whether Melete is set up to reach it (its folders are set). Whether it's running shows only when it's given work."
+              }
+            },
+            "additionalProperties": false
+          },
           "needs": {
             "type": ["string", "null"],
             "enum": ["tmdb", null],
             "description": "The service it only works with, by key (trending and similar titles and trailers online need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
-          },
-          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}}
+          }
         },
         "additionalProperties": false
       },
@@ -16408,7 +17032,8 @@
               "tmdb_off",
               "tmdb_refused",
               "tmdb_failing",
-              "titles_unmatched"
+              "titles_unmatched",
+              "runtime_checks_failed"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -16416,7 +17041,7 @@
           "count": {"type": "integer", "description": "How many things it's about."},
           "id": {
             "type": ["integer", "null"],
-            "description": "The indexer (indexer_failed) or library (files_missing, files_unparsed, disk_nearly_full) it's about."
+            "description": "The indexer (indexer_failed), library (files_missing, files_unparsed, disk_nearly_full) or wanted movie or series (runtime_checks_failed: GET /api/v1/runtime-checks/{kind}/{id}) it's about."
           }
         }
       },
@@ -16649,7 +17274,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16726,7 +17354,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "The poster's address (w342), as Watch's lists give it: the folder's own poster, else TMDB's; a wanted title not in the library has TMDB's when known. Null when there's none."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16807,7 +17438,10 @@
           },
           "title": {"type": "string"},
           "year": {"type": ["integer", "null"]},
-          "poster": {"type": ["string", "null"], "description": "A picture for the artist: the cover (GET /api/v1/music/albums/{id}/cover) of the first of their albums on disk that has one of its own, in its folder or in a track. Null when none has."},
+          "poster": {
+            "type": ["string", "null"],
+            "description": "A picture for the artist: the cover (GET /api/v1/music/albums/{id}/cover) of the first of their albums on disk that has one of its own, in its folder or in a track. Null when none has."
+          },
           "state": {
             "enum": ["in_library", "missing", "downloading", "unreleased", "unmonitored"],
             "description": "Worked out in this order: `downloading` when something it lacks is on its way (a download under way and either something monitored missing or nothing on disk); `missing` when a monitored part that's out isn't on disk (a movie, an aired episode, an album); `in_library` when something of it is on disk (an upgrade on its way, or not being monitored, leaves it there); `unreleased` when it's monitored and nothing of it is out yet; else `unmonitored`. Nothing is stored: it's worked out from the library, the wanted list and the downloads when asked."
@@ -16891,7 +17525,8 @@
               "taken_off",
               "blocklisted",
               "extra_found",
-              "renamed"
+              "renamed",
+              "set_aside"
             ]
           },
           "title": {
@@ -17154,7 +17789,10 @@
         "type": "object",
         "required": ["width", "height", "columns", "rows", "sheets", "times"],
         "properties": {
-          "width": {"type": "integer", "description": "Each picture's width in pixels (320)."},
+          "width": {
+            "type": "integer",
+            "description": "Each picture's width in pixels: 320, 480 or 640, as chosen in Settings when they were made."
+          },
           "height": {"type": "integer", "description": "Each picture's height in pixels, in the video's shape."},
           "columns": {"type": "integer", "description": "Pictures across a sheet."},
           "rows": {"type": "integer", "description": "Pictures down a sheet."},
@@ -17434,6 +18072,27 @@
         },
         "additionalProperties": false
       },
+      "PlaybackPreferences": {
+        "type": "object",
+        "required": ["autoplay_next", "countdown_seconds", "hero_trailers"],
+        "properties": {
+          "autoplay_next": {
+            "type": "boolean",
+            "description": "The next episode starts by itself when the countdown reaches nothing. Off: the player offers the next episode with no countdown. Default true."
+          },
+          "countdown_seconds": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 30,
+            "description": "How long the countdown before the next episode lasts. Default 10."
+          },
+          "hero_trailers": {
+            "enum": ["off", "large_screens", "everywhere"],
+            "description": "Where the Watch home's hero plays its picks' trailers, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. A trailer in the title's folder comes first; one online only while an admin has trailers online on."
+          }
+        },
+        "additionalProperties": false
+      },
       "TrackChoice": {
         "type": "object",
         "required": ["audio_language", "subtitle"],
@@ -17460,6 +18119,81 @@
               },
               {"type": "null"}
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekSong": {
+        "type": "object",
+        "required": ["title", "artist", "users", "formats"],
+        "properties": {
+          "title": {"type": "string"},
+          "artist": {"type": ["string", "null"], "description": "When the file's name or its folder says."},
+          "users": {"type": "integer", "description": "How many users share it."},
+          "formats": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "As its files' names end: FLAC, MP3…"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedSelection": {
+        "type": "object",
+        "required": ["action", "wanted_ids", "folders", "profile_id"],
+        "properties": {
+          "action": {"type": "string", "enum": ["monitor", "unmonitor", "profile", "remove"]},
+          "wanted_ids": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Titles on the wanted list: a managed list row's `wanted_id`. May be empty."
+          },
+          "folders": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Titles only in the library, for `monitor` only (empty otherwise): a row's `movie_id`, `series_id` or `artist_id`."
+          },
+          "profile_id": {
+            "type": ["integer", "null"],
+            "description": "For `profile`, the one set (needed); for `monitor`, the one titles only in the library are wanted with, null for the request defaults' profile; null for the others. A quality profile of the service's kind, or a music profile for artists."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManagedSelectionOutcome": {
+        "type": "object",
+        "required": ["changed", "wanted", "unchanged"],
+        "properties": {
+          "changed": {"type": "integer", "description": "Titles changed."},
+          "wanted": {
+            "type": "array",
+            "description": "Titles only in the library that are on the wanted list now.",
+            "items": {
+              "type": "object",
+              "required": ["folder", "wanted_id"],
+              "properties": {
+                "folder": {"type": "integer"},
+                "wanted_id": {
+                  "type": "integer",
+                  "description": "Its wanted entry, as a managed list row's `wanted_id`."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "unchanged": {
+            "type": "array",
+            "description": "Titles left as they were.",
+            "items": {
+              "type": "object",
+              "required": ["wanted_id", "folder", "why"],
+              "properties": {
+                "wanted_id": {"type": ["integer", "null"], "description": "Its wanted entry, when it was one."},
+                "folder": {"type": ["integer", "null"], "description": "Its folder, when it was only in the library."},
+                "why": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false

@@ -972,4 +972,61 @@ mod tests {
             ]
         );
     }
+
+    /// What Manage's Monitor on a title only in the library sends: the library it's in, a
+    /// profile, monitored, no search. It's wanted there, with the folder it already has, and
+    /// listed once.
+    #[tokio::test]
+    async fn a_title_only_in_the_library_is_wanted_where_it_is() {
+        let r = rig().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (4, 'films', 'movies', '/f');
+             INSERT INTO quality_profiles (id, source, name, upgrade_allowed, cutoff,
+                     min_format_score, cutoff_format_score, min_upgrade_format_score, updated_at)
+                 VALUES (9, 'radarr', 'HD', 1, 'Bluray-1080p', 0, 0, 1, 0);
+             INSERT INTO tmdb_movies (tmdb_id, title, release_date, year, fetched_at)
+                 VALUES (603, 'The Matrix', '1999-03-30', 1999, 0);
+             INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
+                     match_tmdb_id, match_status)
+                 VALUES (7, 4, 'The Matrix (1999)', 'The Matrix', 1, 603, 'matched');
+             INSERT INTO media_files (library_id, rel_path, size, modified_at, movie_id,
+                     first_seen_generation, seen_generation)
+                 VALUES (4, 'The Matrix (1999)/The Matrix.mkv', 1000, 0, 7, 1, 1);",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        let row = |t: &crate::manage::Title<crate::manage::MovieDetail>| {
+            (
+                t.wanted_id,
+                t.monitored,
+                t.detail.movie_id,
+                t.library.clone(),
+                t.profile_id,
+            )
+        };
+        let before = crate::manage::movies(&r.pool).await.unwrap();
+        assert_eq!(
+            before.iter().map(row).collect::<Vec<_>>(),
+            [(None, false, Some(7), Some("films".into()), None)]
+        );
+        let asked = NewRequest {
+            library_id: Some(4),
+            profile_id: Some(9),
+            monitored: Some(true),
+            search_now: Some(false),
+            ..movie(603)
+        };
+        assert!(!asked.choice().searches_now());
+        let made = create(&r.pool, Some(&r.tmdb), None, &r.admin, asked)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(made.state, "approved");
+        let after = crate::manage::movies(&r.pool).await.unwrap();
+        assert_eq!(
+            after.iter().map(row).collect::<Vec<_>>(),
+            [(made.wanted_id, true, Some(7), Some("films".into()), Some(9))]
+        );
+    }
 }
