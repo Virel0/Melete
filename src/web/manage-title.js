@@ -1,7 +1,7 @@
 // A title's page in Manage's Movies, Series and Anime: its header (poster, monitoring, state,
 // profile, library, folder, size), what can be done with it (Search, Search and choose, Edit,
 // Fix match, Open in Watch, Take off the list), its seasons and episodes for a series, its
-// files, its downloads under way and its history. Reached as `#/admin/<service>/title/<id>`,
+// files, its downloads under way, its running-time checks and its history. Reached as `#/admin/<service>/title/<id>`,
 // the id a wanted entry's, or "f" and a folder's for a title in the library that isn't wanted.
 
 import { confirmInline, when } from "/web/forms.js";
@@ -44,6 +44,7 @@ export async function titlePage(ctx) {
     movies ? null : seasonsPart(v),
     movies ? filesPart(v) : null,
     activityPart(v),
+    runtimePart(v),
     t.wanted ? historyPart(ctx, key, t.wanted_id) : null,
   ];
 }
@@ -232,4 +233,63 @@ function activityPart(v) {
     rows.length ? h("ul", { class: "rows" }, rows) : h("p", { class: "status" }, "Nothing on its way."),
     rows.length ? h("p", { class: "note" }, h("a", { href: `#/admin/${v.key}/activity` }, "Remove or search again under Activity")) : null,
   ];
+}
+
+// ---------- Running-time checks ----------
+
+// Downloads held back because they didn't run as long as TMDB says, and "The runtime is right
+// after all", which lets Melete search for the title again. Drawn only when there's something.
+function runtimePart(v) {
+  if (!v.t.wanted) return null;
+  const box = h("div", {});
+  const uri = `/runtime-checks/${v.movies ? "movie" : "series"}/${v.t.wanted_id}`;
+  const draw = (s, said) => {
+    if (!s.failures && !s.overridden) return box.replaceChildren();
+    const actions = h("div", { class: "row-actions" });
+    if (s.failures) {
+      const right = h("button", { type: "button", class: "quiet" }, "The runtime is right after all");
+      right.addEventListener("click", () =>
+        confirmInline(actions, {
+          question: v.movies
+            ? "Check this film's downloads against how long the last held-back one ran, instead of TMDB's runtime, until TMDB's changes? Melete then searches for it by itself again."
+            : "Stop checking this series' downloads against TMDB's episode runtimes until they change? Melete then searches for it by itself again.",
+          confirm: "The runtime is right",
+          keep: "Keep checking",
+          run: async () => {
+            draw(await api(`${uri}/right`, { method: "POST" }), "Saved. Melete searches for it by itself again.");
+            announce("Saved. Melete searches for it by itself again.");
+          },
+        }),
+      );
+      actions.append(right);
+    }
+    const lead = s.stopped
+      ? `Melete stopped searching for it by itself: ${s.failures} downloads didn't pass the running-time check.`
+      : s.failures
+        ? `${s.failures === 1 ? "1 download" : `${s.failures} downloads`} didn't pass the running-time check. After 3, Melete stops searching for it by itself.`
+        : null;
+    const held = s.overridden
+      ? s.override_seconds
+        ? `An admin said its runtime is right: downloads are checked against ${Math.round(s.override_seconds / 60)} minutes until TMDB's runtime changes.`
+        : "An admin said its runtime is right: its downloads aren't checked until TMDB's runtime changes."
+      : null;
+    const parts = [
+      h("h2", { class: "part" }, "Running-time checks"),
+      lead ? h("p", {}, s.stopped ? stateLabel("failed", lead) : lead) : null,
+      s.reasons.length
+        ? h("ul", { class: "rows" }, s.reasons.map((f) => h("li", {}, h("div", {}, h("span", { class: "path" }, f.release), h("p", { class: "note" }, `${f.reason} (${when(f.at)})`)))))
+        : null,
+      held ? h("p", { class: "note" }, held) : null,
+      actions,
+      h("p", { class: "form-result", role: "status" }, said ?? ""),
+    ];
+    box.replaceChildren(...parts.filter(Boolean));
+  };
+  api(uri)
+    .then((s) => draw(s))
+    .catch((err) => {
+      if (err instanceof SignedOut) return;
+      box.replaceChildren(h("p", { class: "status" }, `Its running-time checks couldn't be read. ${err.message}`));
+    });
+  return box;
 }

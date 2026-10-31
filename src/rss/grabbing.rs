@@ -69,6 +69,10 @@ pub(super) async fn grab_best(
     search_id: i64,
     grabbed: &mut Vec<Grabbed>,
 ) -> anyhow::Result<()> {
+    // Its downloads kept failing the running-time check: nothing more until an admin looks.
+    if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
+        return Ok(());
+    }
     let best: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, title FROM release_decisions WHERE search_id = ? AND accepted = 1
            AND lower(title) NOT IN (SELECT lower(title) FROM blocklist)
