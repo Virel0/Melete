@@ -3,7 +3,7 @@
 // (Deluge and the seedbox, set up here; Soulseek is under Indexers).
 
 import { group, when } from "/web/forms.js";
-import { SignedOut, announce, api, h, size } from "/web/lib.js";
+import { SignedOut, announce, api, h, number, size } from "/web/lib.js";
 import { currentHealth } from "/web/health.js";
 import { emptyState, stateLabel } from "/web/page-parts.js";
 import { ago, attentionStrip, rowTable } from "/web/manage-parts.js";
@@ -13,6 +13,7 @@ import { serviceSection } from "/web/services.js";
 
 const TASKS = {
   library: "Library scans",
+  "tmdb-matching": "TMDB matching",
   "music-matching": "Music matching",
   "music-analysis": "Music analysis",
   segments: "Intros and credits",
@@ -37,8 +38,15 @@ const RUN_THERE = {
 
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+// How far a running task's steps have got, a line each: "Probing files: 1,200 of 5,000, 3 failed".
+function taskProgress(t) {
+  if (!t.progress?.length) return null;
+  const line = (p) => `${sentence(p.what)}: ${number.format(p.done)} of ${number.format(p.total)}${p.failed ? `, ${number.format(p.failed)} failed` : ""}`;
+  return t.progress.map((p) => h("span", { class: "note task-progress" }, line(p)));
+}
+
 function taskState(t) {
-  if (t.running) return stateLabel("coming", "Running");
+  if (t.running) return h("span", {}, stateLabel("coming", "Running"), taskProgress(t));
   if (!t.active) return stateLabel("off", "Off: its service is off");
   if (t.result?.startsWith("failed")) return stateLabel("failed", sentence(t.result));
   if (t.result) return stateLabel("have", sentence(t.result));
@@ -53,8 +61,10 @@ const soon = (unix, next = false) => {
 };
 
 export async function systemTasks(ctx) {
-  const first = await api("/admin/system/tasks");
+  const [first, found] = await Promise.all([api("/admin/system/tasks"), currentHealth(true)]);
   if (!ctx.current()) return [];
+  // What TMDB matching's runs and setup say needs fixing, above the list.
+  const strip = attentionStrip((found.system ?? []).filter((f) => f.code?.startsWith("tmdb_")), "#/admin/system/tasks");
   const table = h("div");
   let polling = false;
   const draw = (tasks) => table.replaceChildren(rowTable(["Task", "State", "Last finished", "Next", ""], tasks.map((t) => taskRow(t, refresh, ctx))));
@@ -74,10 +84,11 @@ export async function systemTasks(ctx) {
   draw(first);
   if (first.some((t) => t.running)) refresh().catch(() => {});
   return [
+    strip,
     h(
       "p",
       { class: "note" },
-      "What Melete does in the background, as seen since the server started. A failed run says only that it failed; the server's log says why, since the reason can name an address. Runs never overlap.",
+      "What Melete does in the background, as seen since the server started. A failed run says only that it failed, or for TMDB matching what went wrong in a few plain words; the server's log says why, since the reason can name an address. Runs never overlap.",
     ),
     table,
   ];

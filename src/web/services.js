@@ -1,16 +1,13 @@
 // Outside services, for admins: TMDB, MusicBrainz, slskd, Deluge, the seedbox and the
 // rest, each with its settings, a connection test that can try values before they're saved,
 // and saving, which takes effect without a restart. A setting from .env wins and is shown, not
-// changed; a secret is only ever said to be set.
+// changed, naming its variable and the way to unlock it; a secret is only ever said to be set.
 
 import { field, form, group, secret } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
 
-const FROM = {
-  environment: "Set in .env, which wins; change it there.",
-  settings: null,
-  default: null,
-};
+// Why a setting given in .env can't be changed here: its variable, and the way back.
+const locked = (f) => ["Locked by ", h("code", {}, f.name), " in .env. Remove that line and restart Melete to change it here."];
 
 // One field's input, and how to read what's to be saved from it: a value, null to clear, or
 // undefined to leave it as it is.
@@ -18,10 +15,12 @@ function input(service, f) {
   const id = `service-${f.name.toLowerCase()}`;
   const fixed = f.from === "environment";
   if (f.input.toggle) {
-    const box = h("input", { type: "checkbox", id, checked: f.value === f.input.toggle.on, disabled: fixed });
+    const note = fixed ? locked(f) : f.hint || null;
+    const box = h("input", { type: "checkbox", id, checked: f.value === f.input.toggle.on, disabled: fixed, "aria-describedby": note ? `${id}-hint` : null });
     const el = h("div", { class: "check" }, box, h("label", { for: id }, f.label));
     return {
-      box: h("div", { class: "field" }, el, fixed ? h("p", { class: "note" }, FROM.environment) : f.hint ? h("p", { class: "note" }, f.hint) : null),
+      box: h("div", { class: "field" }, el, note ? h("p", { class: "note", id: `${id}-hint` }, note) : null),
+      input: box,
       clear() {},
       fail() {},
       read: () => (fixed ? undefined : box.checked ? f.input.toggle.on : "off"),
@@ -31,12 +30,12 @@ function input(service, f) {
     const { options } = f.input.choice;
     const current = f.value ?? options[0]?.value;
     const select = h("select", { disabled: fixed }, options.map((o) => h("option", { value: o.value, selected: o.value === current }, o.label)));
-    const made = field(id, f.label, select, fixed ? FROM.environment : f.hint || null);
+    const made = field(id, f.label, select, fixed ? locked(f) : f.hint || null);
     // Only a change is sent, so saving the service's other settings doesn't judge every title again.
     return { ...made, read: () => (fixed || select.value === current ? undefined : select.value) };
   }
   if (f.input === "secret") {
-    const hint = fixed ? FROM.environment : f.set ? `Set. Leave it empty to keep it.${f.hint ? ` ${f.hint}` : ""}` : f.hint || "Not set.";
+    const hint = fixed ? locked(f) : f.set ? `Set. Leave it empty to keep it.${f.hint ? ` ${f.hint}` : ""}` : f.hint || "Not set.";
     const made = field(id, f.label, h("input", { type: "password", autocomplete: "new-password", spellcheck: "false", disabled: fixed }), hint);
     const removeId = `${id}-remove`;
     const remove = h("input", { type: "checkbox", id: removeId });
@@ -59,7 +58,7 @@ function input(service, f) {
       disabled: fixed,
       class: f.input === "number" ? "year" : null,
     }),
-    fixed ? FROM.environment : f.hint || null,
+    fixed ? locked(f) : f.hint || null,
   );
   return { ...made, read: () => (fixed ? undefined : made.input.value.trim() || null) };
 }
@@ -74,8 +73,27 @@ function values(inputs) {
   return out;
 }
 
-// One service's settings, test and save; Indexers → Soulseek shows slskd's.
-export function serviceSection(ctx, s) {
+// Why a feature can't be turned on while the service it needs is off.
+const NEEDS_WHY = {
+  tmdb: "Needs TMDB's API Read Access Token, which isn't set. Set it above and save TMDB, then this can be turned on.",
+};
+
+// A feature whose service is off: its settings shown as they are, but nothing to change, save
+// or test until that one is set up; `why` is the paragraph saying so.
+function blocked(inputs, saving, test, why) {
+  for (const [, i] of inputs) {
+    i.input.disabled = true;
+    i.input.setAttribute("aria-describedby", [why.id, i.input.getAttribute("aria-describedby")].filter(Boolean).join(" "));
+    i.read = () => undefined;
+  }
+  saving.querySelector("button[type=submit]").hidden = true;
+  test.hidden = true;
+}
+
+// One service's settings, test and save; Indexers → Soulseek shows slskd's. A feature that only
+// works with another service (`needed`) is drawn under that one's, a heading lower, and is
+// blocked while that one is off; `features` are the ones drawn under this one.
+export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
   const inputs = s.fields.map((f) => [f.name, input(s, f)]);
   const tested = h("p", { class: "form-result", role: "status" });
   const test = h("button", { type: "button", class: "quiet" }, "Test connection");
@@ -104,7 +122,8 @@ export function serviceSection(ctx, s) {
     ctx.reload(`${s.name} saved, and in use now.`);
     return null;
   });
-  saving.querySelector(".form-actions").append(test);
+  // A setting of Melete's own has nothing to connect to, so no test.
+  if (s.testable) saving.querySelector(".form-actions").append(test);
   // Everything set in .env: nothing here to save, only to test.
   if (s.fields.every((f) => f.from === "environment")) saving.querySelector("button[type=submit]").hidden = true;
   const extra = [];
@@ -133,14 +152,24 @@ export function serviceSection(ctx, s) {
     }
   }
   const id = `service-${s.key}`;
+  const why = needed && !needed.on ? h("p", { class: "note", id: `${id}-needs` }, NEEDS_WHY[needed.key] ?? `Needs ${needed.name}, which is off. Set it up above, then this can be turned on.`) : null;
+  if (why) blocked(inputs, saving, test, why);
   return h(
     "section",
-    { class: "subgroup", "aria-labelledby": id },
-    h("h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
+    { class: needed ? "subgroup feature" : "subgroup", "aria-labelledby": id },
+    h(needed ? "h4" : "h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
     h("p", { class: "note" }, s.about),
+    why,
+    s.component && h("p", { class: "note" }, s.component.set_up ? `The ${s.component.name} is set up.` : `The ${s.component.name} isn't set up, so this can't run yet.`),
     saving,
-    tested,
+    s.testable && tested,
     extra,
+    features.length
+      ? [
+          h("p", { class: "note" }, `Features that use ${s.name}, each with its own switch:`),
+          features.map((f) => serviceSection(ctx, f, { needed: s })),
+        ]
+      : null,
   );
 }
 
@@ -162,10 +191,20 @@ export async function services(ctx) {
       h(
         "p",
         { class: "note" },
-        "Changes take effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were. Anything set in .env wins over what's set here.",
+        ".env holds what Melete needs before it starts, and is the only place to set it: its folders (libraries, data, transcoding), the address it listens on, the ways in, and the helpers running beside it. Everything below is set here instead, and takes effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were.",
+      ),
+      h(
+        "p",
+        { class: "note" },
+        "A setting below that is also given in .env is locked, since .env wins, and names its variable. To set it here, remove that line from .env and restart Melete with ",
+        h("code", {}, "docker compose up -d"),
+        " (",
+        h("code", {}, "docker compose restart"),
+        " keeps the old values).",
       ),
       moved.map((s) => h("p", { class: "note" }, `${s.name} is set up under `, h("a", { href: ELSEWHERE[s.key].href }, ELSEWHERE[s.key].name), ".")),
-      ...all.filter((s) => !ELSEWHERE[s.key]).map((s) => serviceSection(ctx, s)),
+      // A feature that needs another service is drawn under that one, not on its own.
+      ...all.filter((s) => !ELSEWHERE[s.key] && !s.needs).map((s) => serviceSection(ctx, s, { features: all.filter((f) => f.needs === s.key) })),
     ),
   ];
 }

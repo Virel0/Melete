@@ -79,6 +79,7 @@ const MODULES: [(&str, &str); 106] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("two-factor.js", include_str!("../web/two-factor.js")),
     ("languages.js", include_str!("../web/languages.js")),
     ("favourites.js", include_str!("../web/favourites.js")),
     ("user-access.js", include_str!("../web/user-access.js")),
@@ -443,6 +444,87 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// The top-level arguments of each `replaceChildren(` call in `body`, with the line it's on.
+    /// Quoted text is skipped, so a bracket inside a string doesn't count.
+    fn replace_children_arguments(body: &str) -> Vec<(usize, String)> {
+        let mut found = Vec::new();
+        for (at, _) in body.match_indices("replaceChildren(") {
+            let line = body[..at].matches('\n').count() + 1;
+            let (mut depth, mut quote, mut arg) = (1, None, String::new());
+            for c in body[at + "replaceChildren(".len()..].chars() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'' | '`') => quote = Some(c),
+                    (None, '(' | '[' | '{') => depth += 1,
+                    (None, ')' | ']' | '}') => depth -= 1,
+                    (None, ',') if depth == 1 => {
+                        found.push((line, std::mem::take(&mut arg)));
+                        continue;
+                    }
+                    _ => {}
+                }
+                if depth == 0 {
+                    break;
+                }
+                arg.push(c);
+            }
+            found.push((line, arg));
+        }
+        found
+    }
+
+    #[test]
+    fn the_palette_finds_artists_and_songs_and_a_song_opens_its_album() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let palette = module("palette.js");
+        assert!(palette.contains("music(`/music/artists?${query}`)"));
+        assert!(palette.contains("music(`/music/tracks?${query}&q_in=track&sort=title`)"));
+        assert!(palette.contains("#/music/albums/${t.album_id}?track=${t.id}"));
+        assert!(module("music.js").contains(r#"albumPage(id, ctx, params.get("track"))"#));
+        assert!(module("music-album.js").contains(r#"row.classList.add("found")"#));
+        assert!(module("music-album.js").contains(r#"row.querySelector(".track-play")?.focus("#));
+    }
+
+    #[test]
+    fn full_screen_belongs_to_the_stage_however_it_is_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        // The video's own button stays off where browsers honour that, a double-click on the
+        // picture goes full screen, and the video's own request hands over to the stage.
+        assert!(module("player.js").contains(r#"controlslist: "nofullscreen""#));
+        assert!(
+            module("player.js").contains(r#"addEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        assert!(
+            module("player.js")
+                .contains(r#"removeEventListener("fullscreenchange", onFullscreen)"#)
+        );
+        let keys = module("player-keys.js");
+        assert!(keys.contains(r#"video.addEventListener("dblclick""#));
+        assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    #[test]
+    fn no_module_hands_replace_children_a_null() {
+        // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
+        // own `h` and `append`, which leave it out.
+        let mut nullable = Vec::new();
+        for (name, body) in MODULES {
+            for (line, arg) in replace_children_arguments(body) {
+                let arg = arg.trim();
+                if arg == "null" || arg.ends_with(": null") || arg.ends_with("?? null") {
+                    nullable.push(format!("{name}:{line}"));
+                }
+            }
+        }
+        assert!(nullable.is_empty(), "{nullable:?}");
+        // The scan itself sees a nullable argument where there is one.
+        let sample = r#"nav.replaceChildren(a ? h("a", {}, "(") : null, b);"#;
+        let args = replace_children_arguments(sample);
+        assert_eq!(args.len(), 2);
+        assert!(args[0].1.ends_with(": null"));
     }
 
     /// Of `dist/hls.light.min.mjs` in https://registry.npmjs.org/hls.js/-/hls.js-1.7.3.tgz, whose

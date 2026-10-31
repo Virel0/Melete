@@ -16,8 +16,12 @@ pub(super) async fn login(
     client: Option<Extension<ClientAddr>>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
-    let (user, token) = sign_in(&state, address(client, peer), body).await?;
-    Ok(Json(json!({ "token": token, "user": user })).into_response())
+    match sign_in(&state, address(client, peer), body, false).await? {
+        SignedIn::Session(user, token) => {
+            Ok(Json(json!({ "token": token, "user": user })).into_response())
+        }
+        SignedIn::NeedsCode(challenge) => Ok(code_needed(&challenge)),
+    }
 }
 
 /// Signs in to a cookie the page's script can't read.
@@ -28,13 +32,33 @@ pub(super) async fn web_login(
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
-    let (user, token) = sign_in(&state, address(client, peer), body).await?;
-    let cookie = cookie(Some(&token), &headers);
-    Ok((
+    match sign_in(&state, address(client, peer), body, true).await? {
+        SignedIn::Session(user, token) => Ok(web_session(&user, &token, &headers)),
+        SignedIn::NeedsCode(challenge) => Ok(code_needed(&challenge)),
+    }
+}
+
+/// The web UI's answer to a finished sign-in: the session in a cookie, the user in the body.
+pub(super) fn web_session(user: &User, token: &str, headers: &HeaderMap) -> Response {
+    let cookie = cookie(Some(token), headers);
+    (
         [(header::SET_COOKIE, cookie)],
         Json(json!({ "user": user })),
     )
-        .into_response())
+        .into_response()
+}
+
+/// A right password from a user with a second factor: no session yet, but a challenge to
+/// finish with their code. A 401 with a message, so an app that doesn't know this step shows
+/// why it can't sign in.
+fn code_needed(challenge: &str) -> Response {
+    let body = json!({
+        "error": "this account also asks for a code from an authenticator app; an app that can't ask for one signs in with Quick Connect",
+        "second_factor": "totp",
+        "challenge": challenge,
+        "expires_in": two_factor::CHALLENGE_LIFETIME,
+    });
+    (StatusCode::UNAUTHORIZED, Json(body)).into_response()
 }
 
 /// Whether a request came in through the household's own way: one that opens everything,
@@ -56,14 +80,16 @@ pub(in super::super) fn address(
     }
 }
 
-/// Checks a password and issues a session. Lockouts count per username *and* address, so
+/// Checks a password and issues a session, or a challenge for a user with a second factor
+/// on. Lockouts count per username *and* address, so
 /// someone elsewhere can't lock a user out; behind a trusted reverse proxy, the address is
 /// the client's as the proxy says.
 pub(super) async fn sign_in(
     state: &AppState,
     address: String,
     body: LoginRequest,
-) -> Result<(User, String), ApiError> {
+    for_web: bool,
+) -> Result<SignedIn, ApiError> {
     let device = auth::validate_label(&body.device_name).map_err(bad_request)?;
     let wrong = || ApiError::new(StatusCode::UNAUTHORIZED, "wrong username or password");
     // A name that can't exist never reaches the limiter or the password check.
@@ -81,6 +107,19 @@ pub(super) async fn sign_in(
         return Err(wrong());
     };
     state.limiter.succeeded(&key);
+    // Asked only once the password was right, so a wrong one is answered as it always was.
+    if two_factor::is_on(&state.pool, user.id).await? {
+        let challenge = two_factor::start_challenge(&state.pool, user.id, device, for_web).await?;
+        return Ok(SignedIn::NeedsCode(challenge));
+    }
     let (_, token) = auth::issue_token(&state.pool, user.id, TokenKind::Session, device).await?;
-    Ok((user, token))
+    Ok(SignedIn::Session(user, token))
+}
+
+/// What a right password gave.
+pub(super) enum SignedIn {
+    /// A session for the device, and its user.
+    Session(User, String),
+    /// A challenge to finish with a code from the user's authenticator app.
+    NeedsCode(String),
 }

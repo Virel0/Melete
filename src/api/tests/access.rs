@@ -66,6 +66,16 @@ const PUBLIC: &[Public] = &[
     open("POST", "/api/v1/auth/web-login", "the web UI signing in"),
     open(
         "POST",
+        "/api/v1/auth/login/second-factor",
+        "finishing a sign-in whose password was right; needs its challenge and a code",
+    ),
+    open(
+        "POST",
+        "/api/v1/auth/web-login/second-factor",
+        "the web UI finishing its sign-in the same way",
+    ),
+    open(
+        "POST",
         "/api/v1/auth/quick-connect",
         "a device that isn't signed in asks for a code to show",
     ),
