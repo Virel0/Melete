@@ -132,11 +132,21 @@ capabilities.
    ```sh
    COMPOSE_FILE=compose.yaml:compose.build.yaml
    ```
-4. Without an NVIDIA GPU, remove the `deploy:` block from `compose.yaml` and set
-   `MELETE_HWACCEL: none` (the CPU). With one, the host needs the NVIDIA Container Toolkit.
-5. Libraries are set in `compose.yaml` as `MELETE_LIBRARY_<NAME>=<kind>[,<category>]:<path>`,
-   where the kind is `movies`, `shows` or `music` and the category `anime` or `kids`. Change
-   them to match your folders.
+4. Transcoding runs on the CPU unless `.env` says otherwise. With an NVIDIA GPU, add
+   `compose.nvidia.yaml`, which gives Melete the GPU and sets `MELETE_HWACCEL=nvenc`; the host
+   needs the NVIDIA driver and the NVIDIA Container Toolkit:
+
+   ```sh
+   COMPOSE_FILE=compose.yaml:compose.nvidia.yaml
+   ```
+
+   Keep any other optional files after it, separated by `:`. `MELETE_HWACCEL` in `.env` still
+   wins: `none` for the CPU, `nvenc` for the GPU.
+5. The libraries are movies, shows, anime (shows in the anime category) and music, from the
+   folders in step 2. `compose.yaml` sets each as
+   `MELETE_LIBRARY_<NAME>=<kind>[,<category>]:<path>`, where the kind is `movies`, `shows` or
+   `music` and the category `anime` or `kids`. To add or drop one, see
+   [Other library folders](#other-library-folders); `compose.yaml` needn't change.
 6. Start it:
 
    ```sh
@@ -158,6 +168,11 @@ docker compose up -d
 
 Melete backs up its database before a new version changes it (see
 [Backups and restore](#backups-and-restore)).
+
+A checkout from before `compose.nvidia.yaml` reserved the NVIDIA GPU in `compose.yaml` itself.
+If you transcode on one, add `compose.nvidia.yaml` to `COMPOSE_FILE` when you update (install
+step 4), or Melete transcodes on the CPU. Library changes made in `compose.yaml` itself move to
+a `compose.local.yaml` the same way ([Other library folders](#other-library-folders)).
 
 ### First run
 
@@ -187,6 +202,37 @@ lists for it:
 
 The separator and the renderer are built from this repository (`stems/`, `motion/`). Their
 models are downloaded from their publishers on first start, never shipped.
+
+`compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
+Melete the GPU.
+
+### Other library folders
+
+`compose.yaml` mounts four libraries: movies, shows, anime and music. To add one or drop one,
+leave `compose.yaml` as it is and put the change in a file of your own beside it,
+`compose.local.yaml` (git ignores it, so updates never conflict with it), added last to
+`COMPOSE_FILE` in `.env`:
+
+```sh
+COMPOSE_FILE=compose.yaml:compose.local.yaml
+```
+
+```yaml
+services:
+  melete:
+    environment:
+      # A library more: its kind (and category), and where it's mounted in the container.
+      MELETE_LIBRARY_KIDS: movies,kids:/media/kids
+      # A library less.
+      MELETE_LIBRARY_ANIME: !reset null
+    volumes:
+      - /path/to/kids:/media/kids:ro
+```
+
+A dropped library's folder is still mounted, because `compose.yaml` asks for its variable: set
+it in `.env` to an empty folder of your own (`MELETE_ANIME_DIR=/path/to/empty`); Melete doesn't
+read it. `!reset` needs Docker Compose 2.24 or later. `docker compose config` shows what the
+files add up to.
 
 ### Running as another user
 

@@ -1,0 +1,18 @@
+# Transcoding on an NVIDIA GPU (NVENC) instead of the CPU. Off unless added to compose.yaml in
+# .env, after it:
+#   COMPOSE_FILE=compose.yaml:compose.nvidia.yaml
+# The host needs the NVIDIA driver and the NVIDIA Container Toolkit; without them, compose
+# can't start Melete with this file. MELETE_HWACCEL in .env still wins (none for the CPU).
+
+services:
+  melete:
+    environment:
+      MELETE_HWACCEL: ${MELETE_HWACCEL:-nvenc}
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
