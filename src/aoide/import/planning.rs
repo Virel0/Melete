@@ -320,3 +320,62 @@ async fn images(
     }
     Ok((images, bad_images))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn op(payload: &str) -> OpRow {
+        OpRow {
+            seq: 37,
+            op_id: "o1".into(),
+            user_id: "u1".into(),
+            device_id: "d1".into(),
+            entity: "playlists".into(),
+            entity_id: "pl1".into(),
+            operation: "upsert".into(),
+            payload: payload.into(),
+            created_at: 0,
+            received_at: 0,
+            playlist_id: Some("pl1".into()),
+        }
+    }
+
+    /// The four shapes real exports hold: only a string id is cleared, at the top level, and
+    /// `fieldUpdatedAt` keeps its timestamp; a null or missing id leaves the op as it was.
+    #[test]
+    fn a_playlists_jellyfin_ids_are_cleared_in_every_shape_exports_hold() {
+        let shapes = [
+            (
+                r#"{"id":"pl1","sourceJellyfinId":"b2b2b2b2","fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                r#"{"id":"pl1","sourceJellyfinId":null,"fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                1,
+            ),
+            (
+                r#"{"id":"pl1","sourceJellyfinId":null,"fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                r#"{"id":"pl1","sourceJellyfinId":null,"fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                0,
+            ),
+            (
+                r#"{"id":"pl1","sourceJellyfinId":null}"#,
+                r#"{"id":"pl1","sourceJellyfinId":null}"#,
+                0,
+            ),
+            (
+                r#"{"id":"pl1","name":"Mix","fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                r#"{"id":"pl1","name":"Mix","fieldUpdatedAt":{"sourceJellyfinId":1700000000}}"#,
+                0,
+            ),
+            (
+                r#"{"id":"pl1","artworkItemId":"a1a1","sourceJellyfinId":"b2b2","fieldUpdatedAt":{"artworkItemId":1,"sourceJellyfinId":2}}"#,
+                r#"{"id":"pl1","artworkItemId":null,"sourceJellyfinId":null,"fieldUpdatedAt":{"artworkItemId":1,"sourceJellyfinId":2}}"#,
+                2,
+            ),
+        ];
+        for (before, after, count) in shapes {
+            let mut row = op(before);
+            assert_eq!(clear_jellyfin_ids(&mut row).unwrap(), count, "{before}");
+            assert_eq!(row.payload, after, "{before}");
+        }
+    }
+}

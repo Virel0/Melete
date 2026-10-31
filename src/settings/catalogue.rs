@@ -173,7 +173,7 @@ pub const SERVICES: &[Service] = &[
             field(
                 "MELETE_SLSKD_API_KEY",
                 "API key",
-                "One of the keys in slskd's web.authentication.api_keys.",
+                "One of the keys in slskd's web.authentication.api_keys, with the ReadWrite role and no more.",
                 Input::Secret,
             ),
             field(
@@ -240,7 +240,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "flaresolverr",
         name: "FlareSolverr",
-        about: "Reaching trackers behind Cloudflare's browser check (Uindex).",
+        about: "Reaching trackers behind Cloudflare's browser check (Uindex), through FlareSolverr or a solver that copies its API, such as Byparr. The Test checks the solver answers and fetches no page, so whether it gets past a check shows on the first search through it.",
         fields: &[field(
             "MELETE_FLARESOLVERR_URL",
             "FlareSolverr's address",

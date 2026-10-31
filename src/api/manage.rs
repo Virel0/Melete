@@ -136,6 +136,9 @@ async fn artists(
 }
 
 mod history;
+mod selection;
+
+pub use selection::selection_routes;
 
 #[cfg(test)]
 mod tests;
