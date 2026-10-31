@@ -9,6 +9,9 @@ license = "GPL-3.0-or-later"
 [dependencies]
 anyhow = "=1.0.104"
 argon2 = "=0.6.0"
+# AES-256-GCM for sealing stored secrets. Already in the build through rustls and russh, at
+# this version and with these features: naming it adds no crate.
+aws-lc-rs = { version = "=1.18.2", default-features = false, features = ["aws-lc-sys", "alloc"] }
 axum = "=0.8.9"
 base64 = "=0.23.1"
 # Guessing the encoding of subtitle files that aren't UTF-8 (Firefox's detector), and
