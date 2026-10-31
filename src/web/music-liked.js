@@ -1,13 +1,14 @@
-// Liked songs: the tracks this listener likes, newest like first, from the same likes their Aoide
-// devices keep (`GET /music/likes`), with Play and Shuffle. A liked track gone from the library
-// stays, greyed, with what it was. Albums have no like record yet, so there are none here.
+// Liked songs and Liked albums: the tracks and albums this listener likes, newest like first,
+// from the same likes their Aoide devices keep (`GET /music/likes`); songs with Play and
+// Shuffle, albums as cards. A liked track or album gone from the library stays, greyed, with
+// what it was.
 //
 // Likes live in Aoide's sync log, which is closed to someone who may see only some music
 // libraries: that refusal (403) is the page's one sentence.
 
 import { api, h, plural, show } from "/web/lib.js";
 import { LIKES_CLOSED, trackActions } from "/web/music-actions.js";
-import { markPlaying, songRow } from "/web/music-parts.js";
+import { albumCard, markPlaying, songRow } from "/web/music-parts.js";
 import { looseQueue, play, shufflePlay } from "/web/music-play.js";
 import { emptyState, placeholders } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
@@ -68,4 +69,42 @@ export async function likedPage(ctx) {
     list,
   );
   markPlaying(list, ctx);
+}
+
+export async function likedAlbumsPage(ctx) {
+  const title = h("h1", {}, "Liked albums");
+  if (!seesAllMusic()) return show("Liked albums", title, emptyState(LIKES_CLOSED));
+  show("Liked albums", title, placeholders("your liked albums"));
+  let likes;
+  try {
+    likes = await api("/music/likes");
+  } catch (err) {
+    if (err.status !== 403) throw err;
+    if (ctx.current()) show("Liked albums", title, emptyState(LIKES_CLOSED));
+    return;
+  }
+  if (!ctx.current()) return;
+  if (!likes.albums.length) {
+    show("Liked albums", title, emptyState("Albums you like show here. Open an album, then choose Like.", { href: "#/music/albums", label: "Go to Albums" }));
+    return;
+  }
+  const here = likes.albums.filter((l) => l.album);
+  const gone = likes.albums.filter((l) => !l.album);
+  show(
+    "Liked albums",
+    title,
+    h("p", { class: "status" }, plural(likes.albums.length, "album", "albums"), gone.length ? `, ${gone.length} of them no longer in the library` : ""),
+    here.length ? h("ul", { class: "grid" }, here.map((l) => albumCard(l.album))) : null,
+    gone.length
+      ? h(
+          "ul",
+          { class: "tracks songs" },
+          gone.map((l) => {
+            // "artist|album", as the apps key an album: what a gone album was.
+            const [artist, album] = (l.content_key ?? "").split("|");
+            return h("li", { class: "gone" }, h("span", { class: "name" }, h("span", {}, album || "An album"), h("span", { class: "by" }, artist || "")), h("span", { class: "missing" }, "Not in the library"));
+          }),
+        )
+      : null,
+  );
 }
