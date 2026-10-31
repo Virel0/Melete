@@ -36,6 +36,8 @@ const WHERE = {
   tmdb_failing: () => "#/admin/system/services",
   // Each service has its own Needs a match.
   titles_unmatched: (area) => `#/admin/${area}/match`,
+  // Each service has its own Where they go.
+  requests_no_profile: (area) => `#/admin/${area}/defaults`,
 };
 
 // Every area's findings, as { movies: [{ level, code, text, href, count }], … }.

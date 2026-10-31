@@ -78,6 +78,28 @@ pub async fn equivalent(pool: &SqlitePool, id: i64, service: &str) -> sqlx::Resu
     .await
 }
 
+/// A service's only profile, when it has exactly one: what a title of that service gets when
+/// nothing names one, as there's nothing to choose between.
+pub async fn sole(pool: &SqlitePool, service: &str) -> sqlx::Result<Option<i64>> {
+    let ids: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM quality_profiles WHERE service = ? LIMIT 2")
+            .bind(service)
+            .fetch_all(pool)
+            .await?;
+    Ok(match ids.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    })
+}
+
+/// How many profiles a service has.
+pub async fn count(pool: &SqlitePool, service: &str) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM quality_profiles WHERE service = ?")
+        .bind(service)
+        .fetch_one(pool)
+        .await
+}
+
 /// Where an app's imported profile goes: Radarr's to Movies; a Sonarr profile to each service
 /// whose wanted series name it, Series when none do.
 pub(super) async fn import_services(
