@@ -7,6 +7,17 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Music by description, with the server's OpenRouter key.** `POST /api/v1/ai/music/search`
+  turns a phrase such as "upbeat rock from the nineties" into filters (genres the library has,
+  a year range, words to search for, liked only, an order), and `POST /api/v1/ai/music/mix`
+  turns a mood into smart-playlist rules in Aoide's own format, with the names it mentioned and
+  each rule left out with its reason. The model never picks tracks: the apps run the filters and
+  rules against the library themselves, so they no longer need an OpenRouter key of their own.
+  What goes to OpenRouter: the words typed and the names of up to 300 of the genres the asker
+  may see. Each call counts as one of the user's 30 AI searches an hour.
+
 ### Fixed
 
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser

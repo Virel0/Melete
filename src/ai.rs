@@ -4,6 +4,9 @@
 //! What leaves the server for a search: the words someone typed to describe what they're
 //! after, and the instructions below; nothing about the library, the household or who asked.
 //! The model answers with titles it knows, which Melete then looks for in the library itself.
+//! For music search and mixes (`music_search`, `music_mix`): the words someone typed, and the
+//! names of the library's genres they may see, so the model uses the library's own; the model
+//! answers with filters or rules, never tracks, and the apps run those against the library.
 //! For picks (`picks`), while an admin has them on: titles with their year, up to three genres
 //! and a short premise, and nothing else. The key
 //! goes in the Authorization header only, and never into a log, an error or a URL. No
@@ -20,6 +23,8 @@ use serde_json::{Value, json};
 use crate::config::{OpenRouter, Secret};
 
 mod budget;
+mod music_mix;
+mod music_search;
 mod picks;
 
 pub use budget::*;
