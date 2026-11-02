@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 345);
+        assert_eq!(checked, 347);
     }
 
     /// The response's fields are exactly the schema's.
@@ -865,6 +865,26 @@ mod openapi {
         assert_shape(&spec, "AiSearch", &found);
         assert_shape(&spec, "ListItem", &found["results"][0]);
         assert_shape(&spec, "AiSuggestion", &found["suggested"][1]);
+        *fake.content.lock().unwrap() = r#"{"genres": [], "ordering": "random"}"#.into();
+        let filters = call(
+            "POST",
+            "/api/v1/ai/music/search",
+            Some(json!({ "query": "upbeat rock from the nineties" })),
+        )
+        .await;
+        assert_shape(&spec, "AiMusicFilters", &filters);
+        *fake.content.lock().unwrap() = r#"{"limit": 30, "names": ["Muse"],
+            "rules": [{"field": "liked", "op": "is", "value": true}, {"field": "x"}]}"#
+            .into();
+        let mix = call(
+            "POST",
+            "/api/v1/ai/music/mix",
+            Some(json!({ "description": "something to run to" })),
+        )
+        .await;
+        assert_shape(&spec, "AiMusicMix", &mix);
+        assert_shape(&spec, "AiSmartRules", &mix["rules"]);
+        assert_shape(&spec, "AiSmartRule", &mix["rules"]["rules"][0]);
     }
 
     #[tokio::test]

@@ -88,7 +88,9 @@ pub fn part(path: &str) -> Part {
             Part::Admin
         }
         "music" | "playlists" => Part::Music,
-        // Finding movies and series by describing them; music's AI would get its own arm.
+        // Music filters and mixes by description.
+        "ai" if api.starts_with("ai/music/") => Part::Music,
+        // Finding movies and series by describing them.
         "ai" => Part::Video,
         "requests"
             if api.starts_with("requests/settings")
