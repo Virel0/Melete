@@ -5,9 +5,11 @@
 // The preview is the pick's trailer when its folder has one (`/home`'s `trailer`), played as it
 // is when this browser can play it, else converted. Without one, it's 40 seconds of the title
 // itself, from where the viewer left it or an eighth of the way in (past most films' titles and
-// most episodes' recaps). Conversions are 720p H.264 at 3 Mbit/s, small enough to start at once,
-// and are asked for only on the home network, leaving the connection to whatever is being
-// watched. Nothing about a preview counts as watching. Trailers online aren't used here: YouTube's
+// most episodes' recaps). Either plays at full quality, chosen as the player chooses: the file as
+// it is when this browser can play it, its video copied when only the container or the sound is
+// the problem, else converted at its own height. A clip, and a converted trailer, play only on the
+// home network, leaving the connection to whatever is being watched elsewhere. `/home` offers a
+// folder trailer only when it's sharp enough. Nothing about a preview counts as watching. Trailers online aren't used here: YouTube's
 // player won't play without a referrer, which Melete's pages never send. Mneme does the same.
 //
 // Never when the device asks for less motion. On a phone-sized screen only when the user's
@@ -26,7 +28,6 @@ const WAIT_MS = 4000;
 const CLIP_MS = 40_000;
 // Enough for nearly any trailer to finish.
 const TRAILER_MS = 150_000;
-const CONVERSION = { max_height: 720, max_bitrate: 3_000_000, video_codec: "h264" };
 const stillness = matchMedia("(prefers-reduced-motion: reduce)");
 const phoneSized = matchMedia("(max-width: 40rem)");
 
@@ -62,23 +63,28 @@ async function find(item) {
   const home = onHomeNetwork();
   const trailer = item.trailer?.source === "folder" ? item.trailer.file_id : null;
   if (trailer) {
-    const info = await api(`/files/${trailer}`);
-    if (choose(info, {}).direct) {
-      const play = await api(`/files/${trailer}/play`, { method: "POST" });
-      return { url: play.stream_url, hls: false, at: 0, ms: TRAILER_MS, trailer: true };
-    }
-    if (home) return convert(trailer, 0, TRAILER_MS, true);
+    const found = await source(trailer, () => 0, TRAILER_MS, true, home);
+    if (found) return found;
   }
   if (!home) return null;
   const target = await playTarget(item);
   if (!target?.file_id) return null;
-  const info = await api(`/files/${target.file_id}`);
-  return convert(target.file_id, startOf(item, target.file_id, info), CLIP_MS, false);
+  return source(target.file_id, (info) => startOf(item, target.file_id, info), CLIP_MS, false, home);
 }
 
-async function convert(fileId, at, ms, trailer) {
-  const answer = await api(`/files/${fileId}/transcode`, { method: "POST", body: CONVERSION });
-  return { url: answer.playlist_url, hls: true, at, ms, trailer };
+// A file at full quality, as the player would play it: as it is when this browser can, else
+// its video copied or converted at its own height, which only `converting` allows. `at` works
+// out where to start from the file's info.
+async function source(fileId, at, ms, trailer, converting) {
+  const info = await api(`/files/${fileId}`);
+  const mode = choose(info, {});
+  if (mode.direct) {
+    const play = await api(`/files/${fileId}/play`, { method: "POST" });
+    return { url: play.stream_url, hls: false, at: at(info), ms, trailer };
+  }
+  if (!converting) return null;
+  const answer = await api(`/files/${fileId}/transcode`, { method: "POST", body: mode });
+  return { url: answer.playlist_url, hls: true, at: at(info), ms, trailer };
 }
 
 // Plays a conversion's playlist in `video`: through hls.js where the browser has Media Source,
@@ -152,6 +158,7 @@ export function heroTrailer(art) {
       t.hls = hls;
     } else {
       video.src = found.url;
+      if (found.at > 0) video.addEventListener("loadedmetadata", () => (video.currentTime = found.at), { once: true });
     }
     t.length = setTimeout(end, found.ms);
     art.append(video);

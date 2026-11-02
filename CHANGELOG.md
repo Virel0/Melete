@@ -26,6 +26,10 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Changed
 
+- The Watch home's previews play at full quality. A trailer in the title's folder is used only
+  when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
+  the title. The web plays either as the player would (the file as it is, its video copied, or
+  converted at its own height) rather than converted to 720p.
 - Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
   them full width at the top of its player. Existing ones are made again in the background, one
   album at a time.
