@@ -7,6 +7,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- Manage → System → Tasks shows making motion covers and splitting tracks into parts for the
+  Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
+  library, and how the run went once it has caught up.
+
 ### Fixed
 
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser

@@ -112,6 +112,17 @@ pub async fn work(pool: SqlitePool, folders: Folders, transcoder: Arc<Transcoder
                 "making motion covers stopped for now"
             );
         }
+        if let Ok(c) = coverage(&pool).await {
+            // A failed album is tried again later, but counts as done meanwhile.
+            let done = (c.done + c.skipped + c.failed).min(c.albums);
+            let counts = (done as usize, c.albums as usize, c.failed as usize);
+            crate::tasks::backlog("motion-covers", "making motion covers", on, counts, || {
+                format!(
+                    "{} made, {} skipped (mostly text or flat), {} failed",
+                    c.done, c.skipped, c.failed
+                )
+            });
+        }
         tokio::time::sleep(EVERY).await;
     }
 }

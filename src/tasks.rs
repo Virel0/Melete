@@ -23,7 +23,7 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 16] = [
+pub const TASKS: [Task; 18] = [
     Task {
         name: "library",
         what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
@@ -73,6 +73,16 @@ pub const TASKS: [Task; 16] = [
         name: "cover-colours",
         what: "works out album covers' colours",
         wake: Some(|| jobs::COVERS.notify_one()),
+    },
+    Task {
+        name: "motion-covers",
+        what: "makes motion covers from albums' still covers in the renderer beside Melete, while they're turned on, one album at a time and never while video is converted",
+        wake: None,
+    },
+    Task {
+        name: "stem-splitting",
+        what: "splits tracks into their parts in the stem separator beside Melete, for the Auto DJ and sing-along, while the Auto DJ is on, one track at a time and never while video is converted",
+        wake: None,
     },
     Task {
         name: "following",
@@ -187,6 +197,43 @@ pub fn progress(name: &'static str, what: &'static str, now: Option<Progress>) {
     if let Some(task) = all.get_mut(name) {
         task.progress.retain(|p| p.what != what);
         task.progress.extend(now);
+    }
+}
+
+/// Notes how a task that works through a backlog in its own loop stands, from its counts:
+/// running while `done` is short of `total`, with its progress as the step `what`; finished,
+/// with `summary`, once it has caught up; not running in this server while it's `on` is false.
+pub fn backlog(
+    name: &'static str,
+    what: &'static str,
+    on: bool,
+    (done, total, failed): (usize, usize, usize),
+    summary: impl FnOnce() -> String,
+) {
+    let mut all = runs();
+    if !on {
+        all.remove(name);
+        return;
+    }
+    let now = unix_now();
+    let task = all.entry(name).or_default();
+    if done < total {
+        if !task.running {
+            task.running = true;
+            task.started_at = Some(now);
+            task.next_at = None;
+        }
+        task.progress = vec![Progress {
+            what,
+            done,
+            total,
+            failed,
+        }];
+    } else if task.running || task.result.is_none() {
+        task.running = false;
+        task.finished_at = Some(now);
+        task.result = Some(summary());
+        task.progress.clear();
     }
 }
 
