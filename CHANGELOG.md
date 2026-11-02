@@ -24,6 +24,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   sent 10. Searches now wait 10 seconds after the last answer, as meant.
 - Indexers are asked for a compilation by its title alone (without "Various Artists" and the
   bracketed part), so a soundtrack's torrents can be found.
+- A feed with no API key that turns Melete away (HTTP 401 or 403), as AnimeTosho's does, is asked
+  again through FlareSolverr when one is set up. Feeds with a key never go through it.
 
 ## [0.3.1] - 2026-10-31
 
