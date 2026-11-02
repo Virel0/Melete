@@ -38,7 +38,10 @@ fn compose_runs_this_versions_release_unless_env_names_another() {
 
 #[test]
 fn the_renderer_and_the_separator_run_this_versions_release_unless_env_names_another() {
-    for (file, part) in [("compose.motion.yaml", "motion"), ("compose.stems.yaml", "stems")] {
+    for (file, part) in [
+        ("compose.motion.yaml", "motion"),
+        ("compose.stems.yaml", "stems"),
+    ] {
         let compose = read(file);
         let wanted = format!(
             "image: ${{MELETE_{}_IMAGE:-ghcr.io/virel0/melete:{}-{part}}}",
@@ -46,7 +49,10 @@ fn the_renderer_and_the_separator_run_this_versions_release_unless_env_names_ano
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(lines_with(&compose, "image"), [wanted.as_str()], "{file}");
-        assert!(lines_with(&compose, "build").is_empty(), "{file} builds nothing");
+        assert!(
+            lines_with(&compose, "build").is_empty(),
+            "{file} builds nothing"
+        );
     }
 }
 
