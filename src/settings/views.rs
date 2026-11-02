@@ -193,10 +193,7 @@ mod tests {
         assert_eq!(of(&without, "tmdb"), (None, false));
         assert_eq!(of(&without, "musicbrainz").0, None);
 
-        let token = with(&[
-            ("MELETE_DISCOVERY", "on"),
-            ("MELETE_TMDB_TOKEN", "token"),
-        ]);
+        let token = with(&[("MELETE_DISCOVERY", "on"), ("MELETE_TMDB_TOKEN", "token")]);
         assert_eq!(of(&token, "discovery"), (Some("tmdb"), true));
         // Each service needed is one there is, and needs nothing itself.
         for view in &token {

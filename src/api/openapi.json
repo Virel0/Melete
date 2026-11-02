@@ -12969,26 +12969,7 @@
             "additionalProperties": false,
             "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
           },
-          "trailer": {
-            "type": ["object", "null"],
-            "required": ["source", "file_id", "embed_url"],
-            "properties": {
-              "source": {
-                "enum": ["folder", "online"],
-                "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). `online`: TMDB's, in YouTube's privacy-enhanced player, given only while an admin has trailers online on."
-              },
-              "file_id": {
-                "type": ["integer", "null"],
-                "description": "For `folder`: the trailer's id. Null for `online`."
-              },
-              "embed_url": {
-                "type": ["string", "null"],
-                "description": "For `online`: the player's address on youtube-nocookie.com. Null for `folder`."
-              }
-            },
-            "additionalProperties": false,
-            "description": "The pick's trailer: one in its folder first, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts), else (only while trailers online are on) TMDB's. Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
-          }
+          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder"], "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."}
         },
         "description": "A hero pick: a row's item, and where its trailer comes from.",
         "additionalProperties": false
@@ -18282,7 +18263,7 @@
           },
           "hero_trailers": {
             "enum": ["off", "large_screens", "everywhere"],
-            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network); it doesn't play trailers online."
+            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network)."
           }
         },
         "additionalProperties": false

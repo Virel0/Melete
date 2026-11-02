@@ -7,6 +7,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Removed
+
+- **Trailers online.** The setting, the trailers fetched from TMDB's video lists and played
+  through YouTube's player, and `/api/v1/movies/{id}/trailer` and `/series/{id}/trailer` are
+  gone, and the video lists kept for them are deleted. Trailers in a title's folder still play
+  on its page and in the hero, and the hero's `trailer` is only ever `folder` now.
+
 ### Changed
 
 - The Watch home's previews play at full quality. A trailer in the title's folder is used only
