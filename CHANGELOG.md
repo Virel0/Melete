@@ -7,6 +7,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
+  them full width at the top of its player. Existing ones are made again in the background, one
+  album at a time.
+
 ### Fixed
 
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser
