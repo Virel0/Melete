@@ -7,6 +7,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
+  a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
+  to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
+
 ### Changed
 
 - **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
