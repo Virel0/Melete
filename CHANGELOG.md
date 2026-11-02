@@ -7,20 +7,6 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
-### Removed
-
-- **Trailers online.** The setting, the trailers fetched from TMDB's video lists and played
-  through YouTube's player, and `/api/v1/movies/{id}/trailer` and `/series/{id}/trailer` are
-  gone, and the video lists kept for them are deleted. Trailers in a title's folder still play
-  on its page and in the hero, and the hero's `trailer` is only ever `folder` now.
-
-### Changed
-
-- The Watch home's previews play at full quality. A trailer in the title's folder is used only
-  when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
-  the title. The web plays either as the player would (the file as it is, its video copied, or
-  converted at its own height) rather than converted to 720p.
-
 ### Added
 
 - `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
@@ -29,6 +15,10 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Changed
 
+- The Watch home's previews play at full quality. A trailer in the title's folder is used only
+  when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
+  the title. The web plays either as the player would (the file as it is, its video copied, or
+  converted at its own height) rather than converted to 720p.
 - Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
   them full width at the top of its player. Existing ones are made again in the background, one
   album at a time.
@@ -37,6 +27,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   Libraries), so you can check the folders first; after that, scans follow the schedule counted
   from the last one, so a restart scans only when a scheduled scan came due while Melete was
   down.
+
+### Removed
+
+- **Trailers online.** The setting, the trailers fetched from TMDB's video lists and played
+  through YouTube's player, and `/api/v1/movies/{id}/trailer` and `/series/{id}/trailer` are
+  gone, and the video lists kept for them are deleted. Trailers in a title's folder still play
+  on its page and in the hero, and the hero's `trailer` is only ever `folder` now.
 
 ### Fixed
 
