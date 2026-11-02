@@ -9,6 +9,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Added
 
+- The Movies, Shows and Anime pages have their own "Because you watched" rows, from the titles of
+  that kind you finished, and keep "Featured for you" and your rows to that kind. Apps get the
+  same with `GET /api/v1/home?kind=movies`, `shows` or `anime`.
 - **Music by description, with the server's OpenRouter key.** `POST /api/v1/ai/music/search`
   turns a phrase such as "upbeat rock from the nineties" into filters (genres the library has,
   a year range, words to search for, liked only, an order), and `POST /api/v1/ai/music/mix`
@@ -26,6 +29,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Changed
 
+- "Because you watched" shows up to three rows even when a title you finished recently has
+  nothing like it in the library: it looks further back instead.
 - The Watch home's previews play at full quality. A trailer in the title's folder is used only
   when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
   the title. The web plays either as the player would (the file as it is, its video copied, or

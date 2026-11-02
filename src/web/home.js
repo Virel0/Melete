@@ -22,6 +22,21 @@ const ROWS = {
   latest_movies: { heading: "Latest movies", more: { href: "#/movies", label: "All movies" } },
 };
 
+// A home's rows as `/home` answers them, drawn under its hero `top`; `latestHeading` names the
+// newest titles' row on a page of one kind, which has no link to itself.
+export function homeRows(rows, top, watching, latestHeading = null) {
+  return rows.map(({ key, seed, items }) => {
+    // One for each title you finished, so each has its own id.
+    if (key === "because_you_watched" && seed) {
+      return row(`because-${seed.kind}-${seed.id}`, `Because you watched ${seed.title}`, items, { spotlight: top.spotlight, watching });
+    }
+    const about = ROWS[key];
+    if (!about) return null;
+    const latest = latestHeading && key.startsWith("latest_");
+    return row(key, latest ? latestHeading : about.heading, items, { wide: about.wide, more: latest ? null : about.more, spotlight: top.spotlight, watching });
+  });
+}
+
 export async function home(gen) {
   show(
     "Home",
@@ -53,13 +68,6 @@ export async function home(gen) {
   const top = hero(answer.hero, { watching });
   leaving.push(top.stop);
   top.spotlight.add(answer.hero);
-  const rows = answer.rows.map(({ key, seed, items }) => {
-    // One for each title you finished, so each has its own id.
-    if (key === "because_you_watched" && seed) {
-      return row(`because-${seed.kind}-${seed.id}`, `Because you watched ${seed.title}`, items, { spotlight: top.spotlight, watching });
-    }
-    const about = ROWS[key];
-    return about ? row(key, about.heading, items, { wide: about.wide, more: about.more, spotlight: top.spotlight, watching }) : null;
-  });
+  const rows = homeRows(answer.rows, top, watching);
   show("Home", h("h1", { class: "visually-hidden" }, "Home"), top.el, h("div", { class: "watch-rows" }, rows));
 }

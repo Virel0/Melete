@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Extension, Json, Router, middleware};
 use futures_util::future::join_all;
@@ -29,6 +29,7 @@ use crate::access::Access;
 mod because;
 mod cards;
 mod hero_trailer;
+mod kinds;
 mod picks;
 
 use cards::*;
@@ -122,21 +123,64 @@ impl Entry {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct HomeQuery {
+    /// One page's home: its kind's titles alone.
+    kind: Option<kinds::Kind>,
+}
+
 async fn home(
     State(state): State<HomeState>,
     Extension(current): Extension<CurrentUser>,
+    Query(query): Query<HomeQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    use kinds::Kind;
     let pool = &state.pool;
     let me = current.user.id;
     let access = &current.access;
+    let kind = query.kind;
     let continuing = continue_watching(pool, me, access).await?;
     let next_up = next_up(pool, me, access).await?;
     let favourites = favourites(pool, me, access).await?;
-    let shows = latest_series(pool, access, false).await?;
-    let anime = latest_series(pool, access, true).await?;
-    let movies = latest_movies(pool, access).await?;
-    let because = because::rows(pool, &state.outside, me, access).await?;
+    let wants = |k: Kind| kind.is_none_or(|asked| asked == k);
+    let shows = if wants(Kind::Shows) {
+        latest_series(pool, access, false).await?
+    } else {
+        Vec::new()
+    };
+    let anime = if wants(Kind::Anime) {
+        latest_series(pool, access, true).await?
+    } else {
+        Vec::new()
+    };
+    let movies = if wants(Kind::Movies) {
+        latest_movies(pool, access).await?
+    } else {
+        Vec::new()
+    };
+    let because = because::rows(pool, &state.outside, me, access, kind).await?;
     let featured = picks::featured(pool, &state.outside, me, access).await?;
+    // A page's home keeps its own kind's titles in the user's rows and picks.
+    let titles: Vec<TitleRef> = continuing
+        .iter()
+        .chain(&next_up)
+        .chain(&favourites)
+        .chain(&featured)
+        .map(|e| e.title)
+        .collect();
+    let kinds = kinds::Kinds::of(pool, titles).await?;
+    let mine = |entries: Vec<Entry>| -> Vec<Entry> {
+        entries
+            .into_iter()
+            .filter(|e| kinds.is(kind, e.title))
+            .collect()
+    };
+    let (continuing, next_up, favourites, featured) = (
+        mine(continuing),
+        mine(next_up),
+        mine(favourites),
+        mine(featured),
+    );
 
     // The hero: what's being watched first, then the newest of everything.
     let mut newest: Vec<&(TitleRef, i64)> = shows.iter().chain(&anime).chain(&movies).collect();
