@@ -9,6 +9,14 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [0.3.2] - 2026-11-02
 
+### Changed
+
+- **The motion cover renderer and the stem separator are published with each release**, as
+  `ghcr.io/virel0/melete:<version>-motion` and `:<version>-stems`, and `compose.motion.yaml` and
+  `compose.stems.yaml` run those. Turning motion covers or the Auto DJ on is now adding the file
+  and its folders in `.env` and restarting, with no image to build. `MELETE_MOTION_IMAGE` or
+  `MELETE_STEMS_IMAGE` names another, such as one built from `motion/` or `stems/`.
+
 ### Fixed
 
 - **Soulseek found nothing, for anything.** Every search gave up 10 milliseconds after it started:
