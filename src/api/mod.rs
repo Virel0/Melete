@@ -67,7 +67,6 @@ mod subtitle_search;
 mod subtitles;
 mod system;
 mod title_artwork;
-mod trailers;
 mod transcode;
 mod trickplay;
 mod wanted_removed;

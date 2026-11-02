@@ -223,12 +223,11 @@ async fn home(
             cards.overlay_artwork(entry.title, &found);
         }
     }
-    // Each pick says where its trailer comes from, so an app needn't ask.
-    let online = crate::settings::trailers_online(pool).await?;
+    // Each pick says which trailer it has, so an app needn't ask.
     let mut picks = Vec::new();
     for entry in &hero {
         if let Some(mut pick) = cards.item(entry) {
-            pick["trailer"] = hero_trailer::hero_trailer(pool, entry.title, online).await?;
+            pick["trailer"] = hero_trailer::hero_trailer(pool, entry.title).await?;
             picks.push(pick);
         }
     }

@@ -10350,48 +10350,6 @@
         }
       }
     },
-    "/api/v1/movies/{id}/trailer": {
-      "get": {
-        "tags": ["Browse"],
-        "x-melete-access": "user",
-        "x-melete-scope": "read",
-        "summary": "A movie's trailer online",
-        "description": "The trailer chosen from TMDB's video list for the movie, while trailers online is on (MELETE_TRAILERS_ONLINE, off by default): a YouTube trailer or teaser in the metadata language, else English; a trailer before a teaser, an official one before others, then the largest and newest. Play it by loading `embed_url` (YouTube's privacy-enhanced mode, no cookies before playback) in a frame or web view only when the viewer presses play; until then show the title's own backdrop. A trailer in the movie's folder (its extras) comes first. The list is fetched after the movie's details and again whenever they are, so a title can have none yet.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Trailer"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "404": {
-            "description": "Trailers online are off, there's no such movie (or it's missing, or hidden from the user), or it has no trailer online",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
-    "/api/v1/series/{id}/trailer": {
-      "get": {
-        "tags": ["Browse"],
-        "x-melete-access": "user",
-        "x-melete-scope": "read",
-        "summary": "A series's trailer online",
-        "description": "As a movie's trailer online, from TMDB's video list for the series.",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Trailer"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "404": {
-            "description": "Trailers online are off, there's no such series (or it's missing, or hidden from the user), or it has no trailer online",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
     "/api/v1/series/{id}/credits": {
       "get": {
         "tags": ["Browse"],
@@ -13172,26 +13130,7 @@
             "additionalProperties": false,
             "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
           },
-          "trailer": {
-            "type": ["object", "null"],
-            "required": ["source", "file_id", "embed_url"],
-            "properties": {
-              "source": {
-                "enum": ["folder", "online"],
-                "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). `online`: TMDB's, in YouTube's privacy-enhanced player, given only while an admin has trailers online on."
-              },
-              "file_id": {
-                "type": ["integer", "null"],
-                "description": "For `folder`: the trailer's id. Null for `online`."
-              },
-              "embed_url": {
-                "type": ["string", "null"],
-                "description": "For `online`: the player's address on youtube-nocookie.com. Null for `folder`."
-              }
-            },
-            "additionalProperties": false,
-            "description": "The pick's trailer: one in its folder first, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts), else (only while trailers online are on) TMDB's. Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
-          }
+          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder"], "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."}
         },
         "description": "A hero pick: a row's item, and where its trailer comes from.",
         "additionalProperties": false
@@ -16966,7 +16905,6 @@
               "trickplay",
               "offline_copies",
               "discovery",
-              "trailers",
               "oidc",
               "openrouter",
               "opensubtitles",
@@ -17000,7 +16938,7 @@
           "needs": {
             "type": ["string", "null"],
             "enum": ["tmdb", null],
-            "description": "The service it only works with, by key (trending and similar titles and trailers online need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
+            "description": "The service it only works with, by key (trending and similar titles need TMDB), or null. The web UI shows it under that service, with its switches disabled while that one is off."
           }
         },
         "additionalProperties": false
@@ -18259,21 +18197,6 @@
         },
         "additionalProperties": false
       },
-      "Trailer": {
-        "type": "object",
-        "required": ["site", "key", "name", "language", "embed_url"],
-        "properties": {
-          "site": {"enum": ["youtube"]},
-          "key": {"type": "string", "pattern": "^[A-Za-z0-9_-]{11}$", "description": "The YouTube video id."},
-          "name": {"type": "string", "description": "As TMDB names it."},
-          "language": {"type": ["string", "null"], "description": "ISO 639-1, such as en."},
-          "embed_url": {
-            "type": "string",
-            "description": "https://www.youtube-nocookie.com/embed/ and the key: the only address to load it from. Add player parameters (such as autoplay=1) as needed."
-          }
-        },
-        "additionalProperties": false
-      },
       "Credits": {
         "type": "object",
         "required": ["cast", "crew", "collection"],
@@ -18503,7 +18426,7 @@
           },
           "hero_trailers": {
             "enum": ["off", "large_screens", "everywhere"],
-            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network); it doesn't play trailers online."
+            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network)."
           }
         },
         "additionalProperties": false

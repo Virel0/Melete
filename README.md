@@ -337,7 +337,6 @@ with what leaves the server.
 |---|---|---|
 | TMDB | Titles, posters, episode lists, ratings, cast | Titles to look up, TMDB ids, the metadata language, and the image files to fetch from its image server |
 | TMDB trending and similar titles | Discovery rows, franchise gaps | Which chart, or a title's or collection's TMDB id; optionally posters of titles not in the library, fetched once and cached |
-| Trailers online | Trailers for titles without one | The server asks TMDB for a title's videos by its id. YouTube (youtube-nocookie.com) is loaded by the viewer's own device, only when they press play |
 | MusicBrainz and the Cover Art Archive | Matching music, covers, music requests | Album and track names, the words of a music request search, and a release group's id for a cover |
 | LRCLIB | Synced lyrics | Each track's title, artist, album and length, once per track |
 | LibreTranslate | Translating lyrics | The lines of each song translated, to the server you set (you can run your own) |
@@ -352,7 +351,7 @@ with what leaves the server.
 | Radarr, Sonarr, Lidarr, Prowlarr imports | Bringing over lists, profiles and indexers | Run by an admin; the API key given is used for that import (Prowlarr's is kept for its feeds) |
 
 Peer-to-peer traffic happens only on the seedbox or in slskd. The web UI loads nothing from
-outside Melete, except a YouTube trailer a viewer chooses to play when trailers are on.
+outside Melete.
 
 **What Melete stores**, all in its data folder (`/config`) and transcode folder (`/transcode`):
 
