@@ -63,7 +63,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// The civil year of a day since 1970-01-01.
-fn year_of(days: i64) -> i64 {
+pub(crate) fn year_of(days: i64) -> i64 {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;

@@ -1,7 +1,8 @@
 //! AI features (`crate::ai`), for everyone signed in, off unless OpenRouter is set up.
 //! The first: finding movies or series in the library by describing them. Only the words
 //! typed go to OpenRouter; the model answers with titles it knows, and Melete looks for those
-//! in the library itself, so nothing about the library leaves the server.
+//! in the library itself, so nothing about the library leaves the server. Music by
+//! description is in `music`.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -21,7 +22,10 @@ use super::media::{add_list_fields, artwork_url};
 use crate::ai::{self, Client, Failure, Suggestion, TitleKind};
 use crate::search::comparable;
 
-/// Each search costs money on the household's account, so each user gets this many an hour.
+mod music;
+
+/// Each search costs money on the household's account, so each user gets this many an hour,
+/// movies, series and music together.
 const SEARCHES_PER_HOUR: usize = 30;
 
 /// When each user's searches in the last hour were made.
@@ -49,6 +53,8 @@ pub fn routes_with(pool: SqlitePool, client: Option<Arc<Client>>, recent: Arc<Se
     Router::new()
         .route("/api/v1/ai", get(about))
         .route("/api/v1/ai/search", post(search))
+        .route("/api/v1/ai/music/search", post(music::search))
+        .route("/api/v1/ai/music/mix", post(music::mix))
         .route_layer(middleware::from_fn_with_state(auth, require_user))
         .with_state(AiState {
             pool,
@@ -95,21 +101,22 @@ fn allowed(recent: &Searches, user: i64, now: Instant) -> bool {
     true
 }
 
-/// Movies or series in the library that fit a description: the titles the model suggests
-/// that are here, best fit first, and every title it suggested, with its id here or null.
-async fn search(
-    State(state): State<AiState>,
-    Extension(current): Extension<CurrentUser>,
-    Json(body): Json<Search>,
-) -> Result<Json<Value>, ApiError> {
+/// The client and the trimmed description, when AI is on, the description is 1 to
+/// [`ai::MAX_DESCRIPTION`] characters, and the user has a search left this hour, which this
+/// counts.
+fn ready<'a>(
+    state: &'a AiState,
+    current: &CurrentUser,
+    description: &'a str,
+) -> Result<(&'a Client, &'a str), ApiError> {
     let Some(client) = &state.client else {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "AI features aren't set up; an admin can add an OpenRouter key under Settings",
         ));
     };
-    let query = body.query.trim();
-    if query.is_empty() || query.chars().count() > ai::MAX_DESCRIPTION {
+    let description = description.trim();
+    if description.is_empty() || description.chars().count() > ai::MAX_DESCRIPTION {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             format!(
@@ -124,17 +131,32 @@ async fn search(
             format!("that's {SEARCHES_PER_HOUR} searches this hour; try again later"),
         ));
     }
+    Ok((client, description))
+}
+
+/// OpenRouter's failure for the person who asked: busy is theirs to wait out, the rest is the
+/// gateway's.
+fn failed(failure: Failure) -> ApiError {
+    let status = match failure {
+        Failure::Busy => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::BAD_GATEWAY,
+    };
+    ApiError::new(status, failure.to_string())
+}
+
+/// Movies or series in the library that fit a description: the titles the model suggests
+/// that are here, best fit first, and every title it suggested, with its id here or null.
+async fn search(
+    State(state): State<AiState>,
+    Extension(current): Extension<CurrentUser>,
+    Json(body): Json<Search>,
+) -> Result<Json<Value>, ApiError> {
+    let (client, query) = ready(&state, &current, &body.query)?;
     let kind = match body.kind {
         Kind::Movies => TitleKind::Movie,
         Kind::Series => TitleKind::Series,
     };
-    let suggestions = client.suggest(kind, query).await.map_err(|failure| {
-        let status = match failure {
-            Failure::Busy => StatusCode::TOO_MANY_REQUESTS,
-            _ => StatusCode::BAD_GATEWAY,
-        };
-        ApiError::new(status, failure.to_string())
-    })?;
+    let suggestions = client.suggest(kind, query).await.map_err(failed)?;
     let library = present(&state.pool, &current.access, kind).await?;
     let mut results = Vec::new();
     let mut seen = std::collections::HashSet::new();

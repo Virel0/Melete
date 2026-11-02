@@ -1436,7 +1436,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Find movies or series by describing them",
-        "description": "The description goes to OpenRouter, and nothing else: no titles from the library, nothing about who asked. The model answers with up to 30 titles it knows; those in the library come back in `results` (best fit first, as lists show them), and every suggestion in `suggested`, with its id here or null, so an app can offer to request the rest. A title counts when its title or original title is the suggestion's (case, accents, punctuation and a leading article aside) and its year is at most one off. Each user may search 30 times an hour.",
+        "description": "The description goes to OpenRouter, and nothing else: no titles from the library, nothing about who asked. The model answers with up to 30 titles it knows; those in the library come back in `results` (best fit first, as lists show them), and every suggestion in `suggested`, with its id here or null, so an app can offer to request the rest. A title counts when its title or original title is the suggestion's (case, accents, punctuation and a leading article aside) and its year is at most one off. Each user may search 30 times an hour, music searches and mixes included.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiSearchRequest"}}}
@@ -1454,7 +1454,83 @@
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"},
           "429": {
-            "description": "Searched 30 times this hour, or OpenRouter is busy",
+            "description": "30 AI searches this hour (movies, series and music together), or OpenRouter is busy",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "OpenRouter refused or failed (the key, the account's credit, or the model's answer)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "AI features aren't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/ai/music/search": {
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Music filters from a description",
+        "description": "Turns a phrase such as \"upbeat rock from the nineties\" into filters for the app to run against the library itself; the model never picks tracks. What goes to OpenRouter: the query, and the names of up to 300 of the genres of the tracks present that you may see (most tracks first), so the model chooses the library's own; never a title, an artist, listening history or who asked. Only genres the library has come back, in its spelling, each once; years are from 1860 to next year, a reversed range put right; an ordering the model made up is `by_name`. Counts as one of your 30 AI searches an hour.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiMusicSearchRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiMusicFilters"}}}
+          },
+          "400": {
+            "description": "No query, or one over 300 characters",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "30 AI searches this hour (movies, series and music together), or OpenRouter is busy",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "OpenRouter refused or failed (the key, the account's credit, or the model's answer)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "AI features aren't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/ai/music/mix": {
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Smart-playlist rules from a mood",
+        "description": "Turns a mood into smart-playlist rules in Aoide's own format (what a playlist's `smartRules` holds), for the app to run against the library and its listening history; the model never picks tracks. What goes to OpenRouter: the description, and the names of up to 300 of the genres of the tracks present that you may see (most tracks first); never a title, an artist, listening history or who asked. A rule whose field and operator don't go together, or whose value is the wrong kind, is left out and its reason given in `rejected`, never kept to match nothing. `rules` is null when the model asked for any of no usable rules, which could only ever be empty. Genre values are as the model wrote them; resolve them against the library's genres. Counts as one of your 30 AI searches an hour.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiMusicMixRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiMusicMix"}}}
+          },
+          "400": {
+            "description": "No description, or one over 300 characters",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "30 AI searches this hour (movies, series and music together), or OpenRouter is busy",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "502": {
@@ -11425,6 +11501,79 @@
           "title": {"type": "string", "description": "As the model gave it."},
           "year": {"type": ["integer", "null"]},
           "id": {"type": ["integer", "null"], "description": "The movie or series here, if it is."}
+        },
+        "additionalProperties": false
+      },
+      "AiMusicSearchRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What someone wants to hear, in their own words; 1-300 characters."
+          }
+        }
+      },
+      "AiMusicFilters": {
+        "type": "object",
+        "required": ["search_term", "genres", "from_year", "to_year", "liked_only", "ordering"],
+        "properties": {
+          "search_term": {"type": ["string", "null"], "description": "A song, album or artist name the description named."},
+          "genres": {"type": "array", "items": {"type": "string"}, "description": "The library's own genres, as it spells them."},
+          "from_year": {"type": ["integer", "null"], "description": "Released in or after; never after `to_year`."},
+          "to_year": {"type": ["integer", "null"], "description": "Released in or before."},
+          "liked_only": {"type": "boolean", "description": "Only what the user likes."},
+          "ordering": {"enum": ["by_name", "most_played", "newest_first", "random", "recently_played"]}
+        },
+        "additionalProperties": false
+      },
+      "AiMusicMixRequest": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "The mood, in their own words; 1-300 characters."
+          }
+        }
+      },
+      "AiMusicMix": {
+        "type": "object",
+        "required": ["names", "rules", "rejected"],
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Artists, albums, bands, games, films or shows the description named, as the model spelled them, for the app to search the library for."
+          },
+          "rules": {"anyOf": [{"$ref": "#/components/schemas/AiSmartRules"}, {"type": "null"}]},
+          "rejected": {"type": "array", "items": {"type": "string"}, "description": "Why each rule left out was."}
+        },
+        "additionalProperties": false
+      },
+      "AiSmartRules": {
+        "type": "object",
+        "required": ["match", "limit", "rules"],
+        "properties": {
+          "match": {"enum": ["all", "any"], "description": "Whether a track must pass every rule or any one; all of no rules is the whole library."},
+          "limit": {"type": ["integer", "null"], "minimum": 1, "description": "The most tracks the mix holds; null for no cap."},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/AiSmartRule"}}
+        },
+        "additionalProperties": false
+      },
+      "AiSmartRule": {
+        "type": "object",
+        "required": ["field", "op", "value"],
+        "properties": {
+          "field": {"enum": ["album", "album_artist", "artist", "duration_ms", "first_played", "genre", "last_played", "liked", "play_count", "skip_count", "title", "year"]},
+          "op": {
+            "enum": ["is", "isNot", "contains", "doesNotContain", "beginsWith", "greaterThan", "lessThan", "before", "after", "inTheLast", "notInTheLast"],
+            "description": "Text fields take is, isNot, contains, doesNotContain and beginsWith; number fields is, isNot, greaterThan and lessThan; first_played and last_played before, after, inTheLast and notInTheLast; liked is and isNot."
+          },
+          "value": {
+            "type": ["string", "integer", "boolean"],
+            "description": "Text for text fields, a whole number for number fields, true or false for liked; for a date field a span back from now such as `-30d` (d, w, m or y), or for before and after a millisecond since 1970."
+          }
         },
         "additionalProperties": false
       },
