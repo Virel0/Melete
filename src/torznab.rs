@@ -302,8 +302,23 @@ impl Client {
         if !key.is_empty() {
             query.push(("apikey", key));
         }
-        self.fetch_keyed(endpoint.url, &query, !key.is_empty())
+        match self
+            .fetch_keyed(endpoint.url, &query, !key.is_empty())
             .await
+        {
+            // A feed with no key that turns Melete away may want a browser first, as
+            // AnimeTosho's does: asked again through FlareSolverr when one is set. A feed with
+            // a key never is, so no key reaches the browser.
+            Err(
+                refused @ Error::Refused {
+                    key_sent: false, ..
+                },
+            ) => match flaresolverr() {
+                Some(flaresolverr) => feed_through(&flaresolverr, endpoint.url, &query).await,
+                None => Err(refused),
+            },
+            answer => answer,
+        }
     }
 
     /// GETs a URL with a query, as text: the timeout, the size cap, no redirects, and errors
@@ -337,6 +352,42 @@ impl Client {
             _ => {}
         }
         read_body(&mut response).await
+    }
+}
+
+/// A feed fetched by FlareSolverr's browser, as the feed's own text.
+async fn feed_through(
+    flaresolverr: &crate::flaresolverr::Client,
+    url: &str,
+    query: &[(&str, &str)],
+) -> Result<String, Error> {
+    let url = reqwest::Url::parse_with_params(url, query)
+        .map_err(|_| Error::Unreachable("the indexer's address isn't one".into()))?;
+    let page = flaresolverr
+        .get(url.as_str())
+        .await
+        .map_err(|why| Error::Unreachable(format!("refused, and through {why}")))?;
+    Ok(feed_in(&page))
+}
+
+/// The feed in the page a browser shows for it. Chrome shows XML as text, escaped inside a
+/// `<pre>`; a browser that keeps the XML as it is leaves nothing to undo.
+fn feed_in(page: &str) -> String {
+    let inner = page.find("<pre").and_then(|start| {
+        let open = start + page[start..].find('>')? + 1;
+        let close = page.rfind("</pre>")?;
+        (open <= close).then(|| &page[open..close])
+    });
+    match inner {
+        Some(text) if text.contains("&lt;") => text
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            // Last, so an escaped "&amp;" in the feed stays one.
+            .replace("&amp;", "&"),
+        _ => page.to_owned(),
     }
 }
 
@@ -919,6 +970,42 @@ mod tests {
         assert_eq!(ago("3 hours ago", 10_000), Some(10_000 - 3 * 3600));
         assert_eq!(ago("an hour ago", 10_000), Some(10_000 - 3600));
         assert_eq!(ago("yesterday", 10_000), None);
+    }
+
+    /// A Torznab feed as FlareSolverr 3.5's Chrome hands it back: escaped text in a `<pre>`.
+    const FEED_IN_CHROME: &str = r#"<html><head><meta name="color-scheme" content="light dark"></head><body><pre style="word-wrap: break-word; white-space: pre-wrap;">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed"&gt;&lt;channel&gt;&lt;title&gt;Test feed&lt;/title&gt;
+&lt;item&gt;&lt;title&gt;Some Show - 01 [1080p] Tom &amp;amp; Jerry&lt;/title&gt;&lt;guid&gt;abc&lt;/guid&gt;&lt;link&gt;https://example.com/a.torrent&lt;/link&gt;&lt;size&gt;1234&lt;/size&gt;&lt;pubDate&gt;Sat, 01 Nov 2026 10:00:00 +0000&lt;/pubDate&gt;&lt;enclosure url="https://example.com/a.torrent" length="1234" type="application/x-bittorrent"/&gt;&lt;torznab:attr name="seeders" value="5"/&gt;&lt;torznab:attr name="category" value="5070"/&gt;&lt;/item&gt;
+&lt;/channel&gt;&lt;/rss&gt;
+</pre></body></html>"#;
+
+    #[test]
+    fn a_feed_shown_by_chrome_is_read_as_the_feed() {
+        let items = parse_items(&feed_in(FEED_IN_CHROME)).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "Some Show - 01 [1080p] Tom & Jerry");
+        assert_eq!(items[0].categories, [5070]);
+        // A browser that keeps the XML: nothing to undo.
+        let raw = feed_in(FEED_IN_CHROME);
+        assert_eq!(feed_in(&raw), raw);
+    }
+
+    #[tokio::test]
+    async fn a_refused_feed_is_fetched_through_flaresolverr() {
+        let (url, log) = crate::flaresolverr::testing::start(FEED_IN_CHROME).await;
+        let flaresolverr = crate::flaresolverr::Client::new(&url).unwrap();
+        let feed = feed_through(
+            &flaresolverr,
+            "https://feed.example/api",
+            &[("t", "search"), ("q", "Some Show")],
+        )
+        .await
+        .unwrap();
+        assert_eq!(parse_items(&feed).unwrap().len(), 1);
+        assert_eq!(
+            log.lock().unwrap()[0],
+            "https://feed.example/api?t=search&q=Some+Show"
+        );
     }
 
     #[tokio::test]
