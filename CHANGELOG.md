@@ -13,6 +13,10 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
   the title. The web plays either as the player would (the file as it is, its video copied, or
   converted at its own height) rather than converted to 720p.
+- **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
+  Libraries), so you can check the folders first; after that, scans follow the schedule counted
+  from the last one, so a restart scans only when a scheduled scan came due while Melete was
+  down.
 
 ### Fixed
 
