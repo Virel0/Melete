@@ -1,6 +1,8 @@
 //! Working through imports in the background, one at a time and a track at a time.
 
 use super::*;
+use crate::aoide::matcher::Matcher;
+use crate::aoide::writing::TrackLink;
 
 /// One import at a time: they share MusicBrainz's one request a second.
 pub(super) static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -57,6 +59,8 @@ pub async fn run(
         .bind(id)
         .execute(pool)
         .await?;
+    let filling = filling(pool, id).await?;
+    let matcher = filling.as_ref().map(|f| Matcher::new(&f.library));
     let pending = pending(pool, id).await?;
     for (position, title, artist, album, isrc, length_ms) in pending {
         // Removed partway: nothing more is asked for.
@@ -77,19 +81,30 @@ pub async fn run(
             length_ms,
             isrc,
         };
-        let (state, why, request, fetch) = ask(pool, mb, &user, &track).await?;
+        let found = match &matcher {
+            Some(matcher) => in_library(pool, matcher, &track).await?,
+            None => None,
+        };
+        let handled = match found {
+            Some(link) => Handled::in_library(link),
+            None => ask(pool, mb, &user, &track).await?,
+        };
+        // Into the playlist first: handled again after a restart, it's the same item.
+        if let Some(filling) = &filling {
+            put_in(pool, user.id, &filling.playlist, position, &track, &handled).await;
+        }
         sqlx::query(
             "UPDATE playlist_import_tracks SET state = ?, why = ?, request_id = ?
              WHERE import_id = ? AND position = ?",
         )
-        .bind(state)
-        .bind(&why)
-        .bind(request)
+        .bind(handled.state)
+        .bind(&handled.why)
+        .bind(handled.request)
         .bind(id)
         .bind(position)
         .execute(pool)
         .await?;
-        if let (true, Some(request)) = (fetch, request)
+        if let (true, Some(request)) = (handled.fetch, handled.request)
             && let Err(err) = fulfil::run(pool, sources, request).await
         {
             tracing::warn!(
@@ -149,6 +164,9 @@ async fn finish(pool: &SqlitePool, id: i64) -> anyhow::Result<()> {
         .await?
         .ok_or_else(|| anyhow::anyhow!("import {id} vanished"))?;
     let mut said = vec![format!("{} asked for", done.asked)];
+    if done.in_library > 0 {
+        said.push(format!("{} in the library already", done.in_library));
+    }
     if done.already > 0 {
         said.push(format!("{} asked for already", done.already));
     }
@@ -166,14 +184,50 @@ async fn finish(pool: &SqlitePool, id: i64) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What became of one track: its state, why it wasn't asked for, its request, and whether it
-/// was approved at once and is to be fetched.
+/// What became of one track.
+pub(super) struct Handled {
+    /// asked, already, unmatched or in_library.
+    pub(super) state: &'static str,
+    /// Why it wasn't asked for, when unmatched.
+    pub(super) why: Option<String>,
+    /// Its request: the one made, or the one asked already.
+    pub(super) request: Option<i64>,
+    /// Whether it was approved at once and is to be fetched.
+    pub(super) fetch: bool,
+    /// The library's track, when it's there already.
+    pub(super) track: Option<TrackLink>,
+}
+
+impl Handled {
+    fn of(state: &'static str, why: Option<String>, request: Option<i64>) -> Self {
+        Self {
+            state,
+            why,
+            request,
+            fetch: false,
+            track: None,
+        }
+    }
+
+    fn unmatched(why: String) -> Self {
+        Self::of("unmatched", Some(why), None)
+    }
+
+    fn in_library(track: TrackLink) -> Self {
+        Self {
+            track: Some(track),
+            ..Self::of("in_library", None, None)
+        }
+    }
+}
+
+/// Matches a track to a recording and asks for it as `user`.
 pub(super) async fn ask(
     pool: &SqlitePool,
     mb: &musicbrainz::Client,
     user: &User,
     track: &Track,
-) -> anyhow::Result<(&'static str, Option<String>, Option<i64>, bool)> {
+) -> anyhow::Result<Handled> {
     let mut tries = 0;
     let recording = loop {
         match recording_for(mb, track).await {
@@ -181,12 +235,9 @@ pub(super) async fn ask(
             Err(err) => {
                 tries += 1;
                 if tries == TRIES {
-                    return Ok((
-                        "unmatched",
-                        Some(format!("MusicBrainz didn't answer: {err}")),
-                        None,
-                        false,
-                    ));
+                    return Ok(Handled::unmatched(format!(
+                        "MusicBrainz didn't answer: {err}"
+                    )));
                 }
                 tracing::info!(error = %err, "MusicBrainz didn't answer; trying again in a minute");
                 tokio::time::sleep(RETRY).await;
@@ -195,7 +246,7 @@ pub(super) async fn ask(
     };
     let recording = match recording {
         Ok(id) => id,
-        Err(why) => return Ok(("unmatched", Some(why), None, false)),
+        Err(why) => return Ok(Handled::unmatched(why)),
     };
     let new = NewRequest {
         kind: "song".into(),
@@ -204,12 +255,12 @@ pub(super) async fn ask(
     };
     Ok(
         match requests::create(pool, None, Some(mb), user, new).await? {
-            Ok(view) => {
-                let fetch = view.state == "approved" && view.decided_by.is_some();
-                ("asked", None, Some(view.id), fetch)
-            }
-            Err(Refused::Already(id)) => ("already", None, Some(id), false),
-            Err(refused) => ("unmatched", Some(refused.to_string()), None, false),
+            Ok(view) => Handled {
+                fetch: view.state == "approved" && view.decided_by.is_some(),
+                ..Handled::of("asked", None, Some(view.id))
+            },
+            Err(Refused::Already(id)) => Handled::of("already", None, Some(id)),
+            Err(refused) => Handled::unmatched(refused.to_string()),
         },
     )
 }

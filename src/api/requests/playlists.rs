@@ -2,6 +2,9 @@
 //! every track still waiting.
 
 use super::*;
+use crate::aoide::playlist_edits::{self, EditError, Editor};
+use crate::aoide::writing::session_device;
+use crate::db::now_ms;
 
 /// The largest playlist file taken: a few thousand tracks with every column Exportify writes.
 pub(super) const MAX_IMPORT_BYTES: usize = 8 * 1024 * 1024;
@@ -13,9 +16,13 @@ pub(super) struct NewImport {
     pub(super) name: String,
     /// The playlist as CSV, Exportify's columns or the like.
     pub(super) csv: String,
+    /// Whether to make an Aoide playlist of it, with every track in it.
+    #[serde(default)]
+    pub(super) make_playlist: bool,
 }
 
-/// Starts importing a playlist: each track will be matched and asked for as a song.
+/// Starts importing a playlist: each track will be matched and asked for as a song, and with
+/// `make_playlist`, put in an Aoide playlist of the same name.
 pub(super) async fn import(
     State(state): State<RequestState>,
     Extension(current): Extension<CurrentUser>,
@@ -30,8 +37,49 @@ pub(super) async fn import(
         return Err(refused(Refused::NoMusicBrainz));
     }
     let tracks = playlist_import::parse(&new.csv).map_err(bad)?;
-    let made = playlist_import::create(&state.pool, &current.user, name, &tracks).await?;
+    let playlist = if new.make_playlist {
+        Some(make_playlist(&state.pool, &current, name).await?)
+    } else {
+        None
+    };
+    let made = playlist_import::create(
+        &state.pool,
+        &current.user,
+        name,
+        &tracks,
+        playlist.as_deref(),
+    )
+    .await?;
     Ok((StatusCode::ACCEPTED, Json(made)))
+}
+
+/// A new, empty Aoide playlist named `name` for the import to fill, made as this session, as
+/// one made from the web is. Refused to a user who may see only some music libraries, to whom
+/// Aoide's sync log is closed.
+async fn make_playlist(
+    pool: &SqlitePool,
+    current: &CurrentUser,
+    name: &str,
+) -> Result<String, ApiError> {
+    if !current.access.sees_all_music(pool).await? {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "playlists are open only to users who may see every music library",
+        ));
+    }
+    let device = session_device(current.token_id);
+    let editor = Editor {
+        user_id: current.user.id,
+        device: &device,
+        now: now_ms(),
+    };
+    playlist_edits::create(pool, &editor, name, None)
+        .await
+        .map_err(|err| match err {
+            EditError::Write(err) => super::super::music_likes::write_failed(err),
+            // Making one fails only in writing it.
+            other => anyhow::anyhow!("making a playlist: {other:?}").into(),
+        })
 }
 
 #[derive(Deserialize)]

@@ -15,6 +15,14 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
   a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
   to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
+- Aoide playlists can hold songs that aren't in the library yet. Such an item is pending: it
+  names the song and the request that will bring it, and once the song arrives Melete swaps the
+  track in, in the sync log, so every device just syncs it. A playlist import can make the
+  playlist too (`make_playlist`): every track goes in, in order, those the library has as they
+  are (and they aren't asked for), the rest pending on their requests, or on none with why when
+  MusicBrainz had nothing that fits. The import says which playlist (`playlist_id`) and how many
+  tracks were in the library already (`in_library`). `GET /api/v1/playlists/{id}` and the web's
+  playlist page show a pending song with how its request stands.
 
 ### Changed
 

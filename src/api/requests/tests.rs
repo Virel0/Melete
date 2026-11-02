@@ -1256,3 +1256,5 @@ async fn admins_look_on_soulseek_with_only_the_words() {
     let (status, body) = send(&without, "GET", uri, &admin, None).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
+
+mod playlist_imports;

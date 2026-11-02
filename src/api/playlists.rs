@@ -14,6 +14,7 @@ use sqlx::SqlitePool;
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_user};
 use crate::aoide::listening::normalise;
+use crate::aoide::pending::{self, Pending};
 use crate::aoide::playlists::{self, Playlist};
 
 mod edits;
@@ -96,7 +97,8 @@ async fn list(
 }
 
 /// A playlist with its items in order, each with its track as the music API shows it, or null
-/// when the track isn't in the library (its `content_key` says what it was).
+/// when the track isn't in the library (its `content_key` says what it was), and a song not in
+/// the library yet with `pending` saying what it is and how its request stands.
 async fn one(
     State(pool): State<SqlitePool>,
     Extension(current): Extension<CurrentUser>,
@@ -126,6 +128,12 @@ async fn detail(
     };
     let ids: Vec<i64> = playlist.items.iter().filter_map(track_of).collect();
     let tracks = super::music::tracks_by_id(pool, access, me, &ids).await?;
+    let asked: Vec<i64> = playlist
+        .items
+        .iter()
+        .filter_map(|i| Pending::of(i)?.request_id)
+        .collect();
+    let states = pending::request_states(pool, &playlist.id, playlist.owner_id, &asked).await?;
     let folders = playlists::folders(pool, me).await?;
     let mut body = summary(&playlist, me, &folders);
     body["items"] = playlist
@@ -137,10 +145,30 @@ async fn detail(
                 "position": str_of(item, "position"),
                 "content_key": str_of(item, "contentKey"),
                 "track": track_of(item).and_then(|t| tracks.get(&t)).cloned(),
+                "pending": Pending::of(item).map(|song| pending_json(song, &states)),
             })
         })
         .collect();
     Ok(body)
+}
+
+/// A pending song as the API shows it: its request's state (requested, approved or declined),
+/// `unmatched` when it has none, or `gone` when the request was withdrawn or isn't one of
+/// those who may edit the playlist.
+fn pending_json(song: Pending, states: &std::collections::HashMap<i64, String>) -> Value {
+    let state = match song.request_id {
+        None => "unmatched",
+        Some(id) => states.get(&id).map_or("gone", String::as_str),
+    };
+    json!({
+        "request_id": song.request_id,
+        "title": song.title,
+        "artist": song.artist,
+        "album": song.album,
+        "duration_ms": song.duration_ms,
+        "state": state,
+        "why": song.why,
+    })
 }
 
 #[cfg(test)]

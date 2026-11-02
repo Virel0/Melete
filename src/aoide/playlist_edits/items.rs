@@ -37,29 +37,38 @@ pub async fn add(
     index: Option<usize>,
 ) -> Result<(), EditError> {
     let (playlist, editor) = own(pool, editor, id).await?;
-    let editor = &editor;
-    let mut links = Vec::with_capacity(tracks.len());
+    let mut items = Vec::with_capacity(tracks.len());
     for &track in tracks {
         let link = writing::track_link(pool, track)
             .await?
             .ok_or(EditError::NoSuchTrack(track))?;
-        links.push(link);
+        items.push(NewItem {
+            id: writing::new_id()?,
+            holds: Holds::Track(link),
+        });
     }
-    let items = &playlist.items;
-    let at = index.unwrap_or(items.len()).min(items.len());
-    let lower = at.checked_sub(1).and_then(|i| position(&items[i]));
-    let upper = items.get(at).and_then(position);
-    let keys = keys_between(links.len(), lower, upper)?;
-    let mut changes = Vec::with_capacity(links.len());
-    for (link, key) in links.into_iter().zip(keys) {
-        let mut row = Row::new();
-        row.insert("id".into(), writing::new_id()?.into());
-        row.insert("playlistId".into(), id.into());
-        row.insert("jellyfinId".into(), link.jellyfin_id.into());
-        row.insert("contentKey".into(), link.content_key.into());
-        row.insert("position".into(), key.into());
-        changes.push(item_change(&row, editor, false));
-    }
+    place(pool, &editor, &playlist, items, index).await
+}
+
+/// Writes `items` into the playlist in order, the first at `index` (counted in the playlist as
+/// it is), or at the end.
+pub(super) async fn place(
+    pool: &SqlitePool,
+    editor: &Editor<'_>,
+    playlist: &Playlist,
+    items: Vec<NewItem>,
+    index: Option<usize>,
+) -> Result<(), EditError> {
+    let held = &playlist.items;
+    let at = index.unwrap_or(held.len()).min(held.len());
+    let lower = at.checked_sub(1).and_then(|i| position(&held[i]));
+    let upper = held.get(at).and_then(position);
+    let keys = keys_between(items.len(), lower, upper)?;
+    let changes = items
+        .into_iter()
+        .zip(keys)
+        .map(|(item, key)| item_change(&item.row(&playlist.id, key), editor, false))
+        .collect();
     writing::append(pool, editor.user_id, editor.device, changes, editor.now).await?;
     Ok(())
 }
