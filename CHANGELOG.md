@@ -7,6 +7,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Changed
+
+- The Watch home's previews play at full quality. A trailer in the title's folder is used only
+  when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
+  the title. The web plays either as the player would (the file as it is, its video copied, or
+  converted at its own height) rather than converted to 720p.
+
 ### Fixed
 
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser

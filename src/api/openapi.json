@@ -13029,7 +13029,7 @@
               }
             },
             "additionalProperties": false,
-            "description": "The pick's trailer: one in its folder first, else (only while trailers online are on) TMDB's. Null when there's none. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
+            "description": "The pick's trailer: one in its folder first, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts), else (only while trailers online are on) TMDB's. Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."
           }
         },
         "description": "A hero pick: a row's item, and where its trailer comes from.",
@@ -18340,7 +18340,7 @@
           },
           "hero_trailers": {
             "enum": ["off", "large_screens", "everywhere"],
-            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder, else a clip of the title itself, converted at 720p only on the home network; it doesn't play trailers online."
+            "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network); it doesn't play trailers online."
           }
         },
         "additionalProperties": false
