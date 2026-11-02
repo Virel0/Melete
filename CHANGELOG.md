@@ -17,6 +17,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   rules against the library themselves, so they no longer need an OpenRouter key of their own.
   What goes to OpenRouter: the words typed and the names of up to 300 of the genres the asker
   may see. Each call counts as one of the user's 30 AI searches an hour.
+- Manage → System → Tasks shows making motion covers and splitting tracks into parts for the
+  Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
+  library, and how the run went once it has caught up.
 - `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
   a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
   to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
