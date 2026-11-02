@@ -55,6 +55,17 @@ pub async fn work(pool: SqlitePool, stems: Stems, transcoder: Arc<Transcoder>) {
                 "splitting music into parts stopped for now"
             );
         }
+        if let Ok(c) = coverage(&pool).await {
+            let done = (c.done + c.failed).min(c.tracks);
+            let counts = (done as usize, c.tracks as usize, c.failed as usize);
+            crate::tasks::backlog(
+                "stem-splitting",
+                "splitting tracks into parts",
+                on,
+                counts,
+                || format!("{} split, {} failed", c.done, c.failed),
+            );
+        }
         tokio::time::sleep(EVERY).await;
     }
 }
