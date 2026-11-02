@@ -73,6 +73,9 @@ pub fn part(path: &str) -> Part {
         }
         "me" => Part::Always,
         "users" if api == "users/directory" => Part::Always,
+        // People's pictures go wherever their names do.
+        "users" if api.ends_with("/avatar") => Part::Always,
+        "avatars" => Part::Always,
         "movies" | "series" if api.ends_with("/match") || api.ends_with("/rescan") => Part::Admin,
         "files" if api.ends_with("/wrong") => Part::Admin,
         "movies" | "series" | "artwork" | "calendar" | "files" | "stream" | "hls" | "browse"

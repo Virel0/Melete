@@ -17,6 +17,7 @@ mod api;
 mod arr;
 mod artist_search;
 mod auth;
+mod avatars;
 mod backdrop_focus;
 mod background;
 mod backup;
