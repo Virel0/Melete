@@ -81,12 +81,6 @@ pub async fn scan_watch(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_SCAN_WATCH").await?.as_deref() == Some("on"))
 }
 
-/// Whether titles' trailers are fetched from TMDB and shown through YouTube's player
-/// (`MELETE_TRAILERS_ONLINE`); off by default.
-pub async fn trailers_online(pool: &SqlitePool) -> sqlx::Result<bool> {
-    Ok(value(pool, "MELETE_TRAILERS_ONLINE").await?.as_deref() == Some("on"))
-}
-
 /// Whether seek-bar previews are made (`MELETE_TRICKPLAY`); off by default.
 pub async fn trickplay(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_TRICKPLAY").await?.as_deref() == Some("on"))

@@ -61,9 +61,6 @@ pub struct Config {
     pub offline_copies: bool,
     /// Trending and similar titles from TMDB (`MELETE_DISCOVERY=on`; off by default).
     pub discovery: bool,
-    /// Titles' trailers from TMDB's video lists, played through YouTube's privacy-enhanced
-    /// player (`MELETE_TRAILERS_ONLINE=on`; off by default).
-    pub trailers_online: bool,
     /// The language TMDB's titles, summaries, episode names and logos are kept in
     /// (`MELETE_METADATA_LANGUAGE`, such as `fr-FR`; `en-US` by default), English filling what
     /// it hasn't translated.
@@ -182,7 +179,6 @@ impl Config {
         let romanisation = switch(&get, "MELETE_LYRICS_ROMANISATION")?;
         let intro_detection = switch(&get, "MELETE_INTRO_DETECTION")?;
         let discovery = switch(&get, "MELETE_DISCOVERY")?;
-        let trailers_online = switch(&get, "MELETE_TRAILERS_ONLINE")?;
         let metadata_language = metadata_language(&get)?;
         check_scan_schedule(&get)?;
         // Watching the folders: read where it's used (`settings`), as it can change while
@@ -233,7 +229,6 @@ impl Config {
             trickplay,
             offline_copies,
             discovery,
-            trailers_online,
             metadata_language,
             stems,
             motion_jobs,

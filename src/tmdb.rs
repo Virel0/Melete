@@ -19,13 +19,11 @@ mod images;
 pub mod language;
 mod ratings;
 mod types;
-mod videos;
 
 pub use credits::*;
 pub use images::*;
 use language::ENGLISH;
 pub use types::*;
-pub use videos::*;
 
 const API_BASE: &str = "https://api.themoviedb.org/3";
 /// TMDB allows around 50 requests a second; stay well under.

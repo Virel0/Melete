@@ -376,29 +376,7 @@ button.season[aria-pressed="true"] { background: var(--surface); border-inline-s
 .my-list-item > button { justify-self: start; min-height: 2rem; padding: 0 var(--space-3); font-size: var(--step--1); }
 .my-list-grid + .empty-state, .tabs + .status { margin-block-start: var(--space-4); }
 
-/* ---------- Trailers online ---------- */
+/* ---------- Play trailer ---------- */
 
-/* YouTube's player in a dialog over the page, on the stage, the picture 16:9 as wide as fits. */
+/* The button sits among the title's actions as they are. */
 .trailer-box { display: contents; }
-.trailer-box svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
-.trailer-box button { gap: var(--space-2); }
-.trailer-dialog {
-  --text: var(--stage-text);
-  --muted: var(--stage-muted);
-  --line-strong: var(--stage-line);
-  --surface-raised: var(--stage-raised);
-  --accent: var(--stage-accent);
-  width: min(64rem, calc(100vw - 2 * var(--space-4)));
-  max-width: none;
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  color: var(--text);
-  background: var(--stage);
-  border: 1px solid var(--stage-line);
-  border-radius: var(--radius-m);
-}
-.trailer-dialog::backdrop { background: var(--scrim); }
-.trailer-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-3); }
-.trailer-head h2 { font-size: var(--step-1); overflow-wrap: anywhere; }
-.trailer-frame { aspect-ratio: 16 / 9; background: var(--stage-raised); border-radius: var(--radius-s); overflow: hidden; }
-.trailer-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
-.trailer-dialog .note { margin: var(--space-3) 0 0; color: var(--muted); }
