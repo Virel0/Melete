@@ -382,17 +382,6 @@ pub const SERVICES: &[Service] = &[
         ],
     },
     Service {
-        key: "trailers",
-        name: "Trailers online",
-        about: "A trailer for titles without one in their folder, played through YouTube's embedded player. The server asks TMDB for each library title's list of videos, by the TMDB id it already uses (one more request a title, again whenever its details are refreshed); nothing goes to YouTube from the server. Nothing loads from YouTube until someone presses play: then that viewer's own browser or device loads the trailer from youtube-nocookie.com (YouTube's privacy-enhanced mode, no cookies before playback), so Google sees that device and that one trailer, never the library. Off, no video lists are asked for and no player is offered.",
-        fields: &[field(
-            "MELETE_TRAILERS_ONLINE",
-            "Show trailers from YouTube",
-            "Trailers in a title's folder still come first.",
-            Input::Toggle { on: "on" },
-        )],
-    },
-    Service {
         key: "scans",
         name: "Library scans",
         about: "How often every library is scanned whole, to find files put there by hand or by other tools. A whole scan lists every folder, which wakes sleeping disks; what Melete imports, and a folder an admin rescans, is picked up at once on its own. A folder holding a .ignore or .melete-ignore file is skipped, and what's recorded under it stays. Nothing leaves the server.",
