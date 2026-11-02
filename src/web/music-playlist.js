@@ -13,6 +13,7 @@ import { goneRow } from "/web/music-liked.js";
 import { cover, markPlaying, pinControl, songRow } from "/web/music-parts.js";
 import { looseQueue, play, shufflePlay } from "/web/music-play.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
+import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
 
@@ -60,9 +61,6 @@ function renameForm(p, page) {
   return form;
 }
 
-const PICTURE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const PICTURE_MAX = 5 * 1024 * 1024;
-
 // Picture: choosing a file sets it at once; Remove picture when it has one.
 function pictureForm(p, page) {
   const said = h("p", { class: "note", role: "status" });
@@ -80,18 +78,15 @@ function pictureForm(p, page) {
       release(busy);
     }
   };
-  input.addEventListener("change", () => {
+  input.addEventListener("change", async () => {
     const chosen = input.files?.[0];
     if (!chosen) return;
-    if (!PICTURE_TYPES.includes(chosen.type)) {
-      said.textContent = "Choose a JPEG, PNG or WebP picture.";
+    const read = await readPicture(chosen);
+    if (read.error) {
+      said.textContent = read.error;
       return;
     }
-    if (chosen.size > PICTURE_MAX) {
-      said.textContent = "That picture is over 5 MB. Choose a smaller one.";
-      return;
-    }
-    send(input, { method: "PUT", body: chosen }, "Picture saved.");
+    send(input, { method: "PUT", body: read.blob }, "Picture saved.");
   });
   const remove = p.image_url ? h("button", { type: "button", class: "quiet" }, "Remove picture") : null;
   remove?.addEventListener("click", () => send(remove, { method: "DELETE" }, "Picture removed."));

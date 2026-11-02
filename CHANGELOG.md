@@ -7,6 +7,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser
+  lost sight of the file while sending it. The page now reads the picture as soon as it's
+  chosen and says plainly when it can't, and sends it as the type its bytes are, so a PNG named
+  ".jpg" is taken.
+
 ## [0.3.2] - 2026-11-02
 
 ### Changed
