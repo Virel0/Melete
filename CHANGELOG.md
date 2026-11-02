@@ -9,6 +9,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Added
 
+- Manage → System → Tasks shows making motion covers and splitting tracks into parts for the
+  Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
+  library, and how the run went once it has caught up.
 - `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
   a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
   to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.

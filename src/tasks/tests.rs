@@ -87,3 +87,74 @@ fn tasks_that_cant_be_run_from_here_say_so() {
     let backup = all.iter().find(|t| t.name == "backup").unwrap();
     assert!(!backup.can_run);
 }
+
+#[test]
+fn a_backlog_shows_its_progress_then_how_it_went() {
+    let motion = || {
+        list()
+            .into_iter()
+            .find(|t| t.name == "motion-covers")
+            .unwrap()
+    };
+    // Turned off: not running in this server.
+    backlog(
+        "motion-covers",
+        "making motion covers",
+        false,
+        (0, 10, 0),
+        || unreachable!(),
+    );
+    assert!(!motion().active);
+    // Working through it: running, with how far it has got.
+    backlog(
+        "motion-covers",
+        "making motion covers",
+        true,
+        (3, 10, 1),
+        || unreachable!(),
+    );
+    let now = motion();
+    assert!(now.active && now.running);
+    assert_eq!(
+        now.progress,
+        [Progress {
+            what: "making motion covers",
+            done: 3,
+            total: 10,
+            failed: 1
+        }]
+    );
+    let started = now.last_started_at;
+    backlog(
+        "motion-covers",
+        "making motion covers",
+        true,
+        (4, 10, 1),
+        || unreachable!(),
+    );
+    assert_eq!(
+        motion().last_started_at,
+        started,
+        "one run, not one per look"
+    );
+    // Caught up: finished, saying how it went.
+    backlog(
+        "motion-covers",
+        "making motion covers",
+        true,
+        (10, 10, 1),
+        || "9 made".into(),
+    );
+    let done = motion();
+    assert!(!done.running && done.progress.is_empty());
+    assert_eq!(done.result.as_deref(), Some("9 made"));
+    // Nothing new to do: left as it was.
+    backlog(
+        "motion-covers",
+        "making motion covers",
+        true,
+        (10, 10, 1),
+        || unreachable!(),
+    );
+    assert_eq!(motion().result.as_deref(), Some("9 made"));
+}
