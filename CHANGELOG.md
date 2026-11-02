@@ -7,6 +7,16 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-02
+
+### Fixed
+
+- **Soulseek found nothing, for anything.** Every search gave up 10 milliseconds after it started:
+  slskd takes its search timeout in milliseconds, though its API docs say seconds, and Melete
+  sent 10. Searches now wait 10 seconds after the last answer, as meant.
+- Indexers are asked for a compilation by its title alone (without "Various Artists" and the
+  bracketed part), so a soundtrack's torrents can be found.
+
 ## [0.3.1] - 2026-10-31
 
 ### Fixed
@@ -207,7 +217,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Virel0/Melete/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Virel0/Melete/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Virel0/Melete/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Virel0/Melete/compare/v0.1.0...v0.2.0

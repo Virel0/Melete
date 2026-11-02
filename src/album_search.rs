@@ -222,8 +222,19 @@ fn params(
     Ok(vec![
         ("cat", categories.join(",")),
         ("t", "search".into()),
-        ("q", format!("{} {}", album.artist, album.title)),
+        ("q", query(&album.artist, &album.title)),
     ])
+}
+
+/// What an indexer is asked for an album: its artist and title, but for a compilation only the
+/// title's plain words outside brackets, as few releases name "Various Artists" or word a
+/// soundtrack's bracketed part the same way, and indexers want every word asked for.
+fn query(artist: &str, title: &str) -> String {
+    if comparable(artist) == "various artists" {
+        soulseek::loose_text(artist, title)
+    } else {
+        format!("{artist} {title}")
+    }
 }
 
 /// Searches every turned-on indexer, and Soulseek when `slskd` is given, for a wanted album and
@@ -425,6 +436,13 @@ pub async fn store(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_compilation_is_asked_for_by_its_title_alone() {
+        let title = "Cyberpunk: Edgerunners 2 (Original Series Soundtrack)";
+        assert_eq!(query("Various Artists", title), "Cyberpunk Edgerunners 2");
+        assert_eq!(query("Radiohead", "OK Computer"), "Radiohead OK Computer");
+    }
 
     #[test]
     fn a_compilation_may_name_no_artist_but_its_whole_title() {
