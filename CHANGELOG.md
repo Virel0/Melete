@@ -12,6 +12,10 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
   them full width at the top of its player. Existing ones are made again in the background, one
   album at a time.
+- **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
+  Libraries), so you can check the folders first; after that, scans follow the schedule counted
+  from the last one, so a restart scans only when a scheduled scan came due while Melete was
+  down.
 
 ### Fixed
 
