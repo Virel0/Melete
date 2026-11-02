@@ -1851,7 +1851,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Scan the libraries now",
-        "description": "Starts a scan of every library, TMDB matching and probing now instead of at the next scheduled run (they run at startup and on `MELETE_SCAN_SCHEDULE`, every 6 hours by default; what Melete imports is scanned on its own at once, only its folder). Requests made while one is running add up to one more run.",
+        "description": "Starts a scan of every library, TMDB matching and probing now instead of at the next scheduled run (they run on `MELETE_SCAN_SCHEDULE`, counted from the last scan across restarts, every 6 hours by default; what Melete imports is scanned on its own at once, only its folder). Libraries never scanned wait for this: starting Melete doesn't scan them. Requests made while one is running add up to one more run.",
         "responses": {
           "202": {"description": "A run is on its way"},
           "401": {"$ref": "#/components/responses/Unauthorized"},

@@ -31,17 +31,19 @@ mod showing;
 pub use showing::*;
 
 /// The loop every renderer job asks for: 8 seconds at 30 frames a second, a gentle circle,
-/// the cover at its own size up to 1080 pixels, never larger. Changing any of it means raising
+/// the cover at its own size up to 1440 pixels, never larger: sharp across a phone's width, or
+/// full width at the top of a player. Changing any of it means raising
 /// [`VERSION`], so every motion cover is made again.
 pub const LOOP: Loop = Loop {
     seconds: 8,
     fps: 30,
-    max_side: 1080,
+    max_side: 1440,
     path: "circle",
     strength: 0.03,
 };
-/// Raised whenever [`LOOP`] or what's asked of the renderer changes.
-pub const VERSION: i64 = 1;
+/// Raised whenever [`LOOP`] or what's asked of the renderer changes: 2, covers up to 1440
+/// pixels rather than 1080.
+pub const VERSION: i64 = 2;
 const EVERY: Duration = Duration::from_secs(10);
 const TRIES: i64 = 3;
 const RETRY_AFTER: i64 = 24 * 3600;
@@ -514,8 +516,8 @@ pub(crate) mod tests {
                 .unwrap();
         assert_eq!(
             job,
-            json!({"id": "3", "cover": "3.cover", "version": 1, "loop": {
-                "seconds": 8, "fps": 30, "max_side": 1080, "path": "circle", "strength": 0.03}})
+            json!({"id": "3", "cover": "3.cover", "version": 2, "loop": {
+                "seconds": 8, "fps": 30, "max_side": 1440, "path": "circle", "strength": 0.03}})
         );
         assert_eq!(
             std::fs::read(folders.jobs.join("queue/3.cover")).unwrap(),

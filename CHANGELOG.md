@@ -17,6 +17,19 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   rules against the library themselves, so they no longer need an OpenRouter key of their own.
   What goes to OpenRouter: the words typed and the names of up to 300 of the genres the asker
   may see. Each call counts as one of the user's 30 AI searches an hour.
+- `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
+  a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
+  to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
+
+### Changed
+
+- Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
+  them full width at the top of its player. Existing ones are made again in the background, one
+  album at a time.
+- **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
+  Libraries), so you can check the folders first; after that, scans follow the schedule counted
+  from the last one, so a restart scans only when a scheduled scan came due while Melete was
+  down.
 
 ### Fixed
 
