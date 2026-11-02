@@ -32,6 +32,7 @@ pub(super) async fn me(
         "username": user.username,
         "is_admin": user.is_admin,
         "sees_all_music": sees_all_music,
+        "avatar_url": crate::avatars::url_of(&state.pool, user.id).await?,
     }));
     let signed_by_cookie = !headers.contains_key(header::AUTHORIZATION);
     Ok(

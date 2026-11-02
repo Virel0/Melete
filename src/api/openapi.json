@@ -272,6 +272,12 @@
         "responses": {"204": {"description": "Done"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
       }
     },
+    "/api/v1/me/avatar": {"put": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "full", "summary": "Set your profile picture from an upload", "description": "The body is the picture itself: JPEG, PNG or WebP, up to 5 MB, its bytes starting as that type's do. It replaces any picture you had. Everyone signed in sees it (GET /api/v1/users/{id}/avatar), as every app shows it beside your name.", "requestBody": {"required": true, "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}, "image/png": {"schema": {"type": "string", "format": "binary"}}, "image/webp": {"schema": {"type": "string", "format": "binary"}}}}, "responses": {"200": {"description": "Your picture's address now", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AvatarSet"}}}}, "400": {"description": "Not JPEG, PNG or WebP, empty, or bytes that aren't the type they're sent as", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "413": {"description": "Over 5 MB", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}}, "delete": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "full", "summary": "Remove your profile picture", "responses": {"200": {"description": "Your picture's address now", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AvatarSet"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
+    "/api/v1/me/avatar/gallery": {"put": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "full", "summary": "Set your profile picture from the gallery", "description": "A copy of the gallery picture is kept as yours, so it stays when the gallery changes.", "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "description": "A picture's id from GET /api/v1/avatars/pictures."}}, "additionalProperties": false}}}}, "responses": {"200": {"description": "Your picture's address now", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AvatarSet"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "No such picture in the gallery", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}, "422": {"description": "The gallery picture isn't a JPEG, PNG or WebP image, or is over 5 MB", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}}},
+    "/api/v1/users/{id}/avatar": {"get": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "read", "summary": "Someone's profile picture", "description": "For anyone signed in. Its address (`avatar_url` on /me, the users list and the user directory) carries the picture's hash, so it may be kept for good: a new picture has a new address.", "parameters": [{"name": "id", "in": "path", "required": true, "description": "The user's id.", "schema": {"type": "integer"}}], "responses": {"200": {"description": "The picture", "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}, "image/png": {"schema": {"type": "string", "format": "binary"}}, "image/webp": {"schema": {"type": "string", "format": "binary"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "They have no picture", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}}},
+    "/api/v1/avatars": {"get": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "read", "summary": "The profile picture gallery's categories", "description": "Melete's own pictures first (`official`), then the server's gallery folder (MELETE_AVATARS_DIR), one category per subfolder (`gallery/<name>`), by name. Empty categories are left out. Nothing is fetched from outside the server.", "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AvatarGallery"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}}}},
+    "/api/v1/avatars/pictures": {"get": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "read", "summary": "A page of a gallery category's pictures", "parameters": [{"name": "category", "in": "query", "required": true, "description": "A category's id from GET /api/v1/avatars.", "schema": {"type": "string"}}, {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0, "default": 0}}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 60}}], "responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AvatarPictures"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "No such category", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}}},
+    "/api/v1/avatars/picture": {"get": {"tags": ["Accounts"], "x-melete-access": "user", "x-melete-scope": "read", "summary": "One gallery picture", "parameters": [{"name": "id", "in": "query", "required": true, "description": "A picture's id from GET /api/v1/avatars/pictures.", "schema": {"type": "string"}}], "responses": {"200": {"description": "The picture", "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}, "image/png": {"schema": {"type": "string", "format": "binary"}}, "image/webp": {"schema": {"type": "string", "format": "binary"}}}}, "401": {"$ref": "#/components/responses/Unauthorized"}, "404": {"description": "No such picture in the gallery", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}}}},
     "/api/v1/me": {
       "get": {
         "tags": ["Accounts"],
@@ -11079,10 +11085,15 @@
         "properties": {"status": {"const": "ok"}, "version": {"type": "string"}},
         "additionalProperties": false
       },
+      "AvatarSet": {"type": "object", "required": ["avatar_url"], "properties": {"avatar_url": {"type": ["string", "null"], "description": "Where your picture is fetched from; null without one."}}, "additionalProperties": false},
+      "AvatarGallery": {"type": "object", "required": ["categories"], "properties": {"categories": {"type": "array", "items": {"$ref": "#/components/schemas/AvatarCategory"}}}, "additionalProperties": false},
+      "AvatarCategory": {"type": "object", "required": ["id", "name", "count"], "properties": {"id": {"type": "string", "description": "`official`, or `gallery/` and the folder's name."}, "name": {"type": "string", "description": "As shown: \"Melete\" for Melete's own."}, "count": {"type": "integer", "description": "Pictures in it."}}, "additionalProperties": false},
+      "AvatarPictures": {"type": "object", "required": ["total", "pictures"], "properties": {"total": {"type": "integer"}, "pictures": {"type": "array", "items": {"type": "object", "required": ["id", "url"], "properties": {"id": {"type": "string", "description": "For PUT /api/v1/me/avatar/gallery."}, "url": {"type": "string", "description": "The picture, to show."}}, "additionalProperties": false}}}, "additionalProperties": false},
       "Me": {
         "type": "object",
-        "required": ["id", "username", "is_admin", "sees_all_music"],
+        "required": ["id", "username", "is_admin", "sees_all_music", "avatar_url"],
         "properties": {
+          "avatar_url": {"type": ["string", "null"], "description": "Where their profile picture is fetched from (GET /api/v1/users/{id}/avatar, its hash in the address); null without one."},
           "id": {"type": "integer"},
           "username": {"type": "string"},
           "is_admin": {"type": "boolean"},
@@ -11095,8 +11106,8 @@
       },
       "User": {
         "type": "object",
-        "required": ["id", "username", "is_admin"],
-        "properties": {"id": {"type": "integer"}, "username": {"type": "string"}, "is_admin": {"type": "boolean"}},
+        "required": ["id", "username", "is_admin", "avatar_url"],
+        "properties": {"avatar_url": {"type": ["string", "null"], "description": "Where their profile picture is fetched from (GET /api/v1/users/{id}/avatar, its hash in the address); null without one."}, "id": {"type": "integer"}, "username": {"type": "string"}, "is_admin": {"type": "boolean"}},
         "additionalProperties": false
       },
       "LoginRequest": {
@@ -15954,8 +15965,8 @@
       },
       "UserName": {
         "type": "object",
-        "required": ["id", "username"],
-        "properties": {"id": {"type": "integer"}, "username": {"type": "string"}},
+        "required": ["id", "username", "avatar_url"],
+        "properties": {"avatar_url": {"type": ["string", "null"], "description": "Where their profile picture is fetched from (GET /api/v1/users/{id}/avatar, its hash in the address); null without one."}, "id": {"type": "integer"}, "username": {"type": "string"}},
         "additionalProperties": false
       },
       "AoideMatch": {

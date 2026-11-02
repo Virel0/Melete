@@ -135,16 +135,6 @@ pub(super) async fn update(
     ))
 }
 
-/// Whether the bytes start as an image of that type does.
-fn looks_like(mime: &str, bytes: &[u8]) -> bool {
-    match mime {
-        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
-        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
-        _ => false,
-    }
-}
-
 /// Sets the playlist's picture: the image is stored as the devices store theirs, under the
 /// SHA-256 of its bytes, then named in the playlist.
 pub(super) async fn set_image(
@@ -155,7 +145,7 @@ pub(super) async fn set_image(
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
     let mime = super::super::aoide_library::image_type(&headers, &body)?;
-    if !looks_like(&mime, &body) {
+    if !library::looks_like(&mime, &body) {
         return Err(super::super::bad_request(
             "the file isn't the JPEG, PNG or WebP image its Content-Type says",
         ));

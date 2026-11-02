@@ -2,12 +2,23 @@
 
 use super::*;
 
-pub(super) async fn list_users(State(state): State<AppState>) -> Result<Json<Vec<User>>, ApiError> {
-    Ok(Json(
+pub(super) async fn list_users(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let users: Vec<User> =
         sqlx::query_as("SELECT id, username, is_admin FROM users ORDER BY username")
             .fetch_all(&state.pool)
-            .await?,
-    ))
+            .await?;
+    let pictures = crate::avatars::urls(&state.pool).await?;
+    Ok(Json(json!(
+        users
+            .iter()
+            .map(|u| json!({
+                "id": u.id,
+                "username": u.username,
+                "is_admin": u.is_admin,
+                "avatar_url": pictures.get(&u.id),
+            }))
+            .collect::<Vec<_>>()
+    )))
 }
 
 #[derive(Deserialize)]

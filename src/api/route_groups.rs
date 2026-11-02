@@ -101,6 +101,7 @@ pub(super) fn account_routes(
         .merge(favourites::routes(pool.clone()))
         .merge(access::routes(pool.clone()))
         .merge(playlists::routes(pool.clone()))
+        .merge(avatars::routes(pool.clone()))
         .merge(events::routes(pool.clone()))
         .merge(listen::routes_with(pool.clone(), kept.join_codes.clone()))
         .merge(oidc::routes(pool.clone(), oidc_client, limiter))
