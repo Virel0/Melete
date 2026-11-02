@@ -1,0 +1,29 @@
+# A LibreTranslate of the household's own, beside Melete, for translating lyrics. Off unless
+# added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.libretranslate.yaml
+# Melete reaches it at http://libretranslate:5000 inside compose; it publishes no port, so no one
+# else can use it. On its first start it downloads the language models it loads (a few hundred MB
+# each pair) from the Argos Translate project, kept in a volume of its own; after that, lyrics
+# are translated without anything leaving the server.
+
+services:
+  libretranslate:
+    image: libretranslate/libretranslate:v1.9.6@sha256:1de2d7056bb8ad607a412f4563d9abe324ff632b43b5be9428bcc8e213aebb32
+    container_name: melete-libretranslate
+    restart: unless-stopped
+    environment:
+      # The languages to load: fewer start faster and take less memory. Lyrics in a language
+      # left out aren't translated.
+      LT_LOAD_ONLY: ${MELETE_LIBRETRANSLATE_LANGUAGES:-en,ja,ko,zh,es,fr,de,pt,it,ru}
+      LT_DISABLE_WEB_UI: "true"
+    volumes:
+      - libretranslate-models:/home/libretranslate/.local
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_LIBRETRANSLATE_URL: http://libretranslate:5000
+
+volumes:
+  libretranslate-models:

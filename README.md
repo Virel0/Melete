@@ -202,6 +202,10 @@ lists for it:
   some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.motion.yaml`: the motion cover renderer.
+- `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
+  sending them anywhere. It downloads its language models on first start (set which in `.env`).
+- `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,
+  AnimeTosho's feed).
 
 The separator and the renderer are published with each release, as
 `ghcr.io/virel0/melete:<version>-stems` and `:<version>-motion`, so adding the file and their

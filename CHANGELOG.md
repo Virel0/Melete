@@ -12,9 +12,15 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - Manage → System → Tasks shows making motion covers and splitting tracks into parts for the
   Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
   library, and how the run went once it has caught up.
+- `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
+  a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
+  to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
 
 ### Changed
 
+- Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
+  them full width at the top of its player. Existing ones are made again in the background, one
+  album at a time.
 - **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
   Libraries), so you can check the folders first; after that, scans follow the schedule counted
   from the last one, so a restart scans only when a scheduled scan came due while Melete was

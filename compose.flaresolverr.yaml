@@ -1,0 +1,21 @@
+# FlareSolverr beside Melete: a browser in its own container that gets past a tracker's browser
+# check (Uindex, and feeds that turn Melete away, as AnimeTosho's does) and hands back the page.
+# Off unless added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.flaresolverr.yaml
+# Melete reaches it at http://flaresolverr:8191 inside compose; it publishes no port. It visits
+# only the tracker pages Melete asks for, and Melete takes only their HTML: the browser's cookies
+# and identity stay in it.
+
+services:
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    container_name: melete-flaresolverr
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_FLARESOLVERR_URL: http://flaresolverr:8191
