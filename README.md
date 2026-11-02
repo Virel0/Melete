@@ -203,8 +203,11 @@ lists for it:
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.motion.yaml`: the motion cover renderer.
 
-The separator and the renderer are built from this repository (`stems/`, `motion/`). Their
-models are downloaded from their publishers on first start, never shipped.
+The separator and the renderer are published with each release, as
+`ghcr.io/virel0/melete:<version>-stems` and `:<version>-motion`, so adding the file and their
+folders and restarting is all it takes; `MELETE_STEMS_IMAGE` or `MELETE_MOTION_IMAGE` in `.env`
+names another, such as one built from `stems/` or `motion/`. Both are large (PyTorch with
+CUDA). Their models are downloaded from their publishers on first start, never shipped.
 
 `compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
 Melete the GPU.
