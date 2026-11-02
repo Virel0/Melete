@@ -7,6 +7,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
+  a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
+  to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
+
 ### Changed
 
 - Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
