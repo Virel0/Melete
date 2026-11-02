@@ -394,11 +394,7 @@ mod tests {
             ("/web/title-more.js", "text/javascript", "/extras"),
             ("/web/title-colour.js", "text/javascript", "getImageData"),
             ("/web/player-chips.js", "text/javascript", "aria-pressed"),
-            (
-                "/web/title-trailer.js",
-                "text/javascript",
-                "Play trailer",
-            ),
+            ("/web/title-trailer.js", "text/javascript", "Play trailer"),
             ("/web/browse.js", "text/javascript", "\"exclude\""),
             ("/web/watch.css", "text/css", ".hero"),
             ("/web/app.css", "text/css", "--bg"),
