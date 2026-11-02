@@ -7,12 +7,21 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- `compose.libretranslate.yaml` and `compose.flaresolverr.yaml`: a LibreTranslate for lyrics and
+  a FlareSolverr for trackers behind a browser check, each run beside Melete by adding its file
+  to `COMPOSE_FILE`, with Melete pointed at it. Neither publishes a port.
+
 ### Changed
 
 - The Watch home's previews play at full quality. A trailer in the title's folder is used only
   when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
   the title. The web plays either as the player would (the file as it is, its video copied, or
   converted at its own height) rather than converted to 720p.
+- Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
+  them full width at the top of its player. Existing ones are made again in the background, one
+  album at a time.
 - **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
   Libraries), so you can check the folders first; after that, scans follow the schedule counted
   from the last one, so a restart scans only when a scheduled scan came due while Melete was
