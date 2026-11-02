@@ -1523,3 +1523,84 @@ async fn keeps_a_titles_own_language_with_its_details() {
             .unwrap();
     assert_eq!(series.as_deref(), Some("ko"));
 }
+
+#[tokio::test]
+async fn titles_fetched_before_scores_get_theirs_once_and_nothing_else() {
+    let pool = db::open_in_memory().await;
+    let movies = library(&pool, LibraryKind::Movies).await;
+    let shows = library(&pool, LibraryKind::Shows).await;
+    let now = unix_now();
+    // Dune and Severance were fetched before scores were kept; Heat has one already.
+    sqlx::query(
+        "INSERT INTO tmdb_movies (tmdb_id, title, fetched_at, score, score_votes) VALUES
+             (438631, 'Old Dune', ?1, NULL, NULL), (949, 'Heat', ?1, 8.3, 7000);
+         INSERT INTO tmdb_series (tmdb_id, name, fetched_at) VALUES (95396, 'Old Severance', ?1);",
+    )
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (rel, tmdb_id) in [("Dune (2021)", 438631), ("Heat (1995)", 949)] {
+        insert_title(&pool, "movies", movies, rel, (None, None)).await;
+        sqlx::query(
+            "UPDATE movies SET match_status = 'matched', match_tmdb_id = ? WHERE rel_path = ?",
+        )
+        .bind(tmdb_id)
+        .bind(rel)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    insert_title(&pool, "series", shows, "Severance (2022)", (None, None)).await;
+    sqlx::query("UPDATE series SET match_status = 'matched', match_tmdb_id = 95396")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let fake = FakeTmdb::default();
+    let mut dune = movie(438631, "Dune", "2021-09-15");
+    dune["vote_average"] = json!(7.8);
+    dune["vote_count"] = json!(12000);
+    fake.reply("/movie/438631", vec![Reply::ok(dune)]).reply(
+        "/tv/95396?append_to_response=external_ids",
+        vec![Reply::ok(
+            json!({ "id": 95396, "name": "Severance", "vote_average": 8.4,
+            "vote_count": 2500, "external_ids": {} }),
+        )],
+    );
+    let tmdb = fake.start().await;
+
+    assert_eq!(refresh_scores(&pool, &tmdb).await.unwrap(), 2);
+    let movies: Vec<(i64, String, Option<f64>, Option<i64>)> = sqlx::query_as(
+        "SELECT tmdb_id, title, score, score_votes FROM tmdb_movies ORDER BY tmdb_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        movies,
+        [
+            (949, "Heat".into(), Some(8.3), Some(7000)),
+            (438631, "Old Dune".into(), Some(7.8), Some(12000)),
+        ],
+        "the score alone is written"
+    );
+    let series: (String, Option<f64>, Option<i64>) =
+        sqlx::query_as("SELECT name, score, score_votes FROM tmdb_series")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(series, ("Old Severance".into(), Some(8.4), Some(2500)));
+    // Once: the next run asks for nothing.
+    let asked = fake.log.lock().unwrap().len();
+    assert_eq!(refresh_scores(&pool, &tmdb).await.unwrap(), 0);
+    assert_eq!(fake.log.lock().unwrap().len(), asked);
+    assert!(
+        !fake
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.starts_with("/movie/949"))
+    );
+}

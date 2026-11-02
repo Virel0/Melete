@@ -92,6 +92,11 @@ pub(super) async fn set_match(
     Ok(written > 0)
 }
 
+/// TMDB's score as kept: 0 to 10, none when TMDB gives none or something out of range.
+pub(super) fn score(average: Option<f64>) -> Option<f64> {
+    average.filter(|a| a.is_finite() && (0.0..=10.0).contains(a))
+}
+
 pub(super) async fn store_movie(
     pool: &SqlitePool,
     d: &MovieDetails,
@@ -115,8 +120,8 @@ pub(super) async fn store_movie(
     sqlx::query(
         "INSERT INTO tmdb_movies (tmdb_id, imdb_id, title, original_title, release_date, year,
              overview, runtime_minutes, poster_path, backdrop_path, genres, fetched_at,
-             language, english_fields, collection_id, original_language)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             language, english_fields, collection_id, original_language, score, score_votes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              imdb_id = excluded.imdb_id, title = excluded.title,
              original_title = excluded.original_title, release_date = excluded.release_date,
@@ -129,7 +134,8 @@ pub(super) async fn store_movie(
                  THEN tmdb_movies.images_fetched_at END,
              language = excluded.language, english_fields = excluded.english_fields,
              collection_id = excluded.collection_id,
-             original_language = excluded.original_language",
+             original_language = excluded.original_language,
+             score = excluded.score, score_votes = excluded.score_votes",
     )
     .bind(d.id)
     .bind(non_empty(&d.imdb_id))
@@ -147,6 +153,8 @@ pub(super) async fn store_movie(
     .bind(english_fields(&d.from_english)?)
     .bind(d.belongs_to_collection.as_ref().map(|c| c.id))
     .bind(non_empty(&d.original_language))
+    .bind(score(d.vote_average))
+    .bind(d.vote_count.unwrap_or(0).max(0))
     .execute(pool)
     .await?;
     // The title is searchable by its folded keys at once, not after the next scan.
@@ -167,8 +175,8 @@ pub(super) async fn store_series(
     sqlx::query(
         "INSERT INTO tmdb_series (tmdb_id, tvdb_id, imdb_id, name, original_name, first_air_date,
              year, overview, status, poster_path, backdrop_path, genres, fetched_at, language,
-             english_fields, original_language)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             english_fields, original_language, score, score_votes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              tvdb_id = excluded.tvdb_id, imdb_id = excluded.imdb_id, name = excluded.name,
              original_name = excluded.original_name, first_air_date = excluded.first_air_date,
@@ -178,7 +186,8 @@ pub(super) async fn store_series(
              images_fetched_at = CASE WHEN coalesce(tmdb_series.language, 'en-US') = excluded.language
                  THEN tmdb_series.images_fetched_at END,
              language = excluded.language, english_fields = excluded.english_fields,
-             original_language = excluded.original_language",
+             original_language = excluded.original_language,
+             score = excluded.score, score_votes = excluded.score_votes",
     )
     .bind(d.id)
     .bind(ids.and_then(|i| i.tvdb_id))
@@ -196,6 +205,8 @@ pub(super) async fn store_series(
     .bind(&d.language)
     .bind(english_fields(&d.from_english)?)
     .bind(non_empty(&d.original_language))
+    .bind(score(d.vote_average))
+    .bind(d.vote_count.unwrap_or(0).max(0))
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM tmdb_episodes WHERE series_tmdb_id = ?")

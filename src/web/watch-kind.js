@@ -64,7 +64,7 @@ function narrowed(page, home) {
   const seen = new Set();
   const picks = [...home.hero, ...latest].filter((i) => !seen.has(i.id) && seen.add(i.id)).slice(0, HERO);
   if (!picks.length) return null;
-  const watching = watchingOf(home.rows.filter((r) => r.key === "continue_watching" || r.key === "next_up").flatMap((r) => r.items));
+  const watching = watchingOf(home.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
   const top = hero(picks, { watching });
   top.spotlight.add(picks);
   const rows = homeRows(home.rows, top, watching, about.heading);
