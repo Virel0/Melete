@@ -14,8 +14,9 @@ mod steps;
 
 use steps::*;
 
-/// Scans, subtitle cache cleaning, TMDB matching and probing: at startup, every few hours, and
-/// when asked.
+/// Scans, subtitle cache cleaning, TMDB matching and probing: on the scan schedule, from the
+/// last scan the libraries remember, and when asked. Libraries never scanned wait for someone
+/// to ask, so starting Melete doesn't start reading every folder.
 pub(crate) async fn housekeeping(
     pool: sqlx::SqlitePool,
     libraries: Vec<library::Library>,
@@ -25,6 +26,14 @@ pub(crate) async fn housekeeping(
     artwork_dir: std::path::PathBuf,
     trickplay_dir: std::path::PathBuf,
 ) {
+    let last: Option<i64> = sqlx::query_scalar("SELECT max(last_scan_at) FROM libraries")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "the last scan's time can't be read; waiting to be asked");
+            None
+        });
+    jobs::scans::remember(last);
     jobs::repeat(jobs::TICK, &jobs::RESCAN, || async {
         let schedule = scan_schedule(&pool).await;
         let Some(scope) = jobs::scans::take(schedule, crate::db::unix_now()) else {

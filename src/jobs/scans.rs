@@ -45,9 +45,10 @@ impl Schedule {
     }
 
     /// Whether a whole scan is due at `now` (Unix seconds, `offset` seconds east of UTC on the
-    /// server) after the last one at `last`; always, when there's been none.
+    /// server) after the last one at `last`; never, when there's been none: the first scan
+    /// waits for someone to ask for it.
     pub fn due(self, last: Option<i64>, now: i64, offset: i64) -> bool {
-        let Some(last) = last else { return true };
+        let Some(last) = last else { return false };
         match self {
             Self::Every(seconds) => now - last >= seconds,
             Self::Daily(minute) => {
@@ -95,6 +96,16 @@ pub enum Scope {
     All,
     /// These libraries (by id), each whole or one title folder.
     Some(Vec<(i64, Option<String>)>),
+}
+
+/// Starts the schedule from the last whole scan the libraries remember (their newest
+/// `last_scan_at`), so a restart doesn't scan unless one came due meanwhile; none when they've
+/// never been scanned.
+pub fn remember(last_whole: Option<i64>) {
+    let mut asked = ASKED.lock().expect("no holder panics");
+    if asked.last_whole.is_none() {
+        asked.last_whole = last_whole;
+    }
 }
 
 /// Asks for every library to be scanned whole at the next run.
@@ -188,7 +199,7 @@ mod tests {
     fn a_whole_scan_is_due_once_its_time_has_come() {
         let hour = 3600;
         let six = Schedule::Every(6 * hour);
-        assert!(six.due(None, 0, 0), "at startup");
+        assert!(!six.due(None, 0, 0), "never scanned: it waits to be asked");
         assert!(!six.due(Some(0), 5 * hour, 0));
         assert!(six.due(Some(0), 6 * hour, 0));
 

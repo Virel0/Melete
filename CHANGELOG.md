@@ -13,6 +13,13 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
   library, and how the run went once it has caught up.
 
+### Changed
+
+- **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
+  Libraries), so you can check the folders first; after that, scans follow the schedule counted
+  from the last one, so a restart scans only when a scheduled scan came due while Melete was
+  down.
+
 ### Fixed
 
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser
