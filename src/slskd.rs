@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Secret;
 
-/// slskd waits this long after the last response before calling a search done.
-const QUIET_SECONDS: u32 = 10;
+/// slskd waits this long after the last response before calling a search done, in
+/// milliseconds: slskd passes `searchTimeout` as it is to its Soulseek library, which counts
+/// milliseconds, though slskd's own API docs say seconds.
+const QUIET_MS: u32 = 10_000;
 /// The longest a search may take, however long responses keep coming.
 const DEADLINE: Duration = Duration::from_secs(45);
 /// How often a running search is looked at.
@@ -131,7 +133,7 @@ impl Client {
         self.ensure_not_sharing().await?;
         let body = serde_json::json!({
             "searchText": text,
-            "searchTimeout": QUIET_SECONDS,
+            "searchTimeout": QUIET_MS,
             "responseLimit": RESPONSE_LIMIT,
             "filterResponses": true,
         });
@@ -516,6 +518,8 @@ pub mod testing {
         pub forbidden: bool,
         /// Times an administrator's route was asked for.
         pub admin_asked: usize,
+        /// Each search's `searchTimeout`, as sent.
+        pub timeouts: Vec<Option<i64>>,
         /// Its address.
         pub base: String,
         /// Enqueue requests' bodies, as sent.
@@ -595,6 +599,7 @@ pub mod testing {
                         }
                         seen.texts
                             .push(body["searchText"].as_str().unwrap_or_default().into());
+                        seen.timeouts.push(body["searchTimeout"].as_i64());
                         axum::Json(serde_json::json!({
                             "id": SEARCH_ID, "searchText": body["searchText"],
                             "state": "InProgress", "isComplete": false,
@@ -816,6 +821,14 @@ mod tests {
                 format!("DELETE /searches/{id}"),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_search_waits_ten_seconds_for_answers_in_slskds_milliseconds() {
+        let (client, seen) = testing::start(answer(), 1).await;
+        client.search("Radiohead OK Computer").await.unwrap();
+        // 10 here would end every search 10 ms in, before any user could answer.
+        assert_eq!(seen.lock().unwrap().timeouts, [Some(10_000)]);
     }
 
     #[tokio::test]
