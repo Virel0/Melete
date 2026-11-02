@@ -9,8 +9,8 @@
 
 services:
   motion:
-    build: ./motion
-    image: melete-motion:dev
+    # This version's release; .env can name another, such as one built from ./motion.
+    image: ${MELETE_MOTION_IMAGE:-ghcr.io/virel0/melete:0.3.1-motion}
     container_name: melete-motion
     restart: unless-stopped
     # Melete's own user: Melete reads, and moves away, what it writes.
