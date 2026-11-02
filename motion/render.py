@@ -311,7 +311,7 @@ def work(models, job, job_id):
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "--try":
         models = Models(DEVICE)
-        loop = {"seconds": 8, "fps": 30, "max_side": 1080, "path": "circle", "strength": 0.03}
+        loop = {"seconds": 8, "fps": 30, "max_side": 1440, "path": "circle", "strength": 0.03}
         with open(sys.argv[2], "rb") as f:
             reason, details = make(models, f.read(), loop, sys.argv[3], force="--force" in sys.argv)
         print(json.dumps({"skipped": reason, **details}))
