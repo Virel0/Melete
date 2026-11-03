@@ -1,21 +1,23 @@
-// Your account: password, two-factor sign-in, languages, playback, signing in through an
-// identity provider, sessions and API keys, and Quick Connect for signing in another device.
-// Every user has this page.
+// Your account: your profile picture, password, two-factor sign-in, languages, playback,
+// signing in through an identity provider, sessions and API keys, and Quick Connect for signing
+// in another device. Every user has this page.
 
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
 import { playbackGroup } from "/web/playback-prefs.js";
+import { pictureGroup } from "/web/profile-picture.js";
 import { SignedOut, announce, api, h, oidcOutcome } from "/web/lib.js";
 import { signInChanges, twoFactorGroup } from "/web/two-factor.js";
 
 export async function account(ctx) {
-  const [tokens, twoFactor, provider, link, languages, playback] = await Promise.all([
+  const [tokens, twoFactor, provider, link, languages, playback, picture] = await Promise.all([
     api("/auth/tokens"),
     api("/me/two-factor"),
     api("/auth/oidc"),
     api("/auth/oidc/link"),
     languagesGroup(),
     playbackGroup(),
+    pictureGroup(),
   ]);
   if (!ctx.current()) return [];
 
@@ -27,6 +29,7 @@ export async function account(ctx) {
   const linking = provider.enabled ? providerGroup(provider, link, ctx) : null;
 
   return [
+    picture,
     group("Password", password),
     twoFactorGroup(twoFactor, ctx),
     languages,

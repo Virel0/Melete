@@ -1,0 +1,13 @@
+# A gallery of profile pictures to pick from, beside Melete's own. Off unless added to
+# compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.avatars.yaml
+# MELETE_AVATARS_DIR is a folder on the server, one subfolder per category, each holding PNG,
+# JPEG or WebP pictures; Melete reads it and never writes to it, and fetches nothing from
+# anywhere to fill it (README.md, Profile pictures, says how).
+
+services:
+  melete:
+    environment:
+      MELETE_AVATARS_DIR: /avatars
+    volumes:
+      - ${MELETE_AVATARS_DIR:?set MELETE_AVATARS_DIR in .env}:/avatars:ro

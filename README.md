@@ -214,7 +214,26 @@ names another, such as one built from `stems/` or `motion/`. Both are large (PyT
 CUDA). Their models are downloaded from their publishers on first start, never shipped.
 
 `compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
-Melete the GPU.
+Melete the GPU. So is `compose.avatars.yaml`, a gallery of profile pictures (below).
+
+### Profile pictures
+
+Everyone can upload their own picture on Your account, or choose one from the gallery: Melete's
+own pictures first, then a folder on the server you fill, if you add `compose.avatars.yaml`
+and set `MELETE_AVATARS_DIR` in `.env`. That folder holds one subfolder per category, each with
+PNG, JPEG or WebP pictures; Melete only reads it, and never fetches pictures from anywhere.
+
+Community collections made for Jellyfin's jf-avatars fit as they are. For example, the one it
+uses is laid out as `images/<category>/…`, so a copy of it is a gallery:
+
+```
+git clone --depth 1 https://github.com/kalibrado/js-avatars-images /path/to/avatar-collection
+# then in .env: MELETE_AVATARS_DIR=/path/to/avatar-collection/images
+```
+
+Such collections aren't part of Melete and hold other people's artwork: they're for your
+household's own use, and their makers' terms apply. A picture someone picks is copied into
+Melete, so it stays when the folder changes.
 
 ### Other library folders
 

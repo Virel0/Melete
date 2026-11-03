@@ -1,6 +1,6 @@
 /* After app.css and library.css (rule order matters across them): a wanted title's
    progress, requests, the profile editors, admin and its overviews, the command palette,
-   describing a title, select mode, searching all missing, and the calendar. */
+   describing a title, select mode, searching all missing, the calendar, and profile pictures. */
 
 /* A wanted title's progress: its steps in a row, done ones filled, the current one ringed. */
 .progress { margin-block-start: var(--space-2); }
@@ -333,3 +333,24 @@ body.with-player .select-bar { bottom: calc(var(--player-height, 5rem) + var(--s
 .calendar-month .calendar-entry { display: block; padding-block: var(--space-1); font-size: var(--step--1); }
 .calendar-month .calendar-entry .what,
 .calendar-month .calendar-entry .badge { display: block; margin-block-start: var(--space-1); width: fit-content; }
+
+/* Profile pictures: the one you have, the gallery's grid of choices, and the circle with a
+   name's first letter for someone without one. */
+.avatar { border-radius: 50%; object-fit: cover; flex: none; }
+.avatar-large { width: 6rem; height: 6rem; }
+.avatar-small { width: 1.75rem; height: 1.75rem; }
+.avatar-none {
+  display: inline-grid; place-items: center; background: var(--surface-raised);
+  color: var(--muted); border: 1px solid var(--line); font-weight: 600;
+}
+.avatar-large.avatar-none { font-size: 2.5rem; }
+.avatar-current { margin-block: 0.5rem 1rem; }
+.account summary .avatar-small { vertical-align: middle; margin-inline-end: 0.4rem; }
+.account summary .avatar-none { font-size: 0.85rem; }
+.avatar-grid {
+  list-style: none; padding: 0; margin: 0.75rem 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr)); gap: 0.5rem;
+}
+.avatar-choice { padding: 0; border-radius: 50%; border: 2px solid transparent; background: none; }
+.avatar-choice:hover, .avatar-choice:focus-visible { border-color: var(--accent); }
+.avatar-choice img { display: block; width: 100%; aspect-ratio: 1; border-radius: 50%; object-fit: cover; }

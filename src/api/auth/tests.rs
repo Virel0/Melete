@@ -82,7 +82,7 @@ async fn login_returns_a_working_token() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         me,
-        json!({ "id": 2, "username": "viewer", "is_admin": false, "sees_all_music": true })
+        json!({ "id": 2, "username": "viewer", "is_admin": false, "sees_all_music": true, "avatar_url": null })
     );
     let (_, tokens) = send(&app, "GET", "/api/v1/auth/tokens", Some(token), None).await;
     assert_eq!(tokens[0]["name"], "iPhone");

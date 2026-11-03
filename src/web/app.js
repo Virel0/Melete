@@ -2,6 +2,7 @@
 // cookie. Everything shown is built with DOM nodes and textContent, never parsed markup, so a
 // file or title name can't become HTML.
 
+import { avatar } from "/web/profile-picture.js";
 import { SignedOut, announce, api, failure, h, oidcOutcome, show } from "/web/lib.js";
 import { adminPage } from "/web/admin.js";
 import { kindPage, oldSeriesList } from "/web/watch-kind.js";
@@ -180,6 +181,7 @@ function startSession(user) {
   const name = document.getElementById("username");
   name.textContent = user.username;
   name.title = user.username;
+  name.before(avatar(user, "small"));
   startShell(user);
   bar.hidden = false;
   openPalette = installPalette(user, document.getElementById("palette-open"));
