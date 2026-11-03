@@ -88,6 +88,8 @@ pub fn part(path: &str) -> Part {
             Part::Admin
         }
         "music" | "playlists" => Part::Music,
+        // Whether AI is on: a flag, read by music and video apps alike.
+        "ai" if api == "ai" => Part::Always,
         // Music filters and mixes by description.
         "ai" if api.starts_with("ai/music/") => Part::Music,
         // Finding movies and series by describing them.
@@ -577,6 +579,15 @@ mod tests {
             Ok(()),
             "none set: as before"
         );
+    }
+
+    #[test]
+    fn a_music_only_way_says_whether_ai_is_on_and_opens_music_ai_alone() {
+        let ways = household();
+        let vps = ip("10.20.0.1");
+        assert_eq!(ways.allows(vps, part("/api/v1/ai")), Ok(()));
+        assert_eq!(ways.allows(vps, part("/api/v1/ai/music/search")), Ok(()));
+        assert!(ways.allows(vps, part("/api/v1/ai/search")).is_err());
     }
 
     #[test]
