@@ -128,6 +128,45 @@ pub async fn search_soulseek(
     }
 }
 
+/// Soulseek's songs for `q` as search results, closest first ([`how_close`]), then most shared:
+/// each a song wanted by its title and artist, saying who shares it in which formats, and
+/// marked wanted or asked for already as MusicBrainz's are. Only the words go to slskd.
+///
+/// # Errors
+///
+/// The inner [`Refused`] as [`search_soulseek`] gives one; the outer error when the database
+/// fails.
+pub async fn soulseek_candidates(
+    pool: &SqlitePool,
+    slskd: Option<&slskd::Client>,
+    user_id: i64,
+    q: &str,
+) -> anyhow::Result<Result<Vec<Candidate>, Refused>> {
+    let heard = match search_soulseek(slskd, q).await {
+        Ok(heard) => heard,
+        Err(refused) => return Ok(Err(refused)),
+    };
+    let mut found = Vec::with_capacity(heard.len());
+    for song in heard {
+        let users = if song.users == 1 { "user" } else { "users" };
+        let candidate = Candidate {
+            kind: "song".into(),
+            closeness: how_close(q.trim(), &song.title, song.artist.as_deref()),
+            detail: Some(format!(
+                "Shared by {} {users}, {}",
+                song.users,
+                song.formats.join(", ")
+            )),
+            title: song.title,
+            artist: song.artist,
+            ..Candidate::default()
+        };
+        found.push(mark(pool, user_id, candidate).await?);
+    }
+    found.sort_by_key(|c| std::cmp::Reverse(c.closeness));
+    Ok(Ok(found))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

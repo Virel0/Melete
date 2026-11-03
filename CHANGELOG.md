@@ -31,6 +31,14 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Changed
 
+- **Add new finds songs on Soulseek beside MusicBrainz.** In Manage → Music → Add new, while
+  slskd is set up, Soulseek is searched for the same words once typing has stopped (for 1.2
+  seconds, and 3 letters or more), not only when MusicBrainz finds nothing. MusicBrainz's
+  results show as soon as they come; Soulseek's songs join the Songs list when they arrive and
+  the list is ranked by how close each song is to the words, with a MusicBrainz or Soulseek
+  badge on each. Only the words go to slskd, as before. For the apps, every search result now
+  has a `closeness` (0 to 100), and `GET /api/v1/requests/soulseek/candidates` (admins) gives
+  Soulseek's songs as search results with theirs, so the two can be mixed.
 - The Watch home's previews play at full quality. A trailer in the title's folder is used only
   when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
   the title. The web plays either as the player would (the file as it is, its video copied, or

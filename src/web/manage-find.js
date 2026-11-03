@@ -2,11 +2,13 @@
 // and songs for Music; movies; series), each group best first. A search starts once typing
 // pauses; one in flight is cancelled when the words change, so at most one runs. Arrow keys
 // move through the results' Add buttons and Enter opens one; Escape goes back to the words.
-// When MusicBrainz finds nothing for music, Soulseek can be searched for the same words. Only
-// the words leave the server, to TMDB, MusicBrainz or slskd.
+// While slskd is set up, Music also looks for songs on Soulseek once typing has stopped; they
+// join MusicBrainz's songs when they come, without holding them up, and the two are ranked
+// together by how close each is to the words (the server's `closeness`). Only the words leave
+// the server, to TMDB, MusicBrainz or slskd.
 
 import { group } from "/web/forms.js";
-import { SignedOut, api, h, plural } from "/web/lib.js";
+import { SignedOut, api, h, number, plural } from "/web/lib.js";
 import { candidateRow } from "/web/manage-add-form.js";
 
 // What each service searches for: [kind, the group's name].
@@ -23,6 +25,10 @@ const KINDS = {
 // How long typing pauses before a search starts, and the fewest letters searched for.
 const PAUSE_MS = 400;
 const FEWEST = 2;
+// Soulseek's search takes ten seconds or more and goes outside: it starts only once typing has
+// stopped for longer, never for words half typed, and for at least this many letters.
+const SEEK_PAUSE_MS = 1200;
+const SEEK_FEWEST = 3;
 
 export function findPart(page) {
   const music = page.key === "music";
@@ -35,16 +41,28 @@ export function findPart(page) {
     { class: "search-row", role: "search", novalidate: true },
     h("div", { class: "find-words" }, h("label", { for: "add-q" }, music ? "Artist, album or song" : "Title"), q),
   );
-  const v = { page, music, source, q, said, results, running: null, timer: null, words: "" };
+  // Whether slskd is set up, asked once: Soulseek is searched only then.
+  const slskd = music ? api("/settings/services").then((all) => all.some((s) => s.key === "slskd" && s.on), () => false) : Promise.resolve(false);
+  const v = { page, music, source, q, said, results, running: null, timer: null, words: "", shown: null, slskd, seek: null, seeking: false, seekTimer: null, rows: new WeakMap() };
   idle(v);
   q.addEventListener("input", () => {
     clearTimeout(v.timer);
     v.timer = setTimeout(() => find(v), PAUSE_MS);
+    if (!music) return;
+    clearTimeout(v.seekTimer);
+    v.seekTimer = setTimeout(() => {
+      v.seekTimer = null;
+      seek(v);
+    }, SEEK_PAUSE_MS);
   });
   search.addEventListener("submit", (event) => {
     event.preventDefault();
     clearTimeout(v.timer);
     find(v, { again: true });
+    if (!music) return;
+    clearTimeout(v.seekTimer);
+    v.seekTimer = null;
+    seek(v);
   });
   q.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown") {
@@ -58,7 +76,7 @@ export function findPart(page) {
   results.addEventListener("keydown", (event) => move(v, event));
   return group(
     "Add new",
-    h("p", { class: "note" }, `Results appear as you type. Only the words you search for go to ${source}${music ? ", or to Soulseek when you ask" : ""}${music ? "" : "; posters of titles not here come from TMDB only when that is on under Outside services"}. Adding one puts it on the wanted list at once, as an approved request.`),
+    h("p", { class: "note" }, `Results appear as you type. Only the words you search for go to ${source}${music ? ", and to Soulseek once you stop typing when slskd is set up: its songs join MusicBrainz's when they come, ranked together by how close each is to the words" : ""}${music ? "" : "; posters of titles not here come from TMDB only when that is on under Outside services"}. Adding one puts it on the wanted list at once, as an approved request.`),
     search,
     said,
     results,
@@ -81,6 +99,7 @@ function move(v, event) {
 }
 
 function idle(v) {
+  v.shown = null;
   v.said.textContent = `Type at least ${FEWEST} letters of a ${v.music ? "name or title" : "title"}.`;
   v.results.replaceChildren();
 }
@@ -102,19 +121,88 @@ async function find(v, { again = false } = {}) {
   const answers = await Promise.allSettled(
     kinds.map(([kind]) => api(`/requests/search?${new URLSearchParams({ kind, q: words })}`, { signal: running.signal })),
   );
+  // With Soulseek searched too, each song says where it's from.
+  const sourced = await v.slskd;
   if (running.signal.aborted || !v.page.ctx.current()) return;
   v.running = null;
   v.results.removeAttribute("aria-busy");
   const failed = answers.find((a) => a.status === "rejected")?.reason;
   if (failed instanceof SignedOut) return v.page.ctx.signedOut();
-  const groups = kinds.map(([kind, name], i) => ({ kind, name, found: answers[i].status === "fulfilled" ? answers[i].value : null }));
-  if (groups.every((g) => g.found === null)) return trouble(v, failed);
-  draw(v, words, groups, failed);
+  const groups = kinds.map(([kind, name], i) => {
+    const found = answers[i].status === "fulfilled" ? answers[i].value : null;
+    return { kind, name, found: kind === "song" && sourced && found ? found.map((c) => ({ ...c, source: "MusicBrainz" })) : found };
+  });
+  v.shown = { words, groups, failed };
+  show(v);
 }
 
-// The results, a group per kind with what it found.
-function draw(v, words, groups, failed) {
+// Looks on Soulseek for the words in the box, unless that's done or being done for them already:
+// one search at a time, and an answer for words no longer in the box is dropped.
+async function seek(v) {
+  const words = v.q.value.trim();
+  if ([...words.replace(/\s/g, "")].length < SEEK_FEWEST || v.seeking) return;
+  if (v.seek?.words === words && !v.seek.error) return;
+  if (!(await v.slskd) || v.seeking || v.q.value.trim() !== words) return;
+  const asked = { words, songs: null, error: null };
+  v.seek = asked;
+  v.seeking = true;
+  if (v.shown?.words === words) show(v);
+  try {
+    const heard = await api(`/requests/soulseek/candidates?${new URLSearchParams({ q: words })}`);
+    asked.songs = heard.map((c) => ({ ...c, source: "Soulseek" }));
+  } catch (err) {
+    asked.error = err;
+  }
+  v.seeking = false;
+  if (asked.error instanceof SignedOut) return v.page.ctx.signedOut();
+  if (!v.page.ctx.current()) return;
+  if (v.q.value.trim() !== words) {
+    // The words changed meanwhile: the answer goes, and the new words are looked for unless
+    // typing hasn't stopped yet (then its own pause does it).
+    v.seek = null;
+    if (v.seekTimer === null) seek(v);
+    return;
+  }
+  if (v.shown?.words === words) show(v);
+}
+
+// Closest to the words first, by the server's one measure for both sources; MusicBrainz's
+// first when they're as close.
+function ranked(found, heard) {
+  return [...found, ...heard].sort((a, b) => b.closeness - a.closeness);
+}
+
+// What MusicBrainz found for the words, with Soulseek's songs among the songs once they came.
+function show(v) {
+  const { words, groups, failed } = v.shown;
+  const asked = v.seek?.words === words ? v.seek : null;
+  const heard = asked?.songs ?? [];
+  const missed = groups.filter((g) => g.found === null).map((g) => g.name.toLowerCase());
+  if (missed.length === groups.length && !heard.length) {
+    trouble(v, failed);
+    if (asked) v.said.append(` ${soulseekSaid(asked, 0)}`);
+    return;
+  }
+  const mixed = groups.map((g) => (g.kind === "song" && heard.length ? { ...g, found: ranked(g.found ?? [], heard) } : g));
+  const partly = missed.length ? ` ${missed.join(" and ")} couldn't be searched: ${failed?.message ?? ""}` : "";
+  draw(v, words, mixed, partly, asked);
+}
+
+// How Soulseek's search for the words stands, after `total` results.
+function soulseekSaid(asked, total) {
+  if (asked.error) return `Soulseek couldn't be searched: ${asked.error.message}`;
+  if (!asked.songs) return "Searching Soulseek for songs too, which takes ten seconds or more…";
+  if (!asked.songs.length) return `Nothing on Soulseek${total ? "" : " either"}.`;
+  return "";
+}
+
+// The results, a group per kind with what it found. A row stays the same element from one
+// drawing to the next, so an open Add form and the keyboard's focus stay where they were.
+function draw(v, words, groups, partly, asked) {
   const total = groups.reduce((n, g) => n + (g.found?.length ?? 0), 0);
+  const fromSoulseek = asked?.songs?.length ?? 0;
+  const status = asked ? ` ${soulseekSaid(asked, total)}`.trimEnd() : "";
+  const focused = document.activeElement;
   const parts = groups
     .filter((g) => g.found?.length)
     .map((g) =>
@@ -122,20 +210,29 @@ function draw(v, words, groups, failed) {
         "section",
         { class: "find-group", "aria-label": g.name },
         groups.length > 1 ? h("h3", {}, `${g.name} (${g.found.length})`) : null,
-        h("ul", { class: "rows" }, g.found.map((c) => candidateRow(v.page, c))),
+        g.kind === "song" && fromSoulseek ? h("p", { class: "note" }, "Ranked by how close each is to the words. Soulseek's are named as their files are; adding one wants it as a song by its title and artist, fetched from Soulseek.") : null,
+        h("ul", { class: "rows" }, g.found.map((c) => rowOf(v, c))),
       ),
     );
-  const missed = groups.filter((g) => g.found === null).map((g) => g.name.toLowerCase());
-  const partly = missed.length ? ` ${missed.join(" and ")} couldn't be searched: ${failed?.message ?? ""}` : "";
   if (!total) {
-    v.said.textContent = `${v.source} found nothing for “${words}”.${partly}`;
-    v.results.replaceChildren(
-      ...[h("p", { class: "note" }, "Try another spelling, or fewer words."), v.music ? soulseekOffer(v, words) : null].filter(Boolean),
-    );
+    v.said.textContent = `${v.source} found nothing for “${words}”.${partly}${status}`;
+    v.results.replaceChildren(h("p", { class: "note" }, "Try another spelling, or fewer words."));
     return;
   }
-  v.said.textContent = `${plural(total, "result", "results")} for “${words}”. Arrow down to go through them.${partly}`;
+  const some = fromSoulseek ? `, ${number.format(fromSoulseek)} of them on Soulseek` : "";
+  v.said.textContent = `${plural(total, "result", "results")} for “${words}”${some}. Arrow down to go through them.${partly}${status}`;
   v.results.replaceChildren(...parts);
+  if (focused !== document.activeElement && v.results.contains(focused)) focused.focus({ preventScroll: true });
+}
+
+// A result's row, made once.
+function rowOf(v, c) {
+  let row = v.rows.get(c);
+  if (!row) {
+    row = candidateRow(v.page, c);
+    v.rows.set(c, row);
+  }
+  return row;
 }
 
 // Why nothing could be searched: a service that's busy or off, or Melete out of reach; each
@@ -152,38 +249,4 @@ function trouble(v, err) {
     v.said.textContent = err.message;
     v.results.replaceChildren(h("p", { class: "note" }, "How TMDB and MusicBrainz stand is under ", h("a", { href: "#/admin/system/services" }, "System, Outside services"), "."));
   }
-}
-
-// MusicBrainz found nothing: look on Soulseek for the same words, and want a song from there by
-// its title and artist.
-function soulseekOffer(v, words) {
-  const box = h("div", { class: "soulseek-offer" });
-  const go = h("button", { type: "button" }, `Search Soulseek for “${words}”`);
-  go.addEventListener("click", async () => {
-    go.disabled = true;
-    v.said.textContent = `Searching Soulseek for “${words}”. This takes ten seconds or more…`;
-    try {
-      const heard = await api(`/requests/soulseek?${new URLSearchParams({ q: words })}`);
-      if (!v.page.ctx.current() || v.words !== words) return;
-      v.said.textContent = heard.length ? `Soulseek's users share ${plural(heard.length, "song", "songs")} for “${words}”.` : `Nothing on Soulseek for “${words}” either.`;
-      box.replaceChildren(
-        heard.length
-          ? h(
-              "section",
-              { class: "find-group", "aria-label": "On Soulseek" },
-              h("h3", {}, "On Soulseek"),
-              h("p", { class: "note" }, "Named as their files are. Adding one wants it as a song by its title and artist, fetched from Soulseek."),
-              h("ul", { class: "rows" }, heard.map((s) => candidateRow(v.page, { kind: "song", title: s.title, artist: s.artist, detail: `Shared by ${plural(s.users, "user", "users")}, ${s.formats.join(", ")}`, poster: null }))),
-            )
-          : h("p", { class: "note" }, "Try other words."),
-      );
-      box.querySelector(".find-add")?.focus();
-    } catch (err) {
-      if (err instanceof SignedOut) return v.page.ctx.signedOut();
-      v.said.textContent = `Soulseek couldn't be searched: ${err.message}`;
-      go.disabled = false;
-    }
-  });
-  box.append(h("p", { class: "note" }, "Music is fetched from Soulseek, which may have what MusicBrainz doesn't list. Only these words go to slskd."), go);
-  return box;
 }
