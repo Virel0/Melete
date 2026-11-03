@@ -34,6 +34,10 @@ pub fn session_device(token_id: i64) -> String {
     format!("token-{token_id}")
 }
 
+/// The device name ops carry that Melete writes on its own, with no session asking: filling
+/// an imported playlist and swapping arrived songs in for pending items.
+pub const MELETE_DEVICE: &str = "melete";
+
 /// A fresh row or op id, as the apps mint them: an upper-case hyphenated version 4 UUID.
 ///
 /// # Errors
@@ -42,17 +46,33 @@ pub fn session_device(token_id: i64) -> String {
 pub fn new_id() -> Result<String, WriteError> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| WriteError::NoRandomness)?;
+    Ok(uuid(bytes))
+}
+
+/// A row id spelled as [`new_id`] spells one, the same for the same `seed`: for a row written
+/// again after a restart, which must be the same row, not a second one.
+pub fn id_from(seed: &str) -> String {
+    let digest = super::library::sha256_hex(seed.as_bytes());
+    let mut bytes = [0u8; 16];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&digest[i * 2..i * 2 + 2], 16).unwrap_or_default();
+    }
+    uuid(bytes)
+}
+
+/// Sixteen bytes as a version 4 UUID, upper case and hyphenated.
+fn uuid(mut bytes: [u8; 16]) -> String {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: String = bytes.iter().map(|b| format!("{b:02X}")).collect();
-    Ok(format!(
+    format!(
         "{}-{}-{}-{}-{}",
         &hex[0..8],
         &hex[8..12],
         &hex[12..16],
         &hex[16..20],
         &hex[20..32]
-    ))
+    )
 }
 
 /// JSON with every object's keys sorted, at every depth, and nothing between tokens: the
@@ -149,6 +169,7 @@ pub async fn append(
 
 /// How a row names a track: its id as the apps write it (`jellyfinId`, which holds Melete's
 /// track id) and the content key they relink it by when an id stops resolving.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackLink {
     /// Melete's track id, as text.
     pub jellyfin_id: String,
@@ -284,6 +305,14 @@ mod tests {
         assert_eq!(&id[14..15], "4", "version 4");
         assert!(matches!(&id[19..20], "8" | "9" | "A" | "B"), "{id}");
         assert_ne!(id, new_id().unwrap());
+        let derived = id_from("p/import/1");
+        assert_eq!(
+            (derived.len(), &derived[14..15]),
+            (36, "4"),
+            "spelled the same"
+        );
+        assert_eq!(derived, id_from("p/import/1"));
+        assert_ne!(derived, id_from("p/import/2"));
     }
 
     #[test]

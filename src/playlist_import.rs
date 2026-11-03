@@ -5,6 +5,7 @@
 //! MusicBrainz answers one request a second; a track asked for at once (an admin's, or a user's
 //! whose requests go straight through) is fetched before the next is matched. What can't be
 //! matched is listed with why. Importing the same playlist again asks only for what's new.
+//! An import can also make an Aoide playlist of its tracks (`playlist`).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,12 +21,14 @@ use crate::requests::{self, Choice, NewRequest, Refused};
 
 mod deciding;
 mod matching;
+mod playlist;
 mod reading;
 mod records;
 mod running;
 
 pub use deciding::*;
 pub use matching::*;
+use playlist::*;
 pub use reading::*;
 pub use records::*;
 pub use running::*;
@@ -176,7 +179,7 @@ mod tests {
         );
         let (mb, log) = testing::start(0).await;
         let sources = fulfil::Sources::default();
-        let made = create(&pool, &alice, "Road trip", &parse(PLAYLIST).unwrap())
+        let made = create(&pool, &alice, "Road trip", &parse(PLAYLIST).unwrap(), None)
             .await
             .unwrap();
         assert_eq!((made.state.as_str(), made.tracks), ("queued", 3));
@@ -236,7 +239,7 @@ mod tests {
         assert_eq!(summary(&pool, made.id).await.unwrap().unwrap().waiting, 0);
 
         // Imported again: nothing new to ask for.
-        let again = create(&pool, &alice, "Road trip", &parse(PLAYLIST).unwrap())
+        let again = create(&pool, &alice, "Road trip", &parse(PLAYLIST).unwrap(), None)
             .await
             .unwrap();
         run(&pool, &mb, &sources, again.id).await.unwrap();
@@ -262,7 +265,7 @@ mod tests {
             .await
             .unwrap();
         let (mb, _) = testing::start(0).await;
-        let made = create(&pool, &bob, "Mine", &parse(PLAYLIST).unwrap())
+        let made = create(&pool, &bob, "Mine", &parse(PLAYLIST).unwrap(), None)
             .await
             .unwrap();
         run(&pool, &mb, &fulfil::Sources::default(), made.id)

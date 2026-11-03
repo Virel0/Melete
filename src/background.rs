@@ -54,6 +54,7 @@ pub(crate) async fn housekeeping(
             probe_music(&pool, &ffprobe)
         );
         link_and_number(&pool).await;
+        swap_in_arrived(&pool).await;
         wake_after_probing();
         settle_upgrades(&pool).await;
         forget_old(&pool, &artwork_dir).await;
@@ -68,13 +69,19 @@ pub(crate) async fn match_music(pool: sqlx::SqlitePool, mb: Arc<musicbrainz::Cli
     jobs::repeat_task("music-matching", jobs::EVERY, &jobs::MUSIC, || async {
         match music_match::match_pending(&pool, &mb).await {
             Ok(report) if report == music_match::Report::default() => {}
-            Ok(report) => tracing::info!(
-                matched = report.matched,
-                unmatched = report.unmatched,
-                ambiguous = report.ambiguous,
-                errors = report.errors,
-                "music matching finished"
-            ),
+            Ok(report) => {
+                tracing::info!(
+                    matched = report.matched,
+                    unmatched = report.unmatched,
+                    ambiguous = report.ambiguous,
+                    errors = report.errors,
+                    "music matching finished"
+                );
+                // Matching gives tracks their recordings, which may be songs pending in playlists.
+                if report.matched > 0 {
+                    swap_in_arrived(&pool).await;
+                }
+            }
             Err(err) => tracing::error!(error = format!("{err:#}"), "music matching stopped"),
         }
     })

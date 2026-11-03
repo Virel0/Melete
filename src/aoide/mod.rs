@@ -10,6 +10,7 @@ pub mod likes;
 pub mod listening;
 pub mod matcher;
 pub mod next;
+pub mod pending;
 pub mod planner;
 pub mod playlist_edits;
 pub mod playlists;

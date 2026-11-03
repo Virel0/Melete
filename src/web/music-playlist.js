@@ -4,7 +4,8 @@
 // each song moved up, down or out;
 // songs are added from Add to playlist beside any song or on an album. A playlist shared with
 // the caller is read-only here, and a smart one lists no songs, as its rules are worked out on
-// the devices. A song gone from the library stays, greyed, with what it was.
+// the devices. A song gone from the library stays, greyed, with what it was; one not in it yet
+// shows greyed too, saying how its request stands, until the server swaps its track in.
 
 import { SignedOut, api, clock, h, metaRow, plural, runtime, show } from "/web/lib.js";
 import { trackActions } from "/web/music-actions.js";
@@ -156,6 +157,24 @@ function itemTools(p, i, name, page) {
   );
 }
 
+// How a pending song's request stands, as its row says it.
+const WAITING = {
+  requested: "Requested",
+  approved: "On its way",
+  declined: "Request declined",
+  unmatched: "Not found on MusicBrainz",
+};
+
+// A song not in the library yet: what it is, and how its request stands.
+function pendingRow(song) {
+  return h(
+    "li",
+    { class: "gone pending" },
+    h("span", { class: "name" }, h("span", {}, song.title), h("span", { class: "by" }, [song.artist, song.album].filter(Boolean).join(", "))),
+    h("span", { class: "missing" }, WAITING[song.state] ?? "Not in the library"),
+  );
+}
+
 function itemList(p, page, editable) {
   const here = p.items.filter((i) => i.track).map((i) => i.track);
   const queue = looseQueue(here);
@@ -163,11 +182,13 @@ function itemList(p, page, editable) {
     "ul",
     { class: `tracks songs playlist-items${editable ? " editable" : ""}` },
     p.items.map((item, i) => {
-      const name = item.track?.title ?? (item.content_key ?? "").split("|")[2] ?? "this song";
+      const name = item.track?.title ?? item.pending?.title ?? (item.content_key ?? "").split("|")[2] ?? "this song";
       const tools = editable ? itemTools(p, i, name, page) : null;
       const row = item.track
         ? songRow(item.track, () => play(queue, here.indexOf(item.track)), trackActions(item.track, queue[here.indexOf(item.track)]))
-        : goneRow(item.content_key);
+        : item.pending
+          ? pendingRow(item.pending)
+          : goneRow(item.content_key);
       if (tools) row.append(tools);
       row.dataset.item = item.id ?? "";
       return row;

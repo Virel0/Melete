@@ -166,12 +166,13 @@ pub async fn snapshot(pool: &SqlitePool, me: i64) -> anyhow::Result<Option<Value
         .await?;
         wanted.extend(playing.iter().map(|p| p.0));
         wanted.extend(recent.iter().map(|r| r.0));
-        people.push((name, playing, recent));
+        people.push((id, name, playing, recent));
     }
     let tracks = track_values(pool, me, &wanted).await?;
+    let pictures = crate::avatars::urls(pool).await?;
     let people: Vec<Value> = people
         .into_iter()
-        .map(|(name, playing, recent)| {
+        .map(|(id, name, playing, recent)| {
             let now_playing = playing.and_then(|(track, device, since)| {
                 Some(json!({ "track": tracks.get(&track)?, "device": device,
                              "since": since.div_euclid(1000) }))
@@ -182,7 +183,8 @@ pub async fn snapshot(pool: &SqlitePool, me: i64) -> anyhow::Result<Option<Value
                     Some(json!({ "track": tracks.get(track)?, "started_at": at.div_euclid(1000) }))
                 })
                 .collect();
-            json!({ "user": name, "now_playing": now_playing, "recently_played": recently })
+            json!({ "user": name, "avatar_url": pictures.get(&id), "now_playing": now_playing,
+                    "recently_played": recently })
         })
         .collect();
     Ok(Some(json!(people)))
@@ -338,6 +340,7 @@ mod tests {
         let people = seen["people"].as_array().unwrap();
         assert_eq!(people.len(), 1);
         assert_eq!(people[0]["user"], "alice");
+        assert_eq!(people[0]["avatar_url"], Value::Null, "no picture yet");
         assert_eq!(people[0]["now_playing"]["track"]["title"], "A2");
         assert_eq!(people[0]["now_playing"]["device"], "Living room iPad");
         let recent: Vec<&Value> = people[0]["recently_played"]
@@ -354,6 +357,18 @@ mod tests {
         // Alice doesn't see herself; bob doesn't share, so nobody is listed for her.
         let (_, hers) = call(&app, &alice_token, "/api/v1/music/household", None).await;
         assert_eq!(hers, json!({ "sharing": true, "people": [] }));
+
+        // With a picture, those who see her get its address.
+        let png = crate::avatars::tests::PNG;
+        crate::avatars::set(&pool, alice, "image/png", png)
+            .await
+            .unwrap();
+        let (_, seen) = call(&app, &bob_token, "/api/v1/music/household", None).await;
+        let hash = crate::aoide::library::sha256_hex(png);
+        assert_eq!(
+            seen["people"][0]["avatar_url"],
+            format!("/api/v1/users/{alice}/avatar?v={}", &hash[..12])
+        );
 
         // Turned off, alice is gone, but the stream still says so (an empty list).
         call(
