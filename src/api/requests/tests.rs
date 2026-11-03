@@ -1257,4 +1257,73 @@ async fn admins_look_on_soulseek_with_only_the_words() {
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
 
+/// A search where MusicBrainz finds only other songs still lists Soulseek's: each comes back as
+/// a search result saying how close it is to the words by the same measure as MusicBrainz's, so
+/// the song asked for ranks first once the two lists are mixed. Only the words go to slskd;
+/// admins only.
+#[tokio::test]
+async fn soulseek_songs_rank_with_musicbrainz_songs_by_closeness() {
+    let pool = db::open_in_memory().await;
+    let (admin, alice) = (
+        token(&pool, "admin", true).await,
+        token(&pool, "alice", false).await,
+    );
+    let answers = json!([
+        {"username": "peer", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Music\\Unsigned Band\\Demo\\01 - Garage Song.flac", "size": 1000},
+            {"filename": "Music\\Unsigned Band\\Demo\\02 - Other Tune.mp3", "size": 1000},
+        ]},
+        {"username": "another", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Unsigned Band - Other Tune.flac", "size": 1000},
+        ]},
+    ]);
+    let (slskd, seen) = crate::slskd::testing::start(answers, 1).await;
+    let (mb, _) = crate::musicbrainz::testing::start(0).await;
+    let sources = Sources {
+        slskd: Some(Arc::new(slskd.quick())),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), Some(Arc::new(mb)), sources);
+    let uri = "/api/v1/requests/soulseek/candidates?q=garage%20song";
+    let (status, heard) = send(&app, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{heard}");
+    let song = |title: &str, detail: &str, closeness: u8| {
+        json!({"kind": "song", "tmdb_id": null, "mb_artist_id": null,
+            "mb_release_group_id": null, "mb_recording_id": null, "title": title, "year": null,
+            "artist": "Unsigned Band", "detail": detail, "in_library": false, "wanted": false,
+            "requested": null, "poster": null, "closeness": closeness})
+    };
+    assert_eq!(
+        heard,
+        json!([
+            song("Garage Song", "Shared by 1 user, FLAC", 100),
+            song("Other Tune", "Shared by 2 users, FLAC, MP3", 0),
+        ]),
+        "closest first, though the other is more shared"
+    );
+    assert_eq!(seen.lock().unwrap().texts, ["garage song"]);
+
+    let search = "/api/v1/requests/search?kind=song&q=garage%20song";
+    let (status, found) = send(&app, "GET", search, &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        (&found[0]["title"], &found[0]["closeness"]),
+        (&json!("Paranoid Android"), &json!(0))
+    );
+    // Mixed as Add new mixes them: MusicBrainz's first, then ranked by closeness alone.
+    let mut mixed: Vec<&Value> = found.as_array().unwrap().iter().collect();
+    mixed.extend(heard.as_array().unwrap());
+    mixed.sort_by_key(|c| std::cmp::Reverse(c["closeness"].as_u64()));
+    let titles: Vec<&str> = mixed.iter().map(|c| c["title"].as_str().unwrap()).collect();
+    assert_eq!(titles, ["Garage Song", "Paranoid Android", "Other Tune"]);
+
+    let (status, _) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let blank = "/api/v1/requests/soulseek/candidates?q=%20";
+    let (status, _) = send(&app, "GET", blank, &admin, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let without = routes(pool, None, Sources::default());
+    let (status, body) = send(&without, "GET", uri, &admin, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
 mod playlist_imports;

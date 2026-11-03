@@ -28,6 +28,20 @@ pub(super) async fn soulseek(
         .map_err(refused)
 }
 
+/// Soulseek's songs as search results (admins only), each with how close it is to the words, to
+/// be ranked together with MusicBrainz's: only the words go to slskd.
+pub(super) async fn soulseek_candidates(
+    State(state): State<RequestState>,
+    Extension(current): Extension<CurrentUser>,
+    Query(query): Query<SoulseekQuery>,
+) -> Result<Json<Vec<Candidate>>, ApiError> {
+    let slskd = state.sources.slskd.as_deref();
+    request_search::soulseek_candidates(&state.pool, slskd, current.user.id, &query.q)
+        .await?
+        .map(Json)
+        .map_err(refused)
+}
+
 /// Movies and series on TMDB, music on MusicBrainz, each marked in the library, wanted, or
 /// asked for already.
 pub(super) async fn search(

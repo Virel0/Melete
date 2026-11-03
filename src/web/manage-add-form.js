@@ -38,6 +38,8 @@ export function candidateRow(page, c) {
       h("strong", {}, c.title),
       c.year ? ` (${c.year})` : null,
       c.artist ? h("span", { class: "note" }, ` by ${c.artist}`) : null,
+      // Where it was found, when a list mixes two sources.
+      c.source ? [" ", h("span", { class: "badge" }, c.source)] : null,
       c.detail ? h("p", { class: "note" }, c.detail) : null,
       marks.length ? h("p", { class: "marks" }, marks) : null,
       form,
