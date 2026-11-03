@@ -56,8 +56,11 @@ it. Try it with a large fake library: some failures only show up at scale.
 - **API changes** update `src/api/openapi.json` in the same pull request, including who may call
   each operation (`x-melete-access`) and which API-key scope reaches it (`x-melete-scope`).
   Tests check that documented routes exist and that the main responses match.
-- **A new rule or behaviour** gets a row in the decisions table in `docs/DESIGN.md`: what and
-  why.
+- **A new rule or behaviour** gets a decision: a file in `docs/decisions/` (what, why and the
+  date; see its README), numbered and added to the table in `docs/DESIGN.md` at release.
+- **A notable change** gets a changelog entry: a file in `changes/` (see its README), joined
+  into `CHANGELOG.md` at release. Neither shared file is edited by a pull request, so open pull
+  requests don't conflict there.
 - **Outside services** are off by default, live in one module each with timeouts, can be set
   from Settings → Outside services (`src/settings/catalogue.rs`), and say exactly what leaves
   the server. Requests carry nothing that identifies the household: no names, emails or account
