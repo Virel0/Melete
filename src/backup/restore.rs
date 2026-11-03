@@ -20,7 +20,15 @@ const STAGED: &str = ".melete.db.restoring";
 /// while it works, so neither starts while the other has it. Let go when dropped.
 #[derive(Debug)]
 pub struct Lock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for Lock {
+    /// Unlocks before the file closes: closing alone doesn't let go while a child process
+    /// being started (ffmpeg, say) still holds a copy of the file from before its `exec`.
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 /// Takes the data folder's lock, or says why not: a server, or a restore, has it.
@@ -35,7 +43,7 @@ pub fn lock(data_dir: &Path) -> anyhow::Result<Lock> {
         .open(&path)
         .with_context(|| format!("opening {}", path.display()))?;
     match file.try_lock() {
-        Ok(()) => Ok(Lock { _file: file }),
+        Ok(()) => Ok(Lock { file }),
         Err(std::fs::TryLockError::WouldBlock) => bail!(
             "Melete is running on {} (or a restore is): {} is locked",
             data_dir.display(),

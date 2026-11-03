@@ -89,6 +89,17 @@ async fn no_restore_while_the_server_runs() {
     restore(dir.path(), &made.file, &all()).await.unwrap();
 }
 
+#[test]
+fn the_lock_is_let_go_while_a_child_process_still_holds_its_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let held = lock(dir.path()).unwrap();
+    // What a child process being started holds until its `exec`: the same open file.
+    let childs_copy = held.file.try_clone().unwrap();
+    drop(held);
+    assert!(lock(dir.path()).is_ok(), "let go when dropped");
+    drop(childs_copy);
+}
+
 #[tokio::test]
 async fn a_copy_that_fails_its_checks_is_refused_and_nothing_changes() {
     let dir = tempfile::tempdir().unwrap();
