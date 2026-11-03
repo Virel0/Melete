@@ -15045,9 +15045,10 @@
       },
       "MusicListener": {
         "type": "object",
-        "required": ["user", "now_playing", "recently_played"],
+        "required": ["user", "avatar_url", "now_playing", "recently_played"],
         "properties": {
           "user": {"type": "string", "description": "Their user name."},
+          "avatar_url": {"type": ["string", "null"], "description": "Where their profile picture is fetched from (GET /api/v1/users/{id}/avatar, its hash in the address); null without one."},
           "now_playing": {
             "anyOf": [{"$ref": "#/components/schemas/MusicNowPlaying"}, {"type": "null"}],
             "description": "Null when nothing is playing."
@@ -15413,9 +15414,10 @@
       },
       "ListenMember": {
         "type": "object",
-        "required": ["username", "device", "you"],
+        "required": ["username", "avatar_url", "device", "you"],
         "properties": {
           "username": {"type": "string"},
+          "avatar_url": {"type": ["string", "null"], "description": "Where their profile picture is fetched from (GET /api/v1/users/{id}/avatar, its hash in the address); null without one."},
           "device": {"type": "string", "description": "The device's name, as signed in."},
           "you": {"type": "boolean", "description": "The device asking."}
         },
