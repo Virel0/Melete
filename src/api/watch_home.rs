@@ -1,7 +1,8 @@
 //! The Watch home in one request, as `/music/home` is for music: the hero's picks, then rows of
-//! titles (continue watching, next up, favourites, "because you watched …" for the titles the
-//! user finished most recently, and the newest shows, anime and movies), each title with
-//! what a tile, a spotlight or the hero shows of it. A row with nothing in it is left out.
+//! titles (continue watching, next up, new episodes, favourites, "because you watched …" for the
+//! titles the user finished most recently, the newest shows, anime and movies, then the next
+//! film in a collection, highly rated titles not seen yet and titles to watch again), each title
+//! with what a tile, a spotlight or the hero shows of it. A row with nothing in it is left out.
 //!
 //! Only what the user may see is there (`crate::access`).
 //!
@@ -30,6 +31,7 @@ mod because;
 mod cards;
 mod hero_trailer;
 mod kinds;
+mod more;
 mod picks;
 
 use cards::*;
@@ -140,32 +142,29 @@ async fn home(
     let access = &current.access;
     let kind = query.kind;
     let continuing = continue_watching(pool, me, access).await?;
-    let next_up = next_up(pool, me, access).await?;
+    let (new_episodes, next_up) =
+        more::new_episodes(pool, me, next_up(pool, me, access).await?).await?;
     let favourites = favourites(pool, me, access).await?;
-    let wants = |k: Kind| kind.is_none_or(|asked| asked == k);
-    let shows = if wants(Kind::Shows) {
-        latest_series(pool, access, false).await?
-    } else {
-        Vec::new()
-    };
-    let anime = if wants(Kind::Anime) {
-        latest_series(pool, access, true).await?
-    } else {
-        Vec::new()
-    };
-    let movies = if wants(Kind::Movies) {
-        latest_movies(pool, access).await?
-    } else {
-        Vec::new()
-    };
+    let [shows, anime, movies] = newest_of_each(pool, access, kind).await?;
     let because = because::rows(pool, &state.outside, me, access, kind).await?;
     let featured = picks::featured(pool, &state.outside, me, access).await?;
+    // Films have collections; shows have episodes.
+    let collections = if kind.is_none_or(|k| k == Kind::Movies) {
+        more::next_in_collection(pool, me, access).await?
+    } else {
+        Vec::new()
+    };
+    let highly_rated = more::highly_rated(pool, me, access).await?;
+    let again = more::watch_again(pool, me, access).await?;
     // A page's home keeps its own kind's titles in the user's rows and picks.
     let titles: Vec<TitleRef> = continuing
         .iter()
         .chain(&next_up)
+        .chain(&new_episodes)
         .chain(&favourites)
         .chain(&featured)
+        .chain(&highly_rated)
+        .chain(&again)
         .map(|e| e.title)
         .collect();
     let kinds = kinds::Kinds::of(pool, titles).await?;
@@ -175,12 +174,14 @@ async fn home(
             .filter(|e| kinds.is(kind, e.title))
             .collect()
     };
-    let (continuing, next_up, favourites, featured) = (
+    let (continuing, next_up, new_episodes, favourites, featured) = (
         mine(continuing),
         mine(next_up),
+        mine(new_episodes),
         mine(favourites),
         mine(featured),
     );
+    let (highly_rated, again) = (mine(highly_rated), mine(again));
 
     // The hero: what's being watched first, then the newest of everything.
     let mut newest: Vec<&(TitleRef, i64)> = shows.iter().chain(&anime).chain(&movies).collect();
@@ -194,13 +195,17 @@ async fn home(
         .take(HERO)
         .collect();
 
-    let rows: [(&str, Vec<Entry>); 6] = [
+    let rows: [(&str, Vec<Entry>); 10] = [
         ("continue_watching", continuing),
         ("next_up", next_up),
+        ("new_episodes", new_episodes),
         ("favourites", favourites),
         ("latest_movies", plain(&movies)),
         ("latest_shows", plain(&shows)),
         ("latest_anime", plain(&anime)),
+        ("next_in_collection", collections),
+        ("highly_rated", highly_rated),
+        ("watch_again", again),
     ];
     let wanted: Vec<TitleRef> = hero
         .iter()
@@ -238,8 +243,9 @@ async fn home(
 }
 
 /// The rows as the answer gives them, "featured for you" and the "because you watched" ones
-/// after the user's own (continue watching, next up, favourites); each left out when nothing
-/// in it is there to show, and a "because you watched" one also when its title isn't.
+/// after the user's own (continue watching, next up, new episodes, favourites), then the rest
+/// in the order given; each left out when nothing in it is there to show, and a "because you
+/// watched" one also when its title isn't.
 fn rows_json(
     cards: &Cards,
     rows: &[(&str, Vec<Entry>)],
@@ -257,9 +263,12 @@ fn rows_json(
             row("because_you_watched", seed, entries)
         })
     };
-    let (own, rest): (Vec<_>, Vec<_>) = rows
-        .iter()
-        .partition(|(key, _)| matches!(*key, "continue_watching" | "next_up" | "favourites"));
+    let (own, rest): (Vec<_>, Vec<_>) = rows.iter().partition(|(key, _)| {
+        matches!(
+            *key,
+            "continue_watching" | "next_up" | "new_episodes" | "favourites"
+        )
+    });
     let draw = |(key, entries): &&(&str, Vec<Entry>)| row(key, Value::Null, entries);
     own.iter()
         .filter_map(draw)
@@ -267,6 +276,27 @@ fn rows_json(
         .chain(alike())
         .chain(rest.iter().filter_map(draw))
         .collect()
+}
+
+/// The newest shows, anime and movies, each left empty when a page's home is of another kind.
+async fn newest_of_each(
+    pool: &SqlitePool,
+    access: &Access,
+    kind: Option<kinds::Kind>,
+) -> Result<[Vec<(TitleRef, i64)>; 3], ApiError> {
+    use kinds::Kind;
+    let wants = |k: Kind| kind.is_none_or(|asked| asked == k);
+    let mut each = [Vec::new(), Vec::new(), Vec::new()];
+    if wants(Kind::Shows) {
+        each[0] = latest_series(pool, access, false).await?;
+    }
+    if wants(Kind::Anime) {
+        each[1] = latest_series(pool, access, true).await?;
+    }
+    if wants(Kind::Movies) {
+        each[2] = latest_movies(pool, access).await?;
+    }
+    Ok(each)
 }
 
 fn plain(titles: &[(TitleRef, i64)]) -> Vec<Entry> {

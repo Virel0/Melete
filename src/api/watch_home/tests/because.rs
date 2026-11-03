@@ -261,7 +261,7 @@ async fn tmdb_recommends_only_with_trending_and_similar_titles_on() {
 }
 
 /// The home at `uri`: its status, and its answer when it's 200.
-async fn home_at(f: &Fixture, token: &str, uri: &str) -> (StatusCode, Value) {
+pub(super) async fn home_at(f: &Fixture, token: &str, uri: &str) -> (StatusCode, Value) {
     let request = Request::get(uri)
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
