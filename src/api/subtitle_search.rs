@@ -65,6 +65,9 @@ pub(super) fn fetched_track(fetched: &opensubtitles::Fetched, encoding: Option<&
         "text": true,
         "file": null,
         "encoding": encoding,
+        // Fetched subtitles are always SubRip.
+        "ass": false,
+        "ass_url": null,
     })
 }
 
