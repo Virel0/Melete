@@ -1326,4 +1326,107 @@ async fn soulseek_songs_rank_with_musicbrainz_songs_by_closeness() {
     let (status, body) = send(&without, "GET", uri, &admin, None).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
+/// One Soulseek search serves both lists: its songs come back as search results, and of the
+/// albums MusicBrainz found for the same words, those Soulseek's users share as whole album
+/// folders come back saying by how many and in which formats. A folder that may be another
+/// album, or holds part of one, counts for nothing; only the words go to slskd, once.
+#[tokio::test]
+async fn soulseek_marks_musicbrainzs_albums_its_users_share() {
+    use crate::musicbrainz::testing::OK_COMPUTER;
+
+    let pool = db::open_in_memory().await;
+    let (admin, alice) = (
+        token(&pool, "admin", true).await,
+        token(&pool, "alice", false).await,
+    );
+    let answers = json!([
+        {"username": "a", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Music\\Radiohead\\OK Computer (1997)\\01 - Airbag.flac", "size": 1000},
+            {"filename": "Music\\Radiohead\\OK Computer (1997)\\02 - Paranoid Android.flac", "size": 1000},
+        ]},
+        {"username": "b", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Radiohead - OK Computer [MP3]\\01 - Airbag.mp3", "size": 1000},
+            {"filename": "Radiohead - OK Computer [MP3]\\02 - Paranoid Android.mp3", "size": 1000},
+        ]},
+        {"username": "c", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Radiohead - OK Computer\\01 - Airbag.ogg", "size": 1000},
+        ]},
+        {"username": "d", "hasFreeUploadSlot": true, "files": [
+            {"filename": "Radiohead - OK Computer OKNOTOK 1997 2017\\01 - Airbag.wav", "size": 1000},
+            {"filename": "Radiohead - OK Computer OKNOTOK 1997 2017\\02 - Lift.wav", "size": 1000},
+        ]},
+    ]);
+    let (slskd, seen) = crate::slskd::testing::start(answers, 1).await;
+    let (mb, _) = crate::musicbrainz::testing::start(0).await;
+    let sources = Sources {
+        slskd: Some(Arc::new(slskd.quick())),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), Some(Arc::new(mb)), sources);
+    let search = "/api/v1/requests/search?kind=album&q=ok%20computer";
+    let (status, found) = send(&app, "GET", search, &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        (&found[0]["title"], &found[0]["closeness"]),
+        (&json!("OK Computer"), &json!(100))
+    );
+    let mut albums: Vec<Value> = found
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| json!({"mb_release_group_id": c["mb_release_group_id"], "title": c["title"], "artist": c["artist"]}))
+        .collect();
+    albums.push(json!({"mb_release_group_id": "2a0981fb-9593-3019-864b-ce934d97a16e", "title": "Kid A", "artist": "Radiohead"}));
+    let uri = "/api/v1/requests/soulseek/candidates";
+    let asked = json!({"q": "ok computer", "albums": albums});
+    let (status, heard) = send(&app, "POST", uri, &admin, Some(asked.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{heard}");
+    assert_eq!(
+        heard["albums"],
+        json!([{"mb_release_group_id": OK_COMPUTER, "users": 2, "formats": ["FLAC", "MP3"],
+            "detail": "Shared by 2 users, FLAC, MP3"}]),
+        "not the partial copy, not the longer album, not an album nobody shares"
+    );
+    let songs: Vec<(&str, &str, &str)> = heard["songs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["kind"].as_str().unwrap(),
+                c["title"].as_str().unwrap(),
+                c["detail"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        songs,
+        [
+            ("song", "Airbag", "Shared by 4 users, FLAC, MP3, OGG, WAV"),
+            ("song", "Paranoid Android", "Shared by 2 users, FLAC, MP3"),
+            ("song", "Lift", "Shared by 1 user, WAV"),
+        ]
+    );
+    assert_eq!(seen.lock().unwrap().texts, ["ok computer"]);
+
+    let (status, _) = send(&app, "POST", uri, &alice, Some(asked)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let blank = json!({"q": " ", "albums": []});
+    let (status, _) = send(&app, "POST", uri, &admin, Some(blank)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let one =
+        json!({"mb_release_group_id": OK_COMPUTER, "title": "OK Computer", "artist": "Radiohead"});
+    let many = json!({"q": "ok computer", "albums": vec![one; 51]});
+    let (status, _) = send(&app, "POST", uri, &admin, Some(many)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        seen.lock().unwrap().texts.len(),
+        1,
+        "nothing more went to slskd"
+    );
+    let without = routes(pool, None, Sources::default());
+    let only_words = json!({"q": "ok computer", "albums": []});
+    let (status, body) = send(&without, "POST", uri, &admin, Some(only_words)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
 mod playlist_imports;

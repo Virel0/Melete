@@ -1,6 +1,6 @@
 // Add new, in Manage's Movies, Series, Anime and Music: a search that finds as you type, every
 // kind the service has at once (manage-find.js, through /requests/search, and Soulseek's
-// /requests/soulseek for music), and each result added with where it goes
+// /requests/soulseek/candidates for music), and each result added with where it goes
 // (manage-add-form.js). Then the import from Radarr, Sonarr or Lidarr, which brings their whole
 // list. And Needs a match: the service's titles TMDB or MusicBrainz couldn't settle, matched by
 // hand.

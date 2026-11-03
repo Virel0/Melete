@@ -694,6 +694,44 @@ mod tests {
         }
     }
 
+    /// Add new's one Soulseek search per pause serves albums too: MusicBrainz's albums for the
+    /// words go with it to Melete, an album row says who shares it on Soulseek, and the Albums
+    /// list is ranked by the server's closeness once Soulseek's users share any.
+    #[tokio::test]
+    async fn add_new_marks_musicbrainzs_albums_that_soulseeks_users_share() {
+        for (uri, needle) in [
+            (
+                "/web/manage-find.js",
+                r#"api("/requests/soulseek/candidates", { method: "POST", body: { q: words, albums } })"#,
+            ),
+            (
+                "/web/manage-find.js",
+                "asked.albums = new Map(heard.albums.map((a) => [a.mb_release_group_id, a.detail]));",
+            ),
+            (
+                "/web/manage-find.js",
+                r#"g.kind === "album" && shares && g.found ? { ...g, found: ranked(g.found, []) }"#,
+            ),
+            (
+                "/web/manage-find.js",
+                r#"row.querySelector(".find-shared")"#,
+            ),
+            (
+                "/web/manage-add-form.js",
+                r#"c.kind === "album" ? h("p", { class: "note find-shared", hidden: true }) : null"#,
+            ),
+        ] {
+            let request = Request::get(uri).body(Body::empty()).unwrap();
+            let response = routes().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                String::from_utf8_lossy(&body).contains(needle),
+                "{uri}: {needle}"
+            );
+        }
+    }
+
     #[test]
     fn the_header_switches_sides_and_shows_manage_only_once_it_is_open() {
         for side in ["watch", "listen"] {

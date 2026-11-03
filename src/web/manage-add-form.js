@@ -41,6 +41,8 @@ export function candidateRow(page, c) {
       // Where it was found, when a list mixes two sources.
       c.source ? [" ", h("span", { class: "badge" }, c.source)] : null,
       c.detail ? h("p", { class: "note" }, c.detail) : null,
+      // Who shares an album on Soulseek, filled in when Soulseek answers.
+      c.kind === "album" ? h("p", { class: "note find-shared", hidden: true }) : null,
       marks.length ? h("p", { class: "marks" }, marks) : null,
       form,
     ),
