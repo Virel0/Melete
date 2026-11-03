@@ -1326,3 +1326,4 @@ async fn soulseek_songs_rank_with_musicbrainz_songs_by_closeness() {
     let (status, body) = send(&without, "GET", uri, &admin, None).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
+mod playlist_imports;

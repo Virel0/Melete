@@ -12,7 +12,7 @@ use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_music_sync};
-use crate::aoide::matcher::{Imported, LibraryTrack, Matcher};
+use crate::aoide::matcher::{Imported, LibraryTrack, Matcher, present_tracks};
 
 /// Rows per call; an import longer than this is split by the client.
 const MAX_ROWS: usize = 5000;
@@ -34,50 +34,6 @@ pub fn routes(pool: SqlitePool) -> Router {
         ))
         .route_layer(middleware::from_fn_with_state(auth, require_music_sync))
         .with_state(pool)
-}
-
-#[derive(sqlx::FromRow)]
-struct TrackRow {
-    id: i64,
-    title: String,
-    artist: Option<String>,
-    album_artist: String,
-    album: String,
-    duration_seconds: Option<f64>,
-    isrc: Option<String>,
-}
-
-/// Every present track, with its own artist and its album's (each once).
-async fn library(pool: &SqlitePool) -> sqlx::Result<Vec<LibraryTrack>> {
-    let rows: Vec<TrackRow> = sqlx::query_as(
-        "SELECT t.id, t.title, t.artist, a.artist_name AS album_artist, a.title AS album,
-             t.duration_seconds, t.isrc
-         FROM music_tracks t JOIN music_albums a ON a.id = t.album_id
-         WHERE t.missing_since IS NULL AND a.missing_since IS NULL
-         ORDER BY t.id",
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            let mut artists: Vec<String> = Vec::new();
-            for name in row.artist.into_iter().chain([row.album_artist]) {
-                if !name.trim().is_empty() && !artists.iter().any(|a| a.eq_ignore_ascii_case(&name))
-                {
-                    artists.push(name);
-                }
-            }
-            LibraryTrack {
-                id: row.id.to_string(),
-                title: Some(row.title),
-                artists,
-                album: Some(row.album),
-                duration_ms: row.duration_seconds.map(|s| (s * 1000.0).round() as i64),
-                isrc: row.isrc,
-            }
-        })
-        .collect())
 }
 
 /// A row as sent; anything of the wrong type counts as absent.
@@ -122,7 +78,7 @@ async fn match_list(
             ),
         ));
     }
-    let tracks = library(&pool).await?;
+    let tracks = present_tracks(&pool).await?;
     let user = current.user.id;
     // Seconds of work for a long list against a big library: off the async workers.
     let reply = tokio::task::spawn_blocking(move || match_rows(user, &tracks, &rows)).await?;

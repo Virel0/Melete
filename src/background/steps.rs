@@ -77,6 +77,21 @@ pub(super) async fn link_and_number(pool: &sqlx::SqlitePool) {
     }
 }
 
+/// Swaps the songs a scan found in for the playlist items that wait for them, in every
+/// playlist, so every device syncs the track.
+pub(super) async fn swap_in_arrived(pool: &sqlx::SqlitePool) {
+    match crate::aoide::pending::resolve(pool, None).await {
+        Ok(swapped) if swapped > 0 => {
+            tracing::info!(swapped, "swapped arrived songs into playlists")
+        }
+        Ok(_) => {}
+        Err(err) => tracing::warn!(
+            error = ?err,
+            "couldn't swap arrived songs into playlists"
+        ),
+    }
+}
+
 /// Wakes the loops that need probed and numbered episodes: intros and credits, seek-bar
 /// previews, and subtitles for new imports.
 pub(super) fn wake_after_probing() {
