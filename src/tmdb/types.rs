@@ -117,6 +117,12 @@ pub struct MovieDetails {
     /// The collection it belongs to, if any.
     #[serde(default)]
     pub belongs_to_collection: Option<CollectionRef>,
+    /// TMDB's score, its users' vote average from 0 to 10.
+    #[serde(default)]
+    pub vote_average: Option<f64>,
+    /// How many votes the score rests on.
+    #[serde(default)]
+    pub vote_count: Option<i64>,
     /// TMDB's translations, asked for when the metadata language isn't English, to fill what
     /// isn't translated.
     #[serde(default)]
@@ -168,6 +174,12 @@ pub struct SeriesDetails {
     /// Its seasons, specials (season 0) included; empty when TMDB lists none.
     #[serde(default, deserialize_with = "null_as_default")]
     pub seasons: Vec<SeasonSummary>,
+    /// TMDB's score, its users' vote average from 0 to 10.
+    #[serde(default)]
+    pub vote_average: Option<f64>,
+    /// How many votes the score rests on.
+    #[serde(default)]
+    pub vote_count: Option<i64>,
     /// Its IMDb and TVDB ids, which [`Client::series`] always asks for; None if TMDB left them out.
     pub external_ids: Option<ExternalIds>,
     /// TMDB's translations, asked for when the metadata language isn't English, to fill what

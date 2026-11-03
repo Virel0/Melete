@@ -9,6 +9,12 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Added
 
+- Four more rows on the Watch home and in `GET /api/v1/home`: **New episodes** (shows whose
+  next episode came in during the last two weeks, after you last watched them; they leave Next
+  up while they're new), **Next in the collection** (the next film of a collection you've
+  started), **Highly rated, not seen yet** (titles TMDB scores 7.5 or more, in genres you watch)
+  and **Watch again** (what you finished more than six months ago). TMDB's score is now kept
+  with each title's details; titles fetched before get theirs once, in the background.
 - The Movies, Shows and Anime pages have their own "Because you watched" rows, from the titles of
   that kind you finished, and keep "Featured for you" and your rows to that kind. Apps get the
   same with `GET /api/v1/home?kind=movies`, `shows` or `anime`.
