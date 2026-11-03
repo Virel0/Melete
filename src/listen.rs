@@ -292,10 +292,11 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
     .bind(token_id)
     .fetch_all(pool)
     .await?;
+    let pictures = crate::avatars::urls(pool).await?;
     let mut sessions = Vec::with_capacity(rows.len());
     for row in rows {
-        let members: Vec<(String, String, bool)> = sqlx::query_as(
-            "SELECT u.username, t.name, t.id = ? FROM listen_members m
+        let members: Vec<(i64, String, String, bool)> = sqlx::query_as(
+            "SELECT u.id, u.username, t.name, t.id = ? FROM listen_members m
              JOIN tokens t ON t.id = m.token_id JOIN users u ON u.id = t.user_id
              WHERE m.session_id = ? ORDER BY m.joined_at, t.id",
         )
@@ -313,8 +314,9 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "position_at": row.position_at,
             "playing": row.playing,
             "version": row.version,
-            "members": members.into_iter().map(|(user, device, you)| json!({
-                "username": user, "device": device, "you": you,
+            "members": members.into_iter().map(|(user_id, user, device, you)| json!({
+                "username": user, "avatar_url": pictures.get(&user_id), "device": device,
+                "you": you,
             })).collect::<Vec<_>>(),
         }));
     }
@@ -399,8 +401,9 @@ mod tests {
         assert_eq!(
             seen["members"],
             json!([
-                { "username": "alice", "device": "Living room iPad", "you": false },
-                { "username": "bob", "device": "Laptop", "you": true },
+                { "username": "alice", "avatar_url": null, "device": "Living room iPad",
+                  "you": false },
+                { "username": "bob", "avatar_url": null, "device": "Laptop", "you": true },
             ])
         );
 
@@ -507,5 +510,34 @@ mod tests {
             .await
             .unwrap();
         assert!(for_device(&pool, ipad).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn members_carry_their_profile_picture() {
+        let (pool, alice, ipad, laptop) = setup().await;
+        let png = crate::avatars::tests::PNG;
+        crate::avatars::set(&pool, alice, "image/png", png)
+            .await
+            .unwrap();
+        let id = start(&pool, alice, ipad, &playing(&[1], 0))
+            .await
+            .unwrap()
+            .unwrap();
+        let code = one(&pool, ipad, id).await.unwrap().unwrap()["code"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        join(&pool, laptop, &code).await.unwrap();
+        let seen = one(&pool, laptop, id).await.unwrap().unwrap();
+        let hash = crate::aoide::library::sha256_hex(png);
+        assert_eq!(
+            seen["members"][0]["avatar_url"],
+            format!("/api/v1/users/{alice}/avatar?v={}", &hash[..12])
+        );
+        assert_eq!(
+            seen["members"][1]["avatar_url"],
+            Value::Null,
+            "bob has none"
+        );
     }
 }
