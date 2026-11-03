@@ -137,6 +137,18 @@ async fn utf8_is_read_as_it_is_with_or_without_a_mark() {
 }
 
 #[test]
+fn a_guess_the_bytes_dont_fit_is_unsure_and_the_file_kept_as_it_is() {
+    let (shift_jis, _, _) = encoding_rs::SHIFT_JIS.encode("\u{5b57}\u{5e55}");
+    assert_eq!(
+        decoded(&shift_jis, encoding_rs::SHIFT_JIS).as_deref(),
+        Some("\u{5b57}\u{5e55}")
+    );
+    // A lead byte with nothing after it isn't Shift_JIS.
+    let cut = [shift_jis.as_ref(), &[0x82]].concat();
+    assert_eq!(decoded(&cut, encoding_rs::SHIFT_JIS), None);
+}
+
+#[test]
 fn the_language_in_the_name_is_a_hint() {
     assert_eq!(language_hint("Movie.pl.srt"), Some(&b"pl"[..]));
     assert_eq!(language_hint("Movie.POL.forced.srt"), Some(&b"pl"[..]));

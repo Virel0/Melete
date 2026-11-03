@@ -63,7 +63,7 @@ async fn fixture() -> Fixture {
         .status()
         .expect("ffmpeg is installed");
     assert!(made.success());
-    // Beside it: a styled file in a legacy encoding, kept as it is, and a SubRip one.
+    // Beside it: a styled file in a legacy encoding, sent in UTF-8, and a SubRip one.
     let mut beside = STYLED.replace("Styled sign", "Caf\u{e9}").into_bytes();
     let accent = beside.iter().position(|b| *b == 0xc3).unwrap();
     beside.splice(accent..accent + 2, [0xe9]);
@@ -232,9 +232,100 @@ async fn serves_ass_tracks_byte_for_byte_behind_the_stream_token() {
     assert_eq!(beside.status, StatusCode::OK);
     assert_eq!(
         beside.content_type.as_deref(),
-        Some("text/x-ass; charset=windows-1252")
+        Some("text/x-ass; charset=utf-8")
     );
-    assert_eq!(beside.body, std::fs::read(&ass.path).unwrap());
+    assert_eq!(
+        String::from_utf8(beside.body).unwrap(),
+        STYLED.replace("Styled sign", "Caf\u{e9}")
+    );
+}
+
+/// Puts `clip.{tag}.ass` beside the clip with these bytes and fetches it as ASS, with the file.
+async fn beside_as_ass(
+    f: &Fixture,
+    stream: &str,
+    tag: &str,
+    bytes: &[u8],
+) -> (Answer, crate::subtitles::Sidecar) {
+    let name = format!("clip.{tag}.ass");
+    std::fs::write(f.dir.path().join("library").join(&name), bytes).unwrap();
+    let sidecars = crate::subtitles::sidecars(&f.dir.path().join("library/clip.mkv")).unwrap();
+    let sidecar = sidecars.into_iter().find(|s| s.file == name).unwrap();
+    let answer = get(f, &format!("{stream}/subtitles/x{}.ass", sidecar.id), None).await;
+    (answer, sidecar)
+}
+
+/// The names in the cache.
+fn cached(f: &Fixture) -> Vec<String> {
+    std::fs::read_dir(f.dir.path().join("cache"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_file_beside_the_video_in_shift_jis_comes_back_in_utf8_converted_once() {
+    let f = fixture().await;
+    let stream = stream_url(&f).await;
+    let text = STYLED
+        .replace(
+            "Styled sign",
+            "\u{5b57}\u{5e55}\u{306e}\u{770b}\u{677f}\u{3067}\u{3059}\u{3002}",
+        )
+        .replace(
+            "{\\k20}Ka{\\k30}ra",
+            "{\\k20}\u{30ab}{\\k30}\u{30e9}\u{30aa}\u{30b1}",
+        );
+    let (shift_jis, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&text);
+    assert!(!unmappable && std::str::from_utf8(&shift_jis).is_err());
+    let (answer, sidecar) = beside_as_ass(&f, &stream, "ja", &shift_jis).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(
+        answer.content_type.as_deref(),
+        Some("text/x-ass; charset=utf-8")
+    );
+    assert!(answer.nosniff);
+    assert_eq!(String::from_utf8(answer.body).unwrap(), text);
+
+    // Cached under the file's version; a changed file is converted again, and the old copy
+    // is cleaned up.
+    let first = format!("{}.orig.ass", crate::subtitles::sidecar_key(1, &sidecar));
+    assert!(cached(&f).contains(&first), "{:?}", cached(&f));
+    let changed = text.replace("\u{3067}\u{3059}", "\u{3060}\u{3063}\u{305f}");
+    let (shift_jis, _, _) = encoding_rs::SHIFT_JIS.encode(&changed);
+    let (answer, sidecar) = beside_as_ass(&f, &stream, "ja", &shift_jis).await;
+    assert_eq!(String::from_utf8(answer.body).unwrap(), changed);
+    let second = format!("{}.orig.ass", crate::subtitles::sidecar_key(1, &sidecar));
+    assert_ne!(first, second);
+    crate::subtitles::clean_cache(&f.pool, &f.dir.path().join("cache"))
+        .await
+        .unwrap();
+    let left = cached(&f);
+    assert!(left.contains(&second) && !left.contains(&first), "{left:?}");
+}
+
+#[tokio::test]
+async fn a_utf8_file_beside_the_video_is_sent_byte_for_byte_less_a_byte_order_mark() {
+    let f = fixture().await;
+    let stream = stream_url(&f).await;
+    let text = STYLED.replace("Styled sign", "Gr\u{fc}\u{df}e \u{2014} \u{5b57}\u{5e55}");
+
+    let (plain, _) = beside_as_ass(&f, &stream, "de", text.as_bytes()).await;
+    assert_eq!(plain.status, StatusCode::OK);
+    assert_eq!(
+        plain.content_type.as_deref(),
+        Some("text/x-ass; charset=utf-8")
+    );
+    assert_eq!(plain.body, text.as_bytes());
+
+    let marked = [b"\xef\xbb\xbf".as_slice(), text.as_bytes()].concat();
+    let (unmarked, _) = beside_as_ass(&f, &stream, "es", &marked).await;
+    assert_eq!(unmarked.status, StatusCode::OK);
+    assert_eq!(
+        unmarked.content_type.as_deref(),
+        Some("text/x-ass; charset=utf-8")
+    );
+    assert_eq!(unmarked.body, text.as_bytes());
 }
 
 #[tokio::test]

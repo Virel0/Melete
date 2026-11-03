@@ -11,10 +11,11 @@ use tower_http::services::ServeFile;
 
 use super::super::playback::{LoadedFile, load_file, resolve};
 use super::{ApiError, SubtitleState, conversion_failed, linked_file, sidecars_of};
-use crate::subtitles::{self, Font, Format, Source, embedded_key, fonts_key};
+use crate::subtitles::{self, Font, Format, Sidecar, Source, embedded_key, fonts_key, sidecar_key};
 
 /// An ASS/SSA track as it is: an embedded one copied out of the video once and then cached, a
-/// file beside the video byte for byte. `name` is the track's id.
+/// file beside the video as written, in UTF-8 (see [`subtitles::original_file`]). `name` is the
+/// track's id.
 pub(super) async fn ass(
     state: &SubtitleState,
     file_id: i64,
@@ -42,7 +43,7 @@ pub(super) async fn ass(
                 .into_iter()
                 .find(|s| s.id == id && subtitles::is_ass(&s.codec))
                 .ok_or_else(no_track)?;
-            beside(&file, sidecar.path).await?
+            beside(state, &file, &sidecar).await?
         } else {
             return Err(no_track());
         };
@@ -77,13 +78,16 @@ async fn embedded(
     Ok((tokio::fs::read(path).await?, "UTF-8"))
 }
 
-/// A subtitle file beside the video as it is, and the encoding of its text.
+/// A subtitle file beside the video in UTF-8, converted once and then cached when it's in
+/// another encoding, and the charset to send it with.
 async fn beside(
+    state: &SubtitleState,
     file: &LoadedFile,
-    path: std::path::PathBuf,
+    sidecar: &Sidecar,
 ) -> Result<(Vec<u8>, &'static str), ApiError> {
-    tokio::task::spawn_blocking(move || subtitles::original_file(&path))
-        .await?
+    let key = sidecar_key(file.id, sidecar);
+    subtitles::original_beside(&state.cache, &key, &sidecar.path)
+        .await
         .map_err(|err| {
             tracing::warn!(
                 rel_path = file.rel_path,

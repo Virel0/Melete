@@ -53,16 +53,90 @@ pub fn file_encoding(path: &Path) -> Option<&'static str> {
     Some(guess_encoding(&bytes, name).name())
 }
 
-/// A subtitle file's bytes as they are, with the encoding its text is in (as
-/// [`file_encoding`] gives it), for players that read the file themselves.
-pub fn original_file(path: &Path) -> anyhow::Result<(Vec<u8>, &'static str)> {
+/// A subtitle file beside a video for players that read the file themselves, and the charset to
+/// send it with.
+pub struct Original {
+    pub bytes: Vec<u8>,
+    /// "utf-8", or the encoding the file was guessed to be in when it was kept as it is.
+    pub charset: &'static str,
+    /// Whether its text was converted from another encoding, so worth caching.
+    pub converted: bool,
+}
+
+/// A subtitle file in UTF-8, since some players (libass built without iconv) read nothing else:
+/// its bytes as they are when they're UTF-8 already, less a byte-order mark; else its text
+/// converted from the encoding [`file_encoding`] gives, and nothing else changed.
+pub fn original_file(path: &Path) -> anyhow::Result<Original> {
     let bytes = read_limited(path)?;
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    let encoding = guess_encoding(&bytes, name).name();
-    Ok((bytes, encoding))
+    Ok(in_utf8(bytes, name))
+}
+
+/// The bytes of a subtitle file named `file_name` in UTF-8, as [`original_file`] gives them.
+pub fn in_utf8(mut bytes: Vec<u8>, file_name: &str) -> Original {
+    let encoding = guess_encoding(&bytes, file_name);
+    if encoding == UTF_8 {
+        if bytes.starts_with(UTF8_BOM) {
+            bytes.drain(..UTF8_BOM.len());
+        }
+        return Original {
+            bytes,
+            charset: "utf-8",
+            converted: false,
+        };
+    }
+    match decoded(&bytes, encoding) {
+        Some(text) => Original {
+            bytes: text.into_bytes(),
+            charset: "utf-8",
+            converted: true,
+        },
+        // Unsure of the encoding: kept as it is, with the guess as its charset, as before.
+        None => Original {
+            bytes,
+            charset: encoding.name(),
+            converted: false,
+        },
+    }
+}
+
+const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
+
+/// The text in `encoding`, less a byte-order mark; None when the guess is unsure. chardetng
+/// gives no confidence of its own, so a guess whose decoding finds malformed bytes counts as
+/// unsure: converting would put replacement characters in place of the text.
+fn decoded(bytes: &[u8], encoding: &'static Encoding) -> Option<String> {
+    let (text, had_errors) = encoding.decode_with_bom_removal(bytes);
+    (!had_errors).then(|| text.into_owned())
+}
+
+/// A subtitle file beside a video in UTF-8, as [`original_file`] gives it, and the charset to
+/// send it with. One that was converted is cached as `cache_dir/{key}.orig.ass`, `key` being
+/// its [`sidecar_key`], so it's converted once and again only when the file changes.
+pub async fn original_beside(
+    cache_dir: &Path,
+    key: &str,
+    path: &Path,
+) -> anyhow::Result<(Vec<u8>, &'static str)> {
+    let cached = cache_dir.join(format!("{key}.orig.ass"));
+    if let Ok(bytes) = tokio::fs::read(&cached).await {
+        return Ok((bytes, "utf-8"));
+    }
+    let file = path.to_path_buf();
+    let original = tokio::task::spawn_blocking(move || original_file(&file)).await??;
+    if original.converted {
+        // Not caching only costs converting it again next time.
+        if let Err(err) = super::converting::save_atomically(&cached, &original.bytes).await {
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "caching a converted subtitle file failed"
+            );
+        }
+    }
+    Ok((original.bytes, original.charset))
 }
 
 /// Reads a subtitle file, refusing one bigger than [`SUBTITLE_FILE_LIMIT`].
