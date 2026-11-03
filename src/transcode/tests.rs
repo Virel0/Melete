@@ -26,6 +26,7 @@ fn info(codec: &str, height: i64, pixel_format: &str, hdr: Option<&str>) -> Medi
             frame_rate: Some(23.976),
             hdr: hdr.map(Into::into),
             dolby_vision: None,
+            parameter_sets_in_stream_only: false,
         }],
         audio: vec![audio(1, 6, false), audio(2, 2, true)],
         subtitles: Vec::new(),
@@ -216,6 +217,44 @@ fn copy_keeps_the_picture_as_it_is() {
     let mut mp4 = transport.clone();
     mp4.container = Some("mov,mp4,m4a,3gp,3g2,mj2".into());
     assert!(refused(&mp4).is_ok());
+}
+
+#[tokio::test]
+async fn hevc_with_parameter_sets_only_in_the_stream_is_converted_not_copied() {
+    use crate::probe::testing::{empty_hvcc, make_hevc_clip};
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_stream = make_hevc_clip(dir.path(), "hev1.mp4", &["-tag:v", "hev1"]);
+    empty_hvcc(&in_stream);
+    let hvc1 = make_hevc_clip(dir.path(), "hvc1.mp4", &["-tag:v", "hvc1"]);
+    let mkv = make_hevc_clip(dir.path(), "hevc.mkv", &[]);
+    let with = |codec: VideoCodec| Settings {
+        video_codec: Some(codec),
+        ..Settings::default()
+    };
+    let mut planned = Vec::new();
+    for clip in [&in_stream, &hvc1, &mkv] {
+        let info = crate::probe::probe(Path::new("ffprobe"), clip)
+            .await
+            .unwrap();
+        let copy = plan(
+            clip.clone(),
+            &info,
+            &with(VideoCodec::Copy),
+            Hardware::Software,
+        );
+        let converted = plan(
+            clip.clone(),
+            &info,
+            &with(VideoCodec::Hevc),
+            Hardware::Software,
+        );
+        assert!(converted.is_ok(), "{clip:?} converts");
+        planned.push(copy.map(|p| p.codec));
+    }
+    let refusal = planned[0].unwrap_err();
+    assert!(refusal.contains("ask for hevc"), "{refusal}");
+    assert_eq!(planned[1..], [Ok(VideoCodec::Copy), Ok(VideoCodec::Copy)]);
 }
 
 #[test]

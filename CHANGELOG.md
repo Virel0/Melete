@@ -57,6 +57,11 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
   lost sight of the file while sending it. The page now reads the picture as soon as it's
   chosen and says plainly when it can't, and sends it as the type its bytes are, so a PNG named
   ".jpg" is taken.
+- HEVC from an MP4 that keeps its parameter sets only in the stream (often tagged `hev1` or
+  `dvhe`) is no longer copied: the copy's sample entry listed none, which Apple's players may
+  refuse. The probe now notes such a stream (`parameter_sets_in_stream_only` on the file's
+  video), copy mode refuses it with "ask for hevc or h264", and the web player converts it
+  instead. HEVC MP4s probed before are probed again. Matroska files copy as before.
 
 ## [0.3.2] - 2026-11-02
 

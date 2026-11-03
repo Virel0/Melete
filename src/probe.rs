@@ -27,6 +27,9 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 /// ffprobe processes at once. Each mostly waits on the disk or the NAS.
 const PARALLEL_PROBES: usize = 4;
 const TEXT_SUBTITLES: &[&str] = &["subrip", "ass", "ssa", "mov_text", "webvtt", "text"];
+/// An HEVC configuration record (`hvcC`) up to its count of parameter set arrays: one this
+/// short lists none.
+const HVCC_HEADER_BYTES: i64 = 23;
 
 /// What ffprobe says about a video file, stored as JSON with the file's probe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +71,11 @@ pub struct VideoStream {
     /// stored before this was recorded lack it, and are probed again.
     #[serde(default)]
     pub dolby_vision: Option<DolbyVision>,
+    /// HEVC in an MP4 whose sample entry lists no parameter sets (VPS, SPS, PPS): they're only
+    /// in the stream. Copied, it would reach players with an empty `hvcC`, which Apple's may
+    /// refuse, so copy mode doesn't take it. Stored probes without it are probed again.
+    #[serde(default)]
+    pub parameter_sets_in_stream_only: bool,
 }
 
 /// What a Dolby Vision stream's configuration record says.
@@ -267,6 +275,7 @@ struct RawStream {
     channels: Option<i64>,
     channel_layout: Option<String>,
     color_transfer: Option<String>,
+    extradata_size: Option<i64>,
     #[serde(default)]
     tags: HashMap<String, String>,
     #[serde(default)]
@@ -313,6 +322,15 @@ impl RawStream {
         })
     }
 
+    /// HEVC in an MP4 whose `hvcC` ends before any parameter set; `false` when ffprobe doesn't
+    /// give the record's size. Matroska's codec private data carries them.
+    fn parameter_sets_in_stream_only(&self, mp4: bool) -> bool {
+        mp4 && self.codec_name.as_deref() == Some("hevc")
+            && self
+                .extradata_size
+                .is_some_and(|size| size <= HVCC_HEADER_BYTES)
+    }
+
     fn hdr(&self) -> Option<String> {
         if self.dovi().is_some() {
             return Some("Dolby Vision".into());
@@ -352,6 +370,10 @@ pub fn parse(json: &[u8]) -> anyhow::Result<MediaInfo> {
         audio: Vec::new(),
         subtitles: Vec::new(),
     };
+    let mp4 = info
+        .container
+        .as_deref()
+        .is_some_and(|c| c.split(',').any(|f| matches!(f, "mov" | "mp4")));
     for s in &raw.streams {
         // ffprobe leaves out codec_name for codecs it doesn't know; keep the stream anyway, so
         // a file doesn't look like it has no audio.
@@ -369,6 +391,7 @@ pub fn parse(json: &[u8]) -> anyhow::Result<MediaInfo> {
                     .or_else(|| frame_rate(s.r_frame_rate.as_deref())),
                 hdr: s.hdr(),
                 dolby_vision: s.dolby_vision(),
+                parameter_sets_in_stream_only: s.parameter_sets_in_stream_only(mp4),
             }),
             Some("audio") => info.audio.push(AudioStream {
                 index: s.index,
@@ -423,6 +446,61 @@ pub mod testing {
             .expect("ffmpeg is installed");
         assert!(status.success());
         clip
+    }
+
+    /// A 2-second 320x240 HEVC clip named `name`, its parameter sets repeated in the stream at
+    /// every keyframe as well as in the container's own record, with `args` before the output.
+    pub fn make_hevc_clip(dir: &Path, name: &str, args: &[&str]) -> PathBuf {
+        let clip = dir.join(name);
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg("testsrc=size=320x240:rate=24:duration=2")
+            .args([
+                "-c:v",
+                "libx265",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .args(["-x265-params", "log-level=error:repeat-headers=1"])
+            .args(args)
+            .arg(&clip)
+            .status()
+            .expect("ffmpeg is installed");
+        assert!(status.success());
+        clip
+    }
+
+    /// Takes the parameter sets out of an MP4's `hvcC`, leaving them only in the stream, as
+    /// some muxers do: the record keeps its 23-byte header and says it has no arrays, and the
+    /// bytes freed become a `free` box, so no other size or offset changes.
+    pub fn empty_hvcc(mp4: &Path) {
+        let mut bytes = std::fs::read(mp4).unwrap();
+        let size_at =
+            |b: &[u8], at: usize| u32::from_be_bytes(b[at..at + 4].try_into().unwrap()) as usize;
+        // Inside the index (moov) only: the stream's bytes could hold the same four letters.
+        let mut moov = 0;
+        while &bytes[moov + 4..moov + 8] != b"moov" {
+            moov += size_at(&bytes, moov);
+        }
+        let end = moov + size_at(&bytes, moov);
+        let name_at = bytes[moov..end]
+            .windows(4)
+            .position(|w| w == b"hvcC")
+            .expect("an hvcC in the index");
+        let at = moov + name_at - 4;
+        let size = size_at(&bytes, at);
+        let kept = 8 + 23;
+        assert!(size >= kept + 8, "room for a free box");
+        bytes[at..at + 4].copy_from_slice(&(kept as u32).to_be_bytes());
+        // numOfArrays, the header's last byte.
+        bytes[at + kept - 1] = 0;
+        let free = at + kept;
+        bytes[free..free + 4].copy_from_slice(&((size - kept) as u32).to_be_bytes());
+        bytes[free + 4..free + 8].copy_from_slice(b"free");
+        bytes[free + 8..at + size].fill(0);
+        std::fs::write(mp4, bytes).unwrap();
     }
 
     pub fn make_clip(dir: &Path) -> PathBuf {
@@ -494,6 +572,7 @@ mod tests {
                 frame_rate: Some(24.0),
                 hdr: None,
                 dolby_vision: None,
+                parameter_sets_in_stream_only: false,
             }]
         );
         assert_eq!(info.audio.len(), 1);
@@ -514,6 +593,56 @@ mod tests {
                 text: true,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn finds_hevc_whose_parameter_sets_are_only_in_the_stream() {
+        use super::testing::{empty_hvcc, make_hevc_clip};
+
+        let dir = tempfile::tempdir().unwrap();
+        let in_stream = make_hevc_clip(dir.path(), "hev1.mp4", &["-tag:v", "hev1"]);
+        empty_hvcc(&in_stream);
+        let hvc1 = make_hevc_clip(dir.path(), "hvc1.mp4", &["-tag:v", "hvc1"]);
+        let hev1 = make_hevc_clip(dir.path(), "full-hev1.mp4", &["-tag:v", "hev1"]);
+        let mkv = make_hevc_clip(dir.path(), "hevc.mkv", &[]);
+        let mut seen = Vec::new();
+        for clip in [&in_stream, &hvc1, &hev1, &mkv] {
+            let info = probe(Path::new("ffprobe"), clip).await.unwrap();
+            let video = &info.video[0];
+            assert_eq!((video.codec.as_str(), video.width), ("hevc", Some(320)));
+            seen.push(video.parameter_sets_in_stream_only);
+        }
+        assert_eq!(seen, [true, false, false, false]);
+    }
+
+    #[test]
+    fn only_an_mp4s_hevc_record_without_parameter_sets_counts() {
+        let stream = |index: i64, codec: &str, extradata: &str| {
+            format!(
+                r#"{{"index": {index}, "codec_type": "video", "codec_name": "{codec}" {extradata}}}"#
+            )
+        };
+        let file = |container: &str| {
+            format!(
+                r#"{{"format": {{"format_name": "{container}"}}, "streams": [{}, {}, {}, {}]}}"#,
+                stream(0, "hevc", r#", "extradata_size": 23"#),
+                stream(1, "hevc", r#", "extradata_size": 111"#),
+                stream(2, "hevc", ""),
+                stream(3, "h264", r#", "extradata_size": 0"#),
+            )
+        };
+        let flags = |container: &str| -> Vec<bool> {
+            let info = parse(file(container).as_bytes()).unwrap();
+            info.video
+                .iter()
+                .map(|v| v.parameter_sets_in_stream_only)
+                .collect()
+        };
+        assert_eq!(
+            flags("mov,mp4,m4a,3gp,3g2,mj2"),
+            [true, false, false, false]
+        );
+        assert_eq!(flags("matroska,webm"), [false; 4], "Matroska carries them");
     }
 
     #[tokio::test]
@@ -750,6 +879,39 @@ mod tests {
             .unwrap();
         let again = probe_pending(&pool, Path::new("ffprobe")).await.unwrap();
         assert_eq!(again.probed, 1, "only the old Dolby Vision probe");
+        assert_eq!(
+            probe_pending(&pool, Path::new("ffprobe")).await.unwrap(),
+            ProbeReport::default()
+        );
+    }
+
+    #[tokio::test]
+    async fn mp4_hevc_probed_before_its_parameter_sets_were_checked_is_probed_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let clip = std::fs::read(make_clip(dir.path())).unwrap();
+        let pool = db::open_in_memory().await;
+        library_with(&pool, dir.path(), &[("a.mkv", &clip), ("b.mkv", &clip)]).await;
+        probe_pending(&pool, Path::new("ffprobe")).await.unwrap();
+        // File 1 as an older Melete stored HEVC in an MP4, and file 2 HEVC in Matroska.
+        let old = |container: &str| {
+            format!(
+                r#"{{"container": "{container}", "duration_seconds": 2.0, "bit_rate": null,
+                    "video": [{{"index": 0, "codec": "hevc", "profile": null, "width": null,
+                                "height": null, "pixel_format": null, "frame_rate": null,
+                                "hdr": null, "dolby_vision": null}}],
+                    "audio": [], "subtitles": []}}"#
+            )
+        };
+        for (id, container) in [(1, "mov,mp4,m4a,3gp,3g2,mj2"), (2, "matroska,webm")] {
+            sqlx::query("UPDATE media_probes SET info = ? WHERE file_id = ?")
+                .bind(old(container))
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let again = probe_pending(&pool, Path::new("ffprobe")).await.unwrap();
+        assert_eq!(again.probed, 1, "only the MP4");
         assert_eq!(
             probe_pending(&pool, Path::new("ffprobe")).await.unwrap(),
             ProbeReport::default()
