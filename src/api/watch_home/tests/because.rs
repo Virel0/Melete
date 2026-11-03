@@ -184,7 +184,7 @@ async fn only_titles_the_user_may_see_are_there() {
     // Not even picked to be dropped later, so they never take the place of one they may see.
     let access = Access::of(&f.pool, me, false).await.unwrap();
     let outside = super::super::because::Outside::default();
-    let Ok(rows) = super::super::because::rows(&f.pool, &outside, me, &access).await else {
+    let Ok(rows) = super::super::because::rows(&f.pool, &outside, me, &access, None).await else {
         panic!("couldn't work the rows out");
     };
     let picked: Vec<TitleRef> = rows[0].1.iter().map(|e| e.title).collect();
@@ -258,4 +258,117 @@ async fn tmdb_recommends_only_with_trending_and_similar_titles_on() {
         ["/movie/603/recommendations"],
         "only the title's id, once a day"
     );
+}
+
+/// The home at `uri`: its status, and its answer when it's 200.
+async fn home_at(f: &Fixture, token: &str, uri: &str) -> (StatusCode, Value) {
+    let request = Request::get(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = f.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn a_title_with_nothing_like_it_doesnt_cost_a_row() {
+    let f = alike_fixture().await;
+    // Lonely, a Western sharing nothing with anything, is the newest finished.
+    sqlx::raw_sql(
+        r#"INSERT INTO tmdb_movies (tmdb_id, title, year, genres, fetched_at)
+               VALUES (610, 'Lonely', 1950, '["Western"]', 0);
+           INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
+               match_status, match_tmdb_id) VALUES (26, 3, 'Lonely', 'Lonely', 1, 'matched', 610);
+           INSERT INTO media_files (id, library_id, rel_path, size, modified_at, added_at,
+               movie_id, first_seen_generation, seen_generation)
+               VALUES (26, 3, 'Lonely/l.mkv', 1, 1, 26, 26, 1, 1);"#,
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (me, token) = user(&f, "viewer").await;
+    progress(&f, me, 24, 0.0, 5).await;
+    progress(&f, me, 6, 0.0, 10).await;
+    progress(&f, me, 1, 0.0, 20).await;
+    progress(&f, me, 26, 0.0, 30).await;
+    let seeds: Vec<String> = because(&home_of(&f, &token).await)
+        .into_iter()
+        .map(|(seed, _)| seed)
+        .collect();
+    assert_eq!(
+        seeds,
+        ["series:1", "movie:1", "movie:24"],
+        "three rows still"
+    );
+}
+
+#[tokio::test]
+async fn a_pages_home_keeps_to_its_kind() {
+    let f = alike_fixture().await;
+    let (me, token) = user(&f, "viewer").await;
+    progress(&f, me, 24, 0.0, 5).await;
+    progress(&f, me, 6, 0.0, 10).await;
+    progress(&f, me, 1, 0.0, 20).await;
+
+    // Movies: the films finished alone, each with films alone.
+    let (status, movies) = home_at(&f, &token, "/api/v1/home?kind=movies").await;
+    assert_eq!(status, StatusCode::OK);
+    let rows = because(&movies);
+    assert_eq!(
+        rows.iter()
+            .map(|(seed, _)| seed.as_str())
+            .collect::<Vec<_>>(),
+        ["movie:1", "movie:24"]
+    );
+    assert!(
+        rows.iter()
+            .flat_map(|(_, items)| items)
+            .all(|i| i.starts_with("movie:"))
+    );
+    assert!(
+        keys(&movies)
+            .iter()
+            .all(|k| !matches!(*k, "latest_shows" | "latest_anime"))
+    );
+    assert!(
+        titles(&movies["hero"])
+            .iter()
+            .all(|t| t.starts_with("movie:"))
+    );
+
+    // Shows: the show finished has only a film like it, so no row; nothing else but shows.
+    let (_, shows) = home_at(&f, &token, "/api/v1/home?kind=shows").await;
+    assert!(because(&shows).is_empty());
+    assert!(
+        keys(&shows)
+            .iter()
+            .all(|k| !matches!(*k, "latest_movies" | "latest_anime"))
+    );
+    for row in shows["rows"].as_array().unwrap() {
+        assert!(
+            titles(&row["items"])
+                .iter()
+                .all(|t| t.starts_with("series:")),
+            "{row}"
+        );
+    }
+
+    // Anime keeps its own newest; the whole home is as it was.
+    let (_, anime) = home_at(&f, &token, "/api/v1/home?kind=anime").await;
+    assert!(keys(&anime).contains(&"latest_anime"));
+    assert!(
+        keys(&anime)
+            .iter()
+            .all(|k| !matches!(*k, "latest_movies" | "latest_shows"))
+    );
+    let whole = home_of(&f, &token).await;
+    assert_eq!(because(&whole).len(), 3);
+
+    let (status, _) = home_at(&f, &token, "/api/v1/home?kind=music").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
