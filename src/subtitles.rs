@@ -18,12 +18,14 @@ mod beside;
 mod caching;
 mod charset;
 mod converting;
+mod styled;
 
 pub use attached_fonts::*;
 pub use beside::*;
 pub use caching::*;
 pub use charset::*;
 pub use converting::*;
+pub use styled::*;
 
 const SIDECAR_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "vtt"];
 /// Converting an embedded track reads the whole file, which over a NAS can take minutes.

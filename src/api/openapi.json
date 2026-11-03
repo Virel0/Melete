@@ -12453,7 +12453,7 @@
           "track": {
             "type": "string",
             "pattern": "^(s[0-9]{1,5}|x[0-9a-f]{8}|o[0-9a-f]{8})$",
-            "description": "s{index} for an embedded stream; x and 8 hex digits for a file beside the video, derived from its name so it stays put when other files come and go; o and 8 hex digits for one fetched from OpenSubtitles, from its language. Use it in the subtitle URL, and an s or x one in burn_subtitle."
+            "description": "s{index} for an embedded stream; x and 8 hex digits for a file beside the video, derived from its name so it stays put when other files come and go; o and 8 hex digits for one fetched from OpenSubtitles, from its language. Use it in the subtitle URL and a transcode's subtitle, and an s or x one in burn_subtitle."
           },
           "source": {
             "enum": ["embedded", "external", "opensubtitles"],
@@ -12852,6 +12852,15 @@
             "pattern": "^(s[0-9]{1,5}|x[0-9a-f]{8})$",
             "description": "A track id from GET /api/v1/files/{id}/subtitles to draw into the picture. Needed for picture tracks (PGS, VobSub) on players that can't show them. Text tracks keep their ASS styling and positions, drawn with the fonts attached to the video (a standard font stands in for any it doesn't have)."
           },
+          "subtitle": {
+            "type": "string",
+            "pattern": "^(s[0-9]{1,5}|[xo][0-9a-f]{8})$",
+            "description": "The track id from GET /api/v1/files/{id}/subtitles the viewer chose to show, if any. With renders_ass false, a styled ASS/SSA track is burned in as burn_subtitle would (see burn_reason). An s or x track must be the file's, else 422. Ignored for offline copies."
+          },
+          "renders_ass": {
+            "type": "boolean",
+            "description": "Whether the player draws ASS/SSA itself (from the track's ass_url). false: a styled ASS/SSA track named in subtitle is burned into the picture, since its WebVTT version keeps only the words; styled means a dialogue line uses a typesetting tag (\\pos, \\move, \\an or \\a, \\org, \\clip or \\iclip, \\fr, \\t, a \\p drawing or \\k karaoke) or the dialogue uses more than one style, so plain dialogue never forces a burn. true or absent: nothing is burned in unless burn_subtitle asks. Ignored with burn_subtitle, and for copy, which keeps the video and the WebVTT track (burn_reason copy_kept). Ignored for offline copies."
+          },
           "video_codec": {
             "enum": ["h264", "hevc", "copy"],
             "default": "h264",
@@ -12879,7 +12888,9 @@
           "resume_seconds",
           "watched",
           "segments",
-          "max_bitrate"
+          "max_bitrate",
+          "burned_subtitle",
+          "burn_reason"
         ],
         "properties": {
           "playlist_url": {
@@ -12894,6 +12905,14 @@
           "max_bitrate": {
             "type": ["integer", "null"],
             "description": "The most bits per second a video may take through the way in this request came by (MELETE_WAYS_IN's max=), or null for no limit. A stream link for a file over it is refused through that way, and conversions asked for through it are held to it, so pick a quality that fits."
+          },
+          "burned_subtitle": {
+            "type": ["string", "null"],
+            "description": "The subtitle track drawn into the picture, or null for none. Don't also show it as a separate track."
+          },
+          "burn_reason": {
+            "enum": ["asked", "styled_ass", "copy_kept", null],
+            "description": "Why a subtitle is or isn't drawn in. asked: burn_subtitle named it. styled_ass: the chosen subtitle is styled ASS/SSA and renders_ass is false, so Melete burned it in. copy_kept: the same, but copy was asked, so the video is copied, nothing is burned in, and the player shows the track's WebVTT version. null: neither applies."
           }
         },
         "additionalProperties": false
