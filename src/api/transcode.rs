@@ -155,7 +155,7 @@ async fn text_burn(
     let burn = Burn::text(path).map_err(|reason| anyhow::anyhow!(reason))?;
     // The fonts the video carries, so styled subtitles look as made; without them a standard
     // font stands in, so a failure here doesn't stop the burn.
-    let key = format!("{}-{}-{}", file.id, file.size, file.modified_at);
+    let key = subtitles::fonts_key(file.id, file.size, file.modified_at);
     let fonts = subtitles::fonts(
         &state.ffprobe,
         ffmpeg,

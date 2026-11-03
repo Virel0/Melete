@@ -7,6 +7,11 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+### Added
+
+- Melete's own profile pictures: sixteen, the Muses and their companions in neon line art, shown
+  first in the gallery.
+
 ## [0.4.0] - 2026-11-02
 
 ### Added

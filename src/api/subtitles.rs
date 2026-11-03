@@ -1,5 +1,8 @@
 //! Subtitle tracks for the apps: a file's list of embedded and external tracks, and text tracks
-//! as WebVTT behind the stream link's token, so players can load them without headers.
+//! as WebVTT behind the stream link's token, so players can load them without headers; ASS/SSA
+//! tracks also as they are, with the fonts the video carries.
+
+mod originals;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,7 +41,10 @@ pub fn routes(pool: SqlitePool, ffprobe: PathBuf, ffmpeg: PathBuf, cache: PathBu
         .route("/api/v1/files/{id}/subtitles", get(list))
         .route_layer(middleware::from_fn_with_state(auth, require_user));
     // The stream link's own token is the credential here.
-    let tracks = Router::new().route("/api/v1/stream/{token}/subtitles/{track}", get(track));
+    let tracks = Router::new()
+        .route("/api/v1/stream/{token}/subtitles/{track}", get(track))
+        .route("/api/v1/stream/{token}/fonts", get(originals::fonts))
+        .route("/api/v1/stream/{token}/fonts/{font}", get(originals::font));
     signed_in.merge(tracks).with_state(SubtitleState {
         pool,
         ffprobe: Arc::new(ffprobe),
@@ -74,8 +80,11 @@ async fn list(
         .iter()
         .flat_map(|m| &m.subtitles)
         .map(|s| {
+            let track = format!("s{}", s.index);
             json!({
-                "track": format!("s{}", s.index),
+                "ass": subtitles::is_ass(&s.codec),
+                "ass_url": ass_url(&track, &s.codec),
+                "track": track,
                 "source": "embedded",
                 "codec": s.codec,
                 "language": s.language,
@@ -98,8 +107,11 @@ async fn list(
     })
     .await?;
     for (s, encoding) in sidecars.into_iter().zip(encodings) {
+        let track = format!("x{}", s.id);
         tracks.push(json!({
-                        "track": format!("x{}", s.id),
+            "ass": subtitles::is_ass(&s.codec),
+            "ass_url": ass_url(&track, &s.codec),
+            "track": track,
             "source": "external",
             "codec": s.codec,
             "language": s.language,
@@ -130,33 +142,57 @@ async fn list(
     Ok(Json(tracks))
 }
 
-/// One text track as WebVTT, for a stream link's file.
-async fn track(
-    State(state): State<SubtitleState>,
-    Path((token, track)): Path<(String, String)>,
-) -> Result<Response, ApiError> {
+/// Where an ASS/SSA track is as it is, relative to the stream URL as the WebVTT one is; None
+/// for other tracks.
+fn ass_url(track: &str, codec: &str) -> Option<String> {
+    subtitles::is_ass(codec).then(|| format!("subtitles/{track}.ass"))
+}
+
+/// The file a stream link opens, while the link is current and its holder may see the file.
+async fn linked_file(pool: &SqlitePool, token: &str) -> Result<i64, ApiError> {
     if !token.starts_with(STREAM_PREFIX) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "not a stream link"));
     }
     let session: Option<(i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT file_id, token_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
     )))
-    .bind(auth::token_hash(&token))
+    .bind(auth::token_hash(token))
     .bind(unix_now())
-    .fetch_optional(&state.pool)
+    .fetch_optional(pool)
     .await?;
-    let mut file_id = None;
     if let Some((id, token_id)) = session
-        && holder_sees(&state.pool, token_id, id).await?
+        && holder_sees(pool, token_id, id).await?
     {
-        file_id = Some(id);
+        return Ok(id);
     }
-    let Some(file_id) = file_id else {
-        return Err(ApiError::new(
-            StatusCode::NOT_FOUND,
-            "this stream link is unknown or has expired; ask to play again",
-        ));
-    };
+    Err(ApiError::new(
+        StatusCode::NOT_FOUND,
+        "this stream link is unknown or has expired; ask to play again",
+    ))
+}
+
+/// The answer to a conversion that failed: busy, or a failure logged with the file's path.
+fn conversion_failed(rel_path: &str, err: anyhow::Error) -> ApiError {
+    if err.is::<subtitles::Busy>() {
+        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.to_string());
+    }
+    tracing::warn!(
+        rel_path,
+        error = format!("{err:#}"),
+        "subtitle conversion failed"
+    );
+    ApiError::new(StatusCode::BAD_GATEWAY, "converting the subtitles failed")
+}
+
+/// One text track as WebVTT, or an ASS/SSA track as it is, for a stream link's file.
+async fn track(
+    State(state): State<SubtitleState>,
+    Path((token, track)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let file_id = linked_file(&state.pool, &token).await?;
+    if let Some(name) = track.strip_suffix(".ass") {
+        return originals::ass(&state, file_id, name).await;
+    }
     let no_track = || ApiError::new(StatusCode::NOT_FOUND, "no such subtitle track");
     let name = track.strip_suffix(".vtt").ok_or_else(no_track)?;
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
@@ -212,17 +248,7 @@ async fn track(
     } else {
         return Err(no_track());
     };
-    let vtt = vtt.map_err(|err| {
-        if err.is::<subtitles::Busy>() {
-            return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.to_string());
-        }
-        tracing::warn!(
-            rel_path = file.rel_path,
-            error = format!("{err:#}"),
-            "subtitle conversion failed"
-        );
-        ApiError::new(StatusCode::BAD_GATEWAY, "converting the subtitles failed")
-    })?;
+    let vtt = vtt.map_err(|err| conversion_failed(&file.rel_path, err))?;
     Ok(([(header::CONTENT_TYPE, "text/vtt; charset=utf-8")], vtt).into_response())
 }
 
@@ -350,10 +376,10 @@ mod tests {
             json!([
                 { "track": "s2", "source": "embedded", "codec": "subrip", "language": "fre", "title": null,
                   "default": false, "forced": true, "hearing_impaired": false, "text": true, "file": null,
-                  "encoding": null },
+                  "encoding": null, "ass": false, "ass_url": null },
                 { "track": "xed0587fb", "source": "external", "codec": "subrip", "language": "en", "title": null,
                   "default": false, "forced": false, "hearing_impaired": false, "text": true, "file": "clip.en.srt",
-                  "encoding": "UTF-8" },
+                  "encoding": "UTF-8", "ass": false, "ass_url": null },
             ])
         );
         assert_eq!(

@@ -118,6 +118,14 @@ const PUBLIC: &[Public] = &[
         "subtitles for that stream, under its link",
     ),
     by_link(
+        "/api/v1/stream/{token}/fonts",
+        "the list of fonts that stream's file carries, for drawing its ASS subtitles, under its link",
+    ),
+    by_link(
+        "/api/v1/stream/{token}/fonts/{font}",
+        "one of those fonts, under its link",
+    ),
+    by_link(
         "/api/v1/stream/{token}/trickplay/{sheet}",
         "seek-bar previews for that stream, under its link",
     ),

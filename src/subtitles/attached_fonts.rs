@@ -1,4 +1,5 @@
-//! Fonts attached to a video, pulled out once into the cache for burning subtitles in.
+//! Fonts attached to a video, pulled out once into the cache for burning subtitles in and for
+//! players that draw ASS themselves.
 
 use super::*;
 
@@ -34,12 +35,105 @@ pub async fn fonts(
         save_atomically(&none, b"").await?;
         return Ok(None);
     }
-    save_fonts(ffmpeg, cache_dir, key, video, &fonts, &dir).await?;
+    let indexes: Vec<i64> = fonts.iter().map(|f| f.index).collect();
+    save_fonts(ffmpeg, cache_dir, key, video, &indexes, &dir).await?;
     Ok(Some(dir))
 }
 
-/// The indexes of the video's attachments that are fonts, by type or name; at most 200.
-async fn font_attachments(ffprobe: &Path, video: &Path) -> anyhow::Result<Vec<i64>> {
+/// A font attached to a video, as players are offered it.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct Font {
+    /// The attachment's stream index, which names it in its URL and in the fonts' folder.
+    pub index: i64,
+    /// The name stored with it, without any folders. Only ever shown or handed to a renderer,
+    /// never used as a path.
+    pub file_name: String,
+    /// One of [`FONT_TYPES`], from its name or stored type; never the stored type as it is.
+    pub mime_type: String,
+    /// Its size in bytes.
+    pub size: u64,
+}
+
+/// The types fonts are offered as.
+pub const FONT_TYPES: &[&str] = &[
+    "font/ttf",
+    "font/otf",
+    "font/collection",
+    "font/woff",
+    "font/woff2",
+    "font/sfnt",
+];
+
+/// The most a font offered to players may weigh; bigger ones aren't offered.
+pub const FONT_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// The fonts attached to a video that players are offered: those up to [`FONT_LIMIT`]. Listed
+/// once into `cache_dir/fonts-{key}.json`; empty for a video without any.
+pub async fn font_list(
+    ffprobe: &Path,
+    cache_dir: &Path,
+    key: &str,
+    video: &Path,
+) -> anyhow::Result<Vec<Font>> {
+    let listed = cache_dir.join(format!("fonts-{key}.json"));
+    let none = cache_dir.join(format!("fonts-{key}.none"));
+    let offered = |fonts: Vec<Font>| fonts.into_iter().filter(|f| f.size <= FONT_LIMIT).collect();
+    if let Ok(saved) = tokio::fs::read(&listed).await
+        && let Ok(fonts) = serde_json::from_slice::<Vec<Font>>(&saved)
+    {
+        return Ok(offered(fonts));
+    }
+    if tokio::fs::try_exists(&none).await.unwrap_or(false) {
+        return Ok(Vec::new());
+    }
+    let fonts = font_attachments(ffprobe, video).await?;
+    if fonts.is_empty() {
+        save_atomically(&none, b"").await?;
+        return Ok(Vec::new());
+    }
+    save_atomically(&listed, &serde_json::to_vec(&fonts)?).await?;
+    Ok(offered(fonts))
+}
+
+/// The type a font is offered as, from its name, else its stored type.
+fn font_type(name: &str, stored: &str) -> &'static str {
+    const BY_NAME: [(&str, &str); 6] = [
+        (".ttf", "font/ttf"),
+        (".otf", "font/otf"),
+        (".ttc", "font/collection"),
+        (".otc", "font/collection"),
+        (".woff", "font/woff"),
+        (".woff2", "font/woff2"),
+    ];
+    const BY_TYPE: [(&str, &str); 7] = [
+        ("woff2", "font/woff2"),
+        ("woff", "font/woff"),
+        ("collection", "font/collection"),
+        ("opentype", "font/otf"),
+        ("otf", "font/otf"),
+        ("truetype", "font/ttf"),
+        ("ttf", "font/ttf"),
+    ];
+    let named = BY_NAME.iter().find(|(end, _)| name.ends_with(end));
+    let typed = || BY_TYPE.iter().find(|(word, _)| stored.contains(word));
+    named.or_else(typed).map_or("font/sfnt", |(_, kind)| kind)
+}
+
+/// The last part of a stored name, without folders or control characters; at most 255
+/// characters.
+fn bare_name(stored: &str, index: i64) -> String {
+    let last = stored.rsplit(['/', '\\']).next().unwrap_or_default();
+    let name: String = last.chars().filter(|c| !c.is_control()).take(255).collect();
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        format!("font{index}")
+    } else {
+        name.to_owned()
+    }
+}
+
+/// The video's attachments that are fonts, by type or name; at most 200.
+async fn font_attachments(ffprobe: &Path, video: &Path) -> anyhow::Result<Vec<Font>> {
     let listed = Command::new(ffprobe)
         .args([
             "-v",
@@ -47,7 +141,7 @@ async fn font_attachments(ffprobe: &Path, video: &Path) -> anyhow::Result<Vec<i6
             "-select_streams",
             "t",
             "-show_entries",
-            "stream=index:stream_tags=mimetype,filename",
+            "stream=index,extradata_size:stream_tags=mimetype,filename",
             "-of",
             "json",
         ])
@@ -64,43 +158,55 @@ async fn font_attachments(ffprobe: &Path, video: &Path) -> anyhow::Result<Vec<i6
             String::from_utf8_lossy(&listed.stderr).trim()
         );
     }
-    #[derive(serde::Deserialize)]
-    struct Listing {
-        #[serde(default)]
-        streams: Vec<Attachment>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Attachment {
-        index: i64,
-        #[serde(default)]
-        tags: HashMap<String, String>,
-    }
     let listing: Listing =
         serde_json::from_slice(&listed.stdout).context("reading ffprobe's attachments")?;
-    let is_font = |a: &Attachment| {
-        let mime = a
-            .tags
-            .get("mimetype")
-            .map(|m| m.to_ascii_lowercase())
-            .unwrap_or_default();
-        let name = a
-            .tags
-            .get("filename")
-            .map(|n| n.to_ascii_lowercase())
-            .unwrap_or_default();
-        mime.contains("font")
-            || [".ttf", ".otf", ".ttc", ".woff", ".woff2"]
-                .iter()
-                .any(|e| name.ends_with(e))
-    };
-    let fonts: Vec<i64> = listing
+    let fonts: Vec<Font> = listing
         .streams
         .iter()
-        .filter(|a| is_font(a))
-        .map(|a| a.index)
+        .filter_map(Attachment::font)
         .take(200)
         .collect();
     Ok(fonts)
+}
+
+/// ffprobe's list of a video's attachments.
+#[derive(serde::Deserialize)]
+struct Listing {
+    #[serde(default)]
+    streams: Vec<Attachment>,
+}
+
+#[derive(serde::Deserialize)]
+struct Attachment {
+    index: i64,
+    #[serde(default)]
+    extradata_size: u64,
+    #[serde(default)]
+    tags: HashMap<String, String>,
+}
+
+impl Attachment {
+    /// The attachment as a font, when it is one by its type or name.
+    fn font(&self) -> Option<Font> {
+        let tag = |name: &str| self.tags.get(name).map(String::as_str).unwrap_or_default();
+        let stored_type = tag("mimetype").to_ascii_lowercase();
+        let stored_name = tag("filename").to_ascii_lowercase();
+        let is_font = stored_type.contains("font")
+            || [".ttf", ".otf", ".ttc", ".woff", ".woff2"]
+                .iter()
+                .any(|e| stored_name.ends_with(e));
+        if !is_font {
+            return None;
+        }
+        let file_name = bare_name(tag("filename"), self.index);
+        let mime_type = font_type(&file_name.to_ascii_lowercase(), &stored_type);
+        Some(Font {
+            index: self.index,
+            file_name,
+            mime_type: mime_type.to_owned(),
+            size: self.extradata_size,
+        })
+    }
 }
 
 /// Pulls the fonts out of the video into `dir`, each named by its stream's index.
