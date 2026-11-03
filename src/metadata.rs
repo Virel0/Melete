@@ -21,6 +21,7 @@ mod imported;
 mod manual;
 mod matching;
 mod nfo;
+mod scores;
 mod store;
 mod wanted;
 
@@ -30,6 +31,7 @@ use imported::*;
 pub use manual::*;
 use matching::*;
 use nfo::*;
+pub use scores::refresh_scores;
 use store::*;
 pub use wanted::*;
 

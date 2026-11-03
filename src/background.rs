@@ -316,7 +316,8 @@ pub(crate) async fn match_on_request(
     }
 }
 
-/// After matching: wanted titles' details, content ratings, and cast and crew.
+/// After matching: wanted titles' details, content ratings, cast and crew, and TMDB scores
+/// titles fetched before scores were kept lack.
 async fn refresh_the_rest(pool: &sqlx::SqlitePool, tmdb: &tmdb::Client) {
     match metadata::refresh_wanted(pool, tmdb).await {
         Ok(report) => tracing::info!(
@@ -344,6 +345,11 @@ async fn refresh_the_rest(pool: &sqlx::SqlitePool, tmdb: &tmdb::Client) {
         Ok(fetched) if fetched > 0 => tracing::info!(fetched, "cast and crew fetched"),
         Ok(_) => {}
         Err(err) => tracing::warn!(error = format!("{err:#}"), "fetching cast and crew stopped"),
+    }
+    match metadata::refresh_scores(pool, tmdb).await {
+        Ok(fetched) if fetched > 0 => tracing::info!(fetched, "TMDB scores fetched"),
+        Ok(_) => {}
+        Err(err) => tracing::warn!(error = format!("{err:#}"), "fetching TMDB scores stopped"),
     }
 }
 

@@ -15,11 +15,15 @@ import { row, watchingOf } from "/web/watch-tiles.js";
 const ROWS = {
   continue_watching: { heading: "Continue watching", wide: true },
   next_up: { heading: "Next up", wide: true },
+  new_episodes: { heading: "New episodes", wide: true },
   favourites: { heading: "My List", more: { href: "#/favourites", label: "All of My List" } },
   featured_for_you: { heading: "Featured for you" },
   latest_shows: { heading: "Latest shows", more: { href: "#/shows", label: "All shows" } },
   latest_anime: { heading: "Latest anime", more: { href: "#/anime", label: "All anime" } },
   latest_movies: { heading: "Latest movies", more: { href: "#/movies", label: "All movies" } },
+  next_in_collection: { heading: "Next in the collection" },
+  highly_rated: { heading: "Highly rated, not seen yet" },
+  watch_again: { heading: "Watch again" },
 };
 
 // A home's rows as `/home` answers them, drawn under its hero `top`; `latestHeading` names the
@@ -64,7 +68,7 @@ export async function home(gen) {
     );
     return;
   }
-  const watching = watchingOf(answer.rows.filter((r) => r.key === "continue_watching" || r.key === "next_up").flatMap((r) => r.items));
+  const watching = watchingOf(answer.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
   const top = hero(answer.hero, { watching });
   leaving.push(top.stop);
   top.spotlight.add(answer.hero);

@@ -2528,7 +2528,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your Watch home",
-        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `favourites` (yours, newest first), `featured_for_you` (your AI picks while AI picks are on, as `/ai/picks` gives them, never waited for), `because_you_watched` (up to 3 rows, one for each of the titles you finished most recently that has something like it, newest first, looking back up to 12 titles; an episode counts as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, the decade, and the title's own language; a title has to share a collection, a genre or a person. With AI picks on, a row holds the AI's titles like it (as `/movies/{id}/similar` gives them) once they're made. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
+        "description": "Everything the Watch home shows, in one request, as `/music/home` is for music: the hero's picks (what you're partway through, then the newest titles, each once, up to 8) and rows of up to 20 titles, in this order: `continue_watching` (one entry per title, its latest file), `next_up`, `new_episodes` (the shows from next up whose next episode came in within the last 14 days, after you last watched them; each carries that episode, as next up's do, and isn't in `next_up` too), `favourites` (yours, newest first), `featured_for_you` (your AI picks while AI picks are on, as `/ai/picks` gives them, never waited for), `because_you_watched` (up to 3 rows, one for each of the titles you finished most recently that has something like it, newest first, looking back up to 12 titles; an episode counts as its series: up to 12 titles like it, most alike first, that you may see and haven't watched, the title itself left out), `latest_movies`, `latest_shows` and `latest_anime` (newest file first: a series by its newest episode), `next_in_collection` (for each film collection you've finished a film of, its earliest film in the library you haven't watched, by release date; the collection you watched last first; only on the whole home and `kind=movies`), `highly_rated` (movies and series you haven't started that TMDB scores 7.5 or more from at least 100 votes, sharing a genre with something you've played; best scored first), `watch_again` (films you watched, and series whose every episode you watched, specials aside, not played in 180 days: your favourites first, then the most played, then the longest ago). A row with nothing in it is left out. Only what you may see is there. A series is anime when it's wanted as anime or sits in a library with the anime category, and anime is never among the shows. The rows carry the artwork already stored; the hero's picks are worked out as a title's details are, so they have their textless backdrop, logo and focal points. Likeness is worked out from what Melete stores: a film's collection, shared genres, shared cast and crew, the decade, and the title's own language; a title has to share a collection, a genre or a person. With AI picks on, a row holds the AI's titles like it (as `/movies/{id}/similar` gives them) once they're made. With trending and similar titles on, TMDB's recommendations for the title finished are blended in, kept to what's in the library (only its TMDB id leaves the server; the answer is kept a day). Scores are TMDB's, stored with each title's details. Nothing else leaves the server but what a title's details would ask TMDB for its hero pick.",
         "parameters": [
           {
             "name": "kind",
@@ -12950,12 +12950,16 @@
             "enum": [
               "continue_watching",
               "next_up",
+              "new_episodes",
               "favourites",
               "featured_for_you",
               "because_you_watched",
               "latest_shows",
               "latest_anime",
-              "latest_movies"
+              "latest_movies",
+              "next_in_collection",
+              "highly_rated",
+              "watch_again"
             ],
             "description": "`because_you_watched` comes up to three times, one row for each title in its `seed`; every other key once at most."
           },
