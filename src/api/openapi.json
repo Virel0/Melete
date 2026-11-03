@@ -1422,11 +1422,11 @@
     },
     "/api/v1/ai": {
       "get": {
-        "tags": ["Browse"],
+        "tags": ["System"],
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Whether AI features are on",
-        "description": "On once an admin sets an OpenRouter key; apps show their AI features only then.",
+        "description": "On once an admin sets an OpenRouter key; apps show their AI features only then. Open through every way in, as it says only whether AI is on: a music app on a way in without video can read it.",
         "responses": {
           "200": {
             "description": "OK",
