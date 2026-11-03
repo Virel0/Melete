@@ -4137,7 +4137,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Import a playlist as song requests",
-        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length) and asked for as a song by you, in the background, one import at a time and a track at a time. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB.",
+        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length) and asked for as a song by you, in the background, one import at a time and a track at a time. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewPlaylistImport"}}}
@@ -4152,6 +4152,10 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "make_playlist from a user who may see only some music libraries, to whom Aoide's playlists are closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
           "409": {
             "description": "MusicBrainz isn't set up",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
@@ -6750,7 +6754,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A playlist and its tracks",
-        "description": "Aoide's playlists as they stand, worked out from the sync log the way an Aoide device works them out (last writer wins on updatedAt, ties broken by device; playlists merged field by field), so every app sees what the Aoide apps show. Changes come from Aoide devices through sync, and from the editing routes here.",
+        "description": "Aoide's playlists as they stand, worked out from the sync log the way an Aoide device works them out (last writer wins on updatedAt, ties broken by device; playlists merged field by field), so every app sees what the Aoide apps show. Changes come from Aoide devices through sync, and from the editing routes here. A song not in the library yet shows with pending set and track and content_key null, until Melete swaps its track in.",
         "parameters": [
           {
             "name": "id",
@@ -15844,6 +15848,36 @@
         },
         "additionalProperties": false
       },
+      "AoidePendingItem": {
+        "type": "object",
+        "description": "A playlist_items payload for a song not in the library yet: in place of jellyfinId and contentKey it has pending. Any device or Melete may write one. Once the song is in the library (a track whose MusicBrainz recording is its request's), Melete writes the item again as the playlist's owner, from device \"melete\": the same id, playlistId and position (where it stands then), with jellyfinId and contentKey and without pending, and an updatedAt just after the item's own, so an edit a device made later still wins (an item still pending after that is written again on the next run). An item deleted or no longer pending isn't written. Only a request put in the playlist by the user who asked for it is swapped in. A device that doesn't know pending sees an item without a track, as for one gone from the library.",
+        "required": ["id", "playlistId", "position", "pending", "updatedAt", "originDevice", "deleted"],
+        "properties": {
+          "id": {"type": "string"},
+          "playlistId": {"type": "string"},
+          "position": {"type": "string", "description": "The apps' fractional index."},
+          "pending": {"$ref": "#/components/schemas/AoidePendingSong"},
+          "updatedAt": {"type": "integer"},
+          "originDevice": {"type": "string"},
+          "deleted": {"type": "boolean"}
+        }
+      },
+      "AoidePendingSong": {
+        "type": "object",
+        "description": "Every field is written, null when unknown.",
+        "required": ["requestId", "title", "artist", "album", "durationMs", "why"],
+        "properties": {
+          "requestId": {
+            "type": ["integer", "null"],
+            "description": "The song request (POST /api/v1/requests, kind song, with mb_recording_id) that will bring it; null when it couldn't be asked for, and it then stays pending."
+          },
+          "title": {"type": "string"},
+          "artist": {"type": ["string", "null"], "description": "Its artists, comma-separated."},
+          "album": {"type": ["string", "null"]},
+          "durationMs": {"type": ["integer", "null"]},
+          "why": {"type": ["string", "null"], "description": "Why it couldn't be asked for; null when it was."}
+        }
+      },
       "AoideOp": {
         "type": "object",
         "required": [
@@ -15882,7 +15916,7 @@
           "operation": {"enum": ["upsert", "delete"]},
           "payload": {
             "type": "object",
-            "description": "The full row after the change, exactly as pushed. Track references in it are Melete track ids (trackId, or jellyfinId as Aoide named them)."
+            "description": "The full row after the change, exactly as pushed. Track references in it are Melete track ids (trackId, or jellyfinId as Aoide named them). A playlist_items row for a song not in the library yet has pending in place of a track (AoidePendingItem)."
           },
           "createdAt": {"type": "integer", "description": "The pushing device's clock, ms."},
           "receivedAt": {
@@ -16742,7 +16776,9 @@
           "asked",
           "already",
           "unmatched",
-          "waiting"
+          "waiting",
+          "in_library",
+          "playlist_id"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -16757,7 +16793,15 @@
           "asked": {"type": "integer", "description": "Tracks this import asked for."},
           "already": {"type": "integer", "description": "Tracks the same user had asked for already."},
           "unmatched": {"type": "integer", "description": "Tracks no MusicBrainz recording fitted."},
-          "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."}
+          "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
+          "in_library": {
+            "type": "integer",
+            "description": "Tracks the library has already, put in the playlist as they are and not asked for. Only an import that makes a playlist looks, so it's 0 for the rest."
+          },
+          "playlist_id": {
+            "type": ["string", "null"],
+            "description": "The Aoide playlist the import makes and fills, in your sync log (GET /api/v1/playlists/{id}); null when it makes none."
+          }
         },
         "additionalProperties": false
       },
@@ -16770,7 +16814,11 @@
           "artist": {"type": ["string", "null"], "description": "As the playlist names them, comma-separated."},
           "album": {"type": ["string", "null"]},
           "isrc": {"type": ["string", "null"]},
-          "state": {"type": "string", "enum": ["pending", "asked", "already", "unmatched"]},
+          "state": {
+            "type": "string",
+            "enum": ["pending", "asked", "already", "unmatched", "in_library"],
+            "description": "in_library: the library has it already, so it went into the import's playlist as it is and wasn't asked for (only an import that makes a playlist looks)."
+          },
           "why": {"type": ["string", "null"], "description": "Why it wasn't asked for, when unmatched."},
           "request_id": {
             "type": ["integer", "null"],
@@ -16795,6 +16843,8 @@
           "already",
           "unmatched",
           "waiting",
+          "in_library",
+          "playlist_id",
           "items"
         ],
         "properties": {
@@ -16811,6 +16861,14 @@
           "already": {"type": "integer", "description": "Tracks the same user had asked for already."},
           "unmatched": {"type": "integer", "description": "Tracks no MusicBrainz recording fitted."},
           "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
+          "in_library": {
+            "type": "integer",
+            "description": "Tracks the library has already, put in the playlist as they are and not asked for. Only an import that makes a playlist looks, so it's 0 for the rest."
+          },
+          "playlist_id": {
+            "type": ["string", "null"],
+            "description": "The Aoide playlist the import makes and fills, in your sync log (GET /api/v1/playlists/{id}); null when it makes none."
+          },
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/PlaylistImportTrack"}}
         },
         "additionalProperties": false
@@ -16834,6 +16892,11 @@
           "csv": {
             "type": "string",
             "description": "The playlist as CSV: Exportify's columns (Track Name, Artist Name(s), Album Name, Track Duration (ms), ISRC) or other exporters' like them (title, artist, album, duration). Only a column of track names is needed."
+          },
+          "make_playlist": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also make an Aoide playlist of it, named as the import is, with every track in it in the file's order. A track the library has already (matched as POST /aoide/match matches) goes in as it is and isn't asked for; any other goes in pending (AoidePendingItem) on its request, or on none when it couldn't be asked for, until its song arrives. Only for users who may see every music library."
           }
         },
         "additionalProperties": false
@@ -17029,7 +17092,7 @@
       },
       "PlaylistItem": {
         "type": "object",
-        "required": ["id", "position", "content_key", "track"],
+        "required": ["id", "position", "content_key", "track", "pending"],
         "properties": {
           "id": {"type": ["string", "null"]},
           "position": {
@@ -17043,7 +17106,32 @@
           "track": {
             "anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}],
             "description": "The track as the music API shows it; null when it isn't in the library."
+          },
+          "pending": {
+            "anyOf": [{"$ref": "#/components/schemas/PlaylistPendingSong"}, {"type": "null"}],
+            "description": "A song not in the library yet, which Melete swaps the track in for once it arrives; null for every other item."
           }
+        },
+        "additionalProperties": false
+      },
+      "PlaylistPendingSong": {
+        "type": "object",
+        "required": ["request_id", "title", "artist", "album", "duration_ms", "state", "why"],
+        "properties": {
+          "request_id": {
+            "type": ["integer", "null"],
+            "description": "The song request that will bring it; null when it couldn't be asked for."
+          },
+          "title": {"type": "string"},
+          "artist": {"type": ["string", "null"]},
+          "album": {"type": ["string", "null"]},
+          "duration_ms": {"type": ["integer", "null"]},
+          "state": {
+            "type": "string",
+            "enum": ["requested", "approved", "declined", "unmatched", "gone"],
+            "description": "How its request stands: requested (waiting for an admin), approved (on its way) or declined; unmatched when it has none (it stays pending); gone when the request was withdrawn, or wasn't put in the playlist by the user who asked for it."
+          },
+          "why": {"type": ["string", "null"], "description": "Why it couldn't be asked for, when unmatched."}
         },
         "additionalProperties": false
       },

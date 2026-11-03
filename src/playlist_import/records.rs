@@ -31,6 +31,11 @@ pub struct ImportSummary {
     pub unmatched: i64,
     /// Of those asked for, the ones still waiting for an admin.
     pub waiting: i64,
+    /// Tracks the library has already, put in the playlist as they are and not asked for;
+    /// only an import that makes a playlist looks.
+    pub in_library: i64,
+    /// The Aoide playlist it makes, in the importer's sync log; none when it makes none.
+    pub playlist_id: Option<String>,
 }
 
 /// One track of an import, and what became of it.
@@ -46,7 +51,7 @@ pub struct ImportTrack {
     pub album: Option<String>,
     /// Its ISRC, when given.
     pub isrc: Option<String>,
-    /// pending, asked, already or unmatched.
+    /// pending, asked, already, unmatched or in_library.
     pub state: String,
     /// Why it couldn't be asked for.
     pub why: Option<String>,
@@ -71,24 +76,29 @@ pub(super) const SUMMARY: &str = "SELECT i.id, i.user_id, u.username, i.name, i.
         (SELECT count(*) FROM playlist_import_tracks t WHERE t.import_id = i.id AND t.state = 'already') AS already,
         (SELECT count(*) FROM playlist_import_tracks t WHERE t.import_id = i.id AND t.state = 'unmatched') AS unmatched,
         (SELECT count(*) FROM playlist_import_tracks t JOIN requests r ON r.id = t.request_id
-          WHERE t.import_id = i.id AND t.state = 'asked' AND r.state = 'requested') AS waiting
+          WHERE t.import_id = i.id AND t.state = 'asked' AND r.state = 'requested') AS waiting,
+        (SELECT count(*) FROM playlist_import_tracks t WHERE t.import_id = i.id AND t.state = 'in_library') AS in_library,
+        i.playlist_id
      FROM playlist_imports i JOIN users u ON u.id = i.user_id";
 
-/// Records an import of `tracks` for `user`, to be worked through in the background.
+/// Records an import of `tracks` for `user`, to be worked through in the background, filling
+/// the Aoide playlist `playlist` when it's given.
 pub async fn create(
     pool: &SqlitePool,
     user: &User,
     name: &str,
     tracks: &[Track],
+    playlist: Option<&str>,
 ) -> anyhow::Result<ImportSummary> {
     let mut tx = pool.begin().await?;
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO playlist_imports (user_id, name, state, created_at) VALUES (?, ?, 'queued', ?)
-         RETURNING id",
+        "INSERT INTO playlist_imports (user_id, name, state, created_at, playlist_id)
+         VALUES (?, ?, 'queued', ?, ?) RETURNING id",
     )
     .bind(user.id)
     .bind(name)
     .bind(unix_now())
+    .bind(playlist)
     .fetch_one(&mut *tx)
     .await?;
     for (position, track) in tracks.iter().enumerate() {

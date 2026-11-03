@@ -3263,6 +3263,7 @@ mod openapi {
         let ops = [
                 r#"{"opId":"p","entity":"playlists","entityId":"p","operation":"upsert","payload":{"id":"p","name":"Mix","updatedAt":1},"createdAt":1}"#,
                 r#"{"opId":"i","entity":"playlist_items","entityId":"i","operation":"upsert","payload":{"id":"i","playlistId":"p","jellyfinId":"1","contentKey":"a|b|c|1","position":"a0","updatedAt":1},"createdAt":1}"#,
+                r#"{"opId":"j","entity":"playlist_items","entityId":"j","operation":"upsert","payload":{"id":"j","playlistId":"p","pending":{"requestId":null,"title":"Creep","artist":null,"album":null,"durationMs":null,"why":"not found"},"position":"a1","updatedAt":1},"createdAt":1}"#,
             ]
             .iter()
             .map(|op| {
@@ -3293,6 +3294,8 @@ mod openapi {
         let one = get("/api/v1/playlists/p").await;
         assert_shape(&spec, "PlaylistDetail", &one);
         assert_shape(&spec, "PlaylistItem", &one["items"][0]);
+        assert_shape(&spec, "PlaylistItem", &one["items"][1]);
+        assert_shape(&spec, "PlaylistPendingSong", &one["items"][1]["pending"]);
     }
 
     #[tokio::test]
@@ -3343,7 +3346,7 @@ mod openapi {
                 .unwrap();
         let tracks =
             crate::playlist_import::parse("Track Name,Artist Name(s)\nCreep,Radiohead\n").unwrap();
-        let made = crate::playlist_import::create(&pool, &user, "Mine", &tracks)
+        let made = crate::playlist_import::create(&pool, &user, "Mine", &tracks, None)
             .await
             .unwrap();
         let app = requests::routes(pool, None, crate::fulfil::Sources::default());
@@ -3627,6 +3630,7 @@ mod openapi {
                 "NewRequest",
                 "RequestChoice",
                 "NewKeyRequest",
+                "NewPlaylistImport",
             ];
             if optional_fields.contains(&name.as_str()) {
                 continue; // Inputs with optional fields.

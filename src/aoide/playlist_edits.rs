@@ -10,7 +10,8 @@
 //! place a fractional key.
 //!
 //! Only a playlist's owner edits it here. Smart playlists aren't edited here at all: their
-//! rules are worked out on the devices.
+//! rules are worked out on the devices. Melete itself writes as the owner too, when it fills
+//! an imported playlist and when it swaps an arrived song in for a pending item.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -22,8 +23,10 @@ use super::playlists::{self, Playlist, Row};
 use super::writing::{self, Change, WriteError};
 
 mod items;
+mod pending_items;
 
 pub use items::*;
+pub use pending_items::*;
 
 /// Why an edit wasn't made.
 #[derive(Debug)]
