@@ -663,6 +663,37 @@ mod tests {
         assert!(INDEX.contains(r#"<link rel="stylesheet" href="/web/manage.css">"#));
     }
 
+    /// Add new looks for songs on Soulseek while slskd is set up, only once typing has stopped
+    /// for longer than MusicBrainz's pause and for three letters or more, and ranks its songs
+    /// with MusicBrainz's by the server's closeness, each row saying where it's from.
+    #[tokio::test]
+    async fn add_new_mixes_soulseeks_songs_with_musicbrainzs_by_closeness() {
+        for (uri, needle) in [
+            ("/web/manage-find.js", r#"s.key === "slskd" && s.on"#),
+            ("/web/manage-find.js", "const SEEK_PAUSE_MS = 1200;"),
+            ("/web/manage-find.js", "const SEEK_FEWEST = 3;"),
+            ("/web/manage-find.js", "/requests/soulseek/candidates"),
+            ("/web/manage-find.js", "if (v.q.value.trim() !== words) {"),
+            (
+                "/web/manage-find.js",
+                "[...found, ...heard].sort((a, b) => b.closeness - a.closeness)",
+            ),
+            (
+                "/web/manage-add-form.js",
+                r#"h("span", { class: "badge" }, c.source)"#,
+            ),
+        ] {
+            let request = Request::get(uri).body(Body::empty()).unwrap();
+            let response = routes().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                String::from_utf8_lossy(&body).contains(needle),
+                "{uri}: {needle}"
+            );
+        }
+    }
+
     #[test]
     fn the_header_switches_sides_and_shows_manage_only_once_it_is_open() {
         for side in ["watch", "listen"] {

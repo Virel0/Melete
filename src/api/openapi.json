@@ -4060,7 +4060,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Find something to ask for",
-        "description": "Movies and series on TMDB (its first page of results), artists, albums and songs on MusicBrainz (20 at most), best first, each marked in the library, wanted, or asked for by you already. MusicBrainz is searched by words: each word on its own and loosely (a typo, a missing colon or a left-out word still finds it), the words as one phrase counting most; its results come by its score, then by how closely the name matches. Only the words searched for are sent. For a user with a highest rating, a title outside the library is listed only when it's rated that age or under: its rating is fetched from TMDB when Melete doesn't have it (only the title's TMDB id leaves the server, paced, and kept a month), and a title rated above it or not rated is left out.",
+        "description": "Movies and series on TMDB (its first page of results), artists, albums and songs on MusicBrainz (20 at most), best first, each marked in the library, wanted, or asked for by you already. MusicBrainz is searched by words: each word on its own and loosely (a typo, a missing colon or a left-out word still finds it), the words as one phrase counting most; its results come by its score, then by how closely the name matches. Each result says its `closeness` to the words. Only the words searched for are sent. For a user with a highest rating, a title outside the library is listed only when it's rated that age or under: its rating is fetched from TMDB when Melete doesn't have it (only the title's TMDB id leaves the server, paced, and kept a month), and a title rated above it or not rated is left out.",
         "parameters": [
           {
             "name": "kind",
@@ -10875,7 +10875,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Look on Soulseek for music MusicBrainz doesn't know",
-        "description": "What Add new offers when MusicBrainz finds nothing: the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
+        "description": "The songs Soulseek's users share for the words (Add new uses `GET /api/v1/requests/soulseek/candidates`, the same songs as search results): the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
         "parameters": [
           {
             "name": "q",
@@ -10890,6 +10890,48 @@
             "description": "What Soulseek's users share",
             "content": {
               "application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekSong"}}}
+            }
+          },
+          "400": {
+            "description": "q empty or too long",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "slskd isn't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "slskd didn't answer, isn't signed in to Soulseek, or is busy with another search",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/requests/soulseek/candidates": {
+      "get": {
+        "tags": ["Requests"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Soulseek's songs as search results",
+        "description": "The songs `GET /api/v1/requests/soulseek` finds, in the shape `GET /api/v1/requests/search` answers with, so Add new can list them with MusicBrainz's songs, ranked together by `closeness`: closest first, then most shared. Each is a song with no MusicBrainz ids, wanted by its title and artist (`POST /api/v1/requests` with `kind` song); its `detail` says how many users share it and in which formats, and it's marked wanted or asked for already as other songs are. Only the words are sent to slskd. Takes as long as slskd's search, about ten seconds or more.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "The words, as typed.",
+            "schema": {"type": "string", "minLength": 1, "maxLength": 200}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Soulseek's songs, closest first",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}}
+              }
             }
           },
           "400": {
@@ -16726,7 +16768,8 @@
           "in_library",
           "wanted",
           "requested",
-          "poster"
+          "poster",
+          "closeness"
         ],
         "properties": {
           "kind": {"type": "string", "enum": ["movie", "series", "artist", "album", "song"]},
@@ -16759,6 +16802,12 @@
           "poster": {
             "type": ["string", "null"],
             "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+          },
+          "closeness": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How close its title and artist are to the words searched, 100 for what was typed whole. Each typed word counts in full when it's one of the title's or artist's words and half when it starts one, worth 60 together; the share of the title's words that were typed is worth 40. The same measure for MusicBrainz's songs and Soulseek's (`GET /api/v1/requests/soulseek/candidates`), so the two can be ranked in one list."
           }
         },
         "additionalProperties": false

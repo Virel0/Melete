@@ -13,8 +13,10 @@ use crate::tmdb;
 use crate::want::year_of;
 
 mod art;
+mod close;
 mod soulseek;
 
+pub use close::how_close;
 pub use soulseek::*;
 
 /// Something that can be asked for.
@@ -52,6 +54,9 @@ pub struct Candidate {
     /// only as discovery's posters are, so never sent as it is.
     #[serde(skip)]
     pub tmdb_poster: Option<String>,
+    /// How close its title and artist are to the words searched, 0 to 100 ([`how_close`]): the
+    /// same measure for every source, so results from two of them can be ranked together.
+    pub closeness: u8,
 }
 
 fn first_artist(credits: &[Credit]) -> Option<(String, String)> {
@@ -111,7 +116,8 @@ pub async fn search(
         Err(refused) => return Ok(Err(refused)),
     };
     let mut marked = Vec::with_capacity(found.len());
-    for candidate in found {
+    for mut candidate in found {
+        candidate.closeness = how_close(q, &candidate.title, candidate.artist.as_deref());
         marked.push(mark(pool, user_id, candidate).await?);
     }
     Ok(Ok(marked))
