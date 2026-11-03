@@ -159,7 +159,22 @@ impl Client {
         })
     }
 
+    /// The model's answer to `user` under `system`. Thinking is asked to be off: these tasks
+    /// don't need it, and a model's thinking counts against the same token limit as its answer,
+    /// so a model that thinks at length can stop before it answers. A model that can't turn
+    /// thinking off refuses that, and is asked again once with it kept low.
     async fn complete(&self, system: &str, user: &str) -> Result<String, Failure> {
+        match self.ask(system, user, "none").await {
+            Err(Refused::Request) => self.ask(system, user, "low").await,
+            other => other,
+        }
+        .map_err(|refused| match refused {
+            Refused::Request => Failure::Other("it answered 400".to_owned()),
+            Refused::Failed(failure) => failure,
+        })
+    }
+
+    async fn ask(&self, system: &str, user: &str, thinking: &str) -> Result<String, Refused> {
         let body = json!({
             "model": self.model,
             "messages": [
@@ -167,7 +182,8 @@ impl Client {
                 { "role": "user", "content": user },
             ],
             "temperature": 0.2,
-            "max_tokens": 1500,
+            "max_tokens": MAX_ANSWER_TOKENS,
+            "reasoning": { "effort": thinking },
             "provider": { "data_collection": "deny" },
         });
         let answer = self
@@ -178,30 +194,87 @@ impl Client {
             .send()
             .await
             .map_err(|e| Failure::Other(format!("no answer ({})", e.without_url())))?;
+        if answer.status() == reqwest::StatusCode::BAD_REQUEST {
+            return Err(Refused::Request);
+        }
         status(answer.status())?;
         let bytes = read(answer)
             .await
             .map_err(|e| Failure::Other(e.to_string()))?;
-        #[derive(Deserialize)]
-        struct Completion {
-            choices: Vec<Choice>,
-        }
-        #[derive(Deserialize)]
-        struct Choice {
-            message: Message,
-        }
-        #[derive(Deserialize)]
-        struct Message {
-            content: Option<String>,
-        }
         let completion: Completion = serde_json::from_slice(&bytes)
             .map_err(|_| Failure::Other("its answer wasn't a chat completion".to_owned()))?;
-        completion
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .ok_or_else(|| Failure::Other("the model said nothing".to_owned()))
+        Ok(completion.text()?)
+    }
+}
+
+/// Why a request didn't get an answer: OpenRouter refused the request itself (as a model that
+/// can't turn thinking off does), or anything else.
+enum Refused {
+    Request,
+    Failed(Failure),
+}
+
+impl From<Failure> for Refused {
+    fn from(failure: Failure) -> Self {
+        Self::Failed(failure)
+    }
+}
+
+/// The most tokens asked for: room for a model that still thinks a little, and the answer.
+const MAX_ANSWER_TOKENS: u32 = 4000;
+
+/// A chat completion as OpenRouter answers it: which model answered, and its first choice.
+#[derive(Deserialize)]
+struct Completion {
+    #[serde(default)]
+    model: Option<String>,
+    choices: Vec<Choice>,
+}
+
+#[derive(Deserialize)]
+struct Choice {
+    message: Message,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Message {
+    content: Option<String>,
+}
+
+impl Completion {
+    /// The answer's text, or what the model did instead: an empty answer says which model
+    /// OpenRouter used and why it stopped, so a model cut off by the length limit says so.
+    fn text(self) -> Result<String, Failure> {
+        let model = self
+            .model
+            .map(|m| {
+                m.chars()
+                    .filter(|c| !c.is_control())
+                    .take(100)
+                    .collect::<String>()
+            })
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| "the model".to_owned());
+        let Some(choice) = self.choices.into_iter().next() else {
+            return Err(Failure::Other(format!("{model} gave no answer")));
+        };
+        match choice.message.content {
+            Some(text) if !text.trim().is_empty() => Ok(text),
+            _ => Err(Failure::Other(match choice.finish_reason.as_deref() {
+                Some("length") => format!("{model} stopped at the length limit before answering"),
+                Some(reason) => format!(
+                    "{model} said nothing (it stopped: {})",
+                    reason
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(40)
+                        .collect::<String>()
+                ),
+                None => format!("{model} said nothing"),
+            })),
+        }
     }
 }
 
@@ -286,6 +359,10 @@ pub mod fake {
         pub seen: Arc<Mutex<Vec<(Value, HeaderMap)>>>,
         /// How long the model takes to answer, in milliseconds.
         pub delay_ms: Arc<Mutex<u64>>,
+        /// The whole answer in place of one made from `content`.
+        pub completion: Arc<Mutex<Option<Value>>>,
+        /// Refuse a request that turns thinking off (400), as a model that must think does.
+        pub must_think: Arc<Mutex<bool>>,
     }
 
     pub async fn start() -> (Fake, String) {
@@ -309,7 +386,17 @@ pub mod fake {
         fake.seen.lock().unwrap().push((body, headers));
         let delay = *fake.delay_ms.lock().unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        let off = fake.seen.lock().unwrap().last().unwrap().0["reasoning"]["effort"] == "none";
+        if off && *fake.must_think.lock().unwrap() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "reasoning is mandatory" })),
+            );
+        }
         let status = StatusCode::from_u16(*fake.status.lock().unwrap()).unwrap();
+        if let Some(whole) = fake.completion.lock().unwrap().clone() {
+            return (status, Json(whole));
+        }
         let content = fake.content.lock().unwrap().clone();
         (
             status,
@@ -428,5 +515,68 @@ mod tests {
         assert_eq!(parse_suggestions(r#"{"titles": []}"#).unwrap(), []);
         assert!(parse_suggestions("no json here").is_none());
         assert!(parse_suggestions(r#"{"films": []}"#).is_none());
+    }
+
+    #[tokio::test]
+    async fn thinking_is_asked_off_with_room_left_for_the_answer() {
+        let (fake, api) = fake::start().await;
+        *fake.content.lock().unwrap() = r#"{"titles": []}"#.into();
+        fake::client(&api)
+            .suggest(TitleKind::Movie, "x")
+            .await
+            .unwrap();
+        let body = fake.seen.lock().unwrap()[0].0.clone();
+        assert_eq!(body["reasoning"], json!({ "effort": "none" }));
+        assert!(body["max_tokens"].as_u64().unwrap() >= 4000);
+    }
+
+    #[tokio::test]
+    async fn a_model_that_must_think_is_asked_again_with_thinking_kept_low() {
+        let (fake, api) = fake::start().await;
+        *fake.must_think.lock().unwrap() = true;
+        *fake.content.lock().unwrap() = r#"{"titles": [{"title": "Heat", "year": 1995}]}"#.into();
+        let found = fake::client(&api)
+            .suggest(TitleKind::Movie, "x")
+            .await
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        let efforts: Vec<Value> = fake
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(body, _)| body["reasoning"]["effort"].clone())
+            .collect();
+        assert_eq!(efforts, [json!("none"), json!("low")]);
+    }
+
+    #[tokio::test]
+    async fn an_empty_answer_says_which_model_answered_and_why_it_stopped() {
+        let (fake, api) = fake::start().await;
+        let client = fake::client(&api);
+        let empty = |content: Value, finish: Value| {
+            json!({ "model": "z-ai/glm-5.3-flash", "choices": [{
+                "message": { "role": "assistant", "content": content },
+                "finish_reason": finish }] })
+        };
+        for (answer, said) in [
+            (
+                empty(json!(""), json!("length")),
+                "z-ai/glm-5.3-flash stopped at the length limit before answering",
+            ),
+            (
+                empty(Value::Null, json!("content_filter")),
+                "z-ai/glm-5.3-flash said nothing (it stopped: content_filter)",
+            ),
+            (
+                empty(json!("  "), Value::Null),
+                "z-ai/glm-5.3-flash said nothing",
+            ),
+            (json!({ "choices": [] }), "the model gave no answer"),
+        ] {
+            *fake.completion.lock().unwrap() = Some(answer);
+            let err = client.suggest(TitleKind::Movie, "x").await.unwrap_err();
+            assert_eq!(err, Failure::Other(said.to_owned()));
+        }
     }
 }
