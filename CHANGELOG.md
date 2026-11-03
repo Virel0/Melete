@@ -53,6 +53,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Fixed
 
+- `GET /api/v1/ai` (whether AI is on) answers through every way in, so a music app on a way in
+  without video can offer music by description and mood mixes.
 - Setting a playlist's picture from a sandboxed browser said "Melete didn't answer": the browser
   lost sight of the file while sending it. The page now reads the picture as soon as it's
   chosen and says plainly when it can't, and sends it as the type its bytes are, so a PNG named
