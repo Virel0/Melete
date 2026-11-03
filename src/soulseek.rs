@@ -399,6 +399,32 @@ pub fn decide_all(
         .collect()
 }
 
+/// Who shares `album` by `artist` among the folders, and in which formats (FLAC, MP3…, as the
+/// tracks' names end): only folders named as the album is when it's wanted (artist, title,
+/// then nothing but a year, a tag or an edition word), and only whole copies, not one with
+/// fewer than [`COMPLETE_SHARE`] of the fullest copy's tracks. None when nobody does: a folder
+/// that might be another album doesn't count, since a wrong match is worse than none.
+pub fn shared(candidates: &[Candidate], album: &str, artist: &str) -> Option<(usize, Vec<String>)> {
+    let named: Vec<&Candidate> = candidates
+        .iter()
+        .filter(|c| name_checked(c, artist, album).1.is_none())
+        .collect();
+    let fullest = named.iter().map(|c| c.tracks.len()).max()?;
+    let whole = named
+        .into_iter()
+        .filter(|c| c.tracks.len() as f64 >= fullest as f64 * COMPLETE_SHARE);
+    let mut users = std::collections::BTreeSet::new();
+    let mut formats = std::collections::BTreeSet::new();
+    for copy in whole {
+        users.insert(copy.username.as_str());
+        for track in &copy.tracks {
+            let name = parts(&track.filename).last().copied().unwrap_or_default();
+            formats.insert(extension(name).to_uppercase());
+        }
+    }
+    Some((users.len(), formats.into_iter().collect()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,5 +657,57 @@ mod tests {
         assert!(!summary[4].1);
         assert!(summary[4].3.contains("Kid A"), "{:?}", summary[4]);
         assert_eq!(decided[0].1.year, Some(1997));
+    }
+
+    /// An album counts as shared only where a folder names it as a wanted album's would be named,
+    /// and only by whole copies: another album that starts the same, a folder whose artist
+    /// isn't said, and a part of the album count for nothing.
+    #[test]
+    fn an_album_is_shared_only_by_folders_named_as_it_is_and_whole() {
+        let tracks = |folder: &str, n: usize, ext: &str| -> Vec<serde_json::Value> {
+            (1..=n)
+                .map(|i| {
+                    file(
+                        &format!("{folder}\\{i:02} Track.{ext}"),
+                        serde_json::json!({}),
+                    )
+                })
+                .collect()
+        };
+        let found = candidates(&[
+            response(
+                "a",
+                true,
+                0,
+                tracks(r"@@m\Radiohead\OK Computer (1997)", 12, "flac"),
+            ),
+            response(
+                "b",
+                true,
+                0,
+                tracks(r"Radiohead - OK Computer [MP3]", 12, "mp3"),
+            ),
+            response("c", true, 0, tracks(r"Radiohead - OK Computer", 3, "ogg")),
+            response("d", true, 0, tracks(r"Music\OK Computer", 12, "flac")),
+            response(
+                "e",
+                true,
+                0,
+                tracks(r"Radiohead - OK Computer OKNOTOK 1997 2017", 23, "wav"),
+            ),
+        ]);
+        assert_eq!(
+            shared(&found, "OK Computer", "Radiohead"),
+            Some((2, vec!["FLAC".into(), "MP3".into()]))
+        );
+        assert_eq!(
+            shared(&found, "OK Computer OKNOTOK 1997 2017", "Radiohead"),
+            Some((1, vec!["WAV".into()]))
+        );
+        assert_eq!(shared(&found, "Kid A", "Radiohead"), None);
+        assert_eq!(
+            shared(&found, "OK Computer", "Radiohead Tribute Band"),
+            None
+        );
     }
 }

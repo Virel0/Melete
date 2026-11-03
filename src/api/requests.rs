@@ -88,7 +88,7 @@ pub fn routes(
         .route("/api/v1/requests/soulseek", get(soulseek))
         .route(
             "/api/v1/requests/soulseek/candidates",
-            get(soulseek_candidates),
+            get(soulseek_candidates).post(soulseek_found),
         )
         .route("/api/v1/requests/settings", get(settings))
         .route(

@@ -10875,7 +10875,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Look on Soulseek for music MusicBrainz doesn't know",
-        "description": "The songs Soulseek's users share for the words (Add new uses `GET /api/v1/requests/soulseek/candidates`, the same songs as search results): the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
+        "description": "The songs Soulseek's users share for the words (Add new uses `POST /api/v1/requests/soulseek/candidates`, the same songs as search results and the albums shared): the words are sent to slskd as they are, and nothing else; Melete never talks to peers. What its users share comes back as songs, each named by its files (\"Artist - Title\", or a title in an artist's folder), with how many users share it and in which formats, most shared first (30 at most). One can then be wanted by its title and artist (`POST /api/v1/requests` with `kind` song). Takes as long as slskd's search, about ten seconds or more.",
         "parameters": [
           {
             "name": "q",
@@ -10915,7 +10915,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Soulseek's songs as search results",
-        "description": "The songs `GET /api/v1/requests/soulseek` finds, in the shape `GET /api/v1/requests/search` answers with, so Add new can list them with MusicBrainz's songs, ranked together by `closeness`: closest first, then most shared. Each is a song with no MusicBrainz ids, wanted by its title and artist (`POST /api/v1/requests` with `kind` song); its `detail` says how many users share it and in which formats, and it's marked wanted or asked for already as other songs are. Only the words are sent to slskd. Takes as long as slskd's search, about ten seconds or more.",
+        "description": "The songs `GET /api/v1/requests/soulseek` finds, in the shape `GET /api/v1/requests/search` answers with, so they can be listed with MusicBrainz's songs, ranked together by `closeness`: closest first, then most shared. Each is a song with no MusicBrainz ids, wanted by its title and artist (`POST /api/v1/requests` with `kind` song); its `detail` says how many users share it and in which formats, and it's marked wanted or asked for already as other songs are. Only the words are sent to slskd. Takes as long as slskd's search, about ten seconds or more.",
         "parameters": [
           {
             "name": "q",
@@ -10936,6 +10936,37 @@
           },
           "400": {
             "description": "q empty or too long",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "slskd isn't set up",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "slskd didn't answer, isn't signed in to Soulseek, or is busy with another search",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "post": {
+        "tags": ["Requests"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Soulseek's songs, and which of MusicBrainz's albums its users share",
+        "description": "One Soulseek search for the words, read two ways; Add new uses it so one search per pause in typing serves both lists. `songs` are what `GET` answers. `albums` says which of the albums given (MusicBrainz's for the same words, as `GET /api/v1/requests/search` with `kind` album found them) Soulseek's users share, by how many and in which formats, in the order given; an album nobody shares isn't listed. A user's folder counts for an album only when it's named as the album by its artist (\"Artist - Album\", or the album's folder in the artist's), followed by nothing but a year, a tag or an edition word, and only when it holds at least 80% of the tracks of the fullest such copy, so a folder that might be another album or part of one counts for nothing. Album folders matching none of the albums given aren't listed: an album is wanted by its MusicBrainz release group (`POST /api/v1/requests` with `kind` album), as before. Only the words are sent to slskd; the albums given stay on the server. Takes as long as slskd's search, about ten seconds or more.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SoulseekAsked"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Soulseek's songs, closest first, and the albums its users share",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SoulseekFound"}}}
+          },
+          "400": {
+            "description": "q empty or too long, more than 50 albums, or a body that isn't one",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -16755,6 +16786,49 @@
             },
             "additionalProperties": false
           }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekAsked": {
+        "type": "object",
+        "required": ["q", "albums"],
+        "properties": {
+          "q": {"type": "string", "minLength": 1, "maxLength": 200, "description": "The words, as typed."},
+          "albums": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "The albums to look for among Soulseek's folders: MusicBrainz's for the same words, or none.",
+            "items": {
+              "type": "object",
+              "required": ["mb_release_group_id", "title", "artist"],
+              "properties": {
+                "mb_release_group_id": {"type": "string", "description": "Its release group, as the search gave it."},
+                "title": {"type": "string"},
+                "artist": {"type": "string", "description": "Its credited artists, as the search gave them."}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekFound": {
+        "type": "object",
+        "required": ["songs", "albums"],
+        "properties": {
+          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
+          "albums": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekAlbum"}, "description": "The albums given that Soulseek's users share, in the order given."}
+        },
+        "additionalProperties": false
+      },
+      "SoulseekAlbum": {
+        "type": "object",
+        "required": ["mb_release_group_id", "users", "formats", "detail"],
+        "properties": {
+          "mb_release_group_id": {"type": "string", "description": "The album's release group, as given."},
+          "users": {"type": "integer", "minimum": 1, "description": "How many users share it as a whole album folder."},
+          "formats": {"type": "array", "items": {"type": "string"}, "description": "Its formats (FLAC, MP3…), as its tracks' names end."},
+          "detail": {"type": "string", "description": "The same in words: \"Shared by 2 users, FLAC, MP3\"."}
         },
         "additionalProperties": false
       },

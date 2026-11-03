@@ -42,6 +42,29 @@ pub(super) async fn soulseek_candidates(
         .map_err(refused)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SoulseekAsked {
+    pub(super) q: String,
+    /// MusicBrainz's albums for the same words, to say which Soulseek's users share.
+    pub(super) albums: Vec<request_search::AlbumShown>,
+}
+
+/// One Soulseek search (admins only) read as songs and as album folders: Soulseek's songs as
+/// search results, and which of the albums given its users share. Only the words go to slskd.
+pub(super) async fn soulseek_found(
+    State(state): State<RequestState>,
+    Extension(current): Extension<CurrentUser>,
+    Json(asked): Json<SoulseekAsked>,
+) -> Result<Json<request_search::SoulseekFound>, ApiError> {
+    let slskd = state.sources.slskd.as_deref();
+    let user = current.user.id;
+    request_search::soulseek_found(&state.pool, slskd, user, &asked.q, &asked.albums)
+        .await?
+        .map(Json)
+        .map_err(refused)
+}
+
 /// Movies and series on TMDB, music on MusicBrainz, each marked in the library, wanted, or
 /// asked for already.
 pub(super) async fn search(
