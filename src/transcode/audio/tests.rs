@@ -55,6 +55,7 @@ fn surround_info() -> MediaInfo {
             frame_rate: Some(24.0),
             hdr: None,
             dolby_vision: None,
+            parameter_sets_in_stream_only: false,
         }],
         audio: vec![audio(1, 6, true), audio(2, 2, false)],
         subtitles: Vec::new(),

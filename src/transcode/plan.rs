@@ -212,10 +212,16 @@ pub fn plan(
     })
 }
 
-/// Refuses copying video that isn't H.264 or HEVC, or isn't in a file with a keyframe index.
+/// Refuses copying video that isn't H.264 or HEVC, isn't in a file with a keyframe index, or is
+/// HEVC whose parameter sets are only in the stream: its copy's sample entry would list none.
 fn check_copyable(info: &MediaInfo, video: &crate::probe::VideoStream) -> Result<(), &'static str> {
     if !matches!(video.codec.as_str(), "h264" | "hevc") {
         return Err("only H.264 and HEVC video can be copied; ask for h264 or hevc");
+    }
+    if video.parameter_sets_in_stream_only {
+        return Err(
+            "this MP4's HEVC keeps its parameter sets only in the stream, which players may refuse when it's copied; ask for hevc or h264",
+        );
     }
     let indexed = info.container.as_deref().is_some_and(|c| {
         c.split(',')

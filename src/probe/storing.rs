@@ -95,7 +95,7 @@ pub struct ProbeReport {
 }
 
 /// Probes every present file and extra that has no probe yet, whose size or date changed
-/// since, or (a file) that was probed before its chapters were read.
+/// since, or that was probed before something since recorded was (chapters, for a file).
 ///
 /// Fails before touching anything if ffprobe can't run, so a missing binary can't be recorded
 /// as thousands of broken files.
@@ -124,14 +124,25 @@ pub async fn probe_pending(pool: &SqlitePool, ffprobe: &Path) -> anyhow::Result<
                 -- Dolby Vision probed before its profile was recorded.
                 OR EXISTS (SELECT 1 FROM json_each(p.info, '$.video') v
                            WHERE json_extract(v.value, '$.hdr') = 'Dolby Vision'
-                             AND json_extract(v.value, '$.dolby_vision') IS NULL))
+                             AND json_extract(v.value, '$.dolby_vision') IS NULL)
+                -- HEVC in an MP4 probed before where its parameter sets are was recorded.
+                OR EXISTS (SELECT 1 FROM json_each(p.info, '$.video') v
+                           WHERE json_extract(p.info, '$.container') LIKE '%mp4%'
+                             AND json_extract(v.value, '$.codec') = 'hevc'
+                             AND json_type(v.value, '$.parameter_sets_in_stream_only') IS NULL))
          UNION ALL
          -- Extras, kept apart from the files but probed alike.
          SELECT e.id, l.path, e.rel_path, e.size, e.modified_at
          FROM media_extras e
          JOIN libraries l ON l.id = e.library_id
          WHERE e.missing_since IS NULL
-           AND (e.probed_size IS NOT e.size OR e.probed_modified_at IS NOT e.modified_at)
+           AND (e.probed_size IS NOT e.size OR e.probed_modified_at IS NOT e.modified_at
+                -- As for files: HEVC in an MP4 probed before where its parameter sets are was
+                -- recorded.
+                OR EXISTS (SELECT 1 FROM json_each(e.probe_info, '$.video') v
+                           WHERE json_extract(e.probe_info, '$.container') LIKE '%mp4%'
+                             AND json_extract(v.value, '$.codec') = 'hevc'
+                             AND json_type(v.value, '$.parameter_sets_in_stream_only') IS NULL))
          ORDER BY 1",
     )
     .fetch_all(pool)

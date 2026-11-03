@@ -12153,7 +12153,8 @@
           "pixel_format",
           "frame_rate",
           "hdr",
-          "dolby_vision"
+          "dolby_vision",
+          "parameter_sets_in_stream_only"
         ],
         "properties": {
           "index": {"type": "integer", "description": "Stream index in the file."},
@@ -12180,6 +12181,10 @@
               "fallback": {"type": ["string", "null"], "enum": ["hdr10", "hlg", "sdr", null]}
             },
             "additionalProperties": false
+          },
+          "parameter_sets_in_stream_only": {
+            "type": "boolean",
+            "description": "HEVC in an MP4 whose sample entry lists no parameter sets (VPS, SPS, PPS): they're only in the stream. Copied, it would reach the player with an empty hvcC, which Apple's players may refuse, so a transcode with video_codec copy is refused (422): ask for hevc or h264."
           }
         },
         "additionalProperties": false
@@ -12687,7 +12692,7 @@
           "video_codec": {
             "enum": ["h264", "hevc", "copy"],
             "default": "h264",
-            "description": "h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, and the audio converted to AAC unless audio_codecs says the player takes it, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it."
+            "description": "h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, and the audio converted to AAC unless audio_codecs says the player takes it, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it. HEVC whose parameter_sets_in_stream_only is true isn't copied: ask for hevc or h264."
           },
           "audio_codecs": {
             "type": "array",

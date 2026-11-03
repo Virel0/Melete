@@ -86,10 +86,12 @@ export function choose(info, choice) {
   if (type && vc && (!audio || ac) && audio === defaultAudio && !choice.sound && probe.canPlayType(`${type}; codecs="${codecs}"`)) {
     return { direct: true };
   }
-  // Only the container or the audio is the problem: keep the video as it is.
+  // Only the container or the audio is the problem: keep the video as it is, unless it's HEVC
+  // whose parameter sets are only in the stream, which the server won't copy.
   const mp4 = `video/mp4; codecs="${vc}"`;
   const copyPlays = mse?.isTypeSupported(mp4) || probe.canPlayType("application/vnd.apple.mpegurl") && probe.canPlayType(mp4);
-  if ((v.codec === "h264" || v.codec === "hevc") && vc && copyPlays) return request("copy");
+  const copyable = (v.codec === "h264" || v.codec === "hevc") && !v.parameter_sets_in_stream_only;
+  if (copyable && vc && copyPlays) return request("copy");
   return request("h264");
 }
 
