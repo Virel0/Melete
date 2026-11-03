@@ -214,7 +214,26 @@ names another, such as one built from `stems/` or `motion/`. Both are large (PyT
 CUDA). Their models are downloaded from their publishers on first start, never shipped.
 
 `compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
-Melete the GPU.
+Melete the GPU. So is `compose.avatars.yaml`, a gallery of profile pictures (below).
+
+### Profile pictures
+
+Everyone can upload their own picture on Your account, or choose one from the gallery: Melete's
+own pictures first, then a folder on the server you fill, if you add `compose.avatars.yaml`
+and set `MELETE_AVATARS_DIR` in `.env`. That folder holds one subfolder per category, each with
+PNG, JPEG or WebP pictures; Melete only reads it, and never fetches pictures from anywhere.
+
+Community collections made for Jellyfin's jf-avatars fit as they are. For example, the one it
+uses is laid out as `images/<category>/…`, so a copy of it is a gallery:
+
+```
+git clone --depth 1 https://github.com/kalibrado/js-avatars-images /path/to/avatar-collection
+# then in .env: MELETE_AVATARS_DIR=/path/to/avatar-collection/images
+```
+
+Such collections aren't part of Melete and hold other people's artwork: they're for your
+household's own use, and their makers' terms apply. A picture someone picks is copied into
+Melete, so it stays when the folder changes.
 
 ### Other library folders
 
@@ -337,7 +356,6 @@ with what leaves the server.
 |---|---|---|
 | TMDB | Titles, posters, episode lists, ratings, cast | Titles to look up, TMDB ids, the metadata language, and the image files to fetch from its image server |
 | TMDB trending and similar titles | Discovery rows, franchise gaps | Which chart, or a title's or collection's TMDB id; optionally posters of titles not in the library, fetched once and cached |
-| Trailers online | Trailers for titles without one | The server asks TMDB for a title's videos by its id. YouTube (youtube-nocookie.com) is loaded by the viewer's own device, only when they press play |
 | MusicBrainz and the Cover Art Archive | Matching music, covers, music requests | Album and track names, the words of a music request search, and a release group's id for a cover |
 | LRCLIB | Synced lyrics | Each track's title, artist, album and length, once per track |
 | LibreTranslate | Translating lyrics | The lines of each song translated, to the server you set (you can run your own) |
@@ -352,7 +370,7 @@ with what leaves the server.
 | Radarr, Sonarr, Lidarr, Prowlarr imports | Bringing over lists, profiles and indexers | Run by an admin; the API key given is used for that import (Prowlarr's is kept for its feeds) |
 
 Peer-to-peer traffic happens only on the seedbox or in slskd. The web UI loads nothing from
-outside Melete, except a YouTube trailer a viewer chooses to play when trailers are on.
+outside Melete.
 
 **What Melete stores**, all in its data folder (`/config`) and transcode folder (`/transcode`):
 

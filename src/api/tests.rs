@@ -370,7 +370,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 338);
+        assert_eq!(checked, 345);
     }
 
     /// The response's fields are exactly the schema's.
@@ -559,27 +559,6 @@ mod openapi {
         let get = user_get(&pool, &app).await;
         let segments = get("/api/v1/files/1/segments".into()).await;
         assert_shape(&spec(), "FileSegments", &segments);
-    }
-
-    #[tokio::test]
-    async fn trailers_carry_exactly_the_documented_fields() {
-        let (pool, app, _artwork) = full_server().await;
-        sqlx::raw_sql(
-            r#"INSERT INTO libraries (id, name, kind, path) VALUES (1, 'movies', 'movies', '/m');
-                 INSERT INTO tmdb_movies (tmdb_id, title, fetched_at, videos) VALUES (603, 'M', 1,
-                     '[{"key": "vKQi3bBA1y8", "name": "Trailer", "language": "en",
-                        "kind": "Trailer", "official": true, "size": 1080, "published_at": null}]');
-                 INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
-                     match_status, match_tmdb_id) VALUES (1, 1, 'M', 'M', 1, 'matched', 603);
-                 INSERT INTO settings (name, value, updated_at)
-                     VALUES ('MELETE_TRAILERS_ONLINE', 'on', 0);"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let get = user_get(&pool, &app).await;
-        let trailer = get("/api/v1/movies/1/trailer".into()).await;
-        assert_shape(&spec(), "Trailer", &trailer);
     }
 
     #[tokio::test]
@@ -865,6 +844,26 @@ mod openapi {
         assert_shape(&spec, "AiSearch", &found);
         assert_shape(&spec, "ListItem", &found["results"][0]);
         assert_shape(&spec, "AiSuggestion", &found["suggested"][1]);
+        *fake.content.lock().unwrap() = r#"{"genres": [], "ordering": "random"}"#.into();
+        let filters = call(
+            "POST",
+            "/api/v1/ai/music/search",
+            Some(json!({ "query": "upbeat rock from the nineties" })),
+        )
+        .await;
+        assert_shape(&spec, "AiMusicFilters", &filters);
+        *fake.content.lock().unwrap() = r#"{"limit": 30, "names": ["Muse"],
+            "rules": [{"field": "liked", "op": "is", "value": true}, {"field": "x"}]}"#
+            .into();
+        let mix = call(
+            "POST",
+            "/api/v1/ai/music/mix",
+            Some(json!({ "description": "something to run to" })),
+        )
+        .await;
+        assert_shape(&spec, "AiMusicMix", &mix);
+        assert_shape(&spec, "AiSmartRules", &mix["rules"]);
+        assert_shape(&spec, "AiSmartRule", &mix["rules"]["rules"][0]);
     }
 
     #[tokio::test]

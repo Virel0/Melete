@@ -9,6 +9,19 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Added
 
+- **Profile pictures.** Everyone can upload their own on Your account, or choose one from a
+  gallery: Melete's own pictures (`avatars/`), then a folder on the server the household fills
+  (`compose.avatars.yaml`, `MELETE_AVATARS_DIR`), which jf-avatars' community collections fit as
+  they are. It shows beside your name in the header, and the apps get it as `avatar_url` on
+  `/me`, the users list and the user directory.
+- **Music by description, with the server's OpenRouter key.** `POST /api/v1/ai/music/search`
+  turns a phrase such as "upbeat rock from the nineties" into filters (genres the library has,
+  a year range, words to search for, liked only, an order), and `POST /api/v1/ai/music/mix`
+  turns a mood into smart-playlist rules in Aoide's own format, with the names it mentioned and
+  each rule left out with its reason. The model never picks tracks: the apps run the filters and
+  rules against the library themselves, so they no longer need an OpenRouter key of their own.
+  What goes to OpenRouter: the words typed and the names of up to 300 of the genres the asker
+  may see. Each call counts as one of the user's 30 AI searches an hour.
 - Manage → System → Tasks shows making motion covers and splitting tracks into parts for the
   Auto DJ: how far each has got ("making motion covers: 120 of 840") while it works through the
   library, and how the run went once it has caught up.
@@ -33,10 +46,18 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - Motion covers are made up to 1440 pixels (was 1080), sharp across a phone when an app shows
   them full width at the top of its player. Existing ones are made again in the background, one
   album at a time.
+
 - **Starting Melete doesn't scan the libraries.** A new install waits for Scan all now (Settings,
   Libraries), so you can check the folders first; after that, scans follow the schedule counted
   from the last one, so a restart scans only when a scheduled scan came due while Melete was
   down.
+
+### Removed
+
+- **Trailers online.** The setting, the trailers fetched from TMDB's video lists and played
+  through YouTube's player, and `/api/v1/movies/{id}/trailer` and `/series/{id}/trailer` are
+  gone, and the video lists kept for them are deleted. Trailers in a title's folder still play
+  on its page and in the hero, and the hero's `trailer` is only ever `folder` now.
 
 ### Fixed
 

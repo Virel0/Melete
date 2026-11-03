@@ -85,7 +85,7 @@ fn component(config: &Config, key: &str) -> Option<Component> {
 /// online ask TMDB for what they show.
 pub fn needs(key: &str) -> Option<&'static str> {
     match key {
-        "discovery" | "trailers" => Some("tmdb"),
+        "discovery" => Some("tmdb"),
         _ => None,
     }
 }
@@ -114,7 +114,6 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         // Whole scans always run, on their schedule.
         "scans" => true,
         "discovery" => config.discovery,
-        "trailers" => config.trailers_online,
         "oidc" => config.oidc.is_some(),
         "openrouter" => config.openrouter.is_some(),
         "opensubtitles" => config.opensubtitles.is_some(),
@@ -189,19 +188,13 @@ mod tests {
 
     #[test]
     fn what_needs_tmdb_says_so_and_is_off_without_its_token() {
-        let without = with(&[("MELETE_DISCOVERY", "on"), ("MELETE_TRAILERS_ONLINE", "on")]);
+        let without = with(&[("MELETE_DISCOVERY", "on")]);
         assert_eq!(of(&without, "discovery"), (Some("tmdb"), false));
-        assert_eq!(of(&without, "trailers"), (Some("tmdb"), false));
         assert_eq!(of(&without, "tmdb"), (None, false));
         assert_eq!(of(&without, "musicbrainz").0, None);
 
-        let token = with(&[
-            ("MELETE_DISCOVERY", "on"),
-            ("MELETE_TRAILERS_ONLINE", "on"),
-            ("MELETE_TMDB_TOKEN", "token"),
-        ]);
+        let token = with(&[("MELETE_DISCOVERY", "on"), ("MELETE_TMDB_TOKEN", "token")]);
         assert_eq!(of(&token, "discovery"), (Some("tmdb"), true));
-        assert_eq!(of(&token, "trailers"), (Some("tmdb"), true));
         // Each service needed is one there is, and needs nothing itself.
         for view in &token {
             if let Some(needed) = view.needs {

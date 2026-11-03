@@ -22,7 +22,6 @@ mod manual;
 mod matching;
 mod nfo;
 mod store;
-mod trailers;
 mod wanted;
 
 pub use choose::*;
@@ -32,7 +31,6 @@ pub use manual::*;
 use matching::*;
 use nfo::*;
 use store::*;
-pub use trailers::{Trailer, chosen, refresh_trailers};
 pub use wanted::*;
 
 const DAY: i64 = 86_400;

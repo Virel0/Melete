@@ -22,7 +22,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 113] = [
+const MODULES: [(&str, &str); 114] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -136,6 +136,10 @@ const MODULES: [(&str, &str); 113] = [
         include_str!("../web/music-playlist.js"),
     ),
     ("picture-file.js", include_str!("../web/picture-file.js")),
+    (
+        "profile-picture.js",
+        include_str!("../web/profile-picture.js"),
+    ),
     (
         "music-playlist-pick.js",
         include_str!("../web/music-playlist-pick.js"),
@@ -272,35 +276,6 @@ pub fn routes() -> Router {
     router
 }
 
-/// The web UI's files as [`routes`] serves them, their policy letting YouTube's privacy-enhanced
-/// player in as a frame (and nothing else besides) while trailers online is on.
-pub fn routes_with(pool: sqlx::SqlitePool) -> Router {
-    routes().layer(axum::middleware::map_response_with_state(
-        pool,
-        with_trailer_frames,
-    ))
-}
-
-/// Adds `frame-src` for YouTube's privacy-enhanced player to a response's policy while trailers
-/// online is on; leaves it as it is otherwise, or when the setting can't be read.
-async fn with_trailer_frames(
-    axum::extract::State(pool): axum::extract::State<sqlx::SqlitePool>,
-    mut response: axum::response::Response,
-) -> axum::response::Response {
-    if crate::settings::trailers_online(&pool)
-        .await
-        .unwrap_or(false)
-    {
-        let policy = format!("{POLICY}; frame-src {}", super::trailers::PLAYER);
-        if let Ok(value) = header::HeaderValue::from_str(&policy) {
-            response
-                .headers_mut()
-                .insert(header::CONTENT_SECURITY_POLICY, value);
-        }
-    }
-    response
-}
-
 fn file(content_type: &'static str, cache: &'static str, body: &'static str) -> impl IntoResponse {
     (
         [
@@ -423,11 +398,7 @@ mod tests {
             ("/web/title-more.js", "text/javascript", "/extras"),
             ("/web/title-colour.js", "text/javascript", "getImageData"),
             ("/web/player-chips.js", "text/javascript", "aria-pressed"),
-            (
-                "/web/title-trailer.js",
-                "text/javascript",
-                "\"https://www.youtube-nocookie.com\"",
-            ),
+            ("/web/title-trailer.js", "text/javascript", "Play trailer"),
             ("/web/browse.js", "text/javascript", "\"exclude\""),
             ("/web/watch.css", "text/css", ".hero"),
             ("/web/app.css", "text/css", "--bg"),

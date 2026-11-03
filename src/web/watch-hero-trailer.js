@@ -9,8 +9,8 @@
 // it is when this browser can play it, its video copied when only the container or the sound is
 // the problem, else converted at its own height. A clip, and a converted trailer, play only on the
 // home network, leaving the connection to whatever is being watched elsewhere. `/home` offers a
-// folder trailer only when it's sharp enough. Nothing about a preview counts as watching. Trailers online aren't used here: YouTube's
-// player won't play without a referrer, which Melete's pages never send. Mneme does the same.
+// folder trailer only when it's sharp enough. Nothing about a preview counts as watching. Mneme
+// does the same.
 //
 // Never when the device asks for less motion. On a phone-sized screen only when the user's
 // playback preferences say every screen; "Never" there turns previews off.

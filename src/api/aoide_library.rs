@@ -356,10 +356,11 @@ async fn directory(State(pool): State<SqlitePool>) -> Result<Json<Value>, ApiErr
         sqlx::query_as("SELECT id, username FROM users ORDER BY username COLLATE NOCASE")
             .fetch_all(&pool)
             .await?;
+    let pictures = crate::avatars::urls(&pool).await?;
     Ok(Json(json!(
         users
             .iter()
-            .map(|(id, name)| json!({ "id": id, "username": name }))
+            .map(|(id, name)| json!({ "id": id, "username": name, "avatar_url": pictures.get(id) }))
             .collect::<Vec<_>>()
     )))
 }
@@ -848,7 +849,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             json_of(&body),
-            json!([{ "id": 2, "username": "friend" }, { "id": 1, "username": "owner" }, { "id": 3, "username": "stranger" }])
+            json!([{ "id": 2, "username": "friend", "avatar_url": null }, { "id": 1, "username": "owner", "avatar_url": null }, { "id": 3, "username": "stranger", "avatar_url": null }])
         );
     }
 }

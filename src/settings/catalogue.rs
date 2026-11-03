@@ -318,7 +318,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "openrouter",
         name: "AI features (OpenRouter)",
-        about: "Finding movies and series by describing them, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; nothing about the library or who asked. With AI picks on, \"Featured for you\" and titles like one are chosen there too: for each person, the titles they finished or are watching recently (about 15) with their year and up to three genres, and candidate titles from the library they may see, each with its year, up to three genres and a premise of about 12 words; with trending and similar titles on (TMDB's settings), also up to 20 of this week's trending titles not in the library that they may be shown, told the same way, which they may then ask for. Never a name, an account, a file path or anything else about the household. OpenRouter is asked to use only providers that don't keep or train on it. Each search costs a little on the OpenRouter account; each user may make 30 an hour. Picks are kept and made again at most once a day for each person while what they watch stays the same, and titles like one once a week; each person may start 30 such requests an hour, and at most 2 run at once.",
+        about: "Finding movies, series and music by describing them, and mixes from a mood, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; for music, also the names of the library's genres they may see, so the model uses the library's own; nothing else about the library or who asked. With AI picks on, \"Featured for you\" and titles like one are chosen there too: for each person, the titles they finished or are watching recently (about 15) with their year and up to three genres, and candidate titles from the library they may see, each with its year, up to three genres and a premise of about 12 words; with trending and similar titles on (TMDB's settings), also up to 20 of this week's trending titles not in the library that they may be shown, told the same way, which they may then ask for. Never a name, an account, a file path or anything else about the household. OpenRouter is asked to use only providers that don't keep or train on it. Each search or mix costs a little on the OpenRouter account; each user may make 30 an hour. Picks are kept and made again at most once a day for each person while what they watch stays the same, and titles like one once a week; each person may start 30 such requests an hour, and at most 2 run at once.",
         fields: &[
             field(
                 "MELETE_OPENROUTER_KEY",
@@ -380,17 +380,6 @@ pub const SERVICES: &[Service] = &[
                 Input::Toggle { on: "on" },
             ),
         ],
-    },
-    Service {
-        key: "trailers",
-        name: "Trailers online",
-        about: "A trailer for titles without one in their folder, played through YouTube's embedded player. The server asks TMDB for each library title's list of videos, by the TMDB id it already uses (one more request a title, again whenever its details are refreshed); nothing goes to YouTube from the server. Nothing loads from YouTube until someone presses play: then that viewer's own browser or device loads the trailer from youtube-nocookie.com (YouTube's privacy-enhanced mode, no cookies before playback), so Google sees that device and that one trailer, never the library. Off, no video lists are asked for and no player is offered.",
-        fields: &[field(
-            "MELETE_TRAILERS_ONLINE",
-            "Show trailers from YouTube",
-            "Trailers in a title's folder still come first.",
-            Input::Toggle { on: "on" },
-        )],
     },
     Service {
         key: "scans",

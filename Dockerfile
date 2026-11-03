@@ -35,6 +35,8 @@ RUN apt-get update \
     && useradd --system --uid 10001 --gid melete --no-create-home melete \
     && install -d -o melete -g melete /config /transcode
 COPY --from=build /src/target/release/melete /usr/local/bin/melete
+# Melete's own profile pictures, the gallery's first category.
+COPY avatars /usr/share/melete/avatars
 # The root filesystem is read-only; fontconfig (for burned-in subtitles) caches here instead.
 ENV XDG_CACHE_HOME=/transcode/.cache
 USER melete
