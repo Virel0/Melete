@@ -12,6 +12,7 @@ mod aoide_next;
 mod aoide_sound;
 mod artist_search;
 mod auth;
+mod avatars;
 mod blocklist;
 mod calendar;
 mod credits;

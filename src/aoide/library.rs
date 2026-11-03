@@ -14,6 +14,16 @@ pub const IMAGE_TYPES: [&str; 3] = ["image/jpeg", "image/png", "image/webp"];
 pub const GRACE_DAYS: i64 = 30;
 const DAY_MS: i64 = 86_400_000;
 
+/// Whether the bytes start as an image of that type (one of [`IMAGE_TYPES`]) does.
+pub fn looks_like(mime: &str, bytes: &[u8]) -> bool {
+    match mime {
+        "image/jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        _ => false,
+    }
+}
+
 /// A lowercase hex SHA-256.
 pub fn is_hash(text: &str) -> bool {
     text.len() == 64

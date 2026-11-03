@@ -18,6 +18,11 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 - The Movies, Shows and Anime pages have their own "Because you watched" rows, from the titles of
   that kind you finished, and keep "Featured for you" and your rows to that kind. Apps get the
   same with `GET /api/v1/home?kind=movies`, `shows` or `anime`.
+- **Profile pictures.** Everyone can upload their own on Your account, or choose one from a
+  gallery: Melete's own pictures (`avatars/`), then a folder on the server the household fills
+  (`compose.avatars.yaml`, `MELETE_AVATARS_DIR`), which jf-avatars' community collections fit as
+  they are. It shows beside your name in the header, and the apps get it as `avatar_url` on
+  `/me`, the users list and the user directory.
 - **Music by description, with the server's OpenRouter key.** `POST /api/v1/ai/music/search`
   turns a phrase such as "upbeat rock from the nineties" into filters (genres the library has,
   a year range, words to search for, liked only, an order), and `POST /api/v1/ai/music/mix`
