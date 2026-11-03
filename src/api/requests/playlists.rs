@@ -49,8 +49,20 @@ pub(super) async fn import(
         &tracks,
         playlist.as_deref(),
     )
-    .await?;
-    Ok((StatusCode::ACCEPTED, Json(made)))
+    .await;
+    // An import that couldn't be saved leaves no empty playlist behind.
+    if let (Err(_), Some(id)) = (&made, &playlist) {
+        let device = session_device(current.token_id);
+        let editor = Editor {
+            user_id: current.user.id,
+            device: &device,
+            now: now_ms(),
+        };
+        if let Err(err) = playlist_edits::delete(&state.pool, &editor, id).await {
+            tracing::warn!(error = ?err, "couldn't delete the playlist of an import that failed");
+        }
+    }
+    Ok((StatusCode::ACCEPTED, Json(made?)))
 }
 
 /// A new, empty Aoide playlist named `name` for the import to fill, made as this session, as

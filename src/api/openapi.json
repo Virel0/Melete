@@ -15836,7 +15836,7 @@
       },
       "AoidePendingItem": {
         "type": "object",
-        "description": "A playlist_items payload for a song not in the library yet: in place of jellyfinId and contentKey it has pending. Any device or Melete may write one. Once the song is in the library (a track whose MusicBrainz recording is its request's), Melete writes the item again as the playlist's owner, from device \"melete\": the same id, playlistId and position (where it stands then), with jellyfinId and contentKey and without pending, and a fresh updatedAt after everything the playlist holds. That happens once; an item deleted or no longer pending isn't written. Only requests made by the playlist's owner or someone it's shared with for editing are swapped in. A device that doesn't know pending sees an item without a track, as for one gone from the library.",
+        "description": "A playlist_items payload for a song not in the library yet: in place of jellyfinId and contentKey it has pending. Any device or Melete may write one. Once the song is in the library (a track whose MusicBrainz recording is its request's), Melete writes the item again as the playlist's owner, from device \"melete\": the same id, playlistId and position (where it stands then), with jellyfinId and contentKey and without pending, and an updatedAt just after the item's own, so an edit a device made later still wins (an item still pending after that is written again on the next run). An item deleted or no longer pending isn't written. Only a request put in the playlist by the user who asked for it is swapped in. A device that doesn't know pending sees an item without a track, as for one gone from the library.",
         "required": ["id", "playlistId", "position", "pending", "updatedAt", "originDevice", "deleted"],
         "properties": {
           "id": {"type": "string"},
@@ -17115,7 +17115,7 @@
           "state": {
             "type": "string",
             "enum": ["requested", "approved", "declined", "unmatched", "gone"],
-            "description": "How its request stands: requested (waiting for an admin), approved (on its way) or declined; unmatched when it has none (it stays pending); gone when the request was withdrawn, or isn't one made by the playlist's owner or someone it's shared with for editing."
+            "description": "How its request stands: requested (waiting for an admin), approved (on its way) or declined; unmatched when it has none (it stays pending); gone when the request was withdrawn, or wasn't put in the playlist by the user who asked for it."
           },
           "why": {"type": ["string", "null"], "description": "Why it couldn't be asked for, when unmatched."}
         },

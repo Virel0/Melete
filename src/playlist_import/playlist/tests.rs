@@ -162,6 +162,42 @@ async fn an_import_makes_a_playlist_of_every_track_in_order_and_swaps_arrivals_i
 }
 
 #[tokio::test]
+async fn an_item_deleted_while_an_import_was_cut_off_stays_deleted() {
+    let pool = db::open_in_memory().await;
+    library(&pool, "").await;
+    let (alice, id, playlist) = import(&pool).await;
+    let held = items(&pool, alice.id).await;
+    let karma = held[1]["id"].as_str().unwrap().to_owned();
+    let editor = Editor {
+        user_id: alice.id,
+        device: "token-1",
+        now: now_ms(),
+    };
+    playlist_edits::remove(&pool, &editor, &playlist, &karma)
+        .await
+        .unwrap();
+
+    // A restart had cut the import off after Karma Police went in, before that was saved.
+    sqlx::query(
+        "UPDATE playlist_imports SET state = 'running', message = NULL, finished_at = NULL
+         WHERE id = ?1;
+         UPDATE playlist_import_tracks SET state = 'pending', why = NULL, request_id = NULL
+         WHERE import_id = ?1 AND position >= 2",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (mb, _) = testing::start(0).await;
+    run(&pool, &mb, &fulfil::Sources::default(), id)
+        .await
+        .unwrap();
+    let after = items(&pool, alice.id).await;
+    assert_eq!(after.len(), 3);
+    assert!(after.iter().all(|i| i["id"] != karma.as_str()));
+}
+
+#[tokio::test]
 async fn a_song_the_library_has_under_another_name_goes_in_as_its_track_at_once() {
     let pool = db::open_in_memory().await;
     library(&pool, &arrival()).await;

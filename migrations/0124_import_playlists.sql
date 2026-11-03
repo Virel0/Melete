@@ -26,3 +26,10 @@ FROM playlist_import_tracks;
 DROP TABLE playlist_import_tracks;
 ALTER TABLE playlist_import_tracks_new RENAME TO playlist_import_tracks;
 CREATE INDEX playlist_import_tracks_by_request ON playlist_import_tracks (request_id);
+
+-- Finding the playlist items that wait on a song request, after every scan, and the tracks
+-- such a request brought, without reading the whole sync log or track list each time.
+CREATE INDEX aoide_ops_by_pending_request ON aoide_ops (json_extract(payload, '$.pending.requestId'))
+    WHERE entity = 'playlist_items' AND json_extract(payload, '$.pending.requestId') IS NOT NULL;
+CREATE INDEX aoide_ops_by_item ON aoide_ops (entity_id) WHERE entity = 'playlist_items';
+CREATE INDEX music_tracks_by_recording ON music_tracks (coalesce(mb_recording_id, match_recording_id));

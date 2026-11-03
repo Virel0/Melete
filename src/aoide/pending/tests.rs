@@ -80,12 +80,14 @@ async fn an_arrived_song_is_swapped_in_once_and_only_where_it_still_waits() {
          INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at, first_seen_generation,
              seen_generation, album_id, tagged, title, artist, genres, mb_recording_id,
              duration_seconds)
-             VALUES (7, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Paranoid Android', 'Radiohead', '[]', 'rec-1', 383.2);
+             VALUES (7, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Paranoid Android', 'Radiohead', '[]', 'rec-1', 383.2),
+                    (8, 1, 'a/2', 1, 1, 1, 1, 1, 1, 'Airbag', 'Radiohead', '[]', 'rec-3', 284.0);
          INSERT INTO requests (id, user_id, kind, mb_recording_id, title, state, created_at, decided_at)
              VALUES (10, {owner}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0),
                     (11, {owner}, 'song', 'rec-2', 'Lucky', 'requested', 0, NULL),
                     (12, {stranger}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0),
-                    (13, {friend}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0);
+                    (13, {friend}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0),
+                    (14, {friend}, 'song', 'rec-3', 'Airbag', 'approved', 0, 0);
          INSERT INTO aoide_playlist_shares (playlist_id, grantee_user_id, can_edit, created_at)
              VALUES ('P', {friend}, 1, 0);"
     )))
@@ -102,12 +104,16 @@ async fn an_arrived_song_is_swapped_in_once_and_only_where_it_still_waits() {
         ("d", Some(11), "a3"),
         ("e", None, "a4"),
         ("f", Some(12), "a5"),
+        // The friend's own request, put in by the friend.
         ("g", Some(13), "a6"),
+        // The friend's request, put in by the owner: it tells the owner nothing.
+        ("h", Some(14), "a7"),
     ];
     for (id, request, position) in items {
+        let by = if id == "g" { friend } else { owner };
         push(
             &pool,
-            owner,
+            by,
             id,
             "upsert",
             "playlist_items",
@@ -153,14 +159,12 @@ async fn an_arrived_song_is_swapped_in_once_and_only_where_it_still_waits() {
         )
     );
     assert!(!a.contains_key("pending"));
-    assert!(
-        a["updatedAt"].as_i64().unwrap() > 20,
-        "after everything held"
-    );
+    assert_eq!(a["updatedAt"], 11, "just after its own last write");
     assert_eq!(rows["c"]["position"], "a9", "moved, it stays where it went");
+    assert_eq!(rows["c"]["updatedAt"], 21);
     assert_eq!(rows["g"]["jellyfinId"], "7", "a collaborator's own request");
     assert!(!rows.contains_key("b"), "deleted, it stays deleted");
-    for waiting in ["d", "e", "f"] {
+    for waiting in ["d", "e", "f", "h"] {
         assert!(
             Pending::of(rows[waiting]).is_some(),
             "{waiting} still waits"
@@ -174,7 +178,7 @@ async fn an_arrived_song_is_swapped_in_once_and_only_where_it_still_waits() {
     assert_eq!(ops(&pool).await, before + 3);
 
     // How the requests stand, as the playlist shows them: never someone else's.
-    let states = request_states(&pool, "P", owner, &[10, 11, 12, 13, 99])
+    let states = vouched(&pool, "P", &[10, 11, 12, 13, 14, 99])
         .await
         .unwrap();
     let mut seen: Vec<(i64, &str)> = states.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -183,4 +187,53 @@ async fn an_arrived_song_is_swapped_in_once_and_only_where_it_still_waits() {
         seen,
         [(10, "approved"), (11, "requested"), (13, "approved")]
     );
+}
+
+#[tokio::test]
+async fn an_edit_made_before_the_swap_but_sent_after_it_still_wins() {
+    let pool = crate::db::open_in_memory().await;
+    let owner = user(&pool, "owner").await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+         INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+             VALUES (1, 1, 'k', 'OK Computer', 'Radiohead', 'a', 1);
+         INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at, first_seen_generation,
+             seen_generation, album_id, tagged, title, artist, genres, mb_recording_id,
+             duration_seconds)
+             VALUES (7, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Paranoid Android', 'Radiohead', '[]', 'rec-1', 383.2);
+         INSERT INTO requests (id, user_id, kind, mb_recording_id, title, state, created_at, decided_at)
+             VALUES (10, {owner}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0);"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let list = json!({"id": "P", "name": "Mix", "isSmart": false, "sortIndex": "V",
+                      "updatedAt": 1, "deleted": false, "originDevice": "phone"});
+    push(&pool, owner, "p", "upsert", "playlists", list).await;
+    for (id, position) in [("a", "a0"), ("b", "a1")] {
+        let item = pending_item(id, Some(10), position, 10);
+        push(&pool, owner, id, "upsert", "playlist_items", item).await;
+    }
+    assert_eq!(resolve(&pool, None).await.unwrap(), 2);
+
+    // A phone offline deleted a and moved b at 15, after they were added but before the swap
+    // was written, and sends both now.
+    let mut gone = pending_item("a", Some(10), "a0", 15);
+    gone["deleted"] = true.into();
+    push(&pool, owner, "a-gone", "delete", "playlist_items", gone).await;
+    let moved = pending_item("b", Some(10), "a9", 15);
+    push(&pool, owner, "b-moved", "upsert", "playlist_items", moved).await;
+    let held = playlists::visible(&pool, owner).await.unwrap();
+    assert_eq!(held[0].items.len(), 1, "a stays deleted");
+    assert_eq!(held[0].items[0]["position"], "a9", "b stays moved");
+
+    // b, pending again as the phone had it, is swapped once more where it went; a isn't.
+    assert_eq!(resolve(&pool, None).await.unwrap(), 1);
+    let held = playlists::visible(&pool, owner).await.unwrap();
+    let b = &held[0].items[0];
+    assert_eq!(
+        (&b["jellyfinId"], &b["position"]),
+        (&json!("7"), &json!("a9"))
+    );
+    assert_eq!(resolve(&pool, None).await.unwrap(), 0);
 }

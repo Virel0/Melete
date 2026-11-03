@@ -133,7 +133,7 @@ async fn detail(
         .iter()
         .filter_map(|i| Pending::of(i)?.request_id)
         .collect();
-    let states = pending::request_states(pool, &playlist.id, playlist.owner_id, &asked).await?;
+    let states = pending::vouched(pool, &playlist.id, &asked).await?;
     let folders = playlists::folders(pool, me).await?;
     let mut body = summary(&playlist, me, &folders);
     body["items"] = playlist
@@ -153,8 +153,8 @@ async fn detail(
 }
 
 /// A pending song as the API shows it: its request's state (requested, approved or declined),
-/// `unmatched` when it has none, or `gone` when the request was withdrawn or isn't one of
-/// those who may edit the playlist.
+/// `unmatched` when it has none, or `gone` when the request was withdrawn or wasn't put in the
+/// playlist by the user who asked for it.
 fn pending_json(song: Pending, states: &std::collections::HashMap<i64, String>) -> Value {
     let state = match song.request_id {
         None => "unmatched",

@@ -43,8 +43,8 @@ impl NewItem {
 }
 
 /// Adds `items` in order, the first at `index` (counted in the playlist as it is), or at the
-/// end. An item whose id the playlist holds already is left where it is, so adding the same
-/// items again adds nothing.
+/// end. An item whose id the playlist has ever held is left as it is, where it is or deleted,
+/// so adding the same items again adds nothing and never brings back one deleted since.
 ///
 /// # Errors
 ///
@@ -57,14 +57,18 @@ pub async fn add_items(
     index: Option<usize>,
 ) -> Result<(), EditError> {
     let (playlist, editor) = own(pool, editor, id).await?;
-    let held: HashSet<&str> = playlist
-        .items
-        .iter()
-        .filter_map(|i| i.get("id").and_then(Value::as_str))
-        .collect();
+    let held: HashSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT entity_id FROM aoide_ops
+         WHERE entity = 'playlist_items' AND playlist_id = ?",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
     let items: Vec<NewItem> = items
         .into_iter()
-        .filter(|i| !held.contains(i.id.as_str()))
+        .filter(|i| !held.contains(&i.id))
         .collect();
     if items.is_empty() {
         return Ok(());
@@ -74,8 +78,10 @@ pub async fn add_items(
 
 /// Writes each item still pending on a request in `arrived` as the track that request
 /// brought: its own id, playlist and place, the track's id and content key in place of
-/// `pending`. Only requests made by those who may edit the playlist count. Returns how many
-/// items it wrote; none once they're all swapped.
+/// `pending`. Only requests their own asker put in the playlist count (`pending::vouched`).
+/// Each is timed just after the item's own last write, so an edit a device made after that
+/// wins even when it arrives later. Returns how many items it wrote; none once they're all
+/// swapped.
 ///
 /// # Errors
 ///
@@ -87,21 +93,29 @@ pub async fn swap_in(
     arrived: &Arrived,
 ) -> Result<usize, EditError> {
     let (playlist, editor) = own(pool, editor, id).await?;
-    let askers = pending::askers(pool, id, playlist.owner_id).await?;
-    let changes: Vec<Change> = playlist
+    let waiting: Vec<(&Row, i64)> = playlist
         .items
         .iter()
-        .filter_map(|item| {
-            let request = Pending::of(item)?.request_id?;
-            let (asker, link) = arrived.get(&request)?;
-            if !askers.contains(asker) {
-                return None;
-            }
+        .filter_map(|item| Some((item, Pending::of(item)?.request_id?)))
+        .filter(|(_, request)| arrived.contains_key(request))
+        .collect();
+    let asked: Vec<i64> = waiting.iter().map(|(_, request)| *request).collect();
+    let vouched = pending::vouched(pool, id, &asked).await?;
+    let changes: Vec<Change> = waiting
+        .into_iter()
+        .filter(|(_, request)| vouched.contains_key(request))
+        .filter_map(|(item, request)| {
+            let link = arrived.get(&request)?;
             let mut row = item.clone();
             row.remove("pending");
             row.insert("jellyfinId".into(), link.jellyfin_id.clone().into());
             row.insert("contentKey".into(), link.content_key.clone().into());
-            Some(item_change(&row, &editor, false))
+            let at = item.get("updatedAt").and_then(Value::as_i64).unwrap_or(0);
+            let just_after = Editor {
+                now: at.saturating_add(1),
+                ..editor
+            };
+            Some(item_change(&row, &just_after, false))
         })
         .collect();
     let written = changes.len();

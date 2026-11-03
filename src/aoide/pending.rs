@@ -85,51 +85,34 @@ fn has_track(item: &Row) -> bool {
     })
 }
 
-/// Who may have asked for a playlist's pending songs: its owner, and those it's shared with
-/// for editing. Only their requests are shown on it or swapped in, so a request id put in a
-/// playlist tells nobody about someone else's request.
+/// How each of `requests` stands (requested, approved or declined), for those that their own
+/// asker put in playlist `playlist`; any other, and any withdrawn, is left out. Only those are
+/// shown on the playlist or swapped in, so a request id someone puts in a playlist tells them
+/// nothing about another user's request, even in a playlist shared with that user.
 ///
 /// # Errors
 ///
 /// Fails when the database does.
-pub async fn askers(pool: &SqlitePool, playlist: &str, owner: i64) -> sqlx::Result<Vec<i64>> {
-    let mut askers: Vec<i64> = sqlx::query_scalar(
-        "SELECT grantee_user_id FROM aoide_playlist_shares WHERE playlist_id = ? AND can_edit = 1",
-    )
-    .bind(playlist)
-    .fetch_all(pool)
-    .await?;
-    askers.push(owner);
-    Ok(askers)
-}
-
-/// How each of `requests` stands (requested, approved or declined), leaving out any not
-/// asked by [`askers`] of the playlist, and any withdrawn.
-///
-/// # Errors
-///
-/// Fails when the database does.
-pub async fn request_states(
+pub async fn vouched(
     pool: &SqlitePool,
     playlist: &str,
-    owner: i64,
     requests: &[i64],
 ) -> sqlx::Result<HashMap<i64, String>> {
     if requests.is_empty() {
         return Ok(HashMap::new());
     }
-    let askers = askers(pool, playlist, owner).await?;
-    let found: Vec<(i64, i64, String)> = sqlx::query_as(
-        "SELECT id, user_id, state FROM requests WHERE id IN (SELECT value FROM json_each(?))",
+    let found: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT r.id, r.state FROM requests r
+         WHERE r.id IN (SELECT value FROM json_each(?2)) AND EXISTS (
+             SELECT 1 FROM aoide_ops o
+             WHERE o.entity = 'playlist_items' AND o.playlist_id = ?1 AND o.user_id = r.user_id
+               AND json_extract(o.payload, '$.pending.requestId') = r.id)",
     )
+    .bind(playlist)
     .bind(Value::from(requests.to_vec()).to_string())
     .fetch_all(pool)
     .await?;
-    Ok(found
-        .into_iter()
-        .filter(|(_, asker, _)| askers.contains(asker))
-        .map(|(id, _, state)| (id, state))
-        .collect())
+    Ok(found.into_iter().collect())
 }
 
 #[cfg(test)]
