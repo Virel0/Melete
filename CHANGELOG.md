@@ -9,6 +9,9 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Added
 
+- The Movies, Shows and Anime pages have their own "Because you watched" rows, from the titles of
+  that kind you finished, and keep "Featured for you" and your rows to that kind. Apps get the
+  same with `GET /api/v1/home?kind=movies`, `shows` or `anime`.
 - **Profile pictures.** Everyone can upload their own on Your account, or choose one from a
   gallery: Melete's own pictures (`avatars/`), then a folder on the server the household fills
   (`compose.avatars.yaml`, `MELETE_AVATARS_DIR`), which jf-avatars' community collections fit as
@@ -39,6 +42,8 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ### Changed
 
+- "Because you watched" shows up to three rows even when a title you finished recently has
+  nothing like it in the library: it looks further back instead.
 - The Watch home's previews play at full quality. A trailer in the title's folder is used only
   when it's at least 1080p (or as sharp as the title itself); otherwise the hero plays a clip of
   the title. The web plays either as the player would (the file as it is, its video copied, or

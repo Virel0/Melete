@@ -12,11 +12,15 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use super::kinds::{Kind, Kinds};
 use super::*;
 use crate::tmdb;
 
 /// The most rows, one per title finished.
-const SEEDS: i64 = 3;
+const SEEDS: usize = 3;
+/// How far back to look for titles finished with something like them in the library, so a
+/// title with nothing like it doesn't cost the home a row.
+const LOOK_BACK: i64 = 12;
 /// The most titles in a row.
 const PER_ROW: i64 = 12;
 /// How long TMDB's recommendations for a title are kept.
@@ -57,19 +61,46 @@ pub(super) async fn rows(
     outside: &Outside,
     me: i64,
     access: &Access,
+    kind: Option<Kind>,
 ) -> Result<Vec<(TitleRef, Vec<Entry>)>, ApiError> {
     let finished = finished(pool, me, access).await?;
+    let mut kinds = Kinds::of(pool, finished.clone()).await?;
+    let finished: Vec<TitleRef> = finished
+        .into_iter()
+        .filter(|t| kinds.is(kind, *t))
+        .collect();
     let discovery = outside.tmdb.is_some() && crate::settings::discovery(pool).await?;
-    let alike = join_all(
-        finished
-            .iter()
-            .map(|title| like(pool, outside, discovery, me, access, *title)),
-    )
-    .await;
     let mut rows = Vec::new();
-    for (title, alike) in finished.into_iter().zip(alike) {
-        let entries = alike?.into_iter().map(|(t, _)| Entry::plain(t)).collect();
-        rows.push((title, entries));
+    // A few at a time, newest first, until there are enough rows with something in them.
+    for batch in finished.chunks(SEEDS) {
+        if rows.len() >= SEEDS {
+            break;
+        }
+        let alike = join_all(
+            batch
+                .iter()
+                .map(|title| like(pool, outside, discovery, me, access, *title)),
+        )
+        .await;
+        let mut found = Vec::new();
+        for (title, alike) in batch.iter().zip(alike) {
+            found.push((*title, alike?));
+        }
+        let suggested: Vec<TitleRef> = found
+            .iter()
+            .flat_map(|(_, alike)| alike.iter().map(|(t, _)| *t))
+            .collect();
+        kinds = Kinds::of(pool, suggested).await?;
+        for (title, alike) in found {
+            let entries: Vec<Entry> = alike
+                .into_iter()
+                .filter(|(t, _)| kinds.is(kind, *t))
+                .map(|(t, _)| Entry::plain(t))
+                .collect();
+            if !entries.is_empty() && rows.len() < SEEDS {
+                rows.push((title, entries));
+            }
+        }
     }
     Ok(rows)
 }
@@ -119,7 +150,7 @@ async fn finished(pool: &SqlitePool, me: i64, access: &Access) -> Result<Vec<Tit
         access.file_sql("f")
     )))
     .bind(me)
-    .bind(SEEDS)
+    .bind(LOOK_BACK)
     .fetch_all(pool)
     .await?;
     Ok(rows
