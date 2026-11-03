@@ -53,6 +53,18 @@ pub fn file_encoding(path: &Path) -> Option<&'static str> {
     Some(guess_encoding(&bytes, name).name())
 }
 
+/// A subtitle file's bytes as they are, with the encoding its text is in (as
+/// [`file_encoding`] gives it), for players that read the file themselves.
+pub fn original_file(path: &Path) -> anyhow::Result<(Vec<u8>, &'static str)> {
+    let bytes = read_limited(path)?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let encoding = guess_encoding(&bytes, name).name();
+    Ok((bytes, encoding))
+}
+
 /// Reads a subtitle file, refusing one bigger than [`SUBTITLE_FILE_LIMIT`].
 pub(super) fn read_limited(path: &Path) -> anyhow::Result<Vec<u8>> {
     use std::io::Read;

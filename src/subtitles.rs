@@ -1,4 +1,5 @@
-//! Text subtitles for the apps: embedded tracks and files beside the video, as WebVTT.
+//! Text subtitles for the apps: embedded tracks and files beside the video, as WebVTT, and
+//! ASS/SSA tracks as they are with the fonts the video carries, for players that draw them.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -66,6 +67,8 @@ pub enum Format {
     WebVtt,
     /// For burning in: keeps styling, which matters for anime.
     Ass,
+    /// An ASS/SSA track copied out as it is, for players that draw ASS themselves.
+    Original,
 }
 
 impl Format {
@@ -73,8 +76,16 @@ impl Format {
         match self {
             Self::WebVtt => "vtt",
             Self::Ass => "ass",
+            // Kept apart from the burn-in rendering of the same track, which ffmpeg re-encodes.
+            Self::Original => "orig.ass",
         }
     }
+}
+
+/// Whether a track in this format (ffprobe's codec name, or a file's extension) is ASS/SSA,
+/// which players that draw ASS can be given as it is.
+pub fn is_ass(codec: &str) -> bool {
+    codec.eq_ignore_ascii_case("ass") || codec.eq_ignore_ascii_case("ssa")
 }
 
 #[cfg(test)]
@@ -555,5 +566,165 @@ mod tests {
             .collect();
         assert_eq!(left, ["fonts-7-5-100"]);
         assert!(cache.path().join("fonts-7-5-100/font3").exists());
+    }
+
+    #[tokio::test]
+    async fn cleaning_judges_copied_tracks_and_font_lists_by_their_file() {
+        let library = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        std::fs::write(library.path().join("Movie.mkv"), b"video").unwrap();
+        let pool = crate::db::open_in_memory().await;
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'movies', 'movies', ?)",
+        )
+        .bind(library.path().to_string_lossy().into_owned())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation) VALUES (1, 1, 'Movie', 'Movie', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO media_files (id, library_id, rel_path, size, modified_at, movie_id, first_seen_generation, seen_generation, missing_since)
+             VALUES (7, 1, 'Movie.mkv', 5, 100, 1, 1, 1, NULL), (8, 1, 'Gone.mkv', 5, 100, 1, 1, 1, 50)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let keep = [
+            format!("{}.orig.ass", embedded_key(7, 2, 5, 100)),
+            format!("fonts-{}.json", fonts_key(7, 5, 100)),
+        ];
+        let remove = [
+            format!("{}.orig.ass", embedded_key(7, 2, 4, 90)),
+            format!("{}.orig.ass", embedded_key(8, 2, 5, 100)),
+            format!("fonts-{}.json", fonts_key(7, 4, 90)),
+            format!("fonts-{}.json", fonts_key(8, 5, 100)),
+        ];
+        for name in keep.iter().chain(&remove) {
+            std::fs::write(cache.path().join(name), b"x").unwrap();
+        }
+        assert_eq!(
+            clean_cache(&pool, cache.path()).await.unwrap(),
+            remove.len()
+        );
+        let mut left: Vec<String> = std::fs::read_dir(cache.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        let mut expected = keep.to_vec();
+        expected.sort();
+        assert_eq!(left, expected);
+    }
+
+    /// A video with the given attachments, each a (name to attach, stored name, stored type).
+    fn video_with(dir: &Path, name: &str, attachments: &[(&str, &str, &str)]) -> PathBuf {
+        let video = dir.join(name);
+        let mut command = std::process::Command::new("ffmpeg");
+        command.args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=1:s=64x64",
+            "-c:v",
+            "mpeg4",
+        ]);
+        for (n, (file, stored_name, stored_type)) in attachments.iter().enumerate() {
+            let path = dir.join(file);
+            std::fs::write(&path, format!("bytes of {file}")).unwrap();
+            command
+                .arg("-attach")
+                .arg(&path)
+                .arg(format!("-metadata:s:t:{n}"))
+                .arg(format!("mimetype={stored_type}"))
+                .arg(format!("-metadata:s:t:{n}"))
+                .arg(format!("filename={stored_name}"));
+        }
+        assert!(command.arg(&video).status().unwrap().success());
+        video
+    }
+
+    #[tokio::test]
+    async fn lists_a_videos_fonts_once_with_names_and_types_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let video = video_with(
+            dir.path(),
+            "styled.mkv",
+            &[
+                (
+                    "a.ttf",
+                    "../../Evil\u{7}.ttf",
+                    "application/x-truetype-font",
+                ),
+                ("b.otf", "Sign.OTF", "text/html"),
+                ("c.bin", "fonts/", "application/vnd.ms-opentype; font"),
+                ("d.txt", "notes.txt", "text/plain"),
+            ],
+        );
+        let cache = dir.path().join("cache");
+        let listed = font_list(Path::new("ffprobe"), &cache, "1-2-3", &video)
+            .await
+            .unwrap();
+        let summary: Vec<(i64, &str, &str, u64)> = listed
+            .iter()
+            .map(|f| (f.index, f.file_name.as_str(), f.mime_type.as_str(), f.size))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (1, "Evil.ttf", "font/ttf", 14),
+                (2, "Sign.OTF", "font/otf", 14),
+                (3, "font3", "font/otf", 14),
+            ]
+        );
+        // Listed once: with ffprobe gone the list comes from the cache.
+        let again = font_list(Path::new("/nonexistent/ffprobe"), &cache, "1-2-3", &video)
+            .await
+            .unwrap();
+        assert_eq!(again, listed);
+
+        // A video without fonts is remembered as such, as pulling them out remembers it.
+        let plain = video_with(dir.path(), "plain.mkv", &[("e.txt", "e.txt", "text/plain")]);
+        let none = font_list(Path::new("ffprobe"), &cache, "4-5-6", &plain)
+            .await
+            .unwrap();
+        assert!(none.is_empty());
+        let remembered = fonts(
+            Path::new("/nonexistent/ffprobe"),
+            Path::new("/nonexistent/ffmpeg"),
+            &cache,
+            "4-5-6",
+            &plain,
+        )
+        .await
+        .unwrap();
+        assert_eq!(remembered, None);
+    }
+
+    #[tokio::test]
+    async fn fonts_over_the_limit_are_left_out() {
+        let font = |index, size| Font {
+            index,
+            file_name: format!("font{index}"),
+            mime_type: "font/ttf".into(),
+            size,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let listed = dir.path().join("fonts-1-2-3.json");
+        let saved = vec![font(1, FONT_LIMIT), font(2, FONT_LIMIT + 1)];
+        std::fs::write(&listed, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let offered = font_list(
+            Path::new("/nonexistent/ffprobe"),
+            dir.path(),
+            "1-2-3",
+            Path::new("/nonexistent/video.mkv"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(offered, vec![font(1, FONT_LIMIT)]);
     }
 }

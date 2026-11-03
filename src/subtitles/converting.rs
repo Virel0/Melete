@@ -99,6 +99,7 @@ pub(super) async fn run(
     let (codec, muxer, header): (&str, &str, &[u8]) = match format {
         Format::WebVtt => ("webvtt", "webvtt", b"WEBVTT"),
         Format::Ass => ("ass", "ass", b"[Script Info]"),
+        Format::Original => ("copy", "ass", b"[Script Info]"),
     };
     // "file:" keeps a name with a colon from being read as a protocol.
     let mut input_arg = std::ffi::OsString::from("file:");
@@ -117,19 +118,30 @@ pub(super) async fn run(
     let output = output
         .context("converting the subtitles took too long")?
         .with_context(|| format!("starting {}", ffmpeg.display()))?;
-    let body = output
-        .stdout
-        .strip_prefix(b"\xef\xbb\xbf".as_slice())
-        .unwrap_or(&output.stdout);
-    if !output.status.success() || !body.starts_with(header) {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let reason: String = stderr.trim().chars().take(500).collect();
+    if let Some(reason) = failure(&output, header, format) {
         // Remembered, so requests don't each re-read the whole file to fail again.
         let _ = save_atomically(failed, reason.as_bytes()).await;
         bail!("ffmpeg couldn't convert the subtitles: {reason}");
     }
     save_atomically(cached, &output.stdout).await?;
     Ok(cached.to_path_buf())
+}
+
+/// Why ffmpeg's output isn't the track asked for, if it isn't: ffmpeg failed, the output
+/// doesn't start as the format does, or a copied track is bigger than a subtitle file may be.
+fn failure(output: &std::process::Output, header: &[u8], format: Format) -> Option<String> {
+    let body = output
+        .stdout
+        .strip_prefix(b"\xef\xbb\xbf".as_slice())
+        .unwrap_or(&output.stdout);
+    if matches!(format, Format::Original) && output.stdout.len() as u64 > SUBTITLE_FILE_LIMIT {
+        return Some("the track is too big to be subtitles".to_owned());
+    }
+    if output.status.success() && body.starts_with(header) {
+        return None;
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Some(stderr.trim().chars().take(500).collect())
 }
 
 /// A UTF-8 copy of a subtitle file in another encoding, in the cache; removed when dropped.

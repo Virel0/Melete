@@ -19,6 +19,11 @@ pub fn sidecar_key(file_id: i64, sidecar: &Sidecar) -> String {
     )
 }
 
+/// Cache key for the fonts pulled out of a video, tied to the file's version.
+pub fn fonts_key(file_id: i64, size: i64, modified_at: i64) -> String {
+    format!("{file_id}-{size}-{modified_at}")
+}
+
 /// How long a failure marker or an abandoned temporary file stays in the cache.
 pub(super) const FAILURE_KEPT: Duration = Duration::from_secs(24 * 3600);
 pub(super) const PARTIAL_KEPT: Duration = Duration::from_secs(3600);
@@ -69,7 +74,7 @@ fn sort_entries(entries: Vec<(String, SystemTime)>) -> (Vec<String>, Vec<(String
             .duration_since(modified)
             .unwrap_or_default()
     };
-    // "{file id}-{s|x}...{.vtt|.ass}[.failed]" for each entry worth judging.
+    // "{file id}-{s|x}...{.vtt|.ass|.orig.ass}[.failed]" for each entry worth judging.
     let mut doomed: Vec<String> = Vec::new();
     let mut judged: Vec<(String, i64, String)> = Vec::new();
     for (name, modified) in entries {
@@ -80,9 +85,12 @@ fn sort_entries(entries: Vec<(String, SystemTime)>) -> (Vec<String>, Vec<(String
             continue;
         }
         // Fonts pulled out of a video: "fonts-{file id}-{size}-{modified}", a folder, or the
-        // same with ".none" for a video without any.
+        // same with ".none" for a video without any, or with ".json" for their list.
         if let Some(version) = name.strip_prefix("fonts-") {
-            let version = version.strip_suffix(".none").unwrap_or(version);
+            let version = version
+                .strip_suffix(".none")
+                .or_else(|| version.strip_suffix(".json"))
+                .unwrap_or(version);
             if let Some(file_id) = version.split('-').next().and_then(|id| id.parse().ok()) {
                 judged.push((name.clone(), file_id, format!("fonts-{version}")));
             }
@@ -92,6 +100,7 @@ fn sort_entries(entries: Vec<(String, SystemTime)>) -> (Vec<String>, Vec<(String
         let stem = name.trim_end_matches(".failed");
         let Some(key) = stem
             .strip_suffix(".vtt")
+            .or_else(|| stem.strip_suffix(".orig.ass"))
             .or_else(|| stem.strip_suffix(".ass"))
         else {
             continue;

@@ -2267,8 +2267,8 @@
       "get": {
         "tags": ["Playback"],
         "x-melete-access": "public",
-        "summary": "A text subtitle track as WebVTT",
-        "description": "For the stream link's file (from play or transcode), so a player can load it without headers. Converted once, then cached. A file beside the video that isn't UTF-8 is read in the encoding the subtitle list gives as its `encoding`.",
+        "summary": "A text subtitle track as WebVTT, or an ASS/SSA track as it is",
+        "description": "For the stream link's file (from play or transcode), so a player can load it without headers. `.vtt`: any text track, converted once, then cached; a file beside the video that isn't UTF-8 is read in the encoding the subtitle list gives as its `encoding`. `.ass`: a track the subtitle list marks `ass`, with its styling, positions, fonts and karaoke, for players that draw ASS themselves (the URL is its `ass_url`): an embedded one copied out of the video unchanged once, then cached, in UTF-8; a file beside the video byte for byte, in the encoding the Content-Type's charset names (the list's `encoding`). Draw it with the fonts from GET /api/v1/stream/{token}/fonts. 20 MB at most.",
         "security": [],
         "parameters": [
           {
@@ -2282,18 +2282,24 @@
             "name": "track",
             "in": "path",
             "required": true,
-            "description": "A track id from the subtitle list, plus .vtt.",
-            "schema": {"type": "string", "pattern": "^(s[0-9]{1,5}|x[0-9a-f]{8})\\.vtt$"}
+            "description": "A track id from the subtitle list, plus .vtt, or plus .ass for an ASS/SSA track.",
+            "schema": {"type": "string", "pattern": "^(s[0-9]{1,5}|x[0-9a-f]{8})\\.(vtt|ass)$"}
           }
         ],
         "responses": {
-          "200": {"description": "The track", "content": {"text/vtt": {"schema": {"type": "string"}}}},
+          "200": {
+            "description": "The track",
+            "content": {
+              "text/vtt": {"schema": {"type": "string"}},
+              "text/x-ass": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
           "400": {
             "description": "Not a stream link",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
-            "description": "Unknown or expired link, or no such track",
+            "description": "Unknown or expired link, or no such track; .ass for a track that isn't ASS/SSA",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "422": {
@@ -2306,6 +2312,104 @@
           },
           "503": {
             "description": "The file or its folder can't be read right now, or conversions are busy; try again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/stream/{token}/fonts": {
+      "get": {
+        "tags": ["Playback"],
+        "x-melete-access": "public",
+        "summary": "The fonts the stream link's file carries",
+        "description": "For players that draw ASS/SSA tracks themselves: the fonts attached to the video (Matroska attachments, as anime releases carry for their styled subtitles), so a track looks as made. Only attachments that are fonts, by their stored type or name, 200 at most, each 64 MB at most; nothing else in the file. Their names and types are the server's reading of what's stored: names without folders, types from a fixed set. Listed once per version of the file, then cached. Behind the stream link's token, so a player can load them without headers. An empty list for a file without fonts.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "description": "From the stream or playlist URL.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/AttachedFont"}}
+              }
+            }
+          },
+          "400": {
+            "description": "Not a stream link",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "Unknown or expired link",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "Reading the video's attachments failed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "The file or its folder can't be read right now; try again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/stream/{token}/fonts/{font}": {
+      "get": {
+        "tags": ["Playback"],
+        "x-melete-access": "public",
+        "summary": "One font the stream link's file carries",
+        "description": "The font's bytes as the video carries them, pulled out of the video once, then cached; with byte ranges. Its Content-Type is the list's `mime_type`. Behind the stream link's token, so a player can load it without headers.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "description": "From the stream or playlist URL.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "font",
+            "in": "path",
+            "required": true,
+            "description": "A font's id from the font list.",
+            "schema": {"type": "string", "pattern": "^[0-9]{1,5}$"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The font",
+            "content": {
+              "font/ttf": {"schema": {"type": "string", "format": "binary"}},
+              "font/otf": {"schema": {"type": "string", "format": "binary"}},
+              "font/collection": {"schema": {"type": "string", "format": "binary"}},
+              "font/woff": {"schema": {"type": "string", "format": "binary"}},
+              "font/woff2": {"schema": {"type": "string", "format": "binary"}},
+              "font/sfnt": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "400": {
+            "description": "Not a stream link",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "Unknown or expired link, or no such font in the list",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "Reading the video's attachments failed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "The file or its folder can't be read right now; try again",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -12310,7 +12414,9 @@
           "hearing_impaired",
           "text",
           "file",
-          "encoding"
+          "encoding",
+          "ass",
+          "ass_url"
         ],
         "properties": {
           "track": {
@@ -12336,7 +12442,33 @@
           "encoding": {
             "type": ["string", "null"],
             "description": "For a file beside the video: the text encoding it's read as (UTF-8, windows-1251, Shift_JIS…), from its byte-order mark, else guessed from its bytes and the language in its name, so a wrong guess can be seen. null for embedded tracks, which are UTF-8, and for a file that can't be read."
+          },
+          "ass": {
+            "type": "boolean",
+            "description": "An ASS/SSA track (codec ass or ssa, embedded or beside the video), which can be fetched as it is, styling and all, for players that draw ASS themselves. Its WebVTT version keeps only the words and timing."
+          },
+          "ass_url": {
+            "type": ["string", "null"],
+            "description": "Where the ASS/SSA track is as it is, relative to the stream URL as the WebVTT one is (`subtitles/{track}.ass`): append it to the stream URL after a slash. Draw it with the fonts listed at the stream URL's `fonts` (GET /api/v1/stream/{token}/fonts). null for other tracks."
           }
+        },
+        "additionalProperties": false
+      },
+      "AttachedFont": {
+        "type": "object",
+        "required": ["id", "file_name", "mime_type", "size", "url"],
+        "properties": {
+          "id": {"type": "integer", "description": "Its stream index in the file."},
+          "file_name": {
+            "type": "string",
+            "description": "The name stored with it, without folders or control characters; font{id} when it has none. For a renderer's font name lookups and for showing; never a path."
+          },
+          "mime_type": {
+            "enum": ["font/ttf", "font/otf", "font/collection", "font/woff", "font/woff2", "font/sfnt"],
+            "description": "From its name, else its stored type; font/sfnt when neither says which."
+          },
+          "size": {"type": "integer", "description": "Bytes."},
+          "url": {"type": "string", "description": "Where its bytes are, under the same stream link."}
         },
         "additionalProperties": false
       },
