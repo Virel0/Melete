@@ -776,12 +776,13 @@ async fn peoples_pictures_only_at_their_one_size() {
 async fn artwork_only_at_the_sizes_the_api_hands_out() {
     let f = fixture().await;
     assert_eq!(
-        get(&f, "/api/v1/artwork/original/matrix.jpg").await.0,
+        get(&f, "/api/v1/artwork/w9999/matrix.jpg").await.0,
         StatusCode::BAD_REQUEST
     );
     for uri in [
         "/api/v1/artwork/w1280/matrix.jpg",
         "/api/v1/artwork/w300/matrix.jpg",
+        "/api/v1/artwork/original/matrix.jpg",
     ] {
         assert_eq!(
             get(&f, uri).await.0,
@@ -939,5 +940,45 @@ async fn recent_goes_by_when_files_came_in_not_when_they_changed() {
     assert_eq!(
         titles(&get(&f, "/api/v1/movies?sort=recent").await.1),
         ["The Matrix", "Zebra Film"]
+    );
+}
+
+#[tokio::test]
+async fn every_kind_has_larger_sizes_for_large_screens_and_only_its_own() {
+    let f = fixture().await;
+    exec(
+        &f.pool,
+        "UPDATE tmdb_movies SET backdrop_path = '/wide.jpg', logo_path = '/logo.png';
+         INSERT INTO tmdb_people (id, name, profile_path) VALUES (6384, 'Keanu Reeves', '/keanu.jpg')",
+    )
+    .await;
+    // Each asked of TMDB's stand-in, which hasn't them: the sizes were allowed.
+    let mut asked = 0;
+    for uri in [
+        "/api/v1/artwork/w780/matrix.jpg",
+        "/api/v1/artwork/original/wide.jpg",
+        "/api/v1/artwork/original/logo.png",
+        "/api/v1/artwork/h632/keanu.jpg",
+    ] {
+        assert_eq!(get(&f, uri).await.0, StatusCode::NOT_FOUND, "{uri}");
+        asked += 1;
+        assert_eq!(
+            f.upstream.load(Ordering::SeqCst),
+            asked,
+            "{uri} was asked for"
+        );
+    }
+    // Another kind's size isn't.
+    for uri in [
+        "/api/v1/artwork/w780/wide.jpg",
+        "/api/v1/artwork/h632/matrix.jpg",
+        "/api/v1/artwork/original/keanu.jpg",
+    ] {
+        assert_eq!(get(&f, uri).await.0, StatusCode::NOT_FOUND, "{uri}");
+    }
+    assert_eq!(
+        f.upstream.load(Ordering::SeqCst),
+        asked,
+        "none of those asked"
     );
 }

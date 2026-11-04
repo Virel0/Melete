@@ -31,6 +31,11 @@ pub(in super::super) struct ContinueRow {
     pub poster_path: Option<String>,
     /// The episode's still on TMDB's image server.
     pub still_path: Option<String>,
+    /// The title's backdrop (its own, else TMDB's), for a wide tile.
+    pub backdrop_path: Option<String>,
+    /// Where the backdrop's subject is, once worked out.
+    pub backdrop_x: Option<f64>,
+    pub backdrop_y: Option<f64>,
 }
 
 /// What `/me/continue` and `/me/next-up` leave out, each a comma-separated list.
@@ -86,6 +91,8 @@ pub(super) async fn continue_watching(
                     "episode_name": r.episode_name,
                     "poster": artwork_url("w342", r.poster_path),
                     "still": artwork_url("w300", r.still_path),
+                    "backdrop": artwork_url(BACKDROP_SIZE, r.backdrop_path),
+                    "backdrop_focus": focus_json(r.backdrop_x, r.backdrop_y),
                 })
             })
             .collect(),
@@ -110,7 +117,10 @@ pub(in super::super) async fn continue_rows(
              te.name AS episode_name,
              COALESCE(m.local_poster_key, tm.poster_path, s.local_poster_key, ts.poster_path)
                  AS poster_path,
-             te.still_path
+             te.still_path,
+             COALESCE(m.local_backdrop_key, tm.backdrop_path, s.local_backdrop_key,
+                 ts.backdrop_path) AS backdrop_path,
+             af.x AS backdrop_x, af.y AS backdrop_y
          FROM playback_progress p
          JOIN media_files f ON f.id = p.file_id
          JOIN libraries l ON l.id = f.library_id
@@ -120,6 +130,8 @@ pub(in super::super) async fn continue_rows(
          LEFT JOIN tmdb_series ts ON ts.tmdb_id = s.match_tmdb_id
          LEFT JOIN tmdb_episodes te ON te.series_tmdb_id = ts.tmdb_id
              AND te.season = f.season AND te.episode = f.episode
+         LEFT JOIN artwork_focus af ON af.file = COALESCE(m.local_backdrop_key, tm.backdrop_path,
+             s.local_backdrop_key, ts.backdrop_path)
          WHERE p.user_id = ?1 AND p.position_seconds > 0 AND f.missing_since IS NULL
            AND {} AND {}
          ORDER BY p.updated_at DESC, p.file_id DESC

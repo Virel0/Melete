@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_user};
-use super::media::{Exclusions, artwork_url};
+use super::media::{BACKDROP_SIZE, Exclusions, artwork_url, focus_json};
 use super::playback::{CONTINUE_LIMIT, ExcludeQuery};
 
 /// The Next Up route, for everyone signed in.
@@ -46,6 +46,11 @@ pub(super) struct NextRow {
     pub poster_path: Option<String>,
     /// The episode's still on TMDB's image server.
     pub still_path: Option<String>,
+    /// The series' backdrop (its own, else TMDB's), for a wide tile.
+    pub backdrop_path: Option<String>,
+    /// Where the backdrop's subject is, once worked out.
+    pub backdrop_x: Option<f64>,
+    pub backdrop_y: Option<f64>,
     /// When the user last finished an episode of the series, in Unix seconds.
     pub last_watched_at: i64,
 }
@@ -81,6 +86,8 @@ async fn next_up(
                     "episode_name": r.episode_name,
                     "poster": artwork_url("w342", r.poster_path),
                     "still": artwork_url("w300", r.still_path),
+                    "backdrop": artwork_url(BACKDROP_SIZE, r.backdrop_path),
+                    "backdrop_focus": focus_json(r.backdrop_x, r.backdrop_y),
                     "last_watched_at": r.last_watched_at,
                 })
             })
@@ -127,12 +134,15 @@ pub(super) async fn rows(
              COALESCE(ts.year, s.parsed_year) AS year,
              te.name AS episode_name, COALESCE(s.local_poster_key, ts.poster_path) AS poster_path,
              te.still_path,
+             COALESCE(s.local_backdrop_key, ts.backdrop_path) AS backdrop_path,
+             af.x AS backdrop_x, af.y AS backdrop_y,
              n.watched_at AS last_watched_at
          FROM following n
          JOIN series s ON s.id = n.series_id
          LEFT JOIN tmdb_series ts ON ts.tmdb_id = s.match_tmdb_id
          LEFT JOIN tmdb_episodes te ON te.series_tmdb_id = ts.tmdb_id
              AND te.season = n.season AND te.episode = n.episode
+         LEFT JOIN artwork_focus af ON af.file = COALESCE(s.local_backdrop_key, ts.backdrop_path)
          WHERE n.n = 1 AND n.position = 0 AND s.missing_since IS NULL
          ORDER BY n.watched_at DESC, n.series_id DESC
          LIMIT ?2",
@@ -285,7 +295,8 @@ mod tests {
             json!({
                 "file_id": 3, "series_id": 1, "season": 1, "episode": 5, "title": "Show",
                 "year": 2020, "episode_name": "Five", "poster": "/api/v1/artwork/w342/show.jpg",
-                "still": "/api/v1/artwork/w300/s1e5.jpg", "last_watched_at": 11,
+                "still": "/api/v1/artwork/w300/s1e5.jpg", "backdrop": null,
+                "backdrop_focus": null, "last_watched_at": 11,
             })
         );
 
@@ -295,6 +306,30 @@ mod tests {
         // Finishing the season leaves nothing next.
         watched(&f, 3, 0.0, 60).await;
         assert_eq!(files(&get(&f, "/api/v1/me/next-up").await.1), [8]);
+    }
+
+    #[tokio::test]
+    async fn wide_tiles_get_the_titles_backdrop_and_its_focus() {
+        let f = fixture().await;
+        sqlx::raw_sql(
+            "UPDATE tmdb_series SET backdrop_path = '/wide.jpg' WHERE tmdb_id = 10;
+             INSERT INTO artwork_focus (file, x, y) VALUES ('/wide.jpg', 0.25, 0.4);
+             INSERT INTO tmdb_movies (tmdb_id, title, backdrop_path, fetched_at)
+                 VALUES (20, 'Film', '/film.jpg', 0);
+             UPDATE movies SET match_status = 'matched', match_tmdb_id = 20 WHERE id = 1;",
+        )
+        .execute(&f.pool)
+        .await
+        .unwrap();
+        watched(&f, 2, 0.0, 10).await;
+        let (_, next) = get(&f, "/api/v1/me/next-up").await;
+        assert_eq!(next[0]["backdrop"], "/api/v1/artwork/w1280/wide.jpg");
+        assert_eq!(next[0]["backdrop_focus"], json!({ "x": 0.25, "y": 0.4 }));
+        // A movie in Continue Watching has one too, its focus not worked out yet.
+        watched(&f, 9, 42.0, 11).await;
+        let (_, partway) = get(&f, "/api/v1/me/continue").await;
+        assert_eq!(partway[0]["backdrop"], "/api/v1/artwork/w1280/film.jpg");
+        assert_eq!(partway[0]["backdrop_focus"], Value::Null);
     }
 
     #[tokio::test]

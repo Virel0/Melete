@@ -15,8 +15,10 @@ use super::auth::{AppState, CurrentUser, require_user};
 use super::media::artwork_url;
 use crate::access::Access;
 
-/// The one size people's pictures are given at.
+/// The size people's pictures are given at.
 pub(super) const PROFILE_SIZE: &str = "w185";
+/// Every size they're served at: `h632` for a large screen.
+pub(super) const PROFILE_SIZES: &[&str] = &[PROFILE_SIZE, "h632"];
 
 /// A title's credits and a person's titles, for everyone signed in.
 pub fn routes(pool: SqlitePool) -> Router {

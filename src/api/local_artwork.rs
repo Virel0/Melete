@@ -19,8 +19,8 @@ pub(super) fn is_local(file: &str) -> bool {
     file.starts_with("local-")
 }
 
-/// The image as a JPEG at `size` (`w342` and the like: that many pixels wide at most), from the
-/// cache or made now; `None` when no present title has an image by that name at that kind of
+/// The image as a JPEG at `size` (`w342` and the like: that many pixels wide at most;
+/// `original` up to [`ORIGINAL_WIDTH`]), from the cache or made now; `None` when no present title has an image by that name at that kind of
 /// size, or it can't be read.
 pub(super) async fn image(
     pool: &SqlitePool,
@@ -57,11 +57,7 @@ pub(super) async fn image(
         return Ok(None);
     };
     let sizes = if poster { POSTER_SIZES } else { BACKDROP_SIZES };
-    let Some(width) = sizes
-        .contains(&size)
-        .then(|| size.strip_prefix('w')?.parse::<u32>().ok())
-        .flatten()
-    else {
+    let Some(width) = sizes.contains(&size).then(|| width_of(size)).flatten() else {
         return Ok(None);
     };
     let Some(bytes) = read_inside(Path::new(&root), &rel_path).await else {
@@ -82,6 +78,17 @@ pub(super) async fn image(
             Ok(None)
         }
     }
+}
+
+/// The widest a title's own image is served at, asked for `original`: a 4K screen's width.
+const ORIGINAL_WIDTH: u32 = 3840;
+
+/// How wide a size is at most: `w342` 342 pixels, `original` [`ORIGINAL_WIDTH`].
+fn width_of(size: &str) -> Option<u32> {
+    if size == "original" {
+        return Some(ORIGINAL_WIDTH);
+    }
+    size.strip_prefix('w')?.parse().ok()
 }
 
 /// The file's bytes, if it's inside the library (a link out of it isn't followed) and not too
@@ -267,5 +274,16 @@ mod tests {
         ] {
             assert_eq!(get(refused).await.0, StatusCode::NOT_FOUND, "{refused}");
         }
+        // At a larger size for a large screen, never wider than the image (800 pixels).
+        let (status, jpeg) =
+            get("/api/v1/artwork/w780/local-0123456789abcdef0123456789abcdef.jpg").await;
+        assert_eq!((status, jpeg_width(&jpeg)), (StatusCode::OK, Some(780)));
+    }
+
+    #[test]
+    fn original_is_a_4k_screens_width_at_most() {
+        assert_eq!(width_of("w342"), Some(342));
+        assert_eq!(width_of("original"), Some(ORIGINAL_WIDTH));
+        assert_eq!(width_of("h632"), None);
     }
 }

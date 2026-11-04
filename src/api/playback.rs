@@ -20,7 +20,7 @@ use tower_http::services::ServeFile;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_playback};
-use super::media::{Exclusions, artwork_url};
+use super::media::{BACKDROP_SIZE, Exclusions, artwork_url, focus_json};
 use crate::access::Access;
 use crate::db::unix_now;
 use crate::library::extras;
