@@ -5544,9 +5544,10 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An album's cover image",
-        "description": "The image in its folder (as is), else the picture in a track's tags, else the Cover Art Archive's 500-pixel front cover for its release group (fetched once, then served from the cache). Clients may keep it a day.",
+        "description": "The image in its folder (as is), else the picture in a track's tags, else the Cover Art Archive's 500-pixel front cover for its release group (fetched once, then served from the cache). With `size`, a JPEG that many pixels wide at most, made once from that cover and kept (never wider than the cover itself), so a row needn't download a large folder image. Clients may keep it a day.",
         "parameters": [
-          {"name": "id", "in": "path", "required": true, "description": "Album id.", "schema": {"type": "integer"}}
+          {"name": "id", "in": "path", "required": true, "description": "Album id.", "schema": {"type": "integer"}},
+          {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the cover as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
         ],
         "responses": {
           "200": {
@@ -5557,6 +5558,7 @@
               "image/webp": {"schema": {"type": "string", "format": "binary"}}
             }
           },
+          "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "404": {
             "description": "No such album, or it has no cover",
