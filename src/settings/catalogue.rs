@@ -360,7 +360,7 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "motion_covers",
         name: "Motion covers",
-        about: "Looping motion covers made from albums' still covers, for albums without one of their own: a still camera breathing slowly in and out over the cover's depth, and on some covers a distant soft part such as a sky drifting a little, with lettering and faces kept whole. Covers that are mostly text or flat are skipped. Each user can hide the ones made here. Made on the server; nothing about the library leaves it.",
+        about: "Looping motion covers made from albums' still covers, for albums without one of their own: a slow, gentle camera move over the cover's depth, with lettering and faces kept whole. Covers that are mostly text or flat are skipped. Each user can hide the ones made here. Made on the server; nothing about the library leaves it.",
         fields: &[field(
             "MELETE_MOTION_COVERS",
             "Make motion covers",

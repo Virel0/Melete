@@ -1,6 +1,5 @@
 //! Motion covers made from albums' still covers by the renderer beside Melete, in a
-//! container of its own: a loop with the camera breathing slowly in and out over the cover's
-//! depth (and, on some covers, a distant soft part such as a sky drifting a little), for
+//! container of its own: a short loop with a slow camera move over the cover's depth, for
 //! albums without a motion cover of their own. Melete picks the albums and keeps the record; the
 //! renderer does the work. They talk through a folder of job files, as the stem separator does:
 //! Melete writes `queue/<album>.cover` (the cover's bytes, so the renderer needs no access to the
@@ -31,25 +30,24 @@ mod showing;
 
 pub use showing::*;
 
-/// The loop every renderer job asks for: 16 seconds at 30 frames a second, the camera still but
-/// for a slow breath in and back, the cover at its own size up to 1440 pixels, never larger:
-/// sharp across a phone's width, or full width at the top of a player. Changing any of it means
-/// raising [`VERSION`], so every motion cover is made again.
+/// The loop every renderer job asks for: 8 seconds at 30 frames a second, a gentle circle,
+/// the cover at its own size up to 1440 pixels, never larger: sharp across a phone's width, or
+/// full width at the top of a player. Changing any of it means raising
+/// [`VERSION`], so every motion cover is made again.
 pub const LOOP: Loop = Loop {
-    seconds: 16,
+    seconds: 8,
     fps: 30,
     max_side: 1440,
-    path: "breathe",
-    strength: 0.015,
+    path: "circle",
+    strength: 0.03,
 };
 /// Raised whenever [`LOOP`] or what's asked of the renderer changes: 2, covers up to 1440
-/// pixels rather than 1080; 3, a still camera breathing and soft distant parts drifting, over
-/// 16 seconds, rather than a circle over 8.
-pub const VERSION: i64 = 3;
+/// pixels rather than 1080.
+pub const VERSION: i64 = 2;
 const EVERY: Duration = Duration::from_secs(10);
 const TRIES: i64 = 3;
 const RETRY_AFTER: i64 = 24 * 3600;
-/// The largest video taken from the renderer; a 16-second loop is about ten megabytes at most.
+/// The largest video taken from the renderer; an 8-second loop is a few megabytes at most.
 const MAX_VIDEO: u64 = 64 * 1024 * 1024;
 
 /// What the renderer is asked to make of a cover.
@@ -529,8 +527,8 @@ pub(crate) mod tests {
                 .unwrap();
         assert_eq!(
             job,
-            json!({"id": "3", "cover": "3.cover", "version": 3, "loop": {
-                "seconds": 16, "fps": 30, "max_side": 1440, "path": "breathe", "strength": 0.015}})
+            json!({"id": "3", "cover": "3.cover", "version": 2, "loop": {
+                "seconds": 8, "fps": 30, "max_side": 1440, "path": "circle", "strength": 0.03}})
         );
         assert_eq!(
             std::fs::read(folders.jobs.join("queue/3.cover")).unwrap(),
