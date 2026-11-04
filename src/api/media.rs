@@ -39,12 +39,26 @@ pub(super) use browse::*;
 use lists::*;
 use titles::*;
 
-/// The sizes this API hands out for each kind of image. Only these are fetched, so the cache
-/// can't grow past what browsing fills.
-pub(super) const POSTER_SIZES: &[&str] = &["w342", "w500"];
-pub(super) const BACKDROP_SIZES: &[&str] = &["w1280"];
-const STILL_SIZES: &[&str] = &["w300"];
-pub(super) const LOGO_SIZES: &[&str] = &["w500"];
+/// The sizes each kind of image is served at: answers give the first (the poster's is chosen
+/// per answer), and an app may ask for the same file at any other of its kind's, such as
+/// `original` for a 4K screen. Only these are fetched, so the cache can't grow past them.
+/// TMDB's `original` is the image as uploaded: at most 3840 wide for backdrops and stills.
+pub(super) const POSTER_SIZES: &[&str] = &["w342", "w500", "w780"];
+pub(super) const BACKDROP_SIZES: &[&str] = &[BACKDROP_SIZE, "original"];
+const STILL_SIZES: &[&str] = &["w300", "original"];
+pub(super) const LOGO_SIZES: &[&str] = &[LOGO_SIZE, "original"];
+/// The size answers give backdrops at.
+pub(super) const BACKDROP_SIZE: &str = "w1280";
+/// The size answers give logos at.
+pub(super) const LOGO_SIZE: &str = "w500";
+
+/// A backdrop's focus as answers give it: `{x, y}` from 0 to 1, or null until worked out.
+pub(super) fn focus_json(x: Option<f64>, y: Option<f64>) -> serde_json::Value {
+    match (x, y) {
+        (Some(x), Some(y)) => serde_json::json!({ "x": x, "y": y }),
+        _ => serde_json::Value::Null,
+    }
+}
 const DEFAULT_LIMIT: i64 = 100;
 const MAX_LIMIT: i64 = 500;
 /// Longest episode range one file may claim (S01E01-E99), to bound responses.

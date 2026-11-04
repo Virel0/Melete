@@ -19,7 +19,7 @@ use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_user};
-use super::media::{BACKDROP_SIZES, LOGO_SIZES, artwork_url, save_atomically};
+use super::media::{BACKDROP_SIZE, LOGO_SIZE, artwork_url, save_atomically};
 use crate::db::unix_now;
 use crate::tmdb;
 
@@ -227,12 +227,7 @@ pub(super) async fn extras(
     }
     let backdrop_focus = focus(state, row.backdrop_path.as_deref()).await?;
     let textless_focus = focus(state, row.textless_backdrop_path.as_deref()).await?;
-    let [backdrop_size] = BACKDROP_SIZES else {
-        unreachable!("one backdrop size")
-    };
-    let [logo_size] = LOGO_SIZES else {
-        unreachable!("one logo size")
-    };
+    let (backdrop_size, logo_size) = (BACKDROP_SIZE, LOGO_SIZE);
     Ok(Some(json!({
         "poster": artwork_url("w500", row.poster_path),
         "backdrop": artwork_url(backdrop_size, row.backdrop_path),
@@ -265,9 +260,7 @@ async fn focus(state: &ArtworkState, path: Option<&str>) -> Result<Value, ApiErr
     else {
         return Ok(Value::Null);
     };
-    let [size] = BACKDROP_SIZES else {
-        unreachable!("one backdrop size")
-    };
+    let size = BACKDROP_SIZE;
     let cached = state.artwork_dir.join(size).join(file);
     let bytes = if super::local_artwork::is_local(file) {
         let local =

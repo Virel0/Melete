@@ -1592,14 +1592,14 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artwork image",
-        "description": "Use the URLs the other responses return; they never change meaning, so cache them forever. Posters come at w342 or w500, backdrops (textless ones too) at w1280, stills at w300, logos at w500, people's pictures at w185. With `MELETE_DISCOVERY_POSTERS` on, posters of titles not in the library that a discovery answer listed are served too, at w342 only, for 30 days after they were last listed (2000 at most remembered). A title's own poster and backdrop, from its folder (`poster.*` before `folder.*`, `fanart.*` before `backdrop.*`; JPEG, PNG or WebP), are given ahead of TMDB's as `local-<hash>.jpg`, made from the file at the size asked for (JPEG, never wider than the image) and kept; a changed file gets a new name.",
+        "description": "Use the URLs the other responses return; they never change meaning, so cache them forever. Answers give posters at w342 or w500, backdrops (textless ones too) at w1280, stills at w300, logos at w500 and people's pictures at w185; the same file can be asked for at any other size of its kind, for larger screens: posters at w342, w500 or w780; backdrops at w1280 or original; stills at w300 or original; logos at w500 or original; people's pictures at w185 or h632. `original` is the image as TMDB has it (at most 3840 wide for backdrops and stills; a title's own image at most 3840 wide). Another kind's size answers 404. With `MELETE_DISCOVERY_POSTERS` on, posters of titles not in the library that a discovery answer listed are served too, at w342 only, for 30 days after they were last listed (2000 at most remembered). A title's own poster and backdrop, from its folder (`poster.*` before `folder.*`, `fanart.*` before `backdrop.*`; JPEG, PNG or WebP), are given ahead of TMDB's as `local-<hash>.jpg`, made from the file at the size asked for (JPEG, never wider than the image) and kept; a changed file gets a new name.",
         "parameters": [
           {
             "name": "size",
             "in": "path",
             "required": true,
-            "description": "Image width.",
-            "schema": {"enum": ["w185", "w300", "w342", "w500", "w1280"]}
+            "description": "Image size: a width, a height (h632) or original.",
+            "schema": {"enum": ["w185", "w300", "w342", "w500", "w780", "w1280", "h632", "original"]}
           },
           {
             "name": "file",
@@ -13120,7 +13120,9 @@
           "year",
           "episode_name",
           "poster",
-          "still"
+          "still",
+          "backdrop",
+          "backdrop_focus"
         ],
         "properties": {
           "file_id": {"type": "integer"},
@@ -13135,7 +13137,9 @@
           "year": {"type": ["integer", "null"]},
           "episode_name": {"type": ["string", "null"]},
           "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
-          "still": {"type": ["string", "null"], "description": "Artwork URL (w300), episodes only."}
+          "still": {"type": ["string", "null"], "description": "Artwork URL (w300), episodes only."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280): the movie's or series' backdrop, its own from its folder first, for a wide tile; an episode's `still` is the closer picture when there is one. Null when there's none."},
+          "backdrop_focus": {"type": ["object", "null"], "required": ["x", "y"], "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}, "y": {"type": "number", "minimum": 0, "maximum": 1}}, "additionalProperties": false, "description": "Where the backdrop's subject is, from 0 to 1 (left, top), to crop around; null until worked out (when the title's page or the Watch home first shows it)."}
         },
         "additionalProperties": false
       },
@@ -13151,6 +13155,8 @@
           "episode_name",
           "poster",
           "still",
+          "backdrop",
+          "backdrop_focus",
           "last_watched_at"
         ],
         "properties": {
@@ -13163,6 +13169,8 @@
           "episode_name": {"type": ["string", "null"]},
           "poster": {"type": ["string", "null"], "description": "Artwork URL (w342)."},
           "still": {"type": ["string", "null"], "description": "Artwork URL (w300)."},
+          "backdrop": {"type": ["string", "null"], "description": "Artwork URL (w1280): the series' backdrop, its own from its folder first, for a wide tile; an episode's `still` is the closer picture when there is one. Null when there's none."},
+          "backdrop_focus": {"type": ["object", "null"], "required": ["x", "y"], "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}, "y": {"type": "number", "minimum": 0, "maximum": 1}}, "additionalProperties": false, "description": "Where the backdrop's subject is, from 0 to 1 (left, top), to crop around; null until worked out (when the title's page or the Watch home first shows it)."},
           "last_watched_at": {"type": "integer", "description": "When you last finished an episode of the series."}
         },
         "additionalProperties": false

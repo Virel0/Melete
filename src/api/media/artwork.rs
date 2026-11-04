@@ -15,7 +15,7 @@ pub(super) async fn artwork(
     let size_known = [POSTER_SIZES, BACKDROP_SIZES, STILL_SIZES, LOGO_SIZES]
         .iter()
         .any(|sizes| sizes.contains(&size.as_str()))
-        || size == super::super::credits::PROFILE_SIZE;
+        || super::super::credits::PROFILE_SIZES.contains(&size.as_str());
     if !size_known {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -99,7 +99,7 @@ async fn from_tmdb(
                 || (backdrop && BACKDROP_SIZES.contains(&size))
                 || (still && STILL_SIZES.contains(&size))
                 || (logo && LOGO_SIZES.contains(&size))
-                || (profile && size == super::super::credits::PROFILE_SIZE)
+                || (profile && super::super::credits::PROFILE_SIZES.contains(&size))
                 // A poster a discovery answer listed, when an admin allows those.
                 || (size == crate::discover_posters::SIZE
                     && crate::discover_posters::servable(&state.pool, &format!("/{file}"), unix_now())

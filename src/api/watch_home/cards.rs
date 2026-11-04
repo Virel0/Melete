@@ -2,7 +2,7 @@
 //! user's progress on it, looked up for every title on the page at once.
 
 use super::*;
-use crate::api::media::{BACKDROP_SIZES, LOGO_SIZES, artwork_url, unwatched_episodes};
+use crate::api::media::{BACKDROP_SIZE, LOGO_SIZE, artwork_url, focus_json, unwatched_episodes};
 
 /// A movie or a series, by its id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -40,13 +40,6 @@ struct CardRow {
     textless_x: Option<f64>,
     textless_y: Option<f64>,
     added_at: Option<i64>,
-}
-
-fn focus(x: Option<f64>, y: Option<f64>) -> Value {
-    match (x, y) {
-        (Some(x), Some(y)) => json!({ "x": x, "y": y }),
-        _ => Value::Null,
-    }
 }
 
 /// The cards of the titles on the page, and the user's progress on its movies.
@@ -132,12 +125,7 @@ impl Cards {
 }
 
 fn card_json(series: bool, row: &CardRow) -> Result<Value, ApiError> {
-    let [backdrop_size] = BACKDROP_SIZES else {
-        unreachable!("one backdrop size")
-    };
-    let [logo_size] = LOGO_SIZES else {
-        unreachable!("one logo size")
-    };
+    let (backdrop_size, logo_size) = (BACKDROP_SIZE, LOGO_SIZE);
     let genres: Value = match &row.genres {
         Some(json) => serde_json::from_str(json)?,
         None => json!([]),
@@ -152,9 +140,9 @@ fn card_json(series: bool, row: &CardRow) -> Result<Value, ApiError> {
         "overview": row.overview,
         "poster": artwork_url("w342", row.poster_path.clone()),
         "backdrop": artwork_url(backdrop_size, row.backdrop_path.clone()),
-        "backdrop_focus": focus(row.backdrop_x, row.backdrop_y),
+        "backdrop_focus": focus_json(row.backdrop_x, row.backdrop_y),
         "textless_backdrop": artwork_url(backdrop_size, row.textless_backdrop_path.clone()),
-        "textless_backdrop_focus": focus(row.textless_x, row.textless_y),
+        "textless_backdrop_focus": focus_json(row.textless_x, row.textless_y),
         "logo": artwork_url(logo_size, row.logo_path.clone()),
         "added_at": row.added_at,
     }))
