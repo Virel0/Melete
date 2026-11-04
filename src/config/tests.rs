@@ -341,29 +341,6 @@ fn the_stem_folders_go_together() {
 }
 
 #[test]
-fn motion_covers_are_off_until_turned_on_and_need_the_job_folder() {
-    let config = |pairs: &'static [(&'static str, &'static str)]| {
-        Config::from_lookup(|k| {
-            pairs
-                .iter()
-                .find(|(key, _)| *key == k)
-                .map(|(_, v)| v.to_string())
-        })
-    };
-    let none = config(&[]).unwrap();
-    assert!(!none.motion_covers);
-    assert!(none.motion_jobs.is_none());
-    let set = config(&[
-        ("MELETE_MOTION_COVERS", "on"),
-        ("MELETE_MOTION_JOBS", "/motion-jobs"),
-    ])
-    .unwrap();
-    assert!(set.motion_covers);
-    assert_eq!(set.motion_jobs, Some(PathBuf::from("/motion-jobs")));
-    assert!(config(&[("MELETE_MOTION_COVERS", "yes")]).is_err());
-}
-
-#[test]
 fn a_songs_album_follows_it_only_when_turned_on() {
     let config = |pairs: &'static [(&'static str, &'static str)]| {
         Config::from_lookup(|k| {

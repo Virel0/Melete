@@ -4,9 +4,7 @@
 //!
 //! An album's cover is the image in its folder, else the picture in a track's tags, else the
 //! Cover Art Archive's for its MusicBrainz release group (fetched once when first asked for,
-//! and only with MusicBrainz matching on). A motion cover is a looping video in its folder, else
-//! one made from the cover, shown while motion covers are on to users who haven't turned
-//! those off for themselves.
+//! and only with MusicBrainz matching on). A motion cover is a looping video in its folder.
 
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
@@ -56,18 +54,14 @@ pub(super) struct MusicState {
     pub(super) pool: SqlitePool,
     /// Where pictures pulled from tags and the Cover Art Archive's covers are kept.
     covers: PathBuf,
-    /// Motion covers made from still covers.
-    motion: PathBuf,
     pub(super) coverart: Option<Arc<coverart::Client>>,
 }
 
 /// The music browsing routes, for everyone signed in. `covers` is where pictures from tags and
-/// the Cover Art Archive are kept, `motion_dir` where motion covers are; without `coverart`, the
-/// Cover Art Archive isn't asked.
+/// the Cover Art Archive are kept; without `coverart`, the Cover Art Archive isn't asked.
 pub fn routes(
     pool: SqlitePool,
     covers: PathBuf,
-    motion_dir: PathBuf,
     coverart: Option<Arc<coverart::Client>>,
 ) -> Router {
     let auth = AppState {
@@ -88,7 +82,6 @@ pub fn routes(
         .with_state(MusicState {
             pool,
             covers,
-            motion: motion_dir,
             coverart,
         })
 }

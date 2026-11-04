@@ -109,12 +109,7 @@ async fn fixture(coverart: Option<Arc<coverart::Client>>) -> Fixture {
         .await
         .unwrap();
     let covers = tempfile::tempdir().unwrap();
-    let app = routes(
-        pool.clone(),
-        covers.path().join("music"),
-        covers.path().join("motion"),
-        coverart,
-    );
+    let app = routes(pool.clone(), covers.path().join("music"), coverart);
     Fixture {
         app,
         pool,
@@ -474,90 +469,6 @@ async fn motion_covers_are_served_with_byte_ranges() {
             .status(),
         StatusCode::NOT_FOUND
     );
-}
-
-async fn served(f: &Fixture, album: i64) -> StatusCode {
-    get(f, &format!("/api/v1/music/albums/{album}/motion"), None)
-        .await
-        .status()
-}
-
-#[tokio::test]
-async fn motion_covers_made_from_covers_are_shown_while_on_unless_hidden() {
-    let f = fixture(None).await;
-    // Dummy's cover (a track's picture) has a motion cover made from it.
-    sqlx::raw_sql(
-        "INSERT INTO music_cover_colours (album_id, source, colours, measured_at)
-                 VALUES (2, 'tag:p/dummy/01.mp3:1:1#00', '{}', 0);
-             INSERT INTO music_motion_covers (album_id, state, source, version, file, queued_at,
-                 finished_at)
-                 VALUES (2, 'done', 'tag:p/dummy/01.mp3:1:1#00', 1, '2.mp4', 0, 0);",
-    )
-    .execute(&f.pool)
-    .await
-    .unwrap();
-    let videos = f.covers.path().join("motion");
-    std::fs::create_dir_all(&videos).unwrap();
-    std::fs::write(videos.join("2.mp4"), vec![9u8; 500]).unwrap();
-    let motion_of = |album: Value| album["motion_cover"].clone();
-    // Off by default: not shown, not served.
-    assert_eq!(
-        motion_of(json_of(&f, "/api/v1/music/albums/2").await.1),
-        Value::Null
-    );
-    assert_eq!(served(&f, 2).await, StatusCode::NOT_FOUND);
-
-    // On: shown in lists and details, and served.
-    sqlx::query(
-        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_MOTION_COVERS', 'on', 0)",
-    )
-    .execute(&f.pool)
-    .await
-    .unwrap();
-    let (_, dummy) = json_of(&f, "/api/v1/music/albums/2").await;
-    assert_eq!(motion_of(dummy.clone()), "/api/v1/music/albums/2/motion");
-    assert_eq!(
-        dummy["motion_cover_generation"],
-        json!({"state": "done", "reason": null})
-    );
-    let (_, all) = json_of(&f, "/api/v1/music/albums?q=dummy").await;
-    assert_eq!(
-        motion_of(all["items"][0].clone()),
-        "/api/v1/music/albums/2/motion"
-    );
-    let full = get(&f, "/api/v1/music/albums/2/motion", None).await;
-    assert_eq!(full.status(), StatusCode::OK);
-    assert_eq!(
-        full.into_body().collect().await.unwrap().to_bytes().len(),
-        500
-    );
-
-    // Hidden by this user: gone for them, but an album's own motion cover still shows.
-    let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    crate::motion::choose(&f.pool, user, false).await.unwrap();
-    assert_eq!(
-        motion_of(json_of(&f, "/api/v1/music/albums/2").await.1),
-        Value::Null
-    );
-    assert_eq!(served(&f, 2).await, StatusCode::NOT_FOUND);
-    assert_eq!(
-        motion_of(json_of(&f, "/api/v1/music/albums/1").await.1),
-        "/api/v1/music/albums/1/motion"
-    );
-    crate::motion::choose(&f.pool, user, true).await.unwrap();
-
-    // Made from a cover the album no longer has: not shown until it's made again.
-    sqlx::query("UPDATE music_cover_colours SET source = 'tag:p/dummy/01.mp3:2:2#11'")
-        .execute(&f.pool)
-        .await
-        .unwrap();
-    let (_, dummy) = json_of(&f, "/api/v1/music/albums/2").await;
-    assert_eq!(motion_of(dummy.clone()), Value::Null);
-    assert_eq!(dummy["motion_cover_generation"], Value::Null);
-    assert_eq!(served(&f, 2).await, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

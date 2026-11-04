@@ -21,7 +21,6 @@ const TASKS = {
   works: "Classical works",
   lyrics: "Lyrics",
   "cover-colours": "Cover colours",
-  "motion-covers": "Motion covers",
   "stem-splitting": "Splitting tracks into parts (Auto DJ)",
   following: "Followed artists",
   "rss-sync": "RSS sync",

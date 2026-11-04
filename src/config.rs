@@ -68,11 +68,6 @@ pub struct Config {
     /// Splitting music into its parts: where the parts are kept (`MELETE_STEMS_DIR`) and
     /// the folder of jobs shared with the separator (`MELETE_STEMS_JOBS`); off unless both are set.
     pub stems: Option<Stems>,
-    /// Motion covers made from still covers: the folder of jobs shared with the renderer
-    /// (`MELETE_MOTION_JOBS`); off unless set. The videos are kept under `data_dir`.
-    pub motion_jobs: Option<PathBuf>,
-    /// Making motion covers for albums without one (`MELETE_MOTION_COVERS=on`; off by default).
-    pub motion_covers: bool,
     /// Which parts of Melete each way of reaching it opens (`MELETE_WAYS_IN`), and the
     /// reverse proxies trusted to say who their clients are (`MELETE_TRUSTED_PROXIES`).
     pub ways_in: crate::ways_in::WaysIn,
@@ -171,10 +166,6 @@ impl Config {
         };
         let ways_in = ways_in(&get)?;
         let stems = stems(&get)?;
-        let motion_jobs = get("MELETE_MOTION_JOBS")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from);
-        let motion_covers = switch(&get, "MELETE_MOTION_COVERS")?;
         let auto_dj = switch(&get, "MELETE_AUTO_DJ")?;
         let romanisation = switch(&get, "MELETE_LYRICS_ROMANISATION")?;
         let intro_detection = switch(&get, "MELETE_INTRO_DETECTION")?;
@@ -233,8 +224,6 @@ impl Config {
             discovery,
             metadata_language,
             stems,
-            motion_jobs,
-            motion_covers,
             ways_in,
             ffprobe,
             ffmpeg,

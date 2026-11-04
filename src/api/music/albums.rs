@@ -13,9 +13,6 @@ pub(in super::super) const ALBUM_COLUMNS: &str =
         WHERE t.album_id = a.id AND t.missing_since IS NULL AND t.has_picture = 1) AS own_cover,
     coalesce(r.cover_front, 0) AS archive_cover,
     a.motion_file IS NOT NULL AS motion,
-    EXISTS (SELECT 1 FROM music_motion_covers m
-        JOIN music_cover_colours mc ON mc.album_id = m.album_id
-        WHERE m.album_id = a.id AND m.state = 'done' AND m.source = mc.source) AS generated_motion,
     (SELECT c.colours FROM music_cover_colours c WHERE c.album_id = a.id) AS colours,
     coalesce(a.match_release_id, a.mb_release_id) AS mb_release_id,
     coalesce(a.match_release_group_id, a.mb_release_group_id) AS mb_release_group_id,
@@ -38,8 +35,6 @@ pub(in super::super) struct AlbumRow {
     pub(super) own_cover: bool,
     pub(super) archive_cover: bool,
     pub(super) motion: bool,
-    /// A motion cover made from the cover it has now.
-    pub(super) generated_motion: bool,
     /// The cover's colours, as the cover-colouring job worked them out.
     pub(super) colours: Option<String>,
     pub(super) mb_release_id: Option<String>,
@@ -51,31 +46,15 @@ pub(in super::super) struct AlbumRow {
 }
 
 /// What a caller sees of an album: the Cover Art Archive's covers (with MusicBrainz matching
-/// on), and motion covers made from covers (while they're on, unless the caller turned them off
-/// for themselves).
+/// on).
 #[derive(Debug, Clone, Copy)]
 pub(in super::super) struct Shown {
     pub(in super::super) archive: bool,
-    pub(in super::super) generated_motion: bool,
-}
-
-impl Shown {
-    pub(in super::super) async fn to(
-        pool: &SqlitePool,
-        archive: bool,
-        user_id: i64,
-    ) -> sqlx::Result<Shown> {
-        Ok(Shown {
-            archive,
-            generated_motion: crate::motion::shown_to(pool, user_id).await?,
-        })
-    }
 }
 
 impl AlbumRow {
     pub(in super::super) fn to_json(&self, shown: Shown) -> Value {
         let has_cover = self.own_cover || (shown.archive && self.archive_cover);
-        let motion = self.motion || (shown.generated_motion && self.generated_motion);
         json!({
             "id": self.id,
             "title": self.title,
@@ -86,7 +65,9 @@ impl AlbumRow {
             "tracks": self.tracks,
             "duration_seconds": self.duration_seconds,
             "cover": has_cover.then(|| format!("/api/v1/music/albums/{}/cover", self.id)),
-            "motion_cover": motion.then(|| format!("/api/v1/music/albums/{}/motion", self.id)),
+            "motion_cover": self
+                .motion
+                .then(|| format!("/api/v1/music/albums/{}/motion", self.id)),
             // Only beside the cover they came from.
             "colours": self
                 .colours
@@ -181,7 +162,9 @@ pub(super) async fn list_albums(
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
-    let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
     Ok(Json(json!({
         "total": total,
         "items": rows.iter().map(|r| r.to_json(shown)).collect::<Vec<_>>(),
@@ -229,12 +212,13 @@ pub(super) async fn album(
             }
         }
     }
-    let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
     let mut body = row.to_json(shown);
     let liked =
         crate::aoide::likes::liked_albums(&state.pool, current.user.id, &current.access).await?;
     body["liked"] = json!(liked.iter().any(|(album, _)| *album == Some(id)));
-    body["motion_cover_generation"] = json!(crate::motion::status(&state.pool, id).await?);
     body["library"] = json!(library);
     body["genres"] = json!(genres);
     body["release"] = match release {

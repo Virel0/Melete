@@ -37,23 +37,17 @@ fn compose_runs_this_versions_release_unless_env_names_another() {
 }
 
 #[test]
-fn the_renderer_and_the_separator_run_this_versions_release_unless_env_names_another() {
-    for (file, part) in [
-        ("compose.motion.yaml", "motion"),
-        ("compose.stems.yaml", "stems"),
-    ] {
-        let compose = read(file);
-        let wanted = format!(
-            "image: ${{MELETE_{}_IMAGE:-ghcr.io/virel0/melete:{}-{part}}}",
-            part.to_uppercase(),
-            env!("CARGO_PKG_VERSION")
-        );
-        assert_eq!(lines_with(&compose, "image"), [wanted.as_str()], "{file}");
-        assert!(
-            lines_with(&compose, "build").is_empty(),
-            "{file} builds nothing"
-        );
-    }
+fn the_separator_runs_this_versions_release_unless_env_names_another() {
+    let compose = read("compose.stems.yaml");
+    let wanted = format!(
+        "image: ${{MELETE_STEMS_IMAGE:-ghcr.io/virel0/melete:{}-stems}}",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert_eq!(lines_with(&compose, "image"), [wanted.as_str()]);
+    assert!(
+        lines_with(&compose, "build").is_empty(),
+        "compose.stems.yaml builds nothing"
+    );
 }
 
 #[test]
@@ -71,7 +65,6 @@ fn every_container_sharing_meletes_files_runs_as_meletes_user() {
     for file in [
         "compose.yaml",
         "compose.stems.yaml",
-        "compose.motion.yaml",
         "compose.soulseek.yaml",
     ] {
         assert_eq!(

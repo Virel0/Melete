@@ -23,7 +23,7 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 18] = [
+pub const TASKS: [Task; 17] = [
     Task {
         name: "library",
         what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
@@ -73,11 +73,6 @@ pub const TASKS: [Task; 18] = [
         name: "cover-colours",
         what: "works out album covers' colours",
         wake: Some(|| jobs::COVERS.notify_one()),
-    },
-    Task {
-        name: "motion-covers",
-        what: "makes motion covers from albums' still covers in the renderer beside Melete, while they're turned on, one album at a time and never while video is converted",
-        wake: None,
     },
     Task {
         name: "stem-splitting",

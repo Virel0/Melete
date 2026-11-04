@@ -197,7 +197,9 @@ pub(super) async fn artist(
     .fetch_all(&state.pool)
     .await?;
     let mut body = row.to_json();
-    let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
     body["album_list"] = json!(albums.iter().map(|a| a.to_json(shown)).collect::<Vec<_>>());
     body["appears_on_list"] = json!(
         appears_on

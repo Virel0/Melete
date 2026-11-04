@@ -40,7 +40,6 @@ mod music_likes;
 mod music_lyrics;
 mod music_match;
 mod music_mixes;
-mod music_motion;
 mod music_pins;
 mod music_play;
 mod music_plays;
@@ -219,7 +218,7 @@ pub fn server_with(
     // One limiter for every password check, so guesses add up wherever they're made.
     let limiter = kept.limiter.clone();
     let router = app_kept(pool.clone(), kept);
-    let router = music_routes(router, &pool, data_dir, &artwork_dir, coverart, converter);
+    let router = music_routes(router, &pool, &artwork_dir, coverart, converter);
     let router =
         lyrics_matching_and_aoide(router, &pool, data_dir, lyrics, translator, &musicbrainz);
     let router = router.merge(watch_home::routes_with_ai(

@@ -90,35 +90,35 @@ fn tasks_that_cant_be_run_from_here_say_so() {
 
 #[test]
 fn a_backlog_shows_its_progress_then_how_it_went() {
-    let motion = || {
+    let stems = || {
         list()
             .into_iter()
-            .find(|t| t.name == "motion-covers")
+            .find(|t| t.name == "stem-splitting")
             .unwrap()
     };
     // Turned off: not running in this server.
     backlog(
-        "motion-covers",
-        "making motion covers",
+        "stem-splitting",
+        "splitting tracks",
         false,
         (0, 10, 0),
         || unreachable!(),
     );
-    assert!(!motion().active);
+    assert!(!stems().active);
     // Working through it: running, with how far it has got.
     backlog(
-        "motion-covers",
-        "making motion covers",
+        "stem-splitting",
+        "splitting tracks",
         true,
         (3, 10, 1),
         || unreachable!(),
     );
-    let now = motion();
+    let now = stems();
     assert!(now.active && now.running);
     assert_eq!(
         now.progress,
         [Progress {
-            what: "making motion covers",
+            what: "splitting tracks",
             done: 3,
             total: 10,
             failed: 1
@@ -126,35 +126,35 @@ fn a_backlog_shows_its_progress_then_how_it_went() {
     );
     let started = now.last_started_at;
     backlog(
-        "motion-covers",
-        "making motion covers",
+        "stem-splitting",
+        "splitting tracks",
         true,
         (4, 10, 1),
         || unreachable!(),
     );
     assert_eq!(
-        motion().last_started_at,
+        stems().last_started_at,
         started,
         "one run, not one per look"
     );
     // Caught up: finished, saying how it went.
     backlog(
-        "motion-covers",
-        "making motion covers",
+        "stem-splitting",
+        "splitting tracks",
         true,
         (10, 10, 1),
         || "9 made".into(),
     );
-    let done = motion();
+    let done = stems();
     assert!(!done.running && done.progress.is_empty());
     assert_eq!(done.result.as_deref(), Some("9 made"));
     // Nothing new to do: left as it was.
     backlog(
-        "motion-covers",
-        "making motion covers",
+        "stem-splitting",
+        "splitting tracks",
         true,
         (10, 10, 1),
         || unreachable!(),
     );
-    assert_eq!(motion().result.as_deref(), Some("9 made"));
+    assert_eq!(stems().result.as_deref(), Some("9 made"));
 }

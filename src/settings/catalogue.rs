@@ -358,17 +358,6 @@ pub const SERVICES: &[Service] = &[
         )],
     },
     Service {
-        key: "motion_covers",
-        name: "Motion covers",
-        about: "Looping motion covers made from albums' still covers, for albums without one of their own: a slow, gentle camera move over the cover's depth, with lettering and faces kept whole. Covers that are mostly text or flat are skipped. Each user can hide the ones made here. Made on the server; nothing about the library leaves it.",
-        fields: &[field(
-            "MELETE_MOTION_COVERS",
-            "Make motion covers",
-            "Needs the motion cover renderer beside Melete (MELETE_MOTION_JOBS). It waits while video is transcoded or music is split into parts.",
-            Input::Toggle { on: "on" },
-        )],
-    },
-    Service {
         key: "discovery",
         name: "Trending and similar titles",
         about: "Rows of what's trending on TMDB and of titles like one being looked at, and the films of a franchise that aren't in the library, each marked playable, requested or available to request. Only which chart (today's or this week's), a title's TMDB id or a collection's TMDB id leaves the server, never anything about the household.",

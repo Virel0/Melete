@@ -279,7 +279,9 @@ async fn work(
     .bind(json!(album_ids).to_string())
     .fetch_all(&state.pool)
     .await?;
-    let shown = Shown::to(&state.pool, state.coverart.is_some(), current.user.id).await?;
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
     let albums: HashMap<i64, Value> = albums.iter().map(|a| (a.id, a.to_json(shown))).collect();
 
     // The movements, by number, with the name most recordings give each.
@@ -489,8 +491,7 @@ mod tests {
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
                 .unwrap();
-        let app =
-            super::super::music::routes(pool.clone(), "/nowhere".into(), "/nowhere".into(), None);
+        let app = super::super::music::routes(pool.clone(), "/nowhere".into(), None);
         (pool, app, token)
     }
 

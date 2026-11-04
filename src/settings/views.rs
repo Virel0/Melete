@@ -73,10 +73,6 @@ fn component(config: &Config, key: &str) -> Option<Component> {
             name: "stem separator",
             set_up: config.stems.is_some(),
         }),
-        "motion_covers" => Some(Component {
-            name: "motion cover renderer",
-            set_up: config.motion_jobs.is_some(),
-        }),
         _ => None,
     }
 }
@@ -107,7 +103,6 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "flaresolverr" => config.flaresolverr.is_some(),
         "song_albums" => config.song_albums,
         "auto_dj" => config.auto_dj,
-        "motion_covers" => config.motion_covers,
         "intro_detection" => config.intro_detection,
         "trickplay" => config.trickplay,
         "offline_copies" => config.offline_copies,
