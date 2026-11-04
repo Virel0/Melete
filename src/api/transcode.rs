@@ -28,6 +28,9 @@ use crate::probe::MediaInfo;
 use crate::subtitles::{self, Format, Source};
 use crate::transcode::{self, Burn, Keyframes, Settings, TranscodeError, Transcoder, VideoCodec};
 
+mod ass_burn;
+use ass_burn::TextTrack;
+
 /// Keyframe lists kept, by file version; a list is about 10 KB for a two-hour film.
 const KEYFRAMES_KEPT: usize = 64;
 
@@ -41,6 +44,18 @@ struct TranscodeState {
     transcoder: Arc<Transcoder>,
     subtitle_cache: Arc<PathBuf>,
     keyframes: Arc<Mutex<HashMap<FileVersion, Arc<Keyframes>>>>,
+    /// Whether each ASS/SSA track looked at is styled, by its subtitle cache key.
+    styled: Arc<Mutex<HashMap<String, bool>>>,
+}
+
+/// What a client asks a transcode for: the settings, and the subtitle track the viewer chose
+/// with whether the player draws ASS, so a styled ASS track can be burned in for it.
+#[derive(serde::Deserialize)]
+struct TranscodeAsk {
+    #[serde(flatten)]
+    settings: Settings,
+    subtitle: Option<String>,
+    renders_ass: Option<bool>,
 }
 
 /// Asking to transcode, for everyone signed in, and the HLS playlist and segments it gives,
@@ -66,6 +81,7 @@ pub fn routes(
         transcoder,
         subtitle_cache: Arc::new(subtitle_cache),
         keyframes: Arc::default(),
+        styled: Arc::default(),
     })
 }
 
@@ -111,59 +127,22 @@ async fn text_burn(
     video: PathBuf,
     settings: &Settings,
 ) -> Result<Option<Burn>, ApiError> {
-    let no_track = || unprocessable("no such subtitle track");
     let Some(track) = settings.burn_subtitle.as_deref() else {
         return Ok(None);
     };
+    if !track.starts_with(['s', 'x']) {
+        return Err(unprocessable("no such subtitle track"));
+    }
     let ffmpeg = state.transcoder.ffmpeg();
-    let movie_file = video.clone();
-    let rendered = if let Some(index) = track.strip_prefix('s').and_then(|i| i.parse().ok()) {
-        let stream = file
-            .media
-            .iter()
-            .flat_map(|m| &m.subtitles)
-            .find(|s| s.index == index)
-            .ok_or_else(no_track)?;
-        if !stream.text {
-            return Ok(None);
-        }
-        let key = embedded_key(file.id, index, file.size, file.modified_at);
-        let source = Source::Embedded {
-            video: &video,
-            index,
-        };
-        subtitles::convert(ffmpeg, &state.subtitle_cache, &key, source, Format::Ass).await
-    } else {
-        let id = track.strip_prefix('x').ok_or_else(no_track)?;
-        let sidecars = sidecars_of(video).await?;
-        let sidecar = sidecars.iter().find(|s| s.id == id).ok_or_else(no_track)?;
-        let key = sidecar_key(file.id, sidecar);
-        let source = Source::Sidecar(&sidecar.path);
-        subtitles::convert(ffmpeg, &state.subtitle_cache, &key, source, Format::Ass).await
+    let Some(text) = TextTrack::find(file, &video, track).await? else {
+        return Ok(None);
     };
-    let path = rendered.map_err(|err| {
-        if err.is::<subtitles::Busy>() {
-            return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, err.to_string());
-        }
-        tracing::warn!(
-            rel_path = file.rel_path,
-            error = format!("{err:#}"),
-            "rendering subtitles failed"
-        );
-        ApiError::new(StatusCode::BAD_GATEWAY, "rendering the subtitles failed")
-    })?;
+    let path = text.render(state, file, &video).await?;
     let burn = Burn::text(path).map_err(|reason| anyhow::anyhow!(reason))?;
     // The fonts the video carries, so styled subtitles look as made; without them a standard
     // font stands in, so a failure here doesn't stop the burn.
     let key = subtitles::fonts_key(file.id, file.size, file.modified_at);
-    let fonts = subtitles::fonts(
-        &state.ffprobe,
-        ffmpeg,
-        &state.subtitle_cache,
-        &key,
-        &movie_file,
-    )
-    .await;
+    let fonts = subtitles::fonts(&state.ffprobe, ffmpeg, &state.subtitle_cache, &key, &video).await;
     Ok(Some(match fonts {
         Ok(Some(dir)) => burn
             .with_fonts(dir)
@@ -214,10 +193,16 @@ async fn start(
     Extension(current): Extension<CurrentUser>,
     Path(file_id): Path<i64>,
     limit: Option<Extension<crate::ways_in::VideoLimit>>,
-    Json(mut settings): Json<Settings>,
+    Json(ask): Json<TranscodeAsk>,
 ) -> Result<Json<Value>, ApiError> {
+    let TranscodeAsk {
+        mut settings,
+        subtitle,
+        renders_ass,
+    } = ask;
     settings
         .validate()
+        .and(ass_burn::check_subtitle(subtitle.as_deref()))
         .map_err(|reason| ApiError::new(StatusCode::BAD_REQUEST, reason))?;
     require_playable(&state.pool, &current.access, file_id).await?;
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
@@ -228,6 +213,14 @@ async fn start(
     };
     let limit = way_limit(limit);
     hold_to_limit(&mut settings, limit, &file, media)?;
+    let burn_reason = ass_burn::decide(
+        &state,
+        &file,
+        &mut settings,
+        subtitle.as_deref(),
+        renders_ass,
+    )
+    .await?;
     let duration_seconds = media.duration_seconds;
     // Checks the file can be transcoded with these settings before handing out a URL.
     transcode::plan(
@@ -284,6 +277,8 @@ async fn start(
         "watched": progress.watched,
         "segments": super::segments::of_file(&state.pool, file_id).await?,
         "max_bitrate": limit,
+        "burned_subtitle": settings.burn_subtitle,
+        "burn_reason": burn_reason,
     })))
 }
 
@@ -748,5 +743,194 @@ mod tests {
             f.app.clone().oneshot(anonymous).await.unwrap().status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    /// An ASS script with one style, `Default`, and these events.
+    fn ass_script(events: &str) -> String {
+        format!(
+            "[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\n\
+             Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, \
+             BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, \
+             BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
+             Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,\
+             0,0,1,2,0,2,10,10,10,1\n\n[Events]\n\
+             Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n\
+             {events}"
+        )
+    }
+
+    /// A placed sign and karaoke.
+    fn styled_ass() -> String {
+        ass_script(
+            "Dialogue: 0,0:00:00.00,0:00:19.00,Default,,0,0,0,,{\\pos(160,40)}A SIGN\n\
+             Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,{\\k50}Ka{\\k50}ra\n",
+        )
+    }
+
+    /// Dialogue only, with italics.
+    fn plain_ass() -> String {
+        ass_script("Dialogue: 0,0:00:00.00,0:00:19.00,Default,,0,0,0,,Hello, {\\i1}there{\\i0}\n")
+    }
+
+    /// Remuxes file 1 with a styled ASS track (stream 2) and a plain one (stream 3).
+    async fn add_ass_tracks(f: &Fixture) {
+        let dir = f._dir.path();
+        std::fs::write(dir.join("styled.ass"), styled_ass()).unwrap();
+        std::fs::write(dir.join("plain.ass"), plain_ass()).unwrap();
+        let clip = dir.join("library/clip.mkv");
+        let made = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&clip)
+            .arg("-i")
+            .arg(dir.join("styled.ass"))
+            .arg("-i")
+            .arg(dir.join("plain.ass"))
+            .args(["-map", "0", "-map", "1", "-map", "2", "-c", "copy"])
+            .arg(dir.join("with-ass.mkv"))
+            .status()
+            .expect("ffmpeg is installed");
+        assert!(made.success());
+        std::fs::rename(dir.join("with-ass.mkv"), &clip).unwrap();
+        sqlx::query("UPDATE media_files SET size = ? WHERE id = 1")
+            .bind(std::fs::metadata(&clip).unwrap().len() as i64)
+            .execute(&f.pool)
+            .await
+            .unwrap();
+    }
+
+    async fn transcode_answer(f: &Fixture, settings: &Value) -> (StatusCode, Value) {
+        let response = call(
+            f,
+            "POST",
+            "/api/v1/files/1/transcode",
+            Some(settings.clone()),
+        )
+        .await;
+        (response.status(), json_body(response).await)
+    }
+
+    /// The track the latest transcoding session burns in, as its segments are made.
+    async fn stored_burn(f: &Fixture) -> Option<String> {
+        let stored: String =
+            sqlx::query_scalar("SELECT transcode FROM play_sessions ORDER BY rowid DESC LIMIT 1")
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        serde_json::from_str::<Settings>(&stored)
+            .unwrap()
+            .burn_subtitle
+    }
+
+    #[tokio::test]
+    async fn burns_in_a_styled_ass_track_for_a_player_that_cant_draw_ass() {
+        let f = fixture().await;
+        add_ass_tracks(&f).await;
+        let asked = json!({ "subtitle": "s2", "renders_ass": false });
+        let (status, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["burned_subtitle"], "s2", "{body}");
+        assert_eq!(body["burn_reason"], "styled_ass");
+        assert_eq!(stored_burn(&f).await.as_deref(), Some("s2"));
+        let url = body["playlist_url"].as_str().unwrap();
+        let segment = get_bytes(&f, &url.replace("main.m3u8", "0.ts"), "video/mp2t").await;
+        assert_eq!(segment[0], 0x47);
+    }
+
+    #[tokio::test]
+    async fn leaves_plain_ass_and_players_that_draw_ass_alone() {
+        let f = fixture().await;
+        add_ass_tracks(&f).await;
+        for asked in [
+            json!({ "subtitle": "s3", "renders_ass": false }),
+            json!({ "subtitle": "s2", "renders_ass": true }),
+            json!({ "subtitle": "s2" }),
+            json!({ "renders_ass": false }),
+            json!({ "subtitle": "o0123abcd", "renders_ass": false }),
+        ] {
+            let (status, body) = transcode_answer(&f, &asked).await;
+            assert_eq!(status, StatusCode::OK, "{asked}: {body}");
+            assert_eq!(body["burned_subtitle"], Value::Null, "{asked}");
+            assert_eq!(body["burn_reason"], Value::Null, "{asked}");
+            assert_eq!(stored_burn(&f).await, None, "{asked}");
+        }
+        // Decided once: the plain track's rendering, gone from the cache, isn't made again.
+        let cache = f._dir.path().join("subtitles");
+        let plain_rendering = || {
+            std::fs::read_dir(&cache)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .find(|p| {
+                    let name = p.file_name().unwrap().to_str().unwrap();
+                    name.starts_with("1-s3-") && name.ends_with(".ass")
+                })
+        };
+        std::fs::remove_file(plain_rendering().expect("rendered to decide")).unwrap();
+        let asked = json!({ "subtitle": "s3", "renders_ass": false });
+        let (_, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(body["burn_reason"], Value::Null);
+        assert_eq!(plain_rendering(), None, "not read again");
+
+        // burn_subtitle still decides on its own.
+        let asked = json!({ "burn_subtitle": "s3", "subtitle": "s2", "renders_ass": true });
+        let (_, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(body["burned_subtitle"], "s3");
+        assert_eq!(body["burn_reason"], "asked");
+    }
+
+    #[tokio::test]
+    async fn keeps_copy_and_says_why() {
+        let f = fixture().await;
+        add_ass_tracks(&f).await;
+        let asked = json!({ "video_codec": "copy", "subtitle": "s2", "renders_ass": false });
+        let (status, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["burned_subtitle"], Value::Null);
+        assert_eq!(body["burn_reason"], "copy_kept");
+        assert_eq!(stored_burn(&f).await, None);
+    }
+
+    #[tokio::test]
+    async fn burns_in_a_styled_ass_file_beside_the_video() {
+        let f = fixture().await;
+        let library = f._dir.path().join("library");
+        std::fs::write(library.join("clip.en.ass"), styled_ass()).unwrap();
+        std::fs::write(library.join("clip.fr.ass"), plain_ass()).unwrap();
+        let sidecars = crate::subtitles::sidecars(&library.join("clip.mkv")).unwrap();
+        let id = |language: &str| {
+            let found = sidecars
+                .iter()
+                .find(|s| s.language.as_deref() == Some(language));
+            format!("x{}", found.unwrap().id)
+        };
+        let asked = json!({ "subtitle": id("en"), "renders_ass": false });
+        let (status, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["burned_subtitle"], id("en"));
+        assert_eq!(body["burn_reason"], "styled_ass");
+        let asked = json!({ "subtitle": id("fr"), "renders_ass": false });
+        let (_, body) = transcode_answer(&f, &asked).await;
+        assert_eq!(body["burned_subtitle"], Value::Null);
+        assert_eq!(body["burn_reason"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn refuses_chosen_tracks_that_arent_the_files() {
+        let f = fixture().await;
+        for (asked, status) in [
+            (json!({ "subtitle": "nope" }), StatusCode::BAD_REQUEST),
+            (
+                json!({ "subtitle": "s9", "renders_ass": false }),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                json!({ "subtitle": "x00000000", "renders_ass": false }),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            // Without renders_ass false the track isn't looked at, as before.
+            (json!({ "subtitle": "s9" }), StatusCode::OK),
+        ] {
+            let (got, body) = transcode_answer(&f, &asked).await;
+            assert_eq!(got, status, "{asked}: {body}");
+        }
     }
 }
