@@ -9,7 +9,7 @@ import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js"
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
-import { canDrawAss, drawStyled, stopStyled } from "/web/player-ass.js";
+import { canDrawAss, drawStyled, serverDraws, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
 
@@ -64,6 +64,8 @@ export async function playerPage(fileId, params, ctx) {
     // The styled subtitles drawn over the video, if any, and the tracks that couldn't be.
     styled: null,
     plainOnly: new Set(),
+    // The track the server drew into the picture of the conversion playing, if any.
+    burned: null,
   };
   const video = s.video;
   convertWhenRefused(s);
@@ -211,6 +213,7 @@ async function load(s, at) {
   const next = choose(s.info, s.choice);
   if (s.mode && JSON.stringify(next) === JSON.stringify(s.mode)) return;
   s.mode = next;
+  s.burned = null;
   const mine = ++s.loads;
   s.status.textContent = s.mode.direct ? "Starting…" : "Asking the server to convert the video…";
   detach(s);
@@ -221,6 +224,8 @@ async function load(s, at) {
     const { direct: _, ...request } = s.mode;
     const answer = await api(`/files/${s.fileId}/transcode`, { method: "POST", body: request });
     if (!s.ctx.current() || mine !== s.loads) return;
+    // A track the server drew into the picture isn't also shown on top.
+    s.burned = answer.burned_subtitle ?? null;
     await attachHls(s, answer.playlist_url, at, mine);
     if (mine !== s.loads) return;
   }
@@ -275,6 +280,7 @@ function startingChoice(picked, subtitles) {
     audio: picked?.audio ?? null,
     subtitle: track?.track ?? null,
     burn: track && !track.text ? track.track : null,
+    serverDraws: serverDraws(track),
     fallback: false,
   };
 }
@@ -364,6 +370,7 @@ function subtitlePicker(s) {
     const picked = subtitles.find((t) => t.track === subtitleSelect.value) ?? null;
     s.choice.subtitle = picked?.track ?? null;
     s.choice.burn = picked && !picked.text ? picked.track : null;
+    s.choice.serverDraws = serverDraws(picked);
     rememberChoice(s);
     showTracks(s);
     load(s, s.video.currentTime).catch((err) => onError(s, err));
@@ -371,7 +378,7 @@ function subtitlePicker(s) {
   // The player's own captions menu changes tracks too; keep the list in step. Showing the
   // chosen track fires this as well, which changes nothing and so isn't remembered.
   s.video.textTracks.addEventListener("change", () => {
-    if (s.choice.burn) return;
+    if (drawnIn(s)) return;
     const i = [...s.video.textTracks].findIndex((track) => track.mode === "showing");
     // None showing while styled subtitles are drawn over the video is how they're shown.
     if (i < 0 && s.styled) return;
@@ -396,23 +403,30 @@ function addTrack(s, subtitles, track) {
   }
   s.choice.subtitle = track.track;
   s.choice.burn = null;
+  s.choice.serverDraws = null;
   const select = document.getElementById("subtitle-track");
   if (select) select.value = track.track;
   showTracks(s);
+}
+
+// Whether the chosen subtitles are drawn into the picture: a picture track, or a track the
+// server drew in.
+function drawnIn(s) {
+  return Boolean(s.choice.burn || (s.burned && s.burned === s.choice.subtitle));
 }
 
 // Shows the chosen text track, and none when a picture subtitle is drawn into the video. A
 // styled ASS/SSA track is drawn as it was made, over the video, where the browser can; else, or
 // when that fails, its WebVTT version shows.
 function showTracks(s) {
-  const chosen = s.choice.burn ? null : s.textTracks.find((t) => t.track === s.choice.subtitle);
+  const chosen = drawnIn(s) ? null : s.textTracks.find((t) => t.track === s.choice.subtitle);
   const styled = chosen?.ass && !s.plainOnly.has(chosen.track) && canDrawAss() ? chosen : null;
   drawStyled(s, styled, (track) => {
     s.plainOnly.add(track.track);
     announce("These subtitles can't be drawn with their styles here; showing them plain.");
     showTracks(s);
   });
-  const shownIndex = s.choice.burn || styled ? -1 : s.textTracks.findIndex((t) => t.track === s.choice.subtitle);
+  const shownIndex = drawnIn(s) || styled ? -1 : s.textTracks.findIndex((t) => t.track === s.choice.subtitle);
   [...s.video.textTracks].forEach((track, i) => (track.mode = i === shownIndex ? "showing" : "disabled"));
 }
 

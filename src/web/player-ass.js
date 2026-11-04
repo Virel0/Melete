@@ -15,6 +15,12 @@ export function canDrawAss() {
   return typeof Worker === "function" && typeof WebAssembly === "object" && "transferControlToOffscreen" in HTMLCanvasElement.prototype;
 }
 
+// The track the server should draw into the picture when it's styled, for a browser that can't
+// draw ASS/SSA itself: `track`'s id when it's an ASS/SSA track and this browser can't, else null.
+export function serverDraws(track) {
+  return track?.ass && !canDrawAss() ? track.track : null;
+}
+
 // Keeps the drawing in step with the chosen track: draws `track` (one the subtitle list marks
 // `ass`) over the player's video, or nothing when it's null. When drawing can't start,
 // `cantDraw(track)` is called so the player shows the WebVTT version instead.
