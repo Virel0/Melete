@@ -4,11 +4,12 @@
 
 use sqlx::SqlitePool;
 
-use super::{User, create_user, random_token};
+use super::{User, create_user, generate_password};
 
-/// A password made at run time, long enough for every password rule.
+/// A password made at run time, as one is generated for a new user: nothing in it is written
+/// down, not even a prefix.
 pub fn password() -> String {
-    random_token("test-").expect("randomness is available")
+    generate_password().expect("randomness is available")
 }
 
 /// Creates the user `name`, an admin when `admin`, with a password no test needs to know.
