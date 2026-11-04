@@ -16,6 +16,10 @@ pub(in super::super) const ALBUM_COLUMNS: &str =
     EXISTS (SELECT 1 FROM music_motion_covers m
         JOIN music_cover_colours mc ON mc.album_id = m.album_id
         WHERE m.album_id = a.id AND m.state = 'done' AND m.source = mc.source) AS generated_motion,
+    EXISTS (SELECT 1 FROM music_motion_covers m
+        JOIN music_cover_colours mc ON mc.album_id = m.album_id
+        WHERE m.album_id = a.id AND m.tall_file IS NOT NULL AND m.source = mc.source)
+        AS generated_tall,
     (SELECT c.colours FROM music_cover_colours c WHERE c.album_id = a.id) AS colours,
     coalesce(a.match_release_id, a.mb_release_id) AS mb_release_id,
     coalesce(a.match_release_group_id, a.mb_release_group_id) AS mb_release_group_id,
@@ -40,6 +44,8 @@ pub(in super::super) struct AlbumRow {
     pub(super) motion: bool,
     /// A motion cover made from the cover it has now.
     pub(super) generated_motion: bool,
+    /// A tall motion cover made from the cover it has now.
+    pub(super) generated_tall: bool,
     /// The cover's colours, as the cover-colouring job worked them out.
     pub(super) colours: Option<String>,
     pub(super) mb_release_id: Option<String>,
@@ -87,12 +93,15 @@ impl AlbumRow {
             "duration_seconds": self.duration_seconds,
             "cover": has_cover.then(|| format!("/api/v1/music/albums/{}/cover", self.id)),
             "motion_cover": motion.then(|| format!("/api/v1/music/albums/{}/motion", self.id)),
+            "motion_cover_tall": (shown.generated_motion && self.generated_tall)
+                .then(|| format!("/api/v1/music/albums/{}/motion/tall", self.id)),
             // Only beside the cover they came from.
             "colours": self
                 .colours
                 .as_deref()
                 .filter(|_| has_cover)
-                .and_then(|c| serde_json::from_str::<Value>(c).ok()),
+                // As the type is now: an older record's missing palette is empty.
+                .and_then(|c| serde_json::from_str::<crate::cover_colours::Colours>(c).ok()),
             "mb_release_id": self.mb_release_id,
             "mb_release_group_id": self.mb_release_group_id,
             "mb_artist_id": self.mb_artist_id,

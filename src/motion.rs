@@ -1,15 +1,17 @@
 //! Motion covers made from albums' still covers by the renderer beside Melete, in a
 //! container of its own: a short loop with a slow camera move over the cover's depth, for
-//! albums without a motion cover of their own. Melete picks the albums and keeps the record; the
+//! albums without a motion cover of their own, and a tall (9:16) loop for full-screen players,
+//! the cover over a moving background made from itself. Melete picks the albums and keeps the record; the
 //! renderer does the work. They talk through a folder of job files, as the stem separator does:
 //! Melete writes `queue/<album>.cover` (the cover's bytes, so the renderer needs no access to the
 //! library) and `queue/<album>.json`; the renderer answers with `done/<album>.json` and, when it
-//! made one, the video beside it, which Melete moves under its config folder.
+//! made them, the videos beside it, which Melete moves under its config folder.
 //!
 //! Only while motion covers are on (`MELETE_MOTION_COVERS`, off by default); answers to jobs
 //! already queued are still taken when they're turned off. One album at a time, newest first,
 //! and only while no video is being transcoded and no music is being split into parts. A cover
-//! that's mostly text or flat is skipped by the renderer, which says why. A changed cover is made
+//! that's mostly text or flat gets no square loop, and the renderer says why; it still gets a
+//! tall one. A changed cover is made
 //! again (the cover is named as the colours job names it, by where it is and its bytes' hash), as
 //! is every one when [`VERSION`] changes. An album that leaves the library, or gets a motion
 //! cover of its own, loses the one made here. A failure is tried again a day later, three times
@@ -30,20 +32,25 @@ mod showing;
 
 pub use showing::*;
 
-/// The loop every renderer job asks for: 8 seconds at 30 frames a second, a gentle circle,
-/// the cover at its own size up to 1440 pixels, never larger: sharp across a phone's width, or
-/// full width at the top of a player. Changing any of it means raising
-/// [`VERSION`], so every motion cover is made again.
+/// The loop every renderer job asks for: 8 seconds at 30 frames a second, the camera drifting
+/// across the cover and slowly in and out, the cover at its own size up to 1440 pixels, never
+/// larger: sharp across a phone's width, or full width at the top of a player. Changing any of
+/// it means raising [`VERSION`], so every motion cover is made again.
 pub const LOOP: Loop = Loop {
     seconds: 8,
     fps: 30,
     max_side: 1440,
-    path: "circle",
+    path: "drift",
     strength: 0.03,
 };
-/// Raised whenever [`LOOP`] or what's asked of the renderer changes: 2, covers up to 1440
-/// pixels rather than 1080.
-pub const VERSION: i64 = 2;
+/// The tall loop's size: a phone's full screen, portrait.
+pub const TALL: Tall = Tall {
+    width: 1080,
+    height: 1920,
+};
+/// Raised whenever [`LOOP`], [`TALL`] or what's asked of the renderer changes: 2, covers up to
+/// 1440 pixels rather than 1080; 3, the drifting camera rather than a circle, and tall loops.
+pub const VERSION: i64 = 3;
 const EVERY: Duration = Duration::from_secs(10);
 const TRIES: i64 = 3;
 const RETRY_AFTER: i64 = 24 * 3600;
@@ -63,6 +70,13 @@ pub struct Loop {
     pub path: &'static str,
     /// How far the camera moves, as a share of the cover's side.
     pub strength: f64,
+}
+
+/// The tall loop's size, in pixels.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Tall {
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Where the jobs and the videos are.
@@ -88,6 +102,8 @@ struct Answer {
     ok: bool,
     /// The video's file name in `done/`, when one was made.
     video: Option<String>,
+    /// The tall video's file name in `done/`, when one was made.
+    tall: Option<String>,
     /// Why the cover was skipped (mostly text, flat), when it was.
     skipped: Option<String>,
     error: Option<String>,
@@ -120,7 +136,7 @@ pub async fn work(pool: SqlitePool, folders: Folders, transcoder: Arc<Transcoder
             let counts = (done as usize, c.albums as usize, c.failed as usize);
             crate::tasks::backlog("motion-covers", "making motion covers", on, counts, || {
                 format!(
-                    "{} made, {} skipped (mostly text or flat), {} failed",
+                    "{} made, {} only tall (mostly text or flat), {} failed",
                     c.done, c.skipped, c.failed
                 )
             });
@@ -195,6 +211,7 @@ pub async fn step(
         "cover": format!("{album}.cover"),
         "version": VERSION,
         "loop": LOOP,
+        "tall": TALL,
     });
     write_then_rename(&queue.join(format!("{album}.cover")), &bytes)?;
     let partial = queue.join(format!(".{album}.json.tmp"));
@@ -202,8 +219,8 @@ pub async fn step(
     sqlx::query(
         "INSERT INTO music_motion_covers (album_id, state, source, version, queued_at)
          VALUES (?1, 'queued', ?2, ?3, ?4)
-         ON CONFLICT (album_id) DO UPDATE SET state = 'queued', file = NULL, reason = NULL,
-             details = NULL, queued_at = excluded.queued_at, finished_at = NULL,
+         ON CONFLICT (album_id) DO UPDATE SET state = 'queued', file = NULL, tall_file = NULL,
+             reason = NULL, details = NULL, queued_at = excluded.queued_at, finished_at = NULL,
              attempts = CASE WHEN source = excluded.source AND version = excluded.version
                  THEN attempts ELSE 0 END,
              source = excluded.source, version = excluded.version",
@@ -232,7 +249,8 @@ async fn fail(pool: &SqlitePool, album: i64, source: &str, why: &str) -> sqlx::R
         "INSERT INTO music_motion_covers (album_id, state, source, version, reason, attempts,
              queued_at, finished_at)
          VALUES (?1, 'failed', ?2, ?3, ?4, 1, ?5, ?5)
-         ON CONFLICT (album_id) DO UPDATE SET state = 'failed', file = NULL, details = NULL,
+         ON CONFLICT (album_id) DO UPDATE SET state = 'failed', file = NULL, tall_file = NULL,
+             details = NULL,
              reason = excluded.reason, finished_at = excluded.finished_at,
              attempts = CASE WHEN source = excluded.source AND version = excluded.version
                  THEN attempts + 1 ELSE 1 END,
@@ -258,9 +276,14 @@ fn plain(name: &str) -> Option<&str> {
     ok.then_some(name)
 }
 
-/// Moves a finished video into the videos folder as `<album>.mp4`, checking it looks like an
-/// MP4 of a sensible size first. Returns its name there.
-fn take_video(done: &Path, name: &str, videos: &Path, album: i64) -> anyhow::Result<String> {
+/// The names an album's videos have in the videos folder: the square one's and the tall one's.
+fn names(album: i64) -> [String; 2] {
+    [format!("{album}.mp4"), format!("{album}.tall.mp4")]
+}
+
+/// Moves a finished video into the videos folder as `file`, checking it looks like an MP4 of a
+/// sensible size first. Returns its name there.
+fn take_video(done: &Path, name: &str, videos: &Path, file: String) -> anyhow::Result<String> {
     let name = plain(name).ok_or_else(|| anyhow::anyhow!("the renderer named no usable video"))?;
     let from = done.join(name);
     let size = std::fs::metadata(&from)?.len();
@@ -272,7 +295,6 @@ fn take_video(done: &Path, name: &str, videos: &Path, album: i64) -> anyhow::Res
     std::io::Read::read_exact(&mut std::fs::File::open(&from)?, &mut head)?;
     anyhow::ensure!(&head[4..8] == b"ftyp", "the video isn't an MP4");
     std::fs::create_dir_all(videos)?;
-    let file = format!("{album}.mp4");
     let partial = videos.join(format!(".{file}.partial"));
     // The jobs folder may be on another volume, so copy rather than rename across.
     std::fs::copy(&from, &partial)?;
@@ -319,40 +341,60 @@ async fn record(
     .bind(album)
     .fetch_one(pool)
     .await?;
-    if !queued {
-        // Nothing asked for it (a job from before a restart that was already answered).
-        if let Some(name) = answer.video.as_deref().and_then(plain) {
+    let leave = |name: Option<&str>| {
+        if let Some(name) = name.and_then(plain) {
             let _ = std::fs::remove_file(done.join(name));
         }
+    };
+    if !queued {
+        // Nothing asked for it (a job from before a restart that was already answered).
+        leave(answer.video.as_deref());
+        leave(answer.tall.as_deref());
         return Ok(());
     }
     let now = unix_now();
     let details = answer.details.map(|d| d.to_string());
-    let outcome = match (answer.ok, answer.skipped, answer.video) {
-        (true, Some(why), _) => Ok((None, Some(why))),
-        (true, None, Some(name)) => take_video(&done, &name, &folders.videos, album)
-            .map(|file| (Some(file), None))
-            .map_err(|err| format!("{err:#}")),
-        (true, None, None) => Err("the renderer answered with neither a video nor a reason".into()),
-        (false, _, video) => {
-            if let Some(name) = video.as_deref().and_then(plain) {
-                let _ = std::fs::remove_file(done.join(name));
-            }
-            Err(answer
-                .error
-                .unwrap_or_else(|| "the renderer gave no reason".into()))
-        }
+    let [square_file, tall_file] = names(album);
+    // A video named that can't be taken fails the album: then neither is kept.
+    let taken = |name: Option<String>, file: String| {
+        name.map(|name| take_video(&done, &name, &folders.videos, file))
+            .transpose()
+            .map_err(|err| format!("{err:#}"))
     };
+    let (video, tall) = (answer.video, answer.tall);
+    let outcome = match (answer.ok, answer.skipped, video.clone()) {
+        (true, Some(why), _) => taken(tall.clone(), tall_file).map(|t| (None, t, Some(why))),
+        (true, None, Some(name)) => taken(Some(name), square_file)
+            .and_then(|file| taken(tall.clone(), tall_file).map(|t| (file, t, None))),
+        (true, None, None) => Err("the renderer answered with neither a video nor a reason".into()),
+        (false, ..) => Err(answer
+            .error
+            .unwrap_or_else(|| "the renderer gave no reason".into())),
+    };
+    // Whatever wasn't taken (skipped, or refused) isn't left behind.
+    leave(video.as_deref());
+    leave(tall.as_deref());
+    // A video from an earlier loop that this one didn't replace goes.
+    let kept = match &outcome {
+        Ok((file, tall, _)) => [file.is_some(), tall.is_some()],
+        Err(_) => [false, false],
+    };
+    for (name, keep) in names(album).iter().zip(kept) {
+        if !keep {
+            let _ = std::fs::remove_file(folders.videos.join(name));
+        }
+    }
     match outcome {
-        Ok((file, skipped)) => {
+        Ok((file, tall, skipped)) => {
             let state = if file.is_some() { "done" } else { "skipped" };
             sqlx::query(
-                "UPDATE music_motion_covers SET state = ?, file = ?, reason = ?, details = ?,
-                     attempts = 0, finished_at = ?
+                "UPDATE music_motion_covers SET state = ?, file = ?, tall_file = ?, reason = ?,
+                     details = ?, attempts = 0, finished_at = ?
                  WHERE album_id = ? AND state = 'queued'",
             )
             .bind(state)
             .bind(file)
+            .bind(tall)
             .bind(skipped.map(|s| s.chars().take(200).collect::<String>()))
             .bind(details)
             .bind(now)
@@ -363,8 +405,8 @@ async fn record(
         Err(why) => {
             tracing::warn!(album, error = %why, "an album's motion cover couldn't be made");
             sqlx::query(
-                "UPDATE music_motion_covers SET state = 'failed', file = NULL, reason = ?,
-                     details = ?, attempts = attempts + 1, finished_at = ?
+                "UPDATE music_motion_covers SET state = 'failed', file = NULL, tall_file = NULL,
+                     reason = ?, details = ?, attempts = attempts + 1, finished_at = ?
                  WHERE album_id = ? AND state = 'queued'",
             )
             .bind(why.chars().take(500).collect::<String>())
@@ -381,16 +423,16 @@ async fn record(
 /// Removes the motion covers made for albums that left the library, got a motion cover of their
 /// own, or no longer have a cover.
 async fn tidy(pool: &SqlitePool, videos: &Path) -> anyhow::Result<()> {
-    let gone: Vec<(i64, Option<String>)> = sqlx::query_as(
-        "SELECT m.album_id, m.file FROM music_motion_covers m
+    let gone: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT m.album_id, m.file, m.tall_file FROM music_motion_covers m
          JOIN music_albums a ON a.id = m.album_id
          WHERE m.state <> 'queued' AND (a.missing_since IS NOT NULL OR a.motion_file IS NOT NULL
              OR NOT EXISTS (SELECT 1 FROM music_cover_colours c WHERE c.album_id = a.id))",
     )
     .fetch_all(pool)
     .await?;
-    for (album, file) in gone {
-        if let Some(file) = file {
+    for (album, file, tall) in gone {
+        for file in [file, tall].into_iter().flatten() {
             let path = video_path(videos, &file);
             if path.exists() {
                 std::fs::remove_file(&path)?;
@@ -527,8 +569,9 @@ pub(crate) mod tests {
                 .unwrap();
         assert_eq!(
             job,
-            json!({"id": "3", "cover": "3.cover", "version": 2, "loop": {
-                "seconds": 8, "fps": 30, "max_side": 1440, "path": "circle", "strength": 0.03}})
+            json!({"id": "3", "cover": "3.cover", "version": 3, "loop": {
+                "seconds": 8, "fps": 30, "max_side": 1440, "path": "drift", "strength": 0.03},
+                "tall": {"width": 1080, "height": 1920}})
         );
         assert_eq!(
             std::fs::read(folders.jobs.join("queue/3.cover")).unwrap(),
@@ -550,6 +593,13 @@ pub(crate) mod tests {
         );
         let video = std::fs::read(folders.videos.join("3.mp4")).unwrap();
         assert_eq!(&video[4..8], b"ftyp");
+        // The tall one beside it.
+        assert_eq!(
+            current_tall_file(&pool, 3).await.unwrap().as_deref(),
+            Some("3.tall.mp4")
+        );
+        let tall = std::fs::read(folders.videos.join("3.tall.mp4")).unwrap();
+        assert_eq!(&tall[4..8], b"ftyp");
         assert!(
             std::fs::read_dir(folders.jobs.join("done"))
                 .unwrap()
@@ -569,6 +619,13 @@ pub(crate) mod tests {
             status(&pool, 2).await.unwrap(),
             Some(json!({"state": "skipped", "reason": "mostly text"}))
         );
+        // No square loop, but a tall one: its background moves for any cover.
+        assert_eq!(current_file(&pool, 2).await.unwrap(), None);
+        assert_eq!(
+            current_tall_file(&pool, 2).await.unwrap().as_deref(),
+            Some("2.tall.mp4")
+        );
+        assert!(!folders.videos.join("2.mp4").exists());
 
         // A failure waits a day before another try.
         fake_renderer(&folders.jobs, "", "1");
@@ -633,6 +690,8 @@ pub(crate) mod tests {
         assert_eq!(step(&pool, &folders, || false).await.unwrap(), None);
         assert!(!folders.videos.join("3.mp4").exists());
         assert!(!folders.videos.join("1.mp4").exists());
+        assert!(!folders.videos.join("3.tall.mp4").exists());
+        assert!(!folders.videos.join("1.tall.mp4").exists());
         assert_eq!(state(&pool, 3).await, None);
         assert_eq!(state(&pool, 1).await, None);
         assert_eq!(state(&pool, 2).await.unwrap().0, "skipped");
@@ -674,6 +733,37 @@ pub(crate) mod tests {
             state(&pool, 3).await.unwrap().1.as_deref(),
             Some("the renderer named no usable video")
         );
+    }
+
+    #[tokio::test]
+    async fn a_tall_video_that_isnt_an_mp4_fails_the_album_and_an_old_loop_goes() {
+        let pool = db::open_in_memory().await;
+        let scratch = tempfile::tempdir().unwrap();
+        let folders = folders(scratch.path());
+        let _library = library(&pool, &folders.covers).await;
+        assert_eq!(step(&pool, &folders, || false).await.unwrap(), Some(3));
+        fake_renderer(&folders.jobs, "", "");
+        step(&pool, &folders, || true).await.unwrap();
+        assert!(folders.videos.join("3.mp4").exists());
+
+        // Made again (a new loop): the square one fine, the tall one not a video.
+        sqlx::query("UPDATE music_motion_covers SET version = 1 WHERE album_id = 3")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(step(&pool, &folders, || false).await.unwrap(), Some(3));
+        let done = folders.jobs.join("done");
+        fake_renderer(&folders.jobs, "", "");
+        std::fs::write(done.join("3.tall.mp4"), b"<html>not a video</html>").unwrap();
+        step(&pool, &folders, || true).await.unwrap();
+        assert_eq!(
+            state(&pool, 3).await,
+            Some(("failed".into(), Some("the video isn't an MP4".into()), 1))
+        );
+        // Neither is kept, nor the earlier loop, nor anything in the renderer's folder.
+        assert!(!folders.videos.join("3.mp4").exists());
+        assert!(!folders.videos.join("3.tall.mp4").exists());
+        assert_eq!(std::fs::read_dir(&done).unwrap().count(), 0);
     }
 
     #[test]
