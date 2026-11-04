@@ -56,6 +56,7 @@ pub fn file_encoding(path: &Path) -> Option<&'static str> {
 /// A subtitle file beside a video for players that read the file themselves, and the charset to
 /// send it with.
 pub struct Original {
+    /// The file's text, in UTF-8 unless kept as it is.
     pub bytes: Vec<u8>,
     /// "utf-8", or the encoding the file was guessed to be in when it was kept as it is.
     pub charset: &'static str,
