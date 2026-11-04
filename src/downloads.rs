@@ -43,27 +43,61 @@ pub struct Pipeline {
     pub seedbox: Option<crate::seedbox::Seedbox>,
 }
 
-/// How often Deluge is asked about downloads in progress.
+/// How often Deluge is asked when nothing is downloading, and how often imported torrents are
+/// cleared from it.
 const FOLLOW_EVERY: Duration = Duration::from_secs(60);
+/// How often Deluge is asked while something is downloading, so a request's progress moves as
+/// it goes: one cheap call about the torrents followed.
+const FOLLOW_BUSY: Duration = Duration::from_secs(5);
+
+/// Wakes [`follow`] when a download starts, so it's followed closely at once rather than after
+/// the rest of an idle wait.
+static STARTED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// Follows downloads on the seedbox for as long as the server runs, and removes imported
-/// torrents from Deluge when that's turned on.
+/// torrents from Deluge when that's turned on: every few seconds while something is
+/// downloading, else every minute.
 pub async fn follow(pool: SqlitePool, pipeline: std::sync::Arc<Pipeline>) {
+    let mut cleared: Option<std::time::Instant> = None;
     loop {
-        if let Err(err) = refresh(&pool, &pipeline.deluge).await {
-            tracing::warn!(
-                error = format!("{err:#}"),
-                "couldn't check downloads in Deluge"
-            );
+        let downloading = match refresh(&pool, &pipeline.deluge).await {
+            Ok(asked) => asked,
+            Err(err) => {
+                tracing::warn!(
+                    error = format!("{err:#}"),
+                    "couldn't check downloads in Deluge"
+                );
+                0
+            }
+        };
+        if cleared.is_none_or(|at| at.elapsed() >= FOLLOW_EVERY) {
+            cleared = Some(std::time::Instant::now());
+            if let Err(err) = clear(&pool, &pipeline.deluge).await {
+                tracing::warn!(
+                    error = format!("{err:#}"),
+                    "couldn't remove imported torrents from Deluge"
+                );
+            }
         }
-        if let Err(err) = clear(&pool, &pipeline.deluge).await {
-            tracing::warn!(
-                error = format!("{err:#}"),
-                "couldn't remove imported torrents from Deluge"
-            );
+        tokio::select! {
+            () = tokio::time::sleep(next_follow(downloading)) => {}
+            () = STARTED.notified() => {}
         }
-        tokio::time::sleep(FOLLOW_EVERY).await;
     }
+}
+
+/// How long until Deluge is asked again, after asking about `downloading` downloads.
+fn next_follow(downloading: usize) -> Duration {
+    if downloading > 0 {
+        FOLLOW_BUSY
+    } else {
+        FOLLOW_EVERY
+    }
+}
+
+/// Tells [`follow`] a download has started.
+pub(crate) fn started() {
+    STARTED.notify_one();
 }
 
 /// Removes imported torrents from Deluge as the settings say, read afresh each time.
@@ -698,5 +732,69 @@ mod tests {
             ["Some Movie (2024)/Some.Movie.2024.720p.mkv"]
         );
         assert_eq!(list(&pool).await.unwrap()[0].replaces, download.replaces);
+    }
+
+    #[test]
+    fn deluge_is_asked_often_only_while_something_downloads() {
+        assert_eq!(next_follow(0), FOLLOW_EVERY);
+        assert_eq!(next_follow(1), FOLLOW_BUSY);
+        assert_eq!(next_follow(3), FOLLOW_BUSY);
+        assert!(FOLLOW_BUSY <= Duration::from_secs(5));
+    }
+
+    /// Waits up to `within` for `ready` to hold, looking every 100 ms; whether it did.
+    async fn soon<F: std::future::Future<Output = bool>>(
+        within: Duration,
+        mut ready: impl FnMut() -> F,
+    ) -> bool {
+        let until = std::time::Instant::now() + within;
+        while std::time::Instant::now() < until {
+            if ready().await {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_new_download_is_followed_at_once_and_its_progress_within_seconds() {
+        let pool = db::open_in_memory().await;
+        let base = indexer().await;
+        // The fixture turns its last release down; only the first is grabbed.
+        let ids = releases(&pool, &[format!("{base}/t"), String::new()]).await;
+        let (p, fake) = pipeline().await;
+        let p = std::sync::Arc::new(p);
+        // Nothing is downloading yet: the loop asks once, then waits a minute.
+        let following = tokio::spawn(follow(pool.clone(), p.clone()));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let movie = grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        // Deluge's name for it reaches the download only when it's asked: woken at once.
+        let named = || async {
+            let name: Option<String> =
+                sqlx::query_scalar("SELECT name FROM downloads WHERE id = ?")
+                    .bind(movie.id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            name.as_deref() == Some("Added")
+        };
+        assert!(soon(Duration::from_millis(1500), named).await, "not woken");
+
+        // While it downloads, a change in Deluge arrives within the short wait.
+        fake.lock().unwrap().torrents.insert(
+            MOVIE_HASH.into(),
+            testing::status("Some.Movie", "Downloading", 37.5, false),
+        );
+        let moved = || async { get(&pool, movie.id).await.unwrap().unwrap().progress == 37.5 };
+        assert!(
+            soon(FOLLOW_BUSY + Duration::from_millis(1500), moved).await,
+            "progress didn't move within {FOLLOW_BUSY:?}"
+        );
+        following.abort();
     }
 }
