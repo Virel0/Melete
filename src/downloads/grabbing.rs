@@ -53,6 +53,7 @@ pub async fn grab(
         let id = existing(pool, &hash).await?.unwrap_or_default();
         return Ok(Err(Refused::Already(id)));
     };
+    super::started();
     Ok(Ok(get(pool, id).await?.ok_or_else(|| {
         anyhow::anyhow!("download {id} vanished")
     })?))
