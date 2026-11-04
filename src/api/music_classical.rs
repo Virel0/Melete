@@ -484,10 +484,7 @@ mod tests {
             .unwrap();
         }
         crate::classical::refresh(&pool).await.unwrap();
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await

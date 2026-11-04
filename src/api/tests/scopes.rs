@@ -29,10 +29,7 @@ async fn needed(app: &Router) -> (Vec<(Method, String)>, BTreeMap<String, Scope>
 
 /// An admin's API keys, one of each scope.
 async fn keys(pool: &SqlitePool) -> Vec<(Scope, String)> {
-    let admin = crate::auth::create_user(pool, "alice", "a-long-password".into(), true)
-        .await
-        .unwrap()
-        .unwrap();
+    let admin = crate::auth::testing::user(pool, "alice", true).await;
     let mut keys = Vec::new();
     for scope in [Scope::Read, Scope::Playback, Scope::MusicSync, Scope::Full] {
         let (_, token) = crate::auth::issue_scoped(pool, admin.id, TokenKind::ApiKey, "k", scope)

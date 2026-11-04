@@ -28,10 +28,7 @@ async fn shows(root: &Path) -> (SqlitePool, Library) {
     };
     let library = sync_config(&pool, &[config]).await.unwrap().remove(0);
     for name in ["alice", "bob"] {
-        crate::auth::create_user(&pool, name, "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        crate::auth::testing::user(&pool, name, false).await;
     }
     (pool, library)
 }

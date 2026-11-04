@@ -269,10 +269,7 @@ mod tests {
         .unwrap();
         let mut tokens = Vec::new();
         for name in ["alice", "bob"] {
-            let user = auth::create_user(&pool, name, "a-long-password".into(), false)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, false).await;
             tokens.push(
                 auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                     .await
@@ -348,10 +345,7 @@ mod tests {
     #[tokio::test]
     async fn wrong_codes_are_limited() {
         let pool = crate::db::open_in_memory().await;
-        let user = auth::create_user(&pool, "bob", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "bob", false).await;
         let token = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()

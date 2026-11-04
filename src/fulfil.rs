@@ -382,10 +382,8 @@ mod tests {
             .fetch_one(pool)
             .await
             .unwrap();
-        crate::auth::create_user(pool, &format!("user{n}"), "a-long-password".into(), false)
+        crate::auth::testing::user(pool, &format!("user{n}"), false)
             .await
-            .unwrap()
-            .unwrap()
             .id
     }
 

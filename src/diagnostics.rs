@@ -274,10 +274,7 @@ mod tests {
     #[tokio::test]
     async fn kept_per_device_newest_first_and_pruned_after_thirty_days() {
         let pool = db::open_in_memory().await;
-        let user = auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (phone, _) = auth::issue_token(&pool, user.id, TokenKind::Session, "Phone")
             .await
             .unwrap();

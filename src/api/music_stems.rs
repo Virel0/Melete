@@ -211,10 +211,7 @@ mod tests {
     #[tokio::test]
     async fn serves_a_tracks_parts_and_nothing_else() {
         let pool = crate::db::open_in_memory().await;
-        let user = auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let token = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()

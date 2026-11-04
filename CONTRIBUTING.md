@@ -50,6 +50,9 @@ it. Try it with a large fake library: some failures only show up at scale.
 - **Tests are the spec.** New behaviour comes with tests that fail without it. Fix the code,
   never the check: no skipped tests, changed assertions, new ignores or looser settings unless
   the change is agreed in the pull request.
+- **Test users** come from `auth::testing::user(pool, name, admin)`, or `user_with_password` for
+  a test that signs in, each with a password made at run time. Don't write a password into a
+  test unless the test is about passwords: code scanners flag every one.
 - **Migrations** are expand, migrate, contract, and a migration is never edited once released
   (existing databases check their checksums). Add a new one instead. Constraints belong in the
   database.

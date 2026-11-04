@@ -536,10 +536,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let user = crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         // An older sync where every indexer failed, then the latest: Nyaa failed, and so did
         // AnimeTosho, which has been turned off since.
         let asked = |nyaa_error: &str| {
@@ -648,10 +645,7 @@ mod tests {
     #[tokio::test]
     async fn anime_and_each_service_have_their_own_failures_and_waiting_requests() {
         let pool = db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         // Three wanted series: one standard, one wanted as anime, and one standard that goes
         // to a library with the anime category; each with a failed download.
         sqlx::query(

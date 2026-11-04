@@ -82,10 +82,7 @@ async fn fixture() -> Fixture {
                 (2, 'Severance (2022)/Behind the scenes.mkv', 40, 40, 1, NULL, NULL, NULL, 1, 1);
         "#).await;
 
-    let user = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "viewer", false).await;
     let (_, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "test")
         .await
         .unwrap();
@@ -378,10 +375,7 @@ async fn series_items_count_the_callers_unwatched_episodes() {
     let (_, body) = get(&f, "/api/v1/series").await;
     assert_eq!(body["items"][0]["unwatched_episodes"], 2);
     // Someone else's watching counts for them alone.
-    let other = auth::create_user(&f.pool, "other", "other-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let other = crate::auth::testing::user(&f.pool, "other", false).await;
     let (_, token) = auth::issue_token(&f.pool, other.id, TokenKind::Session, "t")
         .await
         .unwrap();
@@ -491,10 +485,7 @@ async fn series_lists_leave_anime_out_or_list_only_anime() {
         assert_eq!(titles(&body), expected, "{query}");
     }
     // A user who may see only the plain and kids libraries sees only their part of each.
-    let kid = auth::create_user(&f.pool, "kid", "kid-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let kid = crate::auth::testing::user(&f.pool, "kid", false).await;
     let limit = crate::access::Restriction {
         libraries: Some(vec![2, 4]),
         max_age: None,

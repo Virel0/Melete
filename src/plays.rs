@@ -381,10 +381,7 @@ mod tests {
     #[tokio::test]
     async fn reads_the_log_into_the_history_once_in_order() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         log(
             &pool,
             user.id,
@@ -459,14 +456,8 @@ mod tests {
     #[tokio::test]
     async fn a_deleted_listen_stays_deleted_when_the_log_sends_it_again() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
-        let bob = crate::auth::create_user(&pool, "bob", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
+        let bob = crate::auth::testing::user(&pool, "bob", false).await;
         let started = |at: i64| format!(r#"{{"jellyfinId":"7","startedAt":{at}}}"#);
         log(
             &pool,
@@ -537,10 +528,7 @@ mod tests {
     #[tokio::test]
     async fn a_listen_sent_again_is_the_same_listen() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let mut listen = Listen {
             event_id: "x".into(),
             track_key: "3".into(),

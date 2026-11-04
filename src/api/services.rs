@@ -152,10 +152,7 @@ mod tests {
     use crate::db;
 
     async fn token(pool: &SqlitePool, name: &str, admin: bool) -> String {
-        let user = auth::create_user(pool, name, "a-long-password".into(), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(pool, name, admin).await;
         auth::issue_token(pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()
@@ -349,10 +346,7 @@ mod tests {
         use crate::access::{self, Access, Restriction};
         let pool = db::open_in_memory().await;
         let admin = token(&pool, "admin", true).await;
-        let child = auth::create_user(&pool, "child", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let child = crate::auth::testing::user(&pool, "child", false).await;
         let limit = Restriction {
             libraries: None,
             max_age: Some(15),

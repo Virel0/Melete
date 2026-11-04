@@ -352,14 +352,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let alice = auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
-        let bob = auth::create_user(&pool, "bob", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let alice = crate::auth::testing::user(&pool, "alice", false).await;
+        let bob = crate::auth::testing::user(&pool, "bob", false).await;
         let (phone, _) = auth::issue_token(&pool, alice.id, TokenKind::Session, "Living room iPad")
             .await
             .unwrap();

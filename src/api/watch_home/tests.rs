@@ -64,10 +64,7 @@ async fn fixture() -> Fixture {
 }
 
 async fn user(f: &Fixture, name: &str) -> (i64, String) {
-    let user = auth::create_user(&f.pool, name, "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&f.pool, name, false).await;
     let (_, token) = auth::issue_token(&f.pool, user.id, TokenKind::Session, "t")
         .await
         .unwrap();

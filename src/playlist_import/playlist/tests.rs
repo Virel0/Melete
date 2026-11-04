@@ -2,7 +2,6 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::aoide::playlists::{self, Row};
-use crate::auth;
 use crate::db;
 use crate::musicbrainz::testing::{self, PARANOID_ANDROID};
 
@@ -42,10 +41,7 @@ fn arrival() -> String {
 /// Imports `PLAYLIST` into a new playlist and works it through; the importer, the import's
 /// id and the playlist's.
 async fn import(pool: &SqlitePool) -> (User, i64, String) {
-    let alice = auth::create_user(pool, "alice", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let alice = crate::auth::testing::user(pool, "alice", false).await;
     let editor = Editor {
         user_id: alice.id,
         device: "token-1",

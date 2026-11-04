@@ -110,10 +110,7 @@ mod tests {
     #[tokio::test]
     async fn reads_listens_and_flags_however_the_clients_wrote_them() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let ops = [
             (
                 "e1",

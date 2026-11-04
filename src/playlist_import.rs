@@ -61,7 +61,6 @@ pub struct Track {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth;
     use crate::db;
     use crate::musicbrainz::testing::{self, PARANOID_ANDROID, PARANOID_ISRC};
 
@@ -153,10 +152,7 @@ mod tests {
     }
 
     async fn user(pool: &SqlitePool, name: &str, admin: bool) -> User {
-        auth::create_user(pool, name, "a-long-password".into(), admin)
-            .await
-            .unwrap()
-            .unwrap()
+        crate::auth::testing::user(pool, name, admin).await
     }
 
     const PLAYLIST: &str = "Track Name,Artist Name(s),Track Duration (ms),ISRC\n\

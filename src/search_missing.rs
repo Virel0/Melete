@@ -113,11 +113,7 @@ mod tests {
     use crate::rss::tests::{indexer, releases, setup, want_dune, want_frieren};
 
     pub(super) async fn admin(pool: &SqlitePool) -> i64 {
-        crate::auth::create_user(pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap()
-            .id
+        crate::auth::testing::user(pool, "admin", true).await.id
     }
 
     pub(super) fn sources(pipeline: Option<Arc<Pipeline>>) -> Sources {

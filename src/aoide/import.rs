@@ -281,10 +281,7 @@ mod tests {
         .await
         .unwrap();
         for name in ["alice", "bob"] {
-            crate::auth::create_user(&pool, name, "a-password".into(), false)
-                .await
-                .unwrap()
-                .unwrap();
+            crate::auth::testing::user(&pool, name, false).await;
         }
         pool
     }

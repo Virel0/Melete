@@ -4,10 +4,7 @@ use super::*;
 
 async fn pool_with_user() -> (SqlitePool, i64) {
     let pool = crate::db::open_in_memory().await;
-    let user = crate::auth::create_user(&pool, "u", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "u", false).await;
     (pool, user.id)
 }
 

@@ -54,10 +54,7 @@ async fn fixture(on: bool) -> Fixture {
             .await
             .unwrap();
     }
-    let user = auth::create_user(&pool, "alice", "alice-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "alice", false).await;
     let (token_id, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
         .await
         .unwrap();

@@ -68,10 +68,7 @@ mod tests {
         let app = routes(pool.clone());
         let mut tokens = Vec::new();
         for (name, admin) in [("alice", true), ("bob", false)] {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             tokens.push(
                 auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                     .await
@@ -116,10 +113,7 @@ mod tests {
         );
         let pool = db::open_in_memory().await;
         let app = routes_with(pool.clone(), Some(transcoder.clone()));
-        let user = auth::create_user(&pool, "alice", "alice-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", true).await;
         let token = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()

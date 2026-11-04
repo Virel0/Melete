@@ -258,10 +258,7 @@ mod tests {
     use crate::auth::{self, TokenKind};
 
     async fn user(pool: &SqlitePool, name: &str) -> (i64, String) {
-        let user = auth::create_user(pool, name, "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(pool, name, false).await;
         let token = auth::issue_token(pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()

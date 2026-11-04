@@ -4,11 +4,7 @@ use super::*;
 use crate::aoide::playlists;
 
 async fn user(pool: &SqlitePool, name: &str) -> i64 {
-    crate::auth::create_user(pool, name, "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap()
-        .id
+    crate::auth::testing::user(pool, name, false).await.id
 }
 
 async fn push(pool: &SqlitePool, user: i64, op: &str, operation: &str, entity: &str, row: Value) {
