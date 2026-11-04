@@ -208,6 +208,12 @@ pub const SERVICES: &[Service] = &[
                 Input::Secret,
             ),
             field(
+                crate::search::frame_rate::ALLOW_SETTING,
+                "Take movies converted to a high frame rate",
+                "Off: a movie release named as made up to 48, 50, 60 or 120 fps (60fps, interpolated) is turned down, as its invented frames may stutter on some players. Films really made so, such as Gemini Man, are always allowed. Series aren't affected.",
+                Input::Toggle { on: "on" },
+            ),
+            field(
                 crate::downloads::REMOVE_SETTING,
                 "Remove a torrent once it's imported",
                 "Only torrents Melete added, and only once everything they brought is in the library, never while copying or importing. With its data, Deluge deletes its files on the seedbox too.",

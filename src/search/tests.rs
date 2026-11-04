@@ -1263,3 +1263,60 @@ async fn releases_numbered_from_the_first_episode_are_mapped() {
     );
     assert!(find(&whole, "(01-28)").1, "{whole:?}");
 }
+
+#[tokio::test]
+async fn a_movie_converted_to_a_high_frame_rate_is_turned_down_unless_allowed() {
+    let pool = setup().await;
+    let id = want_dune(&pool, "4K Preferred").await;
+    indexers(
+        &pool,
+        feed(&[
+            "Dune.Part.Two.2024.2160p.WEB-DL.60fps.DDP5.1.H.265-GRP",
+            "Dune.Part.Two.2024.2160p.WEB-DL.DDP5.1.H.265-GRP",
+        ]),
+    )
+    .await;
+    let client = torznab::Client::new().unwrap();
+    let decided = |view: &SearchView| -> Vec<(bool, Vec<String>)> {
+        let mut rows: Vec<_> = view
+            .releases
+            .iter()
+            .map(|r| {
+                let rejections = r.decision["rejections"].as_array().unwrap();
+                let said = rejections.iter().map(|v| v.as_str().unwrap().to_owned());
+                (
+                    r.title.contains("60fps"),
+                    r.accepted,
+                    said.collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        rows.sort_by_key(|(converted, ..)| *converted);
+        rows.into_iter().map(|(_, ok, why)| (ok, why)).collect()
+    };
+
+    let first = search(&pool, &client, None, Target::Movie(id))
+        .await
+        .unwrap()
+        .unwrap();
+    let view = get(&pool, first).await.unwrap().unwrap();
+    let [twin, converted] = decided(&view).try_into().unwrap();
+    assert_eq!(twin, (true, vec![]), "the normal release is taken");
+    assert!(!converted.0);
+    assert_eq!(converted.1.len(), 1, "{:?}", converted.1);
+    assert!(converted.1[0].starts_with("converted to a high frame rate (60 fps)"));
+
+    // Allowed by an admin: taken like any other.
+    sqlx::query("INSERT INTO settings (name, value, updated_at) VALUES (?, 'on', 0)")
+        .bind(frame_rate::ALLOW_SETTING)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let again = search(&pool, &client, None, Target::Movie(id))
+        .await
+        .unwrap()
+        .unwrap();
+    let view = get(&pool, again).await.unwrap().unwrap();
+    let [twin, converted] = decided(&view).try_into().unwrap();
+    assert_eq!((twin, converted), ((true, vec![]), (true, vec![])));
+}

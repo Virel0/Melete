@@ -22,6 +22,7 @@ use crate::release::{self, Episodes, Release};
 use crate::torznab;
 
 mod availability;
+pub(crate) mod frame_rate;
 mod indexer_params;
 mod on_disk;
 mod titles;
@@ -268,6 +269,11 @@ pub(crate) async fn decide_all<'a>(
         Target::Movie(_) => dates(pool, wanted.tmdb_id).await?,
         Target::Series { .. } => None,
     };
+    // A film made up to a high frame rate; never a series, where 50 and 59.94 are normal.
+    let no_converted_frame_rate = match target {
+        Target::Movie(_) => frame_rate::turned_down(pool, wanted.tmdb_id).await?,
+        Target::Series { .. } => false,
+    };
     let minimum =
         Minimum::parse(&profile.profile.minimum_availability).unwrap_or(Minimum::Released);
     for &(indexer_id, item) in items {
@@ -329,6 +335,10 @@ pub(crate) async fn decide_all<'a>(
             .as_ref()
             .and_then(|d| refusal(minimum, d, parsed.source))
         {
+            decision.rejections.push(why);
+            decision.accepted = false;
+        }
+        if no_converted_frame_rate && let Some(why) = frame_rate::rejection(&item.title) {
             decision.rejections.push(why);
             decision.accepted = false;
         }
