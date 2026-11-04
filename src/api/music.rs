@@ -81,7 +81,6 @@ pub fn routes(
         .route("/api/v1/music/albums/{id}", get(album))
         .route("/api/v1/music/albums/{id}/cover", get(cover))
         .route("/api/v1/music/albums/{id}/motion", get(motion))
-        .route("/api/v1/music/albums/{id}/motion/tall", get(motion_tall))
         .route("/api/v1/music/tracks", get(list_tracks))
         .route("/api/v1/music/genres", get(genres))
         .merge(super::music_classical::routes())

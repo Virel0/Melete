@@ -58,20 +58,6 @@ pub async fn current_file(pool: &SqlitePool, album: i64) -> sqlx::Result<Option<
     .map(Option::flatten)
 }
 
-/// The file of an album's tall motion cover made here, when it's from the cover it has now. Made
-/// whether or not the square one was.
-pub async fn current_tall_file(pool: &SqlitePool, album: i64) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar(
-        "SELECT m.tall_file FROM music_motion_covers m
-         JOIN music_cover_colours c ON c.album_id = m.album_id
-         WHERE m.album_id = ? AND m.state IN ('done', 'skipped') AND m.source = c.source",
-    )
-    .bind(album)
-    .fetch_optional(pool)
-    .await
-    .map(Option::flatten)
-}
-
 /// Where making an album's motion cover stands, for the apps: queued, done, skipped (and why) or
 /// failed (and why). None when it hasn't been tried for the cover the album has now.
 pub async fn status(pool: &SqlitePool, album: i64) -> sqlx::Result<Option<Value>> {

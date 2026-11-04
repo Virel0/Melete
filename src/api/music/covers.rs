@@ -181,25 +181,3 @@ pub(super) async fn motion(
         "this album has no motion cover",
     ))
 }
-
-/// The tall (9:16) motion cover made from the album's cover, for full-screen players: only one
-/// made here, while those are shown to the caller.
-pub(super) async fn motion_tall(
-    State(state): State<MusicState>,
-    Extension(current): Extension<CurrentUser>,
-    Path(id): Path<i64>,
-    request: Request,
-) -> Result<Response, ApiError> {
-    if !current.access.sees_album(&state.pool, id).await? {
-        return Err(ApiError::new(StatusCode::NOT_FOUND, "no such album"));
-    }
-    if crate::motion::shown_to(&state.pool, current.user.id).await?
-        && let Some(file) = crate::motion::current_tall_file(&state.pool, id).await?
-    {
-        return serve(crate::motion::video_path(&state.motion, &file), request).await;
-    }
-    Err(ApiError::new(
-        StatusCode::NOT_FOUND,
-        "this album has no tall motion cover",
-    ))
-}

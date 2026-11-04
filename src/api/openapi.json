@@ -5560,30 +5560,6 @@
         }
       }
     },
-    "/api/v1/music/albums/{id}/motion/tall": {
-      "get": {
-        "tags": ["Music"],
-        "x-melete-access": "user",
-        "x-melete-scope": "read",
-        "summary": "An album's tall motion cover",
-        "description": "The tall (9:16) loop Melete made from the still cover, for full-screen players, while motion covers are on and you haven't turned those off for yourself; with byte ranges. The album's answer gives it as `motion_cover_tall`. Play it muted and looped, filling the screen.",
-        "parameters": [
-          {"name": "id", "in": "path", "required": true, "description": "Album id.", "schema": {"type": "integer"}}
-        ],
-        "responses": {
-          "200": {
-            "description": "The video",
-            "content": {"video/mp4": {"schema": {"type": "string", "format": "binary"}}}
-          },
-          "206": {"description": "Part of it, for a Range request"},
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "404": {
-            "description": "No such album, or it has no tall motion cover (for you)",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-          }
-        }
-      }
-    },
     "/api/v1/music/tracks": {
       "get": {
         "tags": ["Music"],
@@ -6067,7 +6043,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "How far making motion covers has got",
-        "description": "Counts of albums with a motion cover made from their cover, waiting for the renderer, skipped (mostly text or flat: only a tall one made) and failed, out of the present albums with a cover and no motion cover of their own. Admins only.",
+        "description": "Counts of albums with a motion cover made from their cover, waiting for the renderer, skipped (mostly text or flat) and failed, out of the present albums with a cover and no motion cover of their own. Admins only.",
         "responses": {
           "200": {
             "description": "OK",
@@ -15024,7 +15000,7 @@
             "type": "array",
             "maxItems": 5,
             "items": {"type": "string", "pattern": "^#[0-9a-f]{6}$"},
-            "description": "The cover's main colours, the most of it first: up to five, each at least 3% of the cover and clearly apart from the others. For a gradient behind the cover where it's shown on a screen of another shape (a full-screen player), rather than stretching it. Empty only in colours worked out by an older Melete, until they're worked out again (soon after it starts)."
+            "description": "The cover's main colours, the most of it first: up to five, each at least 3% of the cover and clearly apart from the others. For what's around the cover where it's shown on a screen of another shape (a full-screen player: a gradient below the cover shown full width, or behind it), rather than stretching it. Empty only in colours worked out by an older Melete, until they're worked out again (soon after it starts)."
           }
         },
         "additionalProperties": false
@@ -15042,7 +15018,6 @@
           "duration_seconds",
           "cover",
           "motion_cover",
-          "motion_cover_tall",
           "colours",
           "mb_release_id",
           "mb_release_group_id",
@@ -15065,10 +15040,6 @@
           "motion_cover": {
             "type": ["string", "null"],
             "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), else one Melete made from the still cover while motion covers are on (MELETE_MOTION_COVERS, off by default) and you haven't hidden those (`/music/motion-covers`). Null when there's none. Show the still cover where video can't play."
-          },
-          "motion_cover_tall": {
-            "type": ["string", "null"],
-            "description": "A tall (9:16, 1080 by 1920) looping video made by Melete from the still cover, for a full-screen player on a phone: the cover large and sharp, a little above the middle (moving as `motion_cover` does when Melete made that too), over a blurred copy of itself that drifts slowly. Made for every cover the renderer takes, including one too flat or too full of text for a square motion cover; none for an album with a motion cover of its own. Shown as `motion_cover` is (motion covers on, and not hidden by you); served with byte ranges. Null when there's none: show the square cover over its `colours.palette` rather than stretching it."
           },
           "colours": {
             "anyOf": [{"$ref": "#/components/schemas/CoverColours"}, {"type": "null"}],
@@ -15452,7 +15423,6 @@
           "duration_seconds",
           "cover",
           "motion_cover",
-          "motion_cover_tall",
           "motion_cover_generation",
           "colours",
           "mb_release_id",
@@ -15485,10 +15455,6 @@
           "motion_cover": {
             "type": ["string", "null"],
             "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), else one Melete made from the still cover while motion covers are on (MELETE_MOTION_COVERS, off by default) and you haven't hidden those (`/music/motion-covers`). Null when there's none. Show the still cover where video can't play."
-          },
-          "motion_cover_tall": {
-            "type": ["string", "null"],
-            "description": "A tall (9:16, 1080 by 1920) looping video made by Melete from the still cover, for a full-screen player on a phone: the cover large and sharp, a little above the middle (moving as `motion_cover` does when Melete made that too), over a blurred copy of itself that drifts slowly. Made for every cover the renderer takes, including one too flat or too full of text for a square motion cover; none for an album with a motion cover of its own. Shown as `motion_cover` is (motion covers on, and not hidden by you); served with byte ranges. Null when there's none: show the square cover over its `colours.palette` rather than stretching it."
           },
           "motion_cover_generation": {
             "anyOf": [{"$ref": "#/components/schemas/MotionCoverGeneration"}, {"type": "null"}],
@@ -17787,7 +17753,7 @@
           "state": {
             "type": "string",
             "enum": ["queued", "done", "skipped", "failed"],
-            "description": "queued: waiting for the renderer; done: made (shown as `motion_cover` unless hidden); skipped: the cover isn't one that moves well (it still gets `motion_cover_tall`); failed: tried again a day later, three times at most."
+            "description": "queued: waiting for the renderer; done: made (shown as `motion_cover` unless hidden); skipped: the cover isn't one that moves well; failed: tried again a day later, three times at most."
           },
           "reason": {
             "type": ["string", "null"],

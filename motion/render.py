@@ -1,22 +1,21 @@
 """Melete's motion cover renderer (decision 124).
 
-Makes short loops from an album's still cover. The square one: Depth Anything V2 Small
-(Apache-2.0) estimates the cover's depth, lettering (PP-OCRv3's text detector, Apache-2.0) and
-faces (YuNet, MIT) are found and each held flat so it moves as one rigid piece, and the cover is
-displaced by its depth as a camera drifts across it and slowly in and out again (OpenCV), then
-encoded as H.264 by ffmpeg. Covers that are mostly text, flat, or have no depth to move get no
-square loop, with the reason. The tall one (9:16, for full-screen players) is made for every
-cover: the cover large and sharp (moving as the square loop does, when there is one) over a
-blurred, darkened copy of itself that drifts slowly.
+Makes a short loop from an album's still cover: Depth Anything V2 Small (Apache-2.0) estimates
+the cover's depth, lettering (PP-OCRv3's text detector, Apache-2.0) and faces (YuNet, MIT) are
+found and each held flat so it moves as one rigid piece. The camera stays where it is and breathes:
+it moves slowly in a little and back, so nearer things swell a touch more than farther ones; and
+where the cover has a clearly distant, soft part big enough (a sky, a haze, a plain backdrop),
+that part alone drifts gently, never the lettering or faces (OpenCV). Then it's encoded as
+H.264 by ffmpeg. Covers that are mostly text, flat, or have no depth to move are skipped, with
+the reason.
 
 Jobs are files. Melete writes `queue/<id>.cover` (the cover's bytes) and `queue/<id>.json`
-({"id", "cover", "version", "loop": {"seconds", "fps", "max_side", "path", "strength"},
-"tall": {"width", "height"}}); this takes a job by renaming it into `running/`, and answers
-with `done/<id>.json` and the videos beside it (`video`, unless skipped, and `tall`). It has no network service and never sees the library: the only traffic is the models'
+({"id", "cover", "version", "loop": {"seconds", "fps", "max_side", "path", "strength"}}); this
+takes a job by renaming it into `running/`, and answers with `done/<id>.json` and the video
+beside it. It has no network service and never sees the library: the only traffic is the models'
 download from their publishers on first use, each checked against its SHA-256.
 
-`python render.py --try <image> <square.mp4> <tall.mp4>` renders one image outside the queue (for
-checking).
+`python render.py --try <image> <out.mp4>` renders one image outside the queue (for checking).
 """
 
 import hashlib
@@ -72,6 +71,20 @@ FLAT = 0.85  # share of the cover in its three most common colours
 # poster-like cover it stays close to the near end, a shallow bowl that would move as a bulge.
 # Photos and paintings measured 0.67 and up; gradients, patterns and framed graphics 0.64 and below.
 MIN_DEPTH_RANGE = 0.65
+# The distant part that drifts: at most this near (0 far to 1 near, as `prepare` gives it: the
+# farthest fifth of the cover's depth), fully; it fades out over the next 0.1.
+FAR = 0.2
+# Only soft parts drift (sky, cloud, haze, water): where sharp edges are this dense, nothing does,
+# as shelves, buildings or lights would visibly wobble. Measured as the share of edge pixels around.
+SOFT = (0.03, 0.08)
+# It drifts only when it's at least the first share of the cover (a few stray far pixels would
+# only shimmer) and at most the second (past that the whole cover would sway), and only when most
+# of it is one piece rather than scattered patches.
+FAR_SHARE = (0.12, 0.7)
+ONE_PIECE = 0.6
+# How far it drifts, as a share of the cover's side, and how many times a loop it sways.
+DRIFT = 0.004
+DRIFT_CYCLES = 2
 
 
 def log(message):
@@ -199,155 +212,114 @@ def prepare(raw, polys, faces):
     return d.astype(np.float32), float(d0), text_share
 
 
-def encoder(width, height, fps, out_path, crf):
-    """ffmpeg, taking raw BGR frames on its input and writing an H.264 MP4."""
-    return subprocess.Popen(
+def smoothstep(edge0, edge1, x):
+    t = np.clip((x - edge0) / (edge1 - edge0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def far_part(bgr, d, held):
+    """How much each pixel drifts, 0 to 1: the clearly distant, soft part, away from anything held
+    (lettering, faces), feathered inside its own edge so the nearer part never stretches. And its
+    share of the cover; the weights are all 0 unless that's within FAR_SHARE and mostly one piece."""
+    h, w = d.shape
+    side = min(h, w)
+    edges = cv2.Canny(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), 80, 160).astype(np.float32) / 255
+    density = cv2.GaussianBlur(edges, (0, 0), max(1.0, side * 0.02))
+    soft = 1 - smoothstep(SOFT[0], SOFT[1], density)
+    far = (1 - smoothstep(FAR, FAR + 0.1, d)) * soft * (1 - held)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((far > 0.5).astype(np.uint8), 8)
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    if count < 2 or areas.max() < ONE_PIECE * areas.sum():
+        return np.zeros_like(far, dtype=np.float32), float(far.mean())
+    k = max(3, int(side * 0.03) | 1)
+    far = cv2.erode(far.astype(np.float32), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    far = cv2.GaussianBlur(far, (0, 0), max(1.0, side * 0.012)) * (1 - held)
+    share = float(far.mean())
+    if not FAR_SHARE[0] <= share <= FAR_SHARE[1]:
+        return np.zeros_like(far), share
+    return far.astype(np.float32), share
+
+
+def held_mask(shape, polys, faces):
+    """Lettering and faces, grown a little: never drifted."""
+    h, w = shape
+    side = min(h, w)
+    held = np.zeros(shape, np.uint8)
+    for p in polys:
+        cv2.fillPoly(held, [p], 1)
+    for (x, y, fw, fh) in faces:
+        g = int(0.3 * max(fw, fh))
+        cv2.rectangle(held, (x - g, y - g), (x + fw + g, y + fh + g), 1, -1)
+    k = max(3, int(side * 0.03) | 1)
+    held = cv2.dilate(held, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return cv2.GaussianBlur(held.astype(np.float32), (0, 0), max(1.0, side * 0.01)).clip(0, 1)
+
+
+def render(bgr, d, d0, far, loop, out_path):
+    """Writes the loop. The camera stays put and moves in a little and back once, easing at both
+    ends: each pixel is drawn toward the middle by (depth - focal depth) times how far in it is.
+    The far part also sways a little, mostly sideways, each place at its own moment so it moves
+    as waves rather than as one piece. Every motion is a whole number of cycles, so the last frame
+    leads straight back to the first."""
+    h, w = d.shape
+    side = min(h, w)
+    gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8
+    gy = cv2.Sobel(d, cv2.CV_32F, 0, 1, ksize=3) / 8
+    steepest = float(np.percentile(np.hypot(gx, gy), 99.9))
+    # How far the edge of the cover moves in at the deepest; never so far the warp folds over.
+    amp = min(float(loop["strength"]) * side, 0.5 / max(steepest, 1e-6))
+    push = amp / (side / 2)
+    drift = DRIFT * side if far.any() else 0.0
+    # Zoomed in just enough that the edges never show what's beyond them.
+    edge = max(2, int(side * 0.02))
+    border = np.concatenate([d[:edge].ravel(), d[-edge:].ravel(), d[:, :edge].ravel(), d[:, -edge:].ravel()])
+    zoom = 1 + 2 * (amp * float(np.max(np.abs(border - d0))) + drift + 1) / side
+    cy, cx = (h - 1) / 2, (w - 1) / 2
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    bx = (cx + (xx - cx) / zoom).astype(np.float32)
+    by = (cy + (yy - cy) / zoom).astype(np.float32)
+    rel = (d - d0).astype(np.float32)
+    # Each place's moment in the sway: smooth noise, the same for the same cover every time.
+    rng = np.random.default_rng(0)
+    moments = [cv2.resize(rng.random((6, 6)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC) * 2 * np.pi
+               for _ in range(2)]
+    weight = cv2.remap(far, bx, by, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    fps, frames = int(loop["fps"]), int(loop["seconds"]) * int(loop["fps"])
+    enc = subprocess.Popen(
         ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
-         "-s", f"{width}x{height}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "slow", "-crf", str(crf),
+         "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "slow", "-crf", "20",
          "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", "-f", "mp4", out_path],
         stdin=subprocess.PIPE)
-
-
-def finish(encoders):
-    codes = []
-    for enc in encoders:
-        enc.stdin.close()
-        codes.append(enc.wait())
-    for code in codes:
-        if code != 0:
-            raise RuntimeError(f"ffmpeg ended with {code}")
-
-
-class Square:
-    """The square loop's frames: each the cover displaced by (depth - focal depth) as the camera
-    sways across it (side to side, and a little up and down, twice as often) while it moves slowly
-    in and out. Every motion is a whole number of cycles, so the last frame leads straight back to
-    the first."""
-
-    # How far the camera moves in at the deepest, as a share of the cover's half side.
-    PUSH = 0.6
-
-    def __init__(self, bgr, d, d0, loop):
-        h, w = d.shape
-        side = min(h, w)
-        gx = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8
-        gy = cv2.Sobel(d, cv2.CV_32F, 0, 1, ksize=3) / 8
-        steepest = float(np.percentile(np.hypot(gx, gy), 99.9))
-        # The sway and the push together never so far that the warp folds over itself.
-        self.amp = min(float(loop["strength"]) * side, 0.5 / max(steepest, 1e-6) / (1 + self.PUSH))
-        self.push = self.PUSH * self.amp / (side / 2)
-        # Zoomed in just enough that the edges never show what's beyond them.
-        edge = max(2, int(side * 0.02))
-        border = np.concatenate([d[:edge].ravel(), d[-edge:].ravel(), d[:, :edge].ravel(), d[:, -edge:].ravel()])
-        reach = self.amp * (1 + self.PUSH) * float(np.max(np.abs(border - d0)))
-        self.zoom = 1 + 2 * (reach + 1) / side
-        self.cy, self.cx = (h - 1) / 2, (w - 1) / 2
-        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-        self.bx = (self.cx + (xx - self.cx) / self.zoom).astype(np.float32)
-        self.by = (self.cy + (yy - self.cy) / self.zoom).astype(np.float32)
-        self.rel = (d - d0).astype(np.float32)
-        self.bgr = bgr
-
-    def frame(self, phase):
-        ox = np.float32(self.amp * np.sin(phase))
-        oy = np.float32(0.35 * self.amp * np.sin(2 * phase))
-        # In and out once, easing at both ends: nearer things grow more than farther ones.
-        push = np.float32(self.push * (1 - np.cos(phase)) / 2)
-        mx, my = self.bx, self.by
-        # Where each pixel comes from depends on the depth there; two steps find it.
-        for _ in range(2):
-            disp = cv2.remap(self.rel, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            mx = (self.bx - (ox + push * (self.bx - self.cx)) * disp).astype(np.float32)
-            my = (self.by - (oy + push * (self.by - self.cy)) * disp).astype(np.float32)
-        return cv2.remap(self.bgr, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
-
-
-class Tall:
-    """The tall loop's frames: the cover large and sharp, a little above the middle where a
-    full-screen player shows it, with a soft shadow, over a blurred and darkened copy of itself
-    filling the frame and drifting slowly round."""
-
-    COVER = 0.84  # the cover's width, as a share of the frame's
-    CENTRE = 0.42  # its middle, as a share of the frame's height from the top
-    DIM = 0.62  # how bright the background stays
-    DRIFT = 0.04  # how far the background moves, as a share of the frame's width
-
-    def __init__(self, bgr, width, height):
-        self.w, self.h = width, height
-        ch, cw = bgr.shape[:2]
-        # The cover as large as fits the cover's place, keeping its shape.
-        fit = self.COVER * width / max(cw, ch)
-        self.fw, self.fh = max(2, round(cw * fit)), max(2, round(ch * fit))
-        self.x = (width - self.fw) // 2
-        self.y = max(0, min(height - self.fh, round(self.CENTRE * height - self.fh / 2)))
-        # The background, made small: blurred so much that its size doesn't show once enlarged.
-        self.small = 4
-        sw, sh = width // self.small, height // self.small
-        over = 1 + 2 * self.DRIFT + 0.08
-        scale = over * max(sw / cw, sh / ch)
-        bg = cv2.resize(bgr, (max(sw, round(cw * scale)), max(sh, round(ch * scale))), interpolation=cv2.INTER_AREA)
-        bg = cv2.GaussianBlur(bg, (0, 0), sw * 0.05)
-        bg = cv2.GaussianBlur(bg, (0, 0), sw * 0.05)
-        self.bg = (bg.astype(np.float32) * self.DIM).astype(np.float32)
-        self.sw, self.sh = sw, sh
-        # The shadow under the cover: how much of the background shows through, everywhere.
-        shadow = np.zeros((height, width), np.float32)
-        drop = round(0.015 * height)
-        cv2.rectangle(shadow, (self.x, self.y + drop), (self.x + self.fw, self.y + self.fh + drop), 0.55, -1)
-        self.keep = (1 - cv2.GaussianBlur(shadow, (0, 0), 0.03 * width))[..., None]
-        self.still = cv2.resize(bgr, (self.fw, self.fh), interpolation=cv2.INTER_AREA if fit < 1 else cv2.INTER_CUBIC)
-
-    def frame(self, phase, cover=None):
-        bh, bw = self.bg.shape[:2]
-        reach = self.DRIFT * self.sw
-        # Round an ellipse, the background breathing a little larger and back as it goes.
-        tx = (bw - self.sw) / 2 + reach * np.cos(phase)
-        ty = (bh - self.sh) / 2 + reach * 1.5 * np.sin(phase)
-        grow = 1 + 0.04 * (1 - np.cos(phase)) / 2
-        m = np.float32([[1 / grow, 0, tx + (1 - 1 / grow) * self.sw / 2],
-                        [0, 1 / grow, ty + (1 - 1 / grow) * self.sh / 2]])
-        small = cv2.warpAffine(self.bg, m, (self.sw, self.sh), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
-                               borderMode=cv2.BORDER_REFLECT)
-        out = cv2.resize(small, (self.w, self.h), interpolation=cv2.INTER_CUBIC) * self.keep
-        out = np.clip(out, 0, 255).astype(np.uint8)
-        front = self.still if cover is None else cv2.resize(cover, (self.fw, self.fh), interpolation=cv2.INTER_AREA)
-        out[self.y:self.y + self.fh, self.x:self.x + self.fw] = front
-        return out
-
-
-def render(bgr, square, loop, tall, square_path, tall_path):
-    """Writes the tall loop, and the square one when `square` is given (a Square), in one pass:
-    the tall one shows the square one's frames as they're made."""
-    fps, frames = int(loop["fps"]), int(loop["seconds"]) * int(loop["fps"])
-    h, w = bgr.shape[:2]
-    tall = Tall(bgr, int(tall["width"]), int(tall["height"]))
-    encoders = [encoder(tall.w, tall.h, fps, tall_path, 22)]
-    if square is not None:
-        encoders.append(encoder(w, h, fps, square_path, 20))
     try:
         for i in range(frames):
             phase = 2 * np.pi * i / frames
-            moving = square.frame(phase) if square is not None else None
-            if moving is not None:
-                encoders[1].stdin.write(moving.tobytes())
-            encoders[0].stdin.write(tall.frame(phase, moving).tobytes())
+            inward = np.float32(push * (1 - np.cos(phase)) / 2)
+            fx, fy = bx, by
+            if drift:
+                sway = DRIFT_CYCLES * phase
+                fx = (bx - weight * drift * np.sin(sway + moments[0])).astype(np.float32)
+                fy = (by - weight * 0.4 * drift * np.sin(sway + moments[1])).astype(np.float32)
+            mx, my = fx, fy
+            # Where each pixel comes from depends on the depth there; two steps find it.
+            for _ in range(2):
+                disp = cv2.remap(rel, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+                mx = (fx - inward * (bx - cx) * disp).astype(np.float32)
+                my = (fy - inward * (by - cy) * disp).astype(np.float32)
+            frame = cv2.remap(bgr, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+            enc.stdin.write(frame.tobytes())
     finally:
-        finish(encoders)
-    out = {"tall_width": tall.w, "tall_height": tall.h}
-    if square is not None:
-        out.update({"amplitude_px": round(square.amp, 2), "zoom": round(square.zoom, 4)})
-    return out
+        enc.stdin.close()
+        code = enc.wait()
+    if code != 0:
+        raise RuntimeError(f"ffmpeg ended with {code}")
+    return {"amplitude_px": round(amp, 2), "zoom": round(zoom, 4), "drift_px": round(drift, 2)}
 
 
-def make(models, data, loop, tall, out_path, tall_path, force=False):
-    """One cover: returns (skip reason or None, details). Renders the tall loop, and the square
-    one unless skipped."""
+def make(models, data, loop, out_path, force=False):
+    """One cover: returns (skip reason or None, details). Renders unless skipped."""
     started = time.time()
-    if loop.get("path") != "drift":
+    if loop.get("path") != "breathe":
         raise ValueError(f"unknown camera path {loop.get('path')!r}")
-    tall_w, tall_h = int(tall["width"]), int(tall["height"])
-    if not (2 <= tall_w <= 2160 and 2 <= tall_h <= 3840 and tall_w % 2 == 0 and tall_h % 2 == 0):
-        raise ValueError(f"a tall loop {tall_w}x{tall_h} isn't one to make")
     bgr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
         raise ValueError("the cover couldn't be decoded")
@@ -362,6 +334,7 @@ def make(models, data, loop, tall, out_path, tall_path, force=False):
     depth_s = time.time() - t
     polys, faces = models.lettering(bgr), models.faces(bgr)
     d, d0, text_share = prepare(raw, polys, faces)
+    far, far_share = far_part(bgr, d, held_mask(d.shape, polys, faces))
     flat = flatness(bgr)
     p1, p99 = np.percentile(raw, [1, 99])
     depth_range = float((p99 - p1) / max(abs(p99), 1e-6))
@@ -369,7 +342,7 @@ def make(models, data, loop, tall, out_path, tall_path, force=False):
         "renderer": RENDERER, "width": nw, "height": nh, "lettering": len(polys), "faces": len(faces),
         "text_share": round(text_share, 3), "flat": round(flat, 3), "depth_range": round(depth_range, 3),
         "depth_device": "gpu" if models.providers[0] == "CUDAExecutionProvider" else "cpu",
-        "depth_seconds": round(depth_s, 3),
+        "depth_seconds": round(depth_s, 3), "far_share": round(far_share, 3), "drifts": bool(far.any()),
     }
     reason = None
     if text_share >= MOSTLY_TEXT:
@@ -378,8 +351,8 @@ def make(models, data, loop, tall, out_path, tall_path, force=False):
         reason = "flat artwork"
     elif depth_range < MIN_DEPTH_RANGE:
         reason = "no depth to move"
-    square = Square(bgr, d, d0, loop) if reason is None or force else None
-    details.update(render(bgr, square, loop, tall, out_path, tall_path))
+    if reason is None or force:
+        details.update(render(bgr, d, d0, far, loop, out_path))
     details["seconds"] = round(time.time() - started, 2)
     return reason, details
 
@@ -397,30 +370,26 @@ def work(models, job, job_id):
         raise ValueError("the job names no usable cover")
     with open(os.path.join(JOBS, "queue", cover), "rb") as f:
         data = f.read()
-    video, tall = f"{job_id}.mp4", f"{job_id}.tall.mp4"
+    video = f"{job_id}.mp4"
     partial = os.path.join(JOBS, "done", f".{video}.partial")
-    tall_partial = os.path.join(JOBS, "done", f".{tall}.partial")
     try:
-        reason, details = make(models, data, job["loop"], job["tall"], partial, tall_partial)
+        reason, details = make(models, data, job["loop"], partial)
         details["version"] = job.get("version")
-        os.rename(tall_partial, os.path.join(JOBS, "done", tall))
         if reason:
-            return {"id": job_id, "ok": True, "skipped": reason, "tall": tall, "details": details}
+            return {"id": job_id, "ok": True, "skipped": reason, "details": details}
         os.rename(partial, os.path.join(JOBS, "done", video))
-        return {"id": job_id, "ok": True, "video": video, "tall": tall, "details": details}
+        return {"id": job_id, "ok": True, "video": video, "details": details}
     finally:
-        for path in (partial, tall_partial):
-            if os.path.exists(path):
-                os.remove(path)
+        if os.path.exists(partial):
+            os.remove(partial)
 
 
 def main():
-    if len(sys.argv) >= 5 and sys.argv[1] == "--try":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--try":
         models = Models(DEVICE)
-        loop = {"seconds": 8, "fps": 30, "max_side": 1440, "path": "drift", "strength": 0.03}
-        tall = {"width": 1080, "height": 1920}
+        loop = {"seconds": 16, "fps": 30, "max_side": 1440, "path": "breathe", "strength": 0.015}
         with open(sys.argv[2], "rb") as f:
-            reason, details = make(models, f.read(), loop, tall, sys.argv[3], sys.argv[4], force="--force" in sys.argv)
+            reason, details = make(models, f.read(), loop, sys.argv[3], force="--force" in sys.argv)
         print(json.dumps({"skipped": reason, **details}))
         return 0
     for sub in ("queue", "running", "done"):
