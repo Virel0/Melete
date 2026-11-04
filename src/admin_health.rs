@@ -5,9 +5,11 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+mod frame_rates;
 mod matching;
 mod profiles;
 
+use frame_rates::*;
 use matching::*;
 use profiles::*;
 
@@ -38,7 +40,7 @@ pub struct Finding {
     /// indexer_failed, requests_waiting, downloads_failed, follow_failed, files_missing,
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
     /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
-    /// runtime_checks_failed, requests_no_profile.
+    /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -113,6 +115,7 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
     titles_to_match(pool, &mut found).await?;
     found.0.extend(crate::runtime_checks::findings(pool).await?);
     requests_without_profile(pool, &mut found).await?;
+    converted_frame_rates(pool, &mut found).await?;
     Ok(Health {
         areas: by_area(found),
     })
@@ -499,6 +502,37 @@ mod tests {
             .find(|a| a.area == area)
             .unwrap()
             .findings
+    }
+
+    #[tokio::test]
+    async fn movies_at_a_high_frame_rate_get_a_note_each() {
+        let pool = db::open_in_memory().await;
+        crate::search::frame_rate::tests::movies_at_frame_rates(&pool).await;
+        let health = check(&pool).await.unwrap();
+        let notes: Vec<(&str, Level, Option<i64>, &str)> = of(&health, "movies")
+            .iter()
+            .filter(|f| f.code == "movies_high_frame_rate")
+            .map(|f| (f.code, f.level, f.id, f.message.as_str()))
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                (
+                    "movies_high_frame_rate",
+                    Level::Note,
+                    Some(1),
+                    "Sixty plays at 60 fps, likely made up from the film's 24; it may stutter on \
+                     some players. Search for another release."
+                ),
+                (
+                    "movies_high_frame_rate",
+                    Level::Note,
+                    Some(5),
+                    "Unmatched Sixty plays at 60 fps, likely made up from the film's 24; it may \
+                     stutter on some players. Search for another release."
+                ),
+            ]
+        );
     }
 
     #[tokio::test]

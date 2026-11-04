@@ -21,6 +21,7 @@ mod discover;
 mod downloads;
 mod events;
 mod favourites;
+mod high_frame_rate;
 mod import;
 mod indexers;
 mod languages;

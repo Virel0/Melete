@@ -4715,6 +4715,60 @@
         }
       }
     },
+    "/api/v1/high-frame-rate-films": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "The films high frame rate releases are wanted for",
+        "description": "By TMDB movie id, in order. A movie's search turns down releases named as converted to a high frame rate (48, 50, 60 or 120 fps, interpolated) for every other film, unless MELETE_ALLOW_HFR_MOVIES is on, and health notes a movie of any other film playing at 48 fps or more. It starts with the films really made at a high frame rate: Billy Lynn's Long Halftime Walk, Gemini Man and the three Hobbit films.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"type": "integer"}}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
+    "/api/v1/high-frame-rate-films/{tmdb_id}": {
+      "put": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Want high frame rate releases for a film, or stop wanting them",
+        "description": "By the film's TMDB id, so it holds whether or not the film is in the library yet. Setting it as it already is changes nothing.",
+        "parameters": [
+          {
+            "name": "tmdb_id",
+            "in": "path",
+            "required": true,
+            "description": "The film's TMDB movie id.",
+            "schema": {"type": "integer", "minimum": 1}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["allowed"],
+            "properties": {"allowed": {"type": "boolean", "description": "true: its high frame rate releases are wanted; false: they're turned down like any film's."}},
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "204": {"description": "Done"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "422": {
+            "description": "The body isn't {\"allowed\": true or false}",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/runtime-checks/{kind}/{id}": {
       "get": {
         "tags": ["Admin"],
@@ -11888,9 +11942,20 @@
           "backdrop_focus",
           "textless_backdrop_focus",
           "match_status",
-          "files"
+          "files",
+          "high_frame_rate"
         ],
         "properties": {
+          "high_frame_rate": {
+            "type": ["object", "null"],
+            "required": ["fps", "allowed"],
+            "properties": {
+              "fps": {"type": "number", "description": "The highest of its present files' frame rates (their first video stream's), as probed."},
+              "allowed": {"type": "boolean", "description": "Whether high frame rate releases are wanted for the film (GET /api/v1/high-frame-rate-films). false: most likely made up from the film's own 24, so another release is worth a search."}
+            },
+            "additionalProperties": false,
+            "description": "When the movie's copy plays at 48 fps or more, which may stutter on some players; null otherwise."
+          },
           "id": {"type": "integer"},
           "library": {"type": "string"},
           "title": {"type": "string"},
@@ -17767,7 +17832,8 @@
               "tmdb_failing",
               "titles_unmatched",
               "requests_no_profile",
-              "runtime_checks_failed"
+              "runtime_checks_failed",
+              "movies_high_frame_rate"
             ],
             "description": "Stable, for apps to act on."
           },

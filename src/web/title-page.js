@@ -60,14 +60,27 @@ function stageInk() {
   return m ? m.slice(1).map((x) => parseInt(x, 16)) : [0, 0, 0];
 }
 
+// A copy at a high frame rate, which may stutter on some players: most likely made up from the
+// film's own 24, unless its high frame rate releases are wanted (a film really made so), in which
+// case it's only said. Admins can look for another release on its Manage page.
+function frameRateNote(m, admin) {
+  const high = m.high_frame_rate;
+  if (!high) return null;
+  const fps = Math.round(high.fps);
+  if (high.allowed) return h("p", { class: "note" }, `This copy plays at ${fps} fps; it may stutter on some players.`);
+  const said = `This copy plays at ${fps} fps, most likely made up from the film's own 24; it may stutter on some players.`;
+  const search = admin ? [" ", h("a", { href: `#/admin/movies/title/f${m.id}` }, "Search for another release")] : [];
+  return h("p", { class: "note" }, said, ...search);
+}
+
 const MATCH_NOTES = {
   ambiguous: "TMDB has more than one title this could be, so the name comes from the folder. An admin can pick the right one.",
   unmatched: "Not found on TMDB, so the name comes from the folder.",
 };
 
-// The header: art, words, and the actions given. Returns { el, play } so Play can be aimed
-// once what it does is known.
-function header(t, facts, genreHref, actions) {
+// The header: art, words, the actions given and any notes. Returns { el, play } so Play can be
+// aimed once what it does is known.
+function header(t, facts, genreHref, actions, notes = []) {
   const art = t.textless_backdrop ?? t.backdrop;
   const focus = t.textless_backdrop ? t.textless_backdrop_focus : t.backdrop_focus;
   const picture = art ? h("img", { class: "hero-picture shown", src: art, alt: "" }) : null;
@@ -86,6 +99,7 @@ function header(t, facts, genreHref, actions) {
       t.genres.length ? h("ul", { class: "pills", "aria-label": "Genres" }, t.genres.map((g) => h("li", {}, h("a", { href: genreHref(g) }, g)))) : null,
       h("div", { class: "actions" }, play, actions),
       MATCH_NOTES[t.match_status] ? h("p", { class: "note" }, MATCH_NOTES[t.match_status]) : null,
+      ...notes,
     ),
   );
   return { el, play };
@@ -135,11 +149,13 @@ export async function movie(id, gen, admin = false) {
   const list = myListToggle();
   list.show({ kind: "movie", id: m.id, title: m.title });
   const mark = h("button", { type: "button", class: "quiet" });
-  const head = header(m, ["Movie", m.year && String(m.year), runtime(m.runtime_minutes)], (g) => `#/movies?genre=${encodeURIComponent(g)}`, [
-    m.files.length ? mark : null,
-    list.el,
-    trailerButton("movie", m, extras),
-  ]);
+  const head = header(
+    m,
+    ["Movie", m.year && String(m.year), runtime(m.runtime_minutes)],
+    (g) => `#/movies?genre=${encodeURIComponent(g)}`,
+    [m.files.length ? mark : null, list.el, trailerButton("movie", m, extras)],
+    [frameRateNote(m, admin)],
+  );
   const redraw = () => {
     // The file last played, else the first.
     const last = [...progress.values()].sort((a, b) => b.updated_at - a.updated_at)[0];
