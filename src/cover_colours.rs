@@ -4,7 +4,8 @@
 //! the colour the cover's edges are most of (what surrounds the picture when it's shown on it);
 //! the first two text colours are the cover's most common colours that read on that background
 //! (4.5:1 and 3:1, WCAG's contrast for text and for large text), else white or black; the other
-//! two are those softened toward the background. Covers are read with ffmpeg, which Melete
+//! two are those softened toward the background. Also the cover's palette: its few main colours,
+//! for a gradient behind it where it's shown on a screen of another shape. Covers are read with ffmpeg, which Melete
 //! already runs, scaled to 48 by 48. Only covers already on the server are read: a folder's, a
 //! track's tags', or a Cover Art Archive one fetched already. Nothing is fetched for this.
 
@@ -21,6 +22,12 @@ use tokio::io::AsyncWriteExt;
 const SIDE: usize = 48;
 /// How deep the edge counts as edge, in those pixels.
 const EDGE: usize = 6;
+/// The most colours a palette has.
+const PALETTE: usize = 5;
+/// The least share of the cover a colour takes to be in its palette, besides its main one.
+const PALETTE_SHARE: f64 = 0.03;
+/// How far apart (in RGB) two of a palette's colours are at least.
+const PALETTE_APART: f64 = 64.0;
 
 /// An album cover's colours, each as `#rrggbb`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +42,11 @@ pub struct Colours {
     pub text3: String,
     /// The second text colour, softened toward the background.
     pub text4: String,
+    /// The cover's main colours, the most of it first: up to five, each at least 3% of it and
+    /// clearly apart from the others. Empty when read from colours worked out before palettes
+    /// were, until they're worked out again.
+    #[serde(default)]
+    pub palette: Vec<String>,
 }
 
 type Rgb = [f64; 3];
@@ -157,7 +169,22 @@ pub fn from_pixels(pixels: &[[u8; 3]], side: usize) -> Option<Colours> {
         text2: hex(text2),
         text3: hex(mix(text1, background, 0.4)),
         text4: hex(mix(text2, background, 0.4)),
+        palette: palette(&all, pixels.len()),
     })
+}
+
+/// The main colours of a cover's colour buckets (most pixels first) out of `total` pixels.
+fn palette(all: &[(usize, Rgb)], total: usize) -> Vec<String> {
+    let mut picked: Vec<Rgb> = Vec::new();
+    for (i, (n, c)) in all.iter().enumerate() {
+        if picked.len() == PALETTE || (i > 0 && (*n as f64) < PALETTE_SHARE * total as f64) {
+            break;
+        }
+        if picked.iter().all(|p| distance(*p, *c) >= PALETTE_APART) {
+            picked.push(*c);
+        }
+    }
+    picked.into_iter().map(hex).collect()
 }
 
 /// A cover's pixels at `SIDE` by `SIDE`, through ffmpeg.
@@ -311,14 +338,17 @@ pub async fn measure_pending(
     ffmpeg: &Path,
     covers: &Path,
 ) -> anyhow::Result<Report> {
-    let albums: Vec<(i64, Option<String>)> = sqlx::query_as(
-        "SELECT a.id, c.source FROM music_albums a LEFT JOIN music_cover_colours c ON c.album_id = a.id
+    // Colours worked out before palettes were are worked out again.
+    let albums: Vec<(i64, Option<String>, bool)> = sqlx::query_as(
+        "SELECT a.id, c.source,
+             c.colours IS NULL OR json_type(c.colours, '$.palette') IS NOT NULL
+         FROM music_albums a LEFT JOIN music_cover_colours c ON c.album_id = a.id
          WHERE a.missing_since IS NULL ORDER BY a.id",
     )
     .fetch_all(pool)
     .await?;
     let mut report = Report::default();
-    for (album, measured) in albums {
+    for (album, measured, current_kind) in albums {
         let found = match current(pool, covers, album).await {
             Ok(found) => found,
             Err(err) => {
@@ -339,7 +369,7 @@ pub async fn measure_pending(
             }
             continue;
         };
-        if measured.as_deref() == Some(source.as_str()) {
+        if measured.as_deref() == Some(source.as_str()) && current_kind {
             continue;
         }
         let (colours, error) = match pixels(ffmpeg, &bytes).await.map(|p| from_pixels(&p, SIDE)) {
@@ -429,6 +459,42 @@ mod tests {
         // Softened toward the background, 40% of the way.
         assert_eq!(c.text3, hex(mix(rgb("#f0c040"), rgb("#102040"), 0.4)));
         assert_eq!(c.text4, hex(mix(rgb("#f08080"), rgb("#102040"), 0.4)));
+    }
+
+    #[test]
+    fn the_palette_is_the_covers_main_colours_most_first() {
+        let pixels = cover(
+            SIDE,
+            [0x10, 0x20, 0x40],
+            [0xf0, 0xc0, 0x40],
+            8,
+            [0xf0, 0x80, 0x80],
+        );
+        let c = from_pixels(&pixels, SIDE).unwrap();
+        assert_eq!(c.palette, ["#102040", "#f0c040", "#f08080"]);
+
+        // A colour close to one already in it, or too little of the cover, isn't.
+        let mut pixels = vec![[0x10, 0x20, 0x40]; 1200];
+        pixels.extend([[0xf0, 0xc0, 0x40]; 700]);
+        pixels.extend([[0x30, 0x40, 0x60]; 300]);
+        pixels.extend([[0x20, 0xe0, 0x20]; 60]);
+        pixels.extend([[0xe0, 0x20, 0xe0]; 44]);
+        let c = from_pixels(&pixels, SIDE).unwrap();
+        assert_eq!(c.palette, ["#102040", "#f0c040"]);
+
+        // Five at most.
+        let six: [[u8; 3]; 6] = [
+            [0x00, 0x00, 0x00],
+            [0xe0, 0xe0, 0xe0],
+            [0xe0, 0x00, 0x00],
+            [0x00, 0xe0, 0x00],
+            [0x00, 0x00, 0xe0],
+            [0xe0, 0xe0, 0x00],
+        ];
+        let pixels: Vec<[u8; 3]> = (0..SIDE * SIDE)
+            .map(|i| six[i * 6 / (SIDE * SIDE)])
+            .collect();
+        assert_eq!(from_pixels(&pixels, SIDE).unwrap().palette.len(), 5);
     }
 
     #[test]
@@ -588,6 +654,30 @@ mod tests {
         assert_eq!(colours_of(&pool, 4).await, None, "no cover, no colours");
 
         // Nothing changed: nothing measured again.
+        assert_eq!(
+            measure_pending(&pool, ffmpeg, covers.path()).await.unwrap(),
+            Report::default()
+        );
+
+        // Colours worked out before palettes were are worked out again, once.
+        sqlx::query(
+            "UPDATE music_cover_colours SET colours = json_remove(colours, '$.palette')
+             WHERE album_id = 1",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            measure_pending(&pool, ffmpeg, covers.path()).await.unwrap(),
+            Report {
+                measured: 1,
+                failed: 0
+            }
+        );
+        assert_eq!(
+            colours_of(&pool, 1).await.unwrap().0.unwrap().palette,
+            ["#102040", "#f0c040"]
+        );
         assert_eq!(
             measure_pending(&pool, ffmpeg, covers.path()).await.unwrap(),
             Report::default()

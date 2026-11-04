@@ -92,7 +92,8 @@ impl AlbumRow {
                 .colours
                 .as_deref()
                 .filter(|_| has_cover)
-                .and_then(|c| serde_json::from_str::<Value>(c).ok()),
+                // As the type is now: an older record's missing palette is empty.
+                .and_then(|c| serde_json::from_str::<crate::cover_colours::Colours>(c).ok()),
             "mb_release_id": self.mb_release_id,
             "mb_release_group_id": self.mb_release_group_id,
             "mb_artist_id": self.mb_artist_id,

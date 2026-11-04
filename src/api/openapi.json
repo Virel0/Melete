@@ -15019,7 +15019,7 @@
       "CoverColours": {
         "type": "object",
         "description": "An album cover's colours, worked out on the server so every app matches: a background (the colour around the cover's edges) and four text colours that read on it. text1 and text2 are the cover's own colours where they read (contrast at least 4.5:1 and 3:1), else white or black; text3 and text4 are them softened toward the background, for less important text.",
-        "required": ["background", "text1", "text2", "text3", "text4"],
+        "required": ["background", "text1", "text2", "text3", "text4", "palette"],
         "properties": {
           "background": {"type": "string", "pattern": "^#[0-9a-f]{6}$", "description": "#rrggbb."},
           "text1": {
@@ -15037,6 +15037,12 @@
             "type": "string",
             "pattern": "^#[0-9a-f]{6}$",
             "description": "text2 softened toward the background."
+          },
+          "palette": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string", "pattern": "^#[0-9a-f]{6}$"},
+            "description": "The cover's main colours, the most of it first: up to five, each at least 3% of the cover and clearly apart from the others. For what's around the cover where it's shown on a screen of another shape (a full-screen player: a gradient below the cover shown full width, or behind it), rather than stretching it. Empty only in colours worked out by an older Melete, until they're worked out again (soon after it starts)."
           }
         },
         "additionalProperties": false

@@ -351,7 +351,7 @@ async fn album_pages_carry_release_genres_and_tracks() {
 async fn albums_carry_their_covers_colours_beside_the_cover() {
     let f = fixture(None).await;
     let colours = json!({ "background": "#102040", "text1": "#f0c040", "text2": "#f08080",
-            "text3": "#9a8240", "text4": "#9a5c66" });
+            "text3": "#9a8240", "text4": "#9a5c66", "palette": ["#102040", "#f0c040"] });
     sqlx::query(
         "INSERT INTO music_cover_colours (album_id, source, colours, measured_at)
              VALUES (1, 'file', ?1, 0), (3, 'rg', ?1, 0)",
@@ -377,6 +377,18 @@ async fn albums_carry_their_covers_colours_beside_the_cover() {
     assert_eq!(
         json_of(&f, "/api/v1/music/albums/3").await.1["colours"],
         Value::Null
+    );
+    // Colours worked out before palettes were have an empty one until worked out again.
+    sqlx::query(
+        "UPDATE music_cover_colours SET colours = json_remove(colours, '$.palette')
+         WHERE album_id = 1",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        json_of(&f, "/api/v1/music/albums/1").await.1["colours"]["palette"],
+        json!([])
     );
 }
 
