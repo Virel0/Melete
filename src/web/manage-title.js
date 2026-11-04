@@ -30,15 +30,16 @@ export async function titlePage(ctx) {
     return [h("h1", {}, "Not found"), emptyState(`${ctx.service.name} has no such title. It may have been taken off the list.`, { href: `#/admin/${key}/library`, label: `Go to ${ctx.service.name}` })];
   }
   const folderId = movies ? t.movie_id : t.series_id;
-  const [folder, wanted, profiles, loads] = await Promise.all([
+  const [folder, wanted, profiles, loads, highFrameRate] = await Promise.all([
     folderId ? api(`/${movies ? "movies" : "series"}/${folderId}`).catch(() => null) : null,
     !movies && t.wanted ? api("/wanted/series").then((all) => all.find((w) => w.id === t.wanted_id) ?? null) : null,
     profilesFor(kind).catch(() => []),
     t.wanted ? api("/downloads") : [],
+    movies && t.tmdb_id ? api("/high-frame-rate-films").catch(() => null) : null,
   ]);
   if (!ctx.current()) return [];
   const mine = loads.filter((d) => (movies ? d.wanted_movie_id : d.wanted_series_id) === t.wanted_id && d.state !== "imported");
-  const v = { ctx, key, kind, movies, t, folder, wanted, profiles, downloads: mine };
+  const v = { ctx, key, kind, movies, t, folder, wanted, profiles, downloads: mine, highFrameRate };
   ctx.setTitle?.(t.title);
   return [
     header(v),
@@ -51,6 +52,29 @@ export async function titlePage(ctx) {
 }
 
 // ---------- The header ----------
+
+// Whether a film's releases at a high frame rate (60fps, interpolated) are wanted, as for a film
+// really made so; otherwise they're turned down as made up from its own 24.
+function highFrameRateSwitch(v, said) {
+  const { t, ctx } = v;
+  const box = h("input", { type: "checkbox", id: "high-frame-rate", checked: v.highFrameRate.includes(t.tmdb_id) });
+  box.addEventListener("change", async () => {
+    const allowed = box.checked;
+    box.disabled = true;
+    try {
+      await api(`/high-frame-rate-films/${t.tmdb_id}`, { method: "PUT", body: { allowed } });
+      announce(allowed ? "High frame rate releases are wanted for this film." : "High frame rate releases are turned down for this film.");
+    } catch (err) {
+      if (err instanceof SignedOut) return ctx.signedOut();
+      box.checked = !allowed;
+      said.textContent = err.message;
+      announce(err.message);
+    } finally {
+      box.disabled = false;
+    }
+  });
+  return h("div", { class: "check" }, box, h("label", { for: box.id }, "Allow releases at a high frame rate: the film was made so, not made up"));
+}
 
 function header(v) {
   const { t, ctx } = v;
@@ -69,6 +93,7 @@ function header(v) {
     ["Size", t.size ? size(t.size) : "Nothing on disk"],
     t.quality ? ["Quality", t.quality] : null,
     t.added_at ? ["Added", when(t.added_at)] : null,
+    v.highFrameRate ? ["Frame rate", highFrameRateSwitch(v, said)] : null,
   ].filter(Boolean);
   // What a button opens (search results, Edit, Fix match) goes under the header, full width.
   return [

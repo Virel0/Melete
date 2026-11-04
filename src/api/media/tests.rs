@@ -553,6 +553,7 @@ async fn movie_details_with_present_files() {
             "textless_backdrop_focus": null,
             "match_status": "matched",
             "files": [{ "id": 1, "path": "The Matrix (1999)/The Matrix.mkv", "size": 100, "modified_at": 1000 }],
+            "high_frame_rate": null,
         })
     );
     let (_, unmatched) = get(&f, "/api/v1/movies/2").await;
@@ -566,6 +567,39 @@ async fn movie_details_with_present_files() {
         "missing movies are hidden"
     );
     assert_eq!(get(&f, "/api/v1/movies/99").await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_movie_at_a_high_frame_rate_says_so() {
+    let f = fixture().await;
+    exec(
+        &f.pool,
+        r#"INSERT INTO media_probes (file_id, size, modified_at, probed_at, info)
+             VALUES (1, 100, 1000, 1, '{"video":[{"frame_rate":59.94}]}');"#,
+    )
+    .await;
+    let (status, body) = get(&f, "/api/v1/movies/1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["high_frame_rate"],
+        json!({ "fps": 59.94, "allowed": false })
+    );
+    // An admin wants high frame rate releases for the film (TMDB 603).
+    crate::search::frame_rate::allow(&f.pool, 603, true)
+        .await
+        .unwrap();
+    let (_, body) = get(&f, "/api/v1/movies/1").await;
+    assert_eq!(
+        body["high_frame_rate"],
+        json!({ "fps": 59.94, "allowed": true })
+    );
+    exec(
+        &f.pool,
+        r#"UPDATE media_probes SET info = '{"video":[{"frame_rate":23.976}]}' WHERE file_id = 1;"#,
+    )
+    .await;
+    let (_, body) = get(&f, "/api/v1/movies/1").await;
+    assert_eq!(body["high_frame_rate"], Value::Null);
 }
 
 #[tokio::test]

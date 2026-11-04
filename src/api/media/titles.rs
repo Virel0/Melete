@@ -86,6 +86,13 @@ pub(super) async fn movie(
         "match_status": m.match_status,
         "files": files.iter().map(FileRow::to_json).collect::<Vec<_>>(),
     });
+    // A copy at a high frame rate, which may stutter; made up from the film's own unless high
+    // frame rate releases are wanted for it.
+    let high = crate::search::frame_rate::high_frame_rate_movies(&state.pool, Some(id)).await?;
+    body["high_frame_rate"] = high.first().map_or(
+        Value::Null,
+        |movie| json!({ "fps": movie.fps, "allowed": movie.allowed }),
+    );
     add_extras(&state, false, id, &mut body).await?;
     Ok(Json(body))
 }

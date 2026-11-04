@@ -38,6 +38,8 @@ const WHERE = {
   titles_unmatched: (area) => `#/admin/${area}/match`,
   // Each service has its own Where they go.
   requests_no_profile: (area) => `#/admin/${area}/defaults`,
+  // The movie's Manage page, to search for another release.
+  movies_high_frame_rate: (_, finding) => `#/admin/movies/title/f${finding.id}`,
 };
 
 // Every area's findings, as { movies: [{ level, code, text, href, count }], … }.
@@ -46,7 +48,7 @@ export async function areaHealth() {
   return Object.fromEntries(
     health.areas.map((a) => [
       a.area,
-      a.findings.map((f) => ({ level: f.level, code: f.code, text: f.message, count: f.count, href: (WHERE[f.code] ?? (() => `#/admin/${a.area}`))(a.area) })),
+      a.findings.map((f) => ({ level: f.level, code: f.code, text: f.message, count: f.count, href: (WHERE[f.code] ?? (() => `#/admin/${a.area}`))(a.area, f) })),
     ]),
   );
 }
