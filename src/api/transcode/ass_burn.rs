@@ -158,7 +158,7 @@ pub(super) async fn decide(
     let Some(found) = TextTrack::find(file, &video, track).await? else {
         return Ok(None);
     };
-    if true {
+    if !subtitles::is_ass(&found.codec) || !styled(state, file, &video, &found).await {
         return Ok(None);
     }
     if settings.video_codec == Some(VideoCodec::Copy) {
@@ -203,6 +203,6 @@ async fn styled(
     if kept.len() >= STYLED_KEPT {
         kept.clear();
     }
-    let _ = &mut kept;
+    kept.insert(track.key.clone(), styled);
     styled
 }
