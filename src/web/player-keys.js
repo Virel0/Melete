@@ -2,18 +2,17 @@
 
 import { announce, h } from "/web/lib.js";
 
-// The height of the video's own controls along its bottom, roughly, in CSS pixels.
-const CONTROLS_BAND = 56;
-
 // Full screen is the stage's: the picture with Skip and the next episode over it. Returns
 // `fullscreen()`, which goes in or out, and `onFullscreen`, the fullscreenchange listener for
 // the page to add and remove.
 export function stageFullscreen(video, stage) {
-  const fullscreen = () => (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.());
-  // Double-clicking the picture goes full screen as players do, but not on the controls along
-  // its bottom, where two quick clicks on Play mean something else.
+  // A phone that can't put the stage full screen (an iPhone) puts the video so, with its own
+  // controls there.
+  const fullscreen = () =>
+    document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen ? stage.requestFullscreen() : video.webkitEnterFullscreen?.();
+  // Double-clicking the picture goes full screen as players do; the controls are their own
+  // elements over it, so a double click on them never reaches the picture.
   video.addEventListener("dblclick", (event) => {
-    if (event.offsetY > video.clientHeight - CONTROLS_BAND) return;
     event.preventDefault();
     fullscreen()?.catch?.(() => {});
   });

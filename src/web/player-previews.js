@@ -1,7 +1,7 @@
 // The seek bar under the video: a tick where each of the file's chapters starts and the credits
 // marked on its track; pointing at it shows the time and chapter there, and the picture from
 // the sheets the server made (`GET /files/{id}/trickplay`) for a file that has them. Using it
-// seeks there. Shown for a file with previews, chapters or credits.
+// seeks there. It's the control bar's, so every video has one.
 
 import { api, clock, h } from "/web/lib.js";
 
@@ -9,10 +9,8 @@ import { api, clock, h } from "/web/lib.js";
 const SHOWN_WIDTH = 240;
 
 // The bar for `video`; sheets come from `streamBase`, the stream link. `chapters` are the
-// file's, `credits` its credits part ({ start_seconds, end_seconds }) or null. Null when
-// there's nothing to show on it.
+// file's, `credits` its credits part ({ start_seconds, end_seconds }) or null.
 export function previewBar(video, fileId, streamBase, { trickplay, chapters = [], credits = null }) {
-  if (!trickplay && chapters.length < 2 && !credits) return null;
   const picture = h("div", { class: "scrub-picture", hidden: true });
   const time = h("span", { class: "scrub-time" });
   const tip = h("div", { class: "scrub-preview", hidden: true, "aria-hidden": "true" }, picture, time);

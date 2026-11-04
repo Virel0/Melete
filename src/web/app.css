@@ -272,18 +272,8 @@ main:focus { outline: none; }
 .subtitle-results span { overflow-wrap: anywhere; }
 .subtitle-results small { color: var(--muted); }
 .skip-parts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-block-start: var(--space-2); min-height: 2.75rem; }
-.player-options { margin-block: 0; }
-/* Under the video: audio and subtitles on one side, the episodes either side of this one on
-   the other. */
-.player-panel {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--space-3) var(--space-5);
-  margin-block-end: var(--space-3);
-}
-.player-panel:empty { display: none; }
+/* Under the video: the episodes either side of this one. */
+.player-end { margin-block: var(--space-3); }
 .episode-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .episode-nav:empty { display: none; }
 .resumed { margin-block: 0 var(--space-3); color: var(--muted); }
@@ -297,8 +287,6 @@ main:focus { outline: none; }
 @media (max-width: 40rem) {
   /* The picture edge to edge, as phone players have it. */
   .stage { margin-inline: calc(-1 * var(--space-4)); border-radius: 0; }
-  .player-panel { flex-direction: column; align-items: stretch; }
-  .player-options select { width: 100%; }
 }
 /* No keyboard to speak of. */
 @media (hover: none) and (pointer: coarse) {

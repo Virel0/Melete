@@ -7,6 +7,8 @@ import { SignedOut, announce, api, clock, episodeLabel, h, loading, show } from 
 import { HLS_MODULE, SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
 import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
+import { controlBar } from "/web/player-controls.js";
+import { chapterPicker, panelButtons, speedPicker } from "/web/player-menus.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
 import { canDrawAss, drawStyled, serverDraws, stopStyled } from "/web/player-ass.js";
@@ -70,13 +72,15 @@ export async function playerPage(fileId, params, ctx) {
   const video = s.video;
   convertWhenRefused(s);
   const subtitlesBox = subtitlePicker(s);
-  const controls = [audioPicker(s), soundPicker(s), subtitlesBox, chapterPicker(s)].filter(Boolean);
   const pickSubtitles = subtitlesBox?.querySelector("select") ?? null;
+  const search = info.subtitle_search ? subtitleSearch(fileId, (track) => addTrack(s, subtitles, track)) : null;
+  const panels = playerPanels(s, subtitlesBox, search);
+  const seek = previewBar(video, fileId, play.stream_url, { trickplay: info.trickplay, chapters: info.chapters ?? [], credits: segments?.credits });
   const reports = startReports(s, restart);
   const where = { seriesId, seasonNumber, episodeNumber, season, episode, title };
   const episodes = episodeLinks(where, ctx);
   const upNext = upNextPanel(video, where, episodes.after, { ctx, report: reports.report, backHref, heading, credits: segments?.credits });
-  const { stage, fullscreen, onKey, onFullscreen } = framed(s, { segments, episodes, upNext, pickSubtitles });
+  const { stage, onKey, onFullscreen, controls } = framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek });
   document.addEventListener("keydown", onKey);
   document.addEventListener("fullscreenchange", onFullscreen);
 
@@ -89,6 +93,8 @@ export async function playerPage(fileId, params, ctx) {
     document.removeEventListener("fullscreenchange", onFullscreen);
     detach(s);
     stopStyled(s);
+    controls.stop();
+    panels.stop();
     video.load();
   });
 
@@ -102,17 +108,10 @@ export async function playerPage(fileId, params, ctx) {
       episode ? h("p", { class: "player-episode" }, episodeLabel(seasonNumber, episodeNumber, episode.name)) : null,
     ),
     stage,
-    previewBar(video, fileId, play.stream_url, { trickplay: info.trickplay, chapters: info.chapters ?? [], credits: segments?.credits }),
-    subtitleChips(pickSubtitles, video),
     upNext.panel,
     resumedNote(start, fileId, params),
-    h(
-      "div",
-      { class: "player-panel" },
-      controls.length ? h("div", { class: "toolbar player-options" }, controls) : null,
-      h("div", { class: "player-end" }, episodes.nav, h("button", { type: "button", class: "quiet", onclick: () => fullscreen()?.catch?.(() => {}) }, "Full screen")),
-    ),
-    info.subtitle_search ? subtitleSearch(fileId, (track) => addTrack(s, subtitles, track)) : null,
+    episodes.nav ? h("div", { class: "player-end" }, episodes.nav) : null,
+    search,
     info.offline ? offlinePanel(fileId, ctx) : null,
     s.status,
     shortcutsHelp(),
@@ -120,17 +119,41 @@ export async function playerPage(fileId, params, ctx) {
   await load(s, start);
 }
 
-// The stage: the picture and what floats over it (Skip, the next episode), which go full screen
-// together; and the keys, with C for the next subtitles and N for the next episode.
-function framed(s, { segments, episodes, upNext, pickSubtitles }) {
+// The stage: the picture, what floats over it (Skip, the next episode) and the controls, which go
+// full screen together; and the keys, with C for the next subtitles and N for the next episode.
+function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) {
   const stage = h("div", { class: "stage" }, s.video, h("div", { class: "stage-over" }, skipButtons(s.video, segments), upNext.card));
   const { fullscreen, onFullscreen } = stageFullscreen(s.video, stage);
+  const controls = controlBar(s.video, stage, { seek, panels, fullscreen });
+  s.controls = controls;
+  stage.append(controls.el);
   const onKey = playerKeys(s.video, {
     subtitles: () => nextSubtitle(pickSubtitles),
     next: () => episodes.after.then((n) => (n ? (location.hash = episodeHref(s.seriesId, n)) : announce("There's no next episode."))),
     fullscreen,
   });
-  return { stage, fullscreen, onKey, onFullscreen };
+  return { stage, onKey, onFullscreen, controls };
+}
+
+// The control bar's panels: Subtitles (every choice as a chip, and finding more), Audio (the
+// track and the sound) and Settings (speed and chapters), each only when it has something.
+function playerPanels(s, subtitlesBox, search) {
+  if (subtitlesBox) subtitlesBox.hidden = true;
+  const find = search
+    ? h("button", { type: "button", class: "quiet", onclick: () => (panels.close(), search.scrollIntoView({ block: "center" }), search.querySelector("select, input, button")?.focus()) }, "Find more subtitles")
+    : null;
+  const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, find].filter(Boolean);
+  const audioBody = [audioPicker(s), soundPicker(s)].filter(Boolean);
+  const settingsBody = [speedPicker(s.video), chapterPicker(s.video, s.info.chapters ?? [])].filter(Boolean);
+  const panels = panelButtons(
+    [
+      subtitleBody.length ? { name: "subtitles", label: "Subtitles", body: subtitleBody } : null,
+      audioBody.length ? { name: "audio", label: "Audio", body: audioBody } : null,
+      { name: "settings", label: "Settings", body: settingsBody },
+    ].filter(Boolean),
+    () => s.controls?.wake(),
+  );
+  return panels;
 }
 
 // The file, how to play it, its subtitles, and the movie or series and season it belongs to.
@@ -156,7 +179,9 @@ async function fetchPlaying(fileId, movieId, seriesId, seasonNumber) {
 function videoWithTracks(streamBase, textTracks) {
   // Full screen is the stage's (the page's button, F and a double-click), so Skip and the next
   // episode come too.
-  const video = h("video", { controls: true, playsinline: true, preload: "metadata", controlslist: "nofullscreen" });
+  // Melete's own controls (`player-controls.js`) stand in for the browser's. Its full screen stays
+  // off for a browser that shows its own anyway: full screen is the stage's.
+  const video = h("video", { playsinline: true, preload: "metadata", controlslist: "nofullscreen" });
   for (const t of textTracks) {
     video.append(
       h("track", {
@@ -316,26 +341,6 @@ function audioPicker(s) {
     announce(`Audio: ${select.selectedOptions[0].textContent}`);
   });
   return h("div", {}, h("label", { for: "audio-track" }, "Audio"), select);
-}
-
-// The file's own chapters to jump to, when it has more than one.
-function chapterPicker(s) {
-  const chapters = s.info.chapters ?? [];
-  if (chapters.length < 2) return null;
-  const select = h(
-    "select",
-    { id: "chapter" },
-    h("option", { value: "" }, "Jump to…"),
-    chapters.map((c, i) => h("option", { value: i }, `${clock(c.start_seconds)} ${c.title ?? `Chapter ${i + 1}`}`)),
-  );
-  select.addEventListener("change", () => {
-    if (select.value === "") return;
-    const chapter = chapters[Number(select.value)];
-    s.video.currentTime = chapter.start_seconds;
-    announce(`Chapter: ${select.selectedOptions[0].textContent}`);
-    select.value = "";
-  });
-  return h("div", {}, h("label", { for: "chapter" }, "Chapters"), select);
 }
 
 // How the sound is made, when the file has any: as mixed, or converted by the server for clearer

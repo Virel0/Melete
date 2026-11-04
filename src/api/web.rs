@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 115] = [
+const MODULES: [(&str, &str); 117] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -71,6 +71,11 @@ const MODULES: [(&str, &str); 115] = [
     ("player-keys.js", include_str!("../web/player-keys.js")),
     ("player-next.js", include_str!("../web/player-next.js")),
     ("player-chips.js", include_str!("../web/player-chips.js")),
+    (
+        "player-controls.js",
+        include_str!("../web/player-controls.js"),
+    ),
+    ("player-menus.js", include_str!("../web/player-menus.js")),
     ("player-ass.js", include_str!("../web/player-ass.js")),
     (
         "player-previews.js",
@@ -478,6 +483,44 @@ mod tests {
         assert!(module("music.js").contains(r#"albumPage(id, ctx, params.get("track"))"#));
         assert!(module("music-album.js").contains(r#"row.classList.add("found")"#));
         assert!(module("music-album.js").contains(r#"row.querySelector(".track-play")?.focus("#));
+    }
+
+    #[test]
+    fn the_player_has_its_own_controls_over_the_picture() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let player = module("player.js");
+        // Melete's controls stand in for the browser's, on the stage, so they go full screen.
+        assert!(!player.contains("controls: true"));
+        assert!(player.contains("controlBar(s.video, stage, { seek, panels, fullscreen })"));
+        assert!(player.contains("controls.stop();") && player.contains("panels.stop();"));
+        let controls = module("player-controls.js");
+        for label in [
+            "\"Play\"",
+            "\"Pause\"",
+            "\"Mute\"",
+            "\"Full screen\"",
+            "\"Exit full screen\"",
+        ] {
+            assert!(controls.contains(label), "{label}");
+        }
+        // They fade only while playing and idle, and keyboard focus keeps them.
+        assert!(controls.contains("const HIDE_AFTER_MS = 3000;"));
+        assert!(controls.contains("el.querySelector(\":focus-visible\")"));
+        // Each panel is a disclosure: Escape closes it and gives focus back to its button.
+        let menus = module("player-menus.js");
+        assert!(menus.contains("\"aria-expanded\": \"false\", \"aria-controls\": id"));
+        assert!(menus.contains("if (event.key !== \"Escape\") return;"));
+        assert!(menus.contains("button.focus();"));
+        assert!(menus.contains("document.removeEventListener(\"pointerdown\", outside)"));
+        // Fading and moving stop for those who ask for less motion; a phone keeps what fits.
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "watch.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".stage.idle .control-bar { opacity: 0; pointer-events: none; }"));
+        assert!(css.contains("  .control-bar, .stage-over { transition: none; }"));
+        assert!(css.contains("  .volume, button.control.control-wide { display: none; }"));
     }
 
     #[test]

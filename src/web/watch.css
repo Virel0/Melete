@@ -300,13 +300,15 @@ button.season[aria-pressed="true"] { background: var(--surface); border-inline-s
 /* ---------- The player ---------- */
 
 /* What floats over the picture, in full screen too: Skip at the lower right, above the
-   video's own controls, and the next episode's card beside it. Only the buttons take clicks. */
-.stage { position: relative; }
+   controls, and the next episode's card beside it. Only the buttons take clicks. */
+.stage { position: relative; overflow: hidden; background: var(--stage); }
+.stage video { display: block; }
 .stage:fullscreen { display: grid; place-items: center; border-radius: 0; }
 .stage:fullscreen video { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; }
 .stage-over {
   position: absolute;
-  inset: auto var(--space-4) var(--space-8) auto;
+  inset: auto var(--space-4) 7rem auto;
+  transition: bottom 0.2s ease;
   display: grid;
   justify-items: end;
   gap: var(--space-3);
@@ -341,6 +343,107 @@ button.season[aria-pressed="true"] { background: var(--surface); border-inline-s
 .up-next-card .up-next-title { font-weight: 600; margin-block: var(--space-1) var(--space-3); overflow-wrap: anywhere; }
 .up-next-card .actions { gap: var(--space-2); }
 
+/* Melete's own controls over the picture: a scrim along the bottom with the seek bar and a row
+   of buttons, a play button in the middle while paused, and a spinner while waiting. They fade
+   while the video plays and nothing happens (.idle), and Skip comes down with them. */
+.player-chrome { --text: var(--stage-text); --muted: var(--stage-muted); color: var(--stage-text); }
+.control-bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: var(--space-7) var(--space-3) var(--space-2);
+  background: linear-gradient(to top, color-mix(in srgb, var(--stage) 88%, transparent), transparent); /* check-ui: ignore a scrim so the controls read over any picture */
+  transition: opacity 0.2s ease;
+}
+.control-bar .scrub-wrap { margin: 0 var(--space-1) var(--space-1); }
+.control-row { display: flex; align-items: center; gap: var(--space-1); }
+.control-gap { flex: 1; }
+button.control {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  color: var(--stage-text);
+  border: 0;
+  border-radius: var(--radius-s);
+}
+button.control:hover, button.control[aria-expanded="true"] { background: var(--stage-raised); }
+button.control svg { width: 1.5rem; height: 1.5rem; }
+.volume { width: 6rem; accent-color: var(--stage-accent); }
+.control-time { padding-inline: var(--space-2); font-size: var(--step--1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stage-play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  width: 4.5rem;
+  height: 4.5rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--stage-text);
+  background: color-mix(in srgb, var(--stage) 70%, transparent);
+  border: 1px solid var(--stage-line);
+  border-radius: 50%;
+}
+.stage-play svg { width: 2.25rem; height: 2.25rem; fill: currentColor; }
+.stage-waiting {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 3rem;
+  height: 3rem;
+  margin: -1.5rem 0 0 -1.5rem;
+  border: 3px solid var(--stage-line);
+  border-top-color: var(--stage-accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  display: none;
+}
+.stage.waiting .stage-waiting { display: block; }
+.stage.waiting .stage-play { display: none; }
+@keyframes spin { to { rotate: 1turn; } }
+.stage.idle { cursor: none; }
+.stage.idle .control-bar { opacity: 0; pointer-events: none; }
+.stage.idle .stage-over { bottom: var(--space-6); }
+
+/* A panel opens above the bar's right end: the page's own pickers, on the stage's colours. */
+.control-panels { position: absolute; inset: auto var(--space-3) calc(100% - var(--space-5)) auto; }
+.control-panel {
+  --text: var(--stage-text);
+  --muted: var(--stage-muted);
+  --line-strong: var(--stage-line);
+  --surface-raised: var(--stage-raised);
+  --accent: var(--stage-accent);
+  --accent-ink: var(--stage-accent-ink);
+  width: min(20rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  background: var(--stage);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+.control-panel-title { margin: 0; font-size: var(--step--1); color: var(--muted); font-weight: 600; }
+.control-panel label { display: block; margin-block-end: var(--space-1); }
+.control-panel select { width: 100%; }
+.control-panel .subtitle-chips { margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .control-bar, .stage-over { transition: none; }
+  .stage-waiting { animation-duration: 3s; }
+}
+@media (max-width: 40rem) {
+  .volume, button.control.control-wide { display: none; }
+  .stage-play { width: 3.25rem; height: 3.25rem; }
+  .stage-play svg { width: 1.6rem; height: 1.6rem; }
+  .control-bar { padding-inline: var(--space-1); }
+  .control-time { padding-inline: var(--space-1); }
+}
+
 /* The seek bar's track carries a tick at each chapter and the credits as a band. */
 .scrub-track { position: relative; }
 .scrub-marks { position: absolute; inset: 0; pointer-events: none; }
@@ -365,7 +468,7 @@ button.season[aria-pressed="true"] { background: var(--surface); border-inline-s
 .player-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 @media (max-width: 40rem) {
-  .stage-over { inset: auto var(--space-2) var(--space-7) auto; }
+  .stage-over { inset: auto var(--space-2) 6rem auto; }
   .up-next-card { padding: var(--space-2) var(--space-3); }
 }
 
