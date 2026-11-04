@@ -336,7 +336,8 @@ pub const PRESETS: [Preset; 4] = [
         key: "animetosho",
         name: "AnimeTosho",
         kind: "torznab",
-        // Its Torznab feed, which needs no key (feed.animetosho.org no longer exists).
+        // Its Torznab feed, which needs no key (feed.animetosho.org no longer exists). Since
+        // 2026 AnimeTosho answers it with a "Feed disabled" page, said as the indexer's failure.
         url: "https://animetosho.org/feed/api",
         categories: &[2020, 5070],
         // Its feed takes plain searches only.

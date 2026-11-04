@@ -16,6 +16,7 @@ use quick_xml::{Reader, XmlVersion};
 use reqwest::StatusCode;
 
 mod other_kinds;
+mod page;
 mod xml;
 
 pub use other_kinds::*;
@@ -56,6 +57,9 @@ pub enum Error {
     /// The reply wasn't what the indexer's kind sends (not Torznab, not UTF-8, no results
     /// table).
     Malformed(String),
+    /// A web page came back where a feed should be, saying this (its heading, else its title),
+    /// as a site that has turned its feed off answers.
+    WebPage(String),
 }
 
 impl fmt::Display for Error {
@@ -88,6 +92,9 @@ impl fmt::Display for Error {
                 MAX_RESPONSE_BYTES >> 20
             ),
             Error::Malformed(reason) => write!(f, "the indexer's reply isn't Torznab: {reason}"),
+            Error::WebPage(said) => {
+                write!(f, "the indexer answered a web page, not a feed: {said}")
+            }
         }
     }
 }
@@ -1006,6 +1013,29 @@ mod tests {
             log.lock().unwrap()[0],
             "https://feed.example/api?t=search&q=Some+Show"
         );
+    }
+
+    /// AnimeTosho's feed since 2026, as it answers directly (403) and through FlareSolverr (200).
+    const FEED_DISABLED: &str = r#"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" dir="ltr"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="robots" content="noindex" /><title>Error</title><link rel="stylesheet" type="text/css" href="https://feed.example/subpage.css" /></head><body><div class="errorbox"><h2>Feed disabled</h2><div class="message">Feed disabled</div></div></body></html>"#;
+
+    #[tokio::test]
+    async fn a_feed_turned_off_says_so_rather_than_failing_to_parse() {
+        let (url, _) = crate::flaresolverr::testing::start(FEED_DISABLED).await;
+        let flaresolverr = crate::flaresolverr::Client::new(&url).unwrap();
+        let page = feed_through(
+            &flaresolverr,
+            "https://feed.example/api",
+            &[("t", "search")],
+        )
+        .await
+        .unwrap();
+        let said = parse_items(&page).unwrap_err();
+        assert_eq!(said, Error::WebPage("Feed disabled".into()));
+        assert_eq!(
+            said.to_string(),
+            "the indexer answered a web page, not a feed: Feed disabled"
+        );
+        assert_eq!(parse_caps(FEED_DISABLED).unwrap_err(), said);
     }
 
     #[tokio::test]
