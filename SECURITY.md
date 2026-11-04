@@ -32,8 +32,7 @@ up:
   copies.
 - **Download folders**, only when set up: the slskd downloads folder (`compose.soulseek.yaml`),
   where Melete deletes its own finished downloads after importing them; and the job folders it
-  shares with the optional stem separator and motion cover renderer (`compose.stems.yaml`,
-  `compose.motion.yaml`).
+  shares with the optional stem separator (`compose.stems.yaml`).
 - **A GPU**, when `compose.yaml` reserves one for conversions.
 
 **Network**

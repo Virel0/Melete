@@ -5,10 +5,10 @@ name: Release
 # publish job builds nothing: it checks that checksum, pushes the archive as it is, attests its
 # build provenance, and makes the GitHub release.
 #
-# The motion cover renderer and the stem separator are built and published the same way, as
-# the same package's `<version>-motion` and `<version>-stems`, in jobs of their own: they're
-# large (PyTorch with CUDA), and a failure there never holds up Melete's own image. Their
-# archives aren't attached to the release, being over its 2 GB limit.
+# The stem separator is built and published the same way, as the same package's
+# `<version>-stems`, in jobs of their own: it's large (PyTorch with CUDA), and a failure there
+# never holds up Melete's own image. Its archive isn't attached to the release, being over its
+# 2 GB limit.
 
 on:
   push:
@@ -234,7 +234,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [motion, stems]
+        part: [stems]
     env:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
@@ -308,7 +308,7 @@ jobs:
       # One at a time: each adds its line to the release's notes.
       max-parallel: 1
       matrix:
-        part: [motion, stems]
+        part: [stems]
     env:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
@@ -365,7 +365,6 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           case "$PART" in
-            motion) what="The motion cover renderer (compose.motion.yaml)" ;;
             stems) what="The stem separator, for Auto DJ and sing-along (compose.stems.yaml)" ;;
           esac
           # The publish job writes the notes afresh, a tag built again included, so this adds.

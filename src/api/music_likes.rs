@@ -74,7 +74,9 @@ async fn list(
         .iter()
         .filter_map(|(album, _)| *album)
         .collect();
-    let shown = Shown::to(pool, state.archive, me).await?;
+    let shown = Shown {
+        archive: state.archive,
+    };
     let albums = albums_by_id(pool, &current.access, shown, &ids).await?;
     let items = |liked: &[(Option<i64>, likes::Like)], found: &HashMap<i64, Value>, key: &str| {
         liked

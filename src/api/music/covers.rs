@@ -167,14 +167,8 @@ pub(super) async fn motion(
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such album"));
     }
     let row = cover_row(&state.pool, id).await?;
-    // The album's own first, always.
     if let Some(file) = &row.motion_file {
         return serve(resolve(&row.root, file).await?, request).await;
-    }
-    if crate::motion::shown_to(&state.pool, current.user.id).await?
-        && let Some(file) = crate::motion::current_file(&state.pool, id).await?
-    {
-        return serve(crate::motion::video_path(&state.motion, &file), request).await;
     }
     Err(ApiError::new(
         StatusCode::NOT_FOUND,

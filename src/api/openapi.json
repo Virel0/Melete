@@ -5575,7 +5575,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An album's motion cover",
-        "description": "The looping video in its folder, else one Melete made from the still cover while motion covers are on and you haven't turned those off for yourself; with byte ranges. Play it muted and looped over the still cover.",
+        "description": "The looping video in its folder (cover.mp4, animated.webm…); with byte ranges. Play it muted and looped over the still cover.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Album id.", "schema": {"type": "integer"}}
         ],
@@ -5590,7 +5590,7 @@
           "206": {"description": "Part of it, for a Range request"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "404": {
-            "description": "No such album, or it has no motion cover (for you)",
+            "description": "No such album, or it has no motion cover",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -6035,58 +6035,6 @@
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
           "422": {"$ref": "#/components/responses/Unprocessable"}
-        }
-      }
-    },
-    "/api/v1/music/motion-covers": {
-      "get": {
-        "tags": ["Music"],
-        "x-melete-access": "user",
-        "x-melete-scope": "read",
-        "summary": "Whether you see motion covers made from still covers",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MotionCoverChoice"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"}
-        }
-      },
-      "put": {
-        "tags": ["Music"],
-        "x-melete-access": "user",
-        "x-melete-scope": "full",
-        "summary": "Show or hide motion covers made from still covers, for yourself",
-        "description": "Your own choice, on until you turn it off. Off, albums whose only motion cover was made by Melete from their still cover have none for you (`motion_cover` is null and the video isn't served to you). Motion covers from an album's own folder are always shown.",
-        "requestBody": {
-          "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MotionCoverChoiceChange"}}}
-        },
-        "responses": {
-          "200": {
-            "description": "As it is now",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MotionCoverChoice"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
-          "422": {"$ref": "#/components/responses/Unprocessable"}
-        }
-      }
-    },
-    "/api/v1/music/motion-covers/status": {
-      "get": {
-        "tags": ["Admin"],
-        "x-melete-access": "admin",
-        "x-melete-scope": "full",
-        "summary": "How far making motion covers has got",
-        "description": "Counts of albums with a motion cover made from their cover, waiting for the renderer, skipped (mostly text or flat) and failed, out of the present albums with a cover and no motion cover of their own. Admins only.",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MotionCoverStatus"}}}
-          },
-          "401": {"$ref": "#/components/responses/Unauthorized"},
-          "403": {"$ref": "#/components/responses/Forbidden"}
         }
       }
     },
@@ -9108,7 +9056,6 @@
                 "works",
                 "lyrics",
                 "cover-colours",
-                "motion-covers",
                 "stem-splitting",
                 "following",
                 "rss-sync",
@@ -15081,7 +15028,7 @@
           },
           "motion_cover": {
             "type": ["string", "null"],
-            "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), else one Melete made from the still cover while motion covers are on (MELETE_MOTION_COVERS, off by default) and you haven't hidden those (`/music/motion-covers`). Null when there's none. Show the still cover where video can't play."
+            "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), Null when there's none. Show the still cover where video can't play."
           },
           "colours": {
             "anyOf": [{"$ref": "#/components/schemas/CoverColours"}, {"type": "null"}],
@@ -15465,7 +15412,6 @@
           "duration_seconds",
           "cover",
           "motion_cover",
-          "motion_cover_generation",
           "colours",
           "mb_release_id",
           "mb_release_group_id",
@@ -15496,11 +15442,7 @@
           },
           "motion_cover": {
             "type": ["string", "null"],
-            "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), else one Melete made from the still cover while motion covers are on (MELETE_MOTION_COVERS, off by default) and you haven't hidden those (`/music/motion-covers`). Null when there's none. Show the still cover where video can't play."
-          },
-          "motion_cover_generation": {
-            "anyOf": [{"$ref": "#/components/schemas/MotionCoverGeneration"}, {"type": "null"}],
-            "description": "Where making a motion cover from the album's cover stands; null when it hasn't been tried for the cover the album has now (motion covers off, the album has its own, or it's not its turn yet)."
+            "description": "A looping video for the album, served with byte ranges: one in its folder (cover.mp4, animated.webm…), Null when there's none. Show the still cover where video can't play."
           },
           "colours": {
             "anyOf": [{"$ref": "#/components/schemas/CoverColours"}, {"type": "null"}],
@@ -17372,7 +17314,6 @@
               "flaresolverr",
               "song_albums",
               "auto_dj",
-              "motion_covers",
               "intro_detection",
               "trickplay",
               "offline_copies",
@@ -17396,7 +17337,7 @@
           "fields": {"type": "array", "items": {"$ref": "#/components/schemas/OutsideServiceField"}},
           "component": {
             "type": ["object", "null"],
-            "description": "The component beside Melete it needs (Auto DJ the stem separator, motion covers their renderer), or null.",
+            "description": "The component beside Melete it needs (Auto DJ the stem separator), or null.",
             "required": ["name", "set_up"],
             "properties": {
               "name": {"type": "string", "description": "What it is, as a sentence names it, e.g. \"stem separator\"."},
@@ -17788,56 +17729,6 @@
         "properties": {"deleted": {"type": "integer", "description": "How many reports went."}},
         "additionalProperties": false
       },
-      "MotionCoverGeneration": {
-        "type": "object",
-        "required": ["state", "reason"],
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": ["queued", "done", "skipped", "failed"],
-            "description": "queued: waiting for the renderer; done: made (shown as `motion_cover` unless hidden); skipped: the cover isn't one that moves well; failed: tried again a day later, three times at most."
-          },
-          "reason": {
-            "type": ["string", "null"],
-            "description": "Why it was skipped (for example \"mostly text\", \"flat artwork\", \"no depth to move\") or why it failed; null otherwise."
-          }
-        },
-        "additionalProperties": false
-      },
-      "MotionCoverChoice": {
-        "type": "object",
-        "required": ["show_generated", "on"],
-        "properties": {
-          "show_generated": {
-            "type": "boolean",
-            "description": "Whether you see motion covers made from still covers; true until you turn it off."
-          },
-          "on": {
-            "type": "boolean",
-            "description": "Whether motion covers are made and shown at all (MELETE_MOTION_COVERS, an admin's setting, off by default)."
-          }
-        },
-        "additionalProperties": false
-      },
-      "MotionCoverChoiceChange": {
-        "type": "object",
-        "required": ["show_generated"],
-        "properties": {"show_generated": {"type": "boolean"}},
-        "additionalProperties": false
-      },
-      "MotionCoverStatus": {
-        "type": "object",
-        "required": ["albums", "done", "queued", "skipped", "failed", "last_error"],
-        "properties": {
-          "albums": {"type": "integer", "description": "Present albums with a cover and no motion cover of their own."},
-          "done": {"type": "integer"},
-          "queued": {"type": "integer"},
-          "skipped": {"type": "integer"},
-          "failed": {"type": "integer"},
-          "last_error": {"type": ["string", "null"], "description": "The latest failure's reason."}
-        },
-        "additionalProperties": false
-      },
       "AdminHealth": {
         "type": "object",
         "required": ["areas"],
@@ -17988,7 +17879,6 @@
               "works",
               "lyrics",
               "cover-colours",
-              "motion-covers",
               "stem-splitting",
               "following",
               "rss-sync",

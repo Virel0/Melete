@@ -86,11 +86,6 @@ pub async fn trickplay(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_TRICKPLAY").await?.as_deref() == Some("on"))
 }
 
-/// Whether motion covers are made and shown (`MELETE_MOTION_COVERS`); off by default.
-pub async fn motion_covers(pool: &SqlitePool) -> sqlx::Result<bool> {
-    Ok(value(pool, "MELETE_MOTION_COVERS").await?.as_deref() == Some("on"))
-}
-
 /// Whether Auto DJ is on (`MELETE_AUTO_DJ`); off by default.
 pub async fn auto_dj(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_AUTO_DJ").await?.as_deref() == Some("on"))
@@ -430,32 +425,22 @@ mod tests {
     /// beside Melete says whether it's set up.
     #[test]
     fn a_view_says_what_can_be_tested_and_what_a_setting_needs() {
-        let env = env_of(&[("MELETE_MOTION_JOBS", "/path/to/motion/jobs")]);
+        let env = env_of(&[
+            ("MELETE_STEMS_DIR", "/path/to/stems"),
+            ("MELETE_STEMS_JOBS", "/path/to/stems/jobs"),
+        ]);
         let config = Config::from_env_and(lookup(&HashMap::new(), &env)).unwrap();
         let views = views(&config, &HashMap::new(), &env);
         let view = |key: &str| views.iter().find(|s| s.key == key).unwrap();
         assert!(view("tmdb").testable && view("slskd").testable);
         assert!(view("tmdb").component.is_none());
-        for own in [
-            "auto_dj",
-            "motion_covers",
-            "scans",
-            "song_albums",
-            "trickplay",
-        ] {
+        for own in ["auto_dj", "scans", "song_albums", "trickplay"] {
             assert!(!view(own).testable, "{own}");
         }
         assert_eq!(
             view("auto_dj").component,
             Some(Component {
                 name: "stem separator",
-                set_up: false
-            })
-        );
-        assert_eq!(
-            view("motion_covers").component,
-            Some(Component {
-                name: "motion cover renderer",
                 set_up: true
             })
         );
@@ -485,18 +470,5 @@ mod tests {
         .await
         .unwrap();
         assert!(auto_dj(&pool).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn motion_covers_are_off_until_turned_on() {
-        let pool = db::open_in_memory().await;
-        assert!(!motion_covers(&pool).await.unwrap());
-        sqlx::query(
-            "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_MOTION_COVERS', 'on', 0)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        assert!(motion_covers(&pool).await.unwrap());
     }
 }

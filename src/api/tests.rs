@@ -364,7 +364,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 352);
+        assert_eq!(checked, 349);
     }
 
     /// The response's fields are exactly the schema's.
@@ -1904,27 +1904,6 @@ mod openapi {
         assert_shape(&spec, "MusicTrackPage", &tracks);
         assert_shape(&spec, "MusicTrack", &tracks["items"][0]);
         assert_shape(&spec, "MusicGenre", &get("/api/v1/music/genres").await[0]);
-        assert_shape(
-            &spec,
-            "MotionCoverChoice",
-            &get("/api/v1/music/motion-covers").await,
-        );
-        sqlx::raw_sql(
-            "INSERT INTO music_cover_colours (album_id, source, colours, measured_at)
-                     VALUES (1, 'file:cover.jpg#00', '{}', 0);
-                 INSERT INTO music_motion_covers (album_id, state, source, version, reason,
-                     queued_at, finished_at)
-                     VALUES (1, 'skipped', 'file:cover.jpg#00', 1, 'mostly text', 0, 0);",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let album = get("/api/v1/music/albums/1").await;
-        assert_shape(
-            &spec,
-            "MotionCoverGeneration",
-            &album["motion_cover_generation"],
-        );
     }
 
     #[tokio::test]

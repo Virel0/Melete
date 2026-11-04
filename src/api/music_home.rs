@@ -101,7 +101,9 @@ async fn home(
     let pool = &state.pool;
     let me = current.user.id;
     let now = now_ms();
-    let shown = Shown::to(pool, state.archive, me).await?;
+    let shown = Shown {
+        archive: state.archive,
+    };
     // The play history, with what Aoide's devices synced read in (and Discover's input).
     let history = listening::play_events(pool, me).await?;
 

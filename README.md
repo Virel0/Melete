@@ -201,17 +201,15 @@ lists for it:
   file sets it): enough to search and download, not to administer slskd. If you run slskd
   some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
-- `compose.motion.yaml`: the motion cover renderer.
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
 - `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,
   AnimeTosho's feed).
 
-The separator and the renderer are published with each release, as
-`ghcr.io/virel0/melete:<version>-stems` and `:<version>-motion`, so adding the file and their
-folders and restarting is all it takes; `MELETE_STEMS_IMAGE` or `MELETE_MOTION_IMAGE` in `.env`
-names another, such as one built from `stems/` or `motion/`. Both are large (PyTorch with
-CUDA). Their models are downloaded from their publishers on first start, never shipped.
+The separator is published with each release, as `ghcr.io/virel0/melete:<version>-stems`, so
+adding the file and its folders and restarting is all it takes; `MELETE_STEMS_IMAGE` in `.env`
+names another, such as one built from `stems/`. It's large (PyTorch with CUDA). Its models
+are downloaded from their publishers on first start, never shipped.
 
 `compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
 Melete the GPU. So is `compose.avatars.yaml`, a gallery of profile pictures (below).
@@ -280,8 +278,7 @@ the folders compose mounts. Melete's user, whichever it is, needs:
   automation is on;
 - to read and write the config and transcode folders;
 - to read and write the folders of the optional containers (`.env.example` lists them). The
-  stem separator, the motion cover renderer and slskd run as the same user, so each can read
-  what the other writes.
+  stem separator and slskd run as the same user, so each can read what the other writes.
 
 A share whose top folder gives nothing to others (mode `770`, or anything without read and
 execute for "other") can't be read at all by a user outside its owner and group. The fix is to

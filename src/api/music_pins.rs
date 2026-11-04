@@ -95,7 +95,9 @@ async fn shown(state: &PinState, current: &CurrentUser) -> Result<Value, ApiErro
     .fetch_all(&state.pool)
     .await?;
     let artists = artists_by_id(&state.pool, &current.access, &numbers("artist")).await?;
-    let shown_as = Shown::to(&state.pool, state.archive, user_id).await?;
+    let shown_as = Shown {
+        archive: state.archive,
+    };
     let playlists = if items.iter().any(|(k, _)| k == "playlist") {
         crate::aoide::playlists::visible(&state.pool, user_id).await?
     } else {

@@ -54,7 +54,6 @@ mod lyrics;
 mod manage;
 mod metadata;
 mod mixes;
-mod motion;
 mod music_convert;
 mod music_match;
 mod music_profiles;
@@ -166,7 +165,7 @@ async fn main() -> anyhow::Result<()> {
     let transcoder = start_transcoder(&config)?;
     log_ways_in(&config.ways_in);
     start_stems(&pool, &config, &transcoder);
-    start_motion_covers(&pool, &config, &transcoder);
+    remove_made_motion_covers(&config.data_dir);
     // Copies are made behind live conversions; the setting is read as each is due.
     tokio::spawn(offline::work(
         pool.clone(),
@@ -307,26 +306,19 @@ fn start_stems(
     }
 }
 
-/// Motion covers made from still covers by the renderer beside Melete, when it's set up.
-fn start_motion_covers(
-    pool: &sqlx::SqlitePool,
-    config: &config::Config,
-    transcoder: &Arc<transcode::Transcoder>,
-) {
-    match &config.motion_jobs {
-        Some(jobs) => {
-            tracing::info!("motion covers are made by the motion cover renderer");
-            tokio::spawn(motion::work(
-                pool.clone(),
-                motion::Folders {
-                    jobs: jobs.clone(),
-                    videos: motion::videos_dir(&config.data_dir),
-                    covers: config.data_dir.join("artwork").join("music"),
-                },
-                transcoder.clone(),
-            ));
+/// Motion covers are no longer made from still covers: the videos an earlier version made, in
+/// its own folder under the config folder, go once. An album's own motion cover, in the
+/// library, is never touched.
+fn remove_made_motion_covers(data_dir: &std::path::Path) {
+    let dir = data_dir.join("motion");
+    if !dir.is_dir() {
+        return;
+    }
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => tracing::info!("removed the motion covers an earlier version made"),
+        Err(err) => {
+            tracing::warn!(error = %err, "couldn't remove the motion covers an earlier version made")
         }
-        None => tracing::info!("no motion covers are made; MELETE_MOTION_JOBS turns it on"),
     }
 }
 
@@ -388,4 +380,21 @@ async fn shutdown_signal() {
         _ = terminate.recv() => {}
     }
     tracing::info!("shutting down");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn made_motion_covers_go_and_nothing_else() {
+        let data = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(data.path().join("motion")).unwrap();
+        std::fs::write(data.path().join("motion/3.mp4"), b"video").unwrap();
+        std::fs::create_dir_all(data.path().join("artwork")).unwrap();
+        std::fs::write(data.path().join("artwork/a.jpg"), b"art").unwrap();
+        super::remove_made_motion_covers(data.path());
+        assert!(!data.path().join("motion").exists());
+        assert!(data.path().join("artwork/a.jpg").exists());
+        // Gone already: nothing to do.
+        super::remove_made_motion_covers(data.path());
+    }
 }

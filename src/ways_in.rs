@@ -88,8 +88,7 @@ pub fn part(path: &str) -> Part {
         | "discover" | "items" | "people" | "collections" | "offline" | "home" => Part::Video,
         "music"
             if api.starts_with("music/profiles")
-                || api.starts_with("music/transitions/summary")
-                || api.starts_with("music/motion-covers/status") =>
+                || api.starts_with("music/transitions/summary") =>
         {
             Part::Admin
         }
