@@ -6,6 +6,8 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::routing::get;
 
+mod jassub;
+
 const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
 /// The styles that follow app.css, in the order the page links them: later rules win, so the
@@ -22,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 114] = [
+const MODULES: [(&str, &str); 115] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -69,6 +71,7 @@ const MODULES: [(&str, &str); 114] = [
     ("player-keys.js", include_str!("../web/player-keys.js")),
     ("player-next.js", include_str!("../web/player-next.js")),
     ("player-chips.js", include_str!("../web/player-chips.js")),
+    ("player-ass.js", include_str!("../web/player-ass.js")),
     (
         "player-previews.js",
         include_str!("../web/player-previews.js"),
@@ -273,7 +276,7 @@ pub fn routes() -> Router {
             get(move || async move { file("text/css; charset=utf-8", ALWAYS_ASK, body) }),
         );
     }
-    router
+    router.merge(jassub::routes())
 }
 
 fn file(content_type: &'static str, cache: &'static str, body: &'static str) -> impl IntoResponse {
