@@ -69,15 +69,15 @@ pub(super) fn image(bytes: Vec<u8>) -> Result<Response, ApiError> {
         .into_response())
 }
 
-/// The sizes a cover can be asked for at, in pixels wide: what apps draw rows, grids, page
-/// headers and players at.
-const COVER_SIZES: [u32; 4] = [160, 400, 600, 800];
+/// The sizes a cover can be asked for at, in pixels wide (what apps draw rows, grids, players
+/// and page headers at), each with the name its files are kept under.
+const COVER_SIZES: [(u32, &str); 4] = [(160, "160"), (400, "400"), (600, "600"), (800, "800")];
 /// Covers being made at a size at once: a grid opening asks for many.
 static RESIZING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
 #[derive(Deserialize)]
 pub(super) struct CoverQuery {
-    /// One of [`COVER_SIZES`]; leave out for the cover as it is.
+    /// One of [`COVER_SIZES`]' widths; leave out for the cover as it is.
     size: Option<u32>,
 }
 
@@ -95,16 +95,21 @@ pub(super) async fn cover(
     Query(query): Query<CoverQuery>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    if let Some(size) = query.size
-        && !COVER_SIZES.contains(&size)
-    {
-        return Err(bad_request("size is 160, 400, 600 or 800"));
-    }
+    // The size as one of the known ones, so nothing the caller sent names a file.
+    let size = match query.size {
+        None => None,
+        Some(asked) => Some(
+            COVER_SIZES
+                .into_iter()
+                .find(|(width, _)| *width == asked)
+                .ok_or_else(|| bad_request("size is 160, 400, 600 or 800"))?,
+        ),
+    };
     if !current.access.sees_album(&state.pool, id).await? {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such album"));
     }
     let found = find_cover(&state, id).await?;
-    let Some(size) = query.size else {
+    let Some(size) = size else {
         return match found {
             Found::File { path, .. } => serve(path, request).await,
             Found::Bytes { bytes, .. } => image(bytes),
@@ -115,14 +120,18 @@ pub(super) async fn cover(
 
 /// The cover at `size` pixels wide at most (never larger than it is), as a JPEG made once and
 /// kept beside the other cached covers.
-async fn sized(state: &MusicState, found: Found, size: u32) -> Result<Response, ApiError> {
+async fn sized(
+    state: &MusicState,
+    found: Found,
+    (width, label): (u32, &'static str),
+) -> Result<Response, ApiError> {
     let name = match &found {
         Found::File { name, .. } | Found::Bytes { name, .. } => name,
     };
     let key = Sha256::digest(name.as_bytes());
     let hex: String = key[..12].iter().map(|b| format!("{b:02x}")).collect();
     let dir = state.covers.join("sized");
-    let cached = dir.join(format!("{hex}-{size}.jpg"));
+    let cached = dir.join(format!("{hex}-{label}.jpg"));
     if let Ok(bytes) = tokio::fs::read(&cached).await {
         return image(bytes);
     }
@@ -134,7 +143,7 @@ async fn sized(state: &MusicState, found: Found, size: u32) -> Result<Response, 
         .acquire()
         .await
         .map_err(|err| anyhow::anyhow!(err))?;
-    let jpeg = crate::api::local_artwork::resize(&state.ffmpeg, &bytes, size)
+    let jpeg = crate::api::local_artwork::resize(&state.ffmpeg, &bytes, width)
         .await
         .map_err(|err| {
             tracing::warn!(
