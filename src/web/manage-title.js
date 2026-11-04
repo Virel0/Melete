@@ -30,16 +30,18 @@ export async function titlePage(ctx) {
     return [h("h1", {}, "Not found"), emptyState(`${ctx.service.name} has no such title. It may have been taken off the list.`, { href: `#/admin/${key}/library`, label: `Go to ${ctx.service.name}` })];
   }
   const folderId = movies ? t.movie_id : t.series_id;
-  const [folder, wanted, profiles, loads, highFrameRate] = await Promise.all([
+  const [folder, wanted, profiles, loads, highFrameRate, unstyled] = await Promise.all([
     folderId ? api(`/${movies ? "movies" : "series"}/${folderId}`).catch(() => null) : null,
     !movies && t.wanted ? api("/wanted/series").then((all) => all.find((w) => w.id === t.wanted_id) ?? null) : null,
     profilesFor(kind).catch(() => []),
     t.wanted ? api("/downloads") : [],
     movies && t.tmdb_id ? api("/high-frame-rate-films").catch(() => null) : null,
+    // Anime episodes whose subtitles aren't styled, marked in the episode list.
+    key === "anime" && folderId ? api(`/series/${folderId}/unstyled-subtitles`).catch(() => []) : [],
   ]);
   if (!ctx.current()) return [];
   const mine = loads.filter((d) => (movies ? d.wanted_movie_id : d.wanted_series_id) === t.wanted_id && d.state !== "imported");
-  const v = { ctx, key, kind, movies, t, folder, wanted, profiles, downloads: mine, highFrameRate };
+  const v = { ctx, key, kind, movies, t, folder, wanted, profiles, downloads: mine, highFrameRate, unstyled };
   ctx.setTitle?.(t.title);
   return [
     header(v),

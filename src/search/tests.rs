@@ -1320,3 +1320,52 @@ async fn a_movie_converted_to_a_high_frame_rate_is_turned_down_unless_allowed() 
     let [twin, converted] = decided(&view).try_into().unwrap();
     assert_eq!((twin, converted), ((true, vec![]), (true, vec![])));
 }
+
+#[tokio::test]
+async fn a_search_can_turn_down_the_group_whose_copy_has_no_styled_subtitles() {
+    let pool = setup().await;
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO wanted_series (tvdb_id, title, year, monitored, series_type,
+             quality_profile, source, added_at)
+         VALUES (424536, 'Frieren: Beyond Journey''s End', 2023, 1, 'anime', '4K Preferred',
+             'sonarr', 0)
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    indexers(
+        &pool,
+        feed(&[
+            "Frieren.Beyond.Journeys.End.S01E05.1080p.WEB.H264-RAWS",
+            "Frieren.Beyond.Journeys.End.S01E05.1080p.WEB.H264-Subbed",
+        ]),
+    )
+    .await;
+    let client = torznab::Client::new().unwrap();
+    let episode = Target::Series {
+        id,
+        season: 1,
+        episode: Some(5),
+    };
+    let searched = search_avoiding(&pool, &client, None, episode, "raws")
+        .await
+        .unwrap()
+        .unwrap();
+    let view = get(&pool, searched).await.unwrap().unwrap();
+    assert_eq!(
+        summary(&view),
+        [
+            (
+                "Frieren.Beyond.Journeys.End.S01E05.1080p.WEB.H264-Subbed".to_owned(),
+                true,
+                vec![]
+            ),
+            (
+                "Frieren.Beyond.Journeys.End.S01E05.1080p.WEB.H264-RAWS".to_owned(),
+                false,
+                vec!["by RAWS, whose copy in the library has no styled subtitles".to_owned()]
+            ),
+        ]
+    );
+}

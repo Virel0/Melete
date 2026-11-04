@@ -1,7 +1,8 @@
 // A series' seasons on its Manage page, each with its own monitoring, how much of it is here,
 // Search and Search and choose; opened, its episodes, each with its monitoring, air date,
 // state, size, and its own Search and Search and choose. Episodes are TMDB's list joined with
-// the files on disk, so they're listed once something of the series is in the library.
+// the files on disk, so they're listed once something of the series is in the library. An anime
+// episode without styled subtitles says so, with a search that turns down its copy's group.
 
 import { SignedOut, airDate, api, append, h, plural, seasonName, size } from "/web/lib.js";
 import { emptyState, failed, placeholders, stateLabel } from "/web/page-parts.js";
@@ -110,6 +111,7 @@ function episodeTable(v, n, list) {
   if (!list.length) return h("p", { class: "status" }, "TMDB lists no episodes for it, and none are on disk.");
   const seasonOn = (v.wanted?.seasons ?? []).find((s) => s.season === n)?.monitored ?? false;
   const left = new Set((v.wanted?.unmonitored_episodes ?? []).filter((x) => x.season === n).map((x) => x.episode));
+  const plain = new Map((v.unstyled ?? []).filter((u) => u.season === n).map((u) => [u.episode, u]));
   const results = h("div", {});
   const cell = (label, content, cls) => h("td", { "data-label": label, class: cls }, content);
   const rows = list.map((e) => {
@@ -118,10 +120,16 @@ function episodeTable(v, n, list) {
     const label = `Episode ${e.episode}${e.name ? `: ${e.name}` : ""}`;
     const ask = { path: `/wanted/series/${t.wanted_id}/search`, body: { season: n, episode: e.episode }, label: `${t.title}, ${seasonName(n)}, episode ${e.episode}` };
     const said = h("span", { class: "note", role: "status" });
+    const unstyled = plain.get(e.episode);
+    // Another release than the copy's group's, chosen by hand: a name can't tell whether it has them.
+    const withSubtitles = t.wanted && unstyled?.group
+      ? h("button", { type: "button", class: "quiet", "aria-label": `Find a release with subtitles for episode ${e.episode}, not by ${unstyled.group}`, onclick: () => searchAndChoose(ctx, { ...ask, body: { ...ask.body, avoid_group: unstyled.group }, label: `${ask.label}, not by ${unstyled.group}` }, results) }, "Find a release with subtitles")
+      : null;
     const actions = t.wanted
       ? [
           h("button", { type: "button", class: "quiet", "aria-label": `Search for episode ${e.episode}`, onclick: () => searchAndGrab(ctx, ask, said) }, "Search"),
           h("button", { type: "button", class: "quiet", "aria-label": `Search and choose for episode ${e.episode}`, onclick: () => searchAndChoose(ctx, ask, results) }, "Choose"),
+          withSubtitles,
           said,
         ]
       : null;
@@ -133,7 +141,8 @@ function episodeTable(v, n, list) {
         : null,
       h("th", { scope: "row" }, `${e.episode}. ${e.name ?? "Untitled"}`),
       cell("Aired", e.air_date ? airDate(e.air_date) : "—"),
-      cell("State", stateLabel(mark, words)),
+      // One element per cell: on a phone each cell's content takes a place in the row's grid.
+      cell("State", unstyled ? h("div", {}, stateLabel(mark, words), h("span", { class: "note episode-note" }, "No styled subtitles")) : stateLabel(mark, words)),
       cell("Size", bytes ? size(bytes) : "—", "r"),
       cell("Search", actions ? h("div", { class: "row-actions" }, actions) : "—"),
     );

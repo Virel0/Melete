@@ -40,6 +40,8 @@ const WHERE = {
   requests_no_profile: (area) => `#/admin/${area}/defaults`,
   // The movie's Manage page, to search for another release.
   movies_high_frame_rate: (_, finding) => `#/admin/movies/title/f${finding.id}`,
+  // The series' Manage page, where its episodes without styled subtitles are marked.
+  anime_unstyled_subtitles: (_, finding) => `#/admin/anime/title/f${finding.id}`,
 };
 
 // Every area's findings, as { movies: [{ level, code, text, href, count }], … }.

@@ -1383,6 +1383,42 @@
         }
       }
     },
+    "/api/v1/series/{id}/unstyled-subtitles": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "A series' anime episodes without styled subtitles",
+        "description": "Episodes whose file has no ASS/SSA track and no ASS/SSA file beside it, by season and episode, for an anime series (in a library with the anime category, or wanted as anime). Their subtitles show as plain words or not at all; a series search with avoid_group set to an episode's group looks for another release. Specials, files not read as an episode and files not probed yet are left out. Empty for a series that isn't anime or isn't in the library. Health notes each such series in Anime (anime_unstyled_subtitles).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The library series' id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "array", "items": {
+              "type": "object",
+              "required": ["file_id", "season", "episode", "group"],
+              "properties": {
+                "file_id": {"type": "integer", "description": "The episode's file."},
+                "season": {"type": "integer"},
+                "episode": {"type": "integer"},
+                "group": {"type": ["string", "null"], "description": "The release group in the file's name, when it has one."}
+              }
+            }}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
     "/api/v1/series/{id}/seasons/{season}": {
       "get": {
         "tags": ["Browse"],
@@ -3338,7 +3374,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Search"}}}
           },
           "400": {
-            "description": "Season or episode out of range",
+            "description": "Season or episode out of range, or avoid_group empty or too long",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
@@ -13921,6 +13957,12 @@
             "minimum": 0,
             "maximum": 100000,
             "description": "Leave out to search for the whole season (season packs)."
+          },
+          "avoid_group": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "A release group to turn down (any case): the group of a copy in the library without styled subtitles (`GET /api/v1/series/{id}/unstyled-subtitles`), so a release that has them can be chosen."
           }
         }
       },
@@ -17833,7 +17875,8 @@
               "titles_unmatched",
               "requests_no_profile",
               "runtime_checks_failed",
-              "movies_high_frame_rate"
+              "movies_high_frame_rate",
+              "anime_unstyled_subtitles"
             ],
             "description": "Stable, for apps to act on."
           },
