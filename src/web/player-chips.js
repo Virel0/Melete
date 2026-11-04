@@ -1,9 +1,11 @@
-// Subtitle chips under the seek bar: Off and the first few subtitle tracks, the one showing
-// pressed, and More for the full list in the Subtitles picker. They and C (the next choice,
+// Subtitle chips, in the control bar's Subtitles panel: Off and the subtitle tracks, the one
+// showing pressed (all of them, or the first `shown` and More for the full list in the
+// Subtitles picker). They and C (the next choice,
 // then off) work the picker itself, so everything a choice does (converting, remembering it
 // for the series) happens once, in one place.
 //
-// subtitleChips(select, video) → the row (null without subtitles); nextSubtitle(select) for C.
+// subtitleChips(select, video, shown) → the row (null without subtitles); nextSubtitle(select)
+// for C.
 
 import { announce, h } from "/web/lib.js";
 
@@ -17,12 +19,12 @@ function pick(select, value) {
   select.dispatchEvent(new Event("change"));
 }
 
-export function subtitleChips(select, video) {
+export function subtitleChips(select, video, shown = SHOWN) {
   if (!select || select.options.length < 2) return null;
   const row = h("div", { class: "subtitle-chips", role: "group", "aria-label": "Subtitles" });
   const draw = () => {
     const options = [...select.options];
-    const chips = options.slice(0, SHOWN + 1).map((o) => {
+    const chips = options.slice(0, shown + 1).map((o) => {
       const chip = h("button", { type: "button", class: "chip", "aria-pressed": String(o.value === select.value) }, o.value ? shortName(o.textContent) : "Off");
       chip.title = o.textContent;
       chip.addEventListener("click", () => {
@@ -32,8 +34,8 @@ export function subtitleChips(select, video) {
       return chip;
     });
     const more =
-      options.length > SHOWN + 1
-        ? h("button", { type: "button", class: "chip", onclick: () => select.focus() }, `More (${options.length - SHOWN - 1})`)
+      options.length > shown + 1
+        ? h("button", { type: "button", class: "chip", onclick: () => select.focus() }, `More (${options.length - shown - 1})`)
         : null;
     // Keep focus on the chip pressed through the redraw.
     const at = [...row.children].indexOf(document.activeElement);

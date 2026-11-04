@@ -38,6 +38,15 @@ const LINES = {
   right: "M9 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
   check: "M5 12.5l4.5 4.5L19 7",
+  // For the video player's controls.
+  back: "M8 3 4 7l4 4M4 7h10a6 6 0 0 1 0 12h-3",
+  forward: "M16 3l4 4-4 4M20 7H10a6 6 0 0 0 0 12h3",
+  subtitles: "M3 5h18v14H3zM6.5 11h4M13.5 11h4M6.5 15h6M15.5 15h2",
+  audio: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2",
+  settings: "M4 7h9M17 7h3M15 5v4M4 17h3M11 17h9M9 15v4",
+  pip: "M3 5h18v14H3zM12 12h6v4h-6z",
+  fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+  "exit-fullscreen": "M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5",
 };
 
 export function icon(name) {
