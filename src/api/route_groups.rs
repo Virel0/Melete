@@ -170,6 +170,7 @@ pub(super) fn wanting_routes(
         ))
         .merge(runtime_checks::routes(pool.clone()))
         .merge(high_frame_rate::routes(pool.clone()))
+        .merge(unstyled_subtitles::routes(pool.clone()))
         .merge(downloads::routes(pool.clone(), downloads, slskd.clone()))
         .merge(lists::routes(pool.clone(), list_sources))
 }

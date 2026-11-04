@@ -71,6 +71,7 @@ mod system;
 mod title_artwork;
 mod transcode;
 mod trickplay;
+mod unstyled_subtitles;
 mod wanted_removed;
 mod watch_home;
 mod web;

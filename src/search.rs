@@ -128,7 +128,19 @@ pub async fn search(
     tmdb: Option<&crate::tmdb::Client>,
     target: Target,
 ) -> anyhow::Result<Result<i64, Refused>> {
-    search_skipping(pool, client, tmdb, target, &[]).await
+    search_with(pool, client, tmdb, target, &[], None).await
+}
+
+/// Like [`search`], turning down releases by `group` (any case): the group of a copy in the
+/// library without styled subtitles, so another release that has them can be chosen.
+pub async fn search_avoiding(
+    pool: &SqlitePool,
+    client: &torznab::Client,
+    tmdb: Option<&crate::tmdb::Client>,
+    target: Target,
+    group: &str,
+) -> anyhow::Result<Result<i64, Refused>> {
+    search_with(pool, client, tmdb, target, &[], Some(group)).await
 }
 
 /// Like [`search`], leaving out the indexers in `skip`: ones a search-all-missing run found at
@@ -139,6 +151,17 @@ pub async fn search_skipping(
     tmdb: Option<&crate::tmdb::Client>,
     target: Target,
     skip: &[i64],
+) -> anyhow::Result<Result<i64, Refused>> {
+    search_with(pool, client, tmdb, target, skip, None).await
+}
+
+async fn search_with(
+    pool: &SqlitePool,
+    client: &torznab::Client,
+    tmdb: Option<&crate::tmdb::Client>,
+    target: Target,
+    skip: &[i64],
+    avoid_group: Option<&str>,
 ) -> anyhow::Result<Result<i64, Refused>> {
     let Some(wanted) = load_wanted(pool, target).await? else {
         return Ok(Err(Refused::NotWanted));
@@ -204,10 +227,25 @@ pub async fn search_skipping(
         .flatten()
         .flat_map(|(outcome, items)| items.iter().map(|item| (outcome.indexer_id, item)))
         .collect();
-    let decided = decide_all(pool, tmdb, &wanted, &profile, target, &items).await?;
+    let mut decided = decide_all(pool, tmdb, &wanted, &profile, target, &items).await?;
+    if let Some(group) = avoid_group {
+        for (_, item, decision) in &mut decided {
+            if let Some(why) = by_group(&item.title, group) {
+                decision.rejections.push(why);
+                decision.accepted = false;
+            }
+        }
+    }
     let summary: Vec<&IndexerOutcome> = outcomes.iter().flatten().map(|(o, _)| o).collect();
     let search_id = store(pool, target, profile.profile.id, None, &summary, &decided).await?;
     Ok(Ok(search_id))
+}
+
+/// Why a release is turned down when it's by `group`, the group being avoided.
+fn by_group(title: &str, group: &str) -> Option<String> {
+    let by = release::parse(title).group?;
+    by.eq_ignore_ascii_case(group)
+        .then(|| format!("by {by}, whose copy in the library has no styled subtitles"))
 }
 
 /// The wanted title's quality profile.

@@ -107,6 +107,8 @@ struct SeriesSearch {
     season: i64,
     /// Leave out to search for the whole season.
     episode: Option<i64>,
+    /// A release group to turn down: the one whose copy has no styled subtitles.
+    avoid_group: Option<String>,
 }
 
 async fn search_series(
@@ -127,7 +129,20 @@ async fn search_series(
         season: request.season,
         episode: request.episode,
     };
-    run(&state, target).await
+    let Some(group) = request.avoid_group else {
+        return run(&state, target).await;
+    };
+    let group = group.trim();
+    if group.is_empty() || group.chars().count() > 100 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "avoid_group is a release group's name, up to 100 characters",
+        ));
+    }
+    let client = torznab::Client::new()?;
+    let searched =
+        search::search_avoiding(&state.pool, &client, state.tmdb.as_deref(), target, group).await?;
+    view(&state.pool, searched).await
 }
 
 async fn one(
@@ -177,5 +192,28 @@ mod tests {
                 .contains("slskd isn't set up"),
             "{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_group_to_turn_down_must_be_named() {
+        let pool = db::open_in_memory().await;
+        let user = crate::auth::testing::user(&pool, "admin", true).await;
+        let token = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
+            .await
+            .unwrap()
+            .1;
+        let app = routes(pool, None, None);
+        for group in [" ", &"x".repeat(101)] {
+            let body = serde_json::json!({ "season": 1, "episode": 2, "avoid_group": group });
+            let request = Request::builder()
+                .method("POST")
+                .uri("/api/v1/wanted/series/1/search")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{group:?}");
+        }
     }
 }

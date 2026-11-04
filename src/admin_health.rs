@@ -5,10 +5,12 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+mod anime_subtitles;
 mod frame_rates;
 mod matching;
 mod profiles;
 
+use anime_subtitles::*;
 use frame_rates::*;
 use matching::*;
 use profiles::*;
@@ -40,7 +42,8 @@ pub struct Finding {
     /// indexer_failed, requests_waiting, downloads_failed, follow_failed, files_missing,
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
     /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
-    /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate.
+    /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate,
+    /// anime_unstyled_subtitles.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -116,6 +119,7 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
     found.0.extend(crate::runtime_checks::findings(pool).await?);
     requests_without_profile(pool, &mut found).await?;
     converted_frame_rates(pool, &mut found).await?;
+    anime_unstyled_subtitles(pool, &mut found).await?;
     Ok(Health {
         areas: by_area(found),
     })
@@ -530,6 +534,48 @@ mod tests {
                     Some(5),
                     "Unmatched Sixty plays at 60 fps, likely made up from the film's 24; it may \
                      stutter on some players. Search for another release."
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn anime_without_styled_subtitles_gets_a_note_for_each_series() {
+        let pool = db::open_in_memory().await;
+        let (anime, shows) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        crate::subtitles::unstyled::tests::anime_episodes(&pool, anime.path(), shows.path()).await;
+        sqlx::raw_sql(
+            r#"INSERT INTO media_files (id, library_id, rel_path, size, modified_at, series_id,
+                 season, episode, first_seen_generation, seen_generation)
+                 VALUES (9, 2, 'Mushishi/Mushishi.S01E02.mkv', 1, 1, 2, 1, 2, 1, 1);
+             INSERT INTO media_probes (file_id, size, modified_at, probed_at, info)
+                 VALUES (9, 1, 1, 1, '{"subtitles":[{"codec":"hdmv_pgs_subtitle"}]}');"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let health = check(&pool).await.unwrap();
+        let notes: Vec<(Level, i64, Option<i64>, &str)> = of(&health, "anime")
+            .iter()
+            .filter(|f| f.code == "anime_unstyled_subtitles")
+            .map(|f| (f.level, f.count, f.id, f.message.as_str()))
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                (
+                    Level::Note,
+                    1,
+                    Some(1),
+                    "Frieren: 1 episode has no styled subtitles, so it shows plain words or \
+                     none. Search for a release that has them."
+                ),
+                (
+                    Level::Note,
+                    2,
+                    Some(2),
+                    "Mushishi: 2 episodes have no styled subtitles, so they show plain words \
+                     or none. Search for a release that has them."
                 ),
             ]
         );
