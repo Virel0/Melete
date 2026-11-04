@@ -9,6 +9,7 @@ import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js"
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
+import { canDrawAss, drawStyled, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
 
@@ -60,6 +61,9 @@ export async function playerPage(fileId, params, ctx) {
     // Bumped by each load, so a slow answer for choices already changed again is dropped.
     loads: 0,
     keepsProgress: !extra,
+    // The styled subtitles drawn over the video, if any, and the tracks that couldn't be.
+    styled: null,
+    plainOnly: new Set(),
   };
   const video = s.video;
   convertWhenRefused(s);
@@ -82,6 +86,7 @@ export async function playerPage(fileId, params, ctx) {
     document.removeEventListener("keydown", onKey);
     document.removeEventListener("fullscreenchange", onFullscreen);
     detach(s);
+    stopStyled(s);
     video.load();
   });
 
@@ -368,11 +373,14 @@ function subtitlePicker(s) {
   s.video.textTracks.addEventListener("change", () => {
     if (s.choice.burn) return;
     const i = [...s.video.textTracks].findIndex((track) => track.mode === "showing");
+    // None showing while styled subtitles are drawn over the video is how they're shown.
+    if (i < 0 && s.styled) return;
     const shown = i >= 0 ? s.textTracks[i].track : null;
     if (shown === s.choice.subtitle) return;
     s.choice.subtitle = shown;
     subtitleSelect.value = s.choice.subtitle ?? "";
     rememberChoice(s);
+    showTracks(s);
   });
   const shown = subtitles.length || s.info.subtitle_search;
   return shown ? h("div", {}, h("label", { for: "subtitle-track" }, "Subtitles"), subtitleSelect) : null;
@@ -393,9 +401,18 @@ function addTrack(s, subtitles, track) {
   showTracks(s);
 }
 
-// Shows the chosen text track, and none when a picture subtitle is drawn into the video.
+// Shows the chosen text track, and none when a picture subtitle is drawn into the video. A
+// styled ASS/SSA track is drawn as it was made, over the video, where the browser can; else, or
+// when that fails, its WebVTT version shows.
 function showTracks(s) {
-  const shownIndex = s.choice.burn ? -1 : s.textTracks.findIndex((t) => t.track === s.choice.subtitle);
+  const chosen = s.choice.burn ? null : s.textTracks.find((t) => t.track === s.choice.subtitle);
+  const styled = chosen?.ass && !s.plainOnly.has(chosen.track) && canDrawAss() ? chosen : null;
+  drawStyled(s, styled, (track) => {
+    s.plainOnly.add(track.track);
+    announce("These subtitles can't be drawn with their styles here; showing them plain.");
+    showTracks(s);
+  });
+  const shownIndex = s.choice.burn || styled ? -1 : s.textTracks.findIndex((t) => t.track === s.choice.subtitle);
   [...s.video.textTracks].forEach((track, i) => (track.mode = i === shownIndex ? "showing" : "disabled"));
 }
 
