@@ -75,9 +75,11 @@ export function choose(info, choice) {
     video_codec: codec,
     ...(audio ? { audio_stream: audio.index } : {}),
     ...(choice.burn ? { burn_subtitle: choice.burn } : {}),
+    // An ASS/SSA track this browser can't draw: the server draws it in when it's styled.
+    ...(choice.serverDraws ? { subtitle: choice.serverDraws, renders_ass: false } : {}),
     ...(choice.sound ? { audio_mode: choice.sound } : {}),
   });
-  if (choice.burn || choice.fallback || !v || wrongColours(v) || overLimit(info)) return request("h264");
+  if (choice.burn || choice.serverDraws || choice.fallback || !v || wrongColours(v) || overLimit(info)) return request("h264");
   const vc = videoCodec(v);
   const ac = audio ? AUDIO_CODECS[audio.codec] : null;
   const type = container(info);
@@ -100,6 +102,7 @@ export function describe(mode) {
   const sound = SOUNDS.find((s) => s.mode === mode.audio_mode && s.mode);
   const said = sound ? ` Sound: ${sound.label.toLowerCase()}.` : "";
   if (mode.burn_subtitle) return `Converting for this browser, with the subtitles drawn in.${said}`;
+  if (mode.renders_ass === false) return `Converting for this browser, so styled subtitles can be drawn in.${said}`;
   if (mode.video_codec === "copy") return `Playing the original video; the server converts the container and audio.${said}`;
   return `Converting for this browser.${said}`;
 }

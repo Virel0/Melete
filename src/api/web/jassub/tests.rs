@@ -131,3 +131,20 @@ fn the_player_loads_jassub_from_here_with_font_lookups_off() {
     assert!(player.contains("${streamBase}/fonts"));
     assert!(player.contains("${streamBase}/${track.ass_url}"));
 }
+
+/// A browser that can't draw ASS/SSA asks the server to draw a styled track in, by converting
+/// with the track named and `renders_ass` false; one that can sends neither, so changing
+/// subtitles never restarts its conversion. A track drawn in isn't also shown on top.
+#[test]
+fn a_browser_that_cant_draw_ass_asks_the_server_to() {
+    let ass = include_str!("../../../web/player-ass.js");
+    let choice = include_str!("../../../web/player-choice.js");
+    let player = include_str!("../../../web/player.js");
+    assert!(ass.contains("return track?.ass && !canDrawAss() ? track.track : null;"));
+    assert!(choice.contains(
+        "...(choice.serverDraws ? { subtitle: choice.serverDraws, renders_ass: false } : {}),"
+    ));
+    assert!(choice.contains("if (choice.burn || choice.serverDraws || choice.fallback"));
+    assert!(player.contains("s.burned = answer.burned_subtitle ?? null;"));
+    assert!(player.contains("s.burned && s.burned === s.choice.subtitle"));
+}
