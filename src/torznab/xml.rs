@@ -35,6 +35,9 @@ pub(super) fn malformed(err: impl fmt::Display) -> Error {
 /// [`Error::Indexer`] or [`Error::Rejected`] when the reply is a Torznab error, and
 /// [`Error::Malformed`] when it isn't XML or has no `<caps>`.
 pub fn parse_caps(xml: &str) -> Result<Caps, Error> {
+    if let Some(said) = super::page::says(xml) {
+        return Err(Error::WebPage(said));
+    }
     let mut reader = Reader::from_str(xml);
     let mut caps = Caps::default();
     let mut seen_caps = false;
@@ -86,6 +89,9 @@ pub fn parse_caps(xml: &str) -> Result<Caps, Error> {
 /// [`Error::Indexer`] or [`Error::Rejected`] when the reply is a Torznab error, and
 /// [`Error::Malformed`] when it isn't XML or has no `<rss>`.
 pub fn parse_items(xml: &str) -> Result<Vec<Item>, Error> {
+    if let Some(said) = super::page::says(xml) {
+        return Err(Error::WebPage(said));
+    }
     let mut reader = Reader::from_str(xml);
     let mut items = Vec::new();
     let mut seen_rss = false;
