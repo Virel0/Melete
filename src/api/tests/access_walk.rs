@@ -157,10 +157,7 @@ async fn world() -> World {
 /// The world, on a server already made.
 async fn world_with((pool, app, dir): (SqlitePool, Router, tempfile::TempDir)) -> World {
     sqlx::raw_sql(WORLD).execute(&pool).await.unwrap();
-    let kid = crate::auth::create_user(&pool, "kid", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let kid = crate::auth::testing::user(&pool, "kid", false).await;
     sqlx::raw_sql(MUSIC).execute(&pool).await.unwrap();
     sqlx::raw_sql(titles_own::ROWS)
         .execute(&pool)
@@ -311,10 +308,7 @@ async fn hidden_titles_are_not_there_and_open_ones_are() {
     let favourites: Value = serde_json::from_str(&favourites).unwrap();
     assert_eq!(favourites["total"], 2);
     // An admin sees them all.
-    let admin = crate::auth::create_user(&w.pool, "parent", "a-long-password".into(), true)
-        .await
-        .unwrap()
-        .unwrap();
+    let admin = crate::auth::testing::user(&w.pool, "parent", true).await;
     let access = crate::access::Access::of(&w.pool, admin.id, true)
         .await
         .unwrap();

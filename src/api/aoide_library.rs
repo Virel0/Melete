@@ -380,10 +380,7 @@ mod tests {
         let pool = crate::db::open_in_memory().await;
         let mut tokens = Vec::new();
         for name in ["owner", "friend", "stranger"] {
-            let user = crate::auth::create_user(&pool, name, "a-password".into(), false)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, false).await;
             let (_, token) =
                 crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                     .await

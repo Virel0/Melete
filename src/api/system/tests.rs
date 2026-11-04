@@ -43,10 +43,7 @@ async fn admins_see_disk_space_and_tasks_and_run_one() {
     .unwrap();
     let mut tokens = Vec::new();
     for (name, admin) in [("alice", true), ("bob", false)] {
-        let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, name, admin).await;
         tokens.push(
             auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                 .await
@@ -134,10 +131,7 @@ async fn admins_see_the_backups_and_the_latest_try_of_each_kind() {
     let (data, transcode) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let mut tokens = Vec::new();
     for (name, admin) in [("alice", true), ("bob", false)] {
-        let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, name, admin).await;
         tokens.push(
             auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                 .await

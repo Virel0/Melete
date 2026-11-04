@@ -72,10 +72,7 @@ async fn rig(musicbrainz: bool) -> Rig {
     let token = |name: &'static str, admin: bool| {
         let pool = pool.clone();
         async move {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                 .await
                 .unwrap()

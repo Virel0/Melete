@@ -173,11 +173,7 @@ mod tests {
     use crate::wanted_edit;
 
     async fn admin(pool: &SqlitePool) -> i64 {
-        crate::auth::create_user(pool, "alice", "alice-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap()
-            .id
+        crate::auth::testing::user(pool, "alice", true).await.id
     }
 
     #[tokio::test]

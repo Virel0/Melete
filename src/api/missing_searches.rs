@@ -172,10 +172,7 @@ mod tests {
         let pool = db::open_in_memory().await;
         let mut tokens = Vec::new();
         for (name, admin) in [("admin", true), ("viewer", false)] {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             tokens.push(
                 auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                     .await
@@ -288,10 +285,7 @@ mod tests {
     #[tokio::test]
     async fn a_run_for_upgrades_names_its_goal_and_music_has_none() {
         let pool = db::open_in_memory().await;
-        let user = auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, admin) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap();

@@ -60,10 +60,7 @@ mod tests {
 
     async fn call(admin: bool, uri: &str) -> (StatusCode, Value) {
         let pool = db::open_in_memory().await;
-        let user = auth::create_user(&pool, "u", "user-password".into(), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", admin).await;
         let (_, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap();

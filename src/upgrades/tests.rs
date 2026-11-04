@@ -841,10 +841,7 @@ async fn an_upgrade_keeps_who_watched_it_and_where_they_were() {
     let old_path = "Dune (2024)/Dune.2024.1080p.WEB-DL.mkv";
     let old = file(&lib, old_path, None, Some(166.0)).await;
     for (name, position, watched, plays) in [("alice", 0.0, 1, 2), ("bob", 3600.0, 0, 0)] {
-        let user = crate::auth::create_user(&lib.pool, name, "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&lib.pool, name, false).await;
         sqlx::query(
             "INSERT INTO playback_progress (user_id, file_id, position_seconds, duration_seconds,
                  watched, play_count, updated_at) VALUES (?, ?, ?, 9960, ?, ?, 5)",

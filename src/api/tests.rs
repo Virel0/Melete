@@ -25,10 +25,7 @@ async fn admins_can_ask_for_a_scan() {
     let pool = crate::db::open_in_memory().await;
     let mut tokens = Vec::new();
     for (name, admin) in [("admin", true), ("viewer", false)] {
-        let user = crate::auth::create_user(&pool, name, format!("{name}-password"), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, name, admin).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -64,10 +61,7 @@ async fn admins_scan_one_library_or_one_titles_folder() {
     .unwrap();
     let mut tokens = Vec::new();
     for (name, admin) in [("admin", true), ("viewer", false)] {
-        let user = crate::auth::create_user(&pool, name, format!("{name}-password"), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, name, admin).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -398,10 +392,7 @@ mod openapi {
         pool: &SqlitePool,
         app: &Router,
     ) -> impl Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>> {
-        let user = crate::auth::create_user(pool, "viewer", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(pool, "viewer", false).await;
         let (_, token) =
             crate::auth::issue_token(pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -502,10 +493,7 @@ mod openapi {
     #[tokio::test]
     async fn diagnostics_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -660,10 +648,7 @@ mod openapi {
     #[tokio::test]
     async fn quick_connect_responses_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -721,10 +706,7 @@ mod openapi {
             Some(Arc::new(client.unwrap())),
             Arc::default(),
         ));
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let (user, password) = crate::auth::testing::user_with_password(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -763,7 +745,7 @@ mod openapi {
             &call(
                 "POST",
                 "/api/v1/auth/oidc/link",
-                Some(json!({ "password": "user-password" })),
+                Some(json!({ "password": password })),
             )
             .await,
         );
@@ -809,10 +791,7 @@ mod openapi {
         *fake.content.lock().unwrap() =
             r#"{"titles": [{"title": "Heat", "year": 1995}, {"title": "Thief"}]}"#.into();
         let app = super::ai::routes(pool.clone(), Some(Arc::new(crate::ai::fake::client(&api))));
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -880,10 +859,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -932,10 +908,7 @@ mod openapi {
         .await
         .unwrap();
         crate::classical::refresh(&pool).await.unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1029,10 +1002,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1114,10 +1084,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1156,10 +1123,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1199,10 +1163,7 @@ mod openapi {
         .await
         .unwrap();
         crate::lyrics::read_library(&pool).await.unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1240,10 +1201,7 @@ mod openapi {
         .unwrap();
         let mut tokens = Vec::new();
         for name in ["alice", "bob"] {
-            let user = crate::auth::create_user(&pool, name, "user-password".into(), false)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, false).await;
             tokens.push((
                 user.id,
                 crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
@@ -1316,10 +1274,7 @@ mod openapi {
     #[tokio::test]
     async fn deleting_listens_answers_with_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1350,10 +1305,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1410,10 +1362,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let admin = crate::auth::create_user(&pool, "admin", "a-long-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1472,10 +1421,7 @@ mod openapi {
             .execute(&pool)
             .await
             .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1521,10 +1467,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1579,10 +1522,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1641,10 +1581,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1724,9 +1661,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap();
+        let (_, password) = crate::auth::testing::user_with_password(&pool, "admin", true).await;
 
         let send = |method: &str, uri: &str, token: Option<&str>, body: Option<Value>| {
             let mut request = Request::builder().method(method).uri(uri);
@@ -1750,12 +1685,10 @@ mod openapi {
         };
         let spec = spec();
 
-        let login =
-            json!({ "username": "admin", "password": "admin-password", "device_name": "test" });
+        let login = json!({ "username": "admin", "password": password, "device_name": "test" });
         let signed_in = send("POST", "/api/v1/auth/login", None, Some(login)).await;
         assert_shape(&spec, "LoginResponse", &signed_in);
-        let login =
-            json!({ "username": "admin", "password": "admin-password", "device_name": "web" });
+        let login = json!({ "username": "admin", "password": password, "device_name": "web" });
         let web = send("POST", "/api/v1/auth/web-login", None, Some(login)).await;
         assert_shape(&spec, "WebLoginResponse", &web);
         let token = signed_in["token"].as_str().unwrap().to_owned();
@@ -1806,10 +1739,7 @@ mod openapi {
     #[tokio::test]
     async fn malformed_requests_get_json_errors() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -1932,10 +1862,7 @@ mod openapi {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2024,10 +1951,7 @@ mod openapi {
             .execute(&pool)
             .await
             .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2129,10 +2053,7 @@ mod openapi {
             .execute(&pool)
             .await
             .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2184,10 +2105,7 @@ mod openapi {
             .execute(&pool)
             .await
             .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2239,10 +2157,7 @@ mod openapi {
             .execute(&pool)
             .await
             .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2265,10 +2180,7 @@ mod openapi {
         use crate::import::testing::FakeArr;
 
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2352,10 +2264,7 @@ mod openapi {
         use crate::import::testing::FakeArr;
 
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2465,10 +2374,7 @@ mod openapi {
         use crate::import::testing::FakeArr;
 
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2523,10 +2429,7 @@ mod openapi {
         use crate::profiles::{App, import::tests::converted, save};
 
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2586,10 +2489,7 @@ mod openapi {
         use crate::profiles::{App, import::tests::converted, save};
 
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2685,10 +2585,7 @@ mod openapi {
     #[tokio::test]
     async fn the_calendar_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let user = crate::auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "viewer", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2731,10 +2628,7 @@ mod openapi {
     #[tokio::test]
     async fn emptying_the_trash_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2781,10 +2675,7 @@ mod openapi {
     #[tokio::test]
     async fn the_trash_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2832,10 +2723,7 @@ mod openapi {
     #[tokio::test]
     async fn a_wanted_title_keeps_a_profile_chosen_in_melete() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -2955,10 +2843,7 @@ mod openapi {
     #[tokio::test]
     async fn an_anime_series_takes_only_animes_profiles() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3032,10 +2917,7 @@ mod openapi {
     #[tokio::test]
     async fn import_lists_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3121,10 +3003,7 @@ mod openapi {
     #[tokio::test]
     async fn downloads_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3149,10 +3028,7 @@ mod openapi {
     #[tokio::test]
     async fn progress_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3177,10 +3053,7 @@ mod openapi {
     #[tokio::test]
     async fn requests_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3217,10 +3090,7 @@ mod openapi {
     #[tokio::test]
     async fn a_series_requests_seasons_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3252,10 +3122,7 @@ mod openapi {
     #[tokio::test]
     async fn playlists_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3301,10 +3168,7 @@ mod openapi {
     #[tokio::test]
     async fn outside_services_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let admin = crate::auth::create_user(&pool, "admin", "a-long-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3336,10 +3200,7 @@ mod openapi {
     #[tokio::test]
     async fn playlist_imports_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3373,10 +3234,7 @@ mod openapi {
     #[tokio::test]
     async fn request_search_results_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3397,10 +3255,7 @@ mod openapi {
     #[tokio::test]
     async fn parsed_releases_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3418,10 +3273,7 @@ mod openapi {
     #[tokio::test]
     async fn missing_searches_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3448,10 +3300,7 @@ mod openapi {
     #[tokio::test]
     async fn removed_titles_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3478,10 +3327,7 @@ mod openapi {
     #[tokio::test]
     async fn managed_lists_carry_exactly_the_documented_fields() {
         let pool = crate::manage::scale::big_library().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3510,10 +3356,7 @@ mod openapi {
     #[tokio::test]
     async fn system_status_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3537,10 +3380,7 @@ mod openapi {
     #[tokio::test]
     async fn a_selections_outcome_carries_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -3574,10 +3414,7 @@ mod openapi {
     #[tokio::test]
     async fn histories_carry_exactly_the_documented_fields() {
         let pool = crate::db::open_in_memory().await;
-        let admin = crate::auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) =
             crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
                 .await

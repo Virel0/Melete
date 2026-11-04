@@ -257,10 +257,7 @@ mod tests {
 
     async fn setup(client: Option<Arc<Client>>) -> (SqlitePool, Router, String) {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await

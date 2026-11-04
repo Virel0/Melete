@@ -413,10 +413,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -570,10 +567,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
@@ -661,10 +655,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         sqlx::query(
             "INSERT INTO aoide_ops (op_id, user_id, device_id, entity, entity_id, operation, payload,
                  created_at, received_at)

@@ -279,14 +279,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let admin = auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
-        let viewer = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
+        let viewer = crate::auth::testing::user(&pool, "viewer", false).await;
         let (_, admin) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
             .await
             .unwrap();

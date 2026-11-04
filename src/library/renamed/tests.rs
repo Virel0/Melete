@@ -32,10 +32,7 @@ async fn library(kind: LibraryKind, root: &Path) -> (SqlitePool, Library) {
         path: PathBuf::from(root),
     };
     let library = sync_config(&pool, &[config]).await.unwrap().remove(0);
-    crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    crate::auth::testing::user(&pool, "alice", false).await;
     (pool, library)
 }
 

@@ -462,18 +462,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::auth;
     use crate::db;
     use crate::musicbrainz::testing::{self, OK_COMPUTER, PARANOID_ANDROID, RADIOHEAD};
     use crate::tmdb::testing::{FakeTmdb, Reply};
 
     async fn rig() -> (SqlitePool, i64, tmdb::Client, musicbrainz::Client) {
         let pool = db::open_in_memory().await;
-        let user = auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap()
-            .id;
+        let user = crate::auth::testing::user(&pool, "alice", false).await.id;
         let fake = FakeTmdb::default();
         fake.reply(
             "/search/movie?include_adult=false&query=Matrix",

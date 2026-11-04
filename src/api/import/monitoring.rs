@@ -116,10 +116,7 @@ mod tests {
         .unwrap();
         let mut tokens = Vec::new();
         for (name, admin) in [("alice", true), ("bob", false)] {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             let (_, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                 .await
                 .unwrap();

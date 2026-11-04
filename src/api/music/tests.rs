@@ -104,10 +104,7 @@ async fn fixture(coverart: Option<Arc<coverart::Client>>) -> Fixture {
         .execute(&pool)
         .await
         .unwrap();
-    let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "u", false).await;
     let (_, token) = crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
         .await
         .unwrap();

@@ -27,10 +27,7 @@ async fn fixture() -> Fixture {
     let token = |admin: bool, name: &'static str| {
         let pool = pool.clone();
         async move {
-            let user = auth::create_user(&pool, name, "a-long-password".into(), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             let token = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                 .await
                 .unwrap()

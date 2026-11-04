@@ -484,12 +484,7 @@ mod tests {
         .unwrap();
         let user = |name: &'static str| {
             let pool = pool.clone();
-            async move {
-                auth::create_user(&pool, name, "a-long-password".into(), false)
-                    .await
-                    .unwrap()
-                    .unwrap()
-            }
+            async move { crate::auth::testing::user(&pool, name, false).await }
         };
         let (viewer, other) = (user("viewer").await, user("other").await);
         for (who, tmdb_id) in [(viewer.id, 605), (other.id, 606)] {

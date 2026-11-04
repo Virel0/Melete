@@ -171,14 +171,8 @@ mod tests {
             path: "/media/movies".into(),
         };
         sync_config(&pool, &[config]).await.unwrap();
-        let admin = auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
-        let viewer = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
+        let viewer = crate::auth::testing::user(&pool, "viewer", false).await;
         let (_, admin) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
             .await
             .unwrap();
@@ -413,14 +407,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let admin = auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
-        let viewer = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
+        let viewer = crate::auth::testing::user(&pool, "viewer", false).await;
         let (_, admin) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
             .await
             .unwrap();
@@ -535,10 +523,7 @@ mod tests {
     #[tokio::test]
     async fn lists_followed_artists_with_how_their_last_look_went() {
         let pool = db::open_in_memory().await;
-        let admin = auth::create_user(&pool, "admin", "admin-password".into(), true)
-            .await
-            .unwrap()
-            .unwrap();
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
         let (_, token) = auth::issue_token(&pool, admin.id, TokenKind::Session, "t")
             .await
             .unwrap();
@@ -554,10 +539,7 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        let viewer = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let viewer = crate::auth::testing::user(&pool, "viewer", false).await;
         let (_, viewer) = auth::issue_token(&pool, viewer.id, TokenKind::Session, "t")
             .await
             .unwrap();
@@ -587,10 +569,7 @@ mod tests {
         let pool = db::open_in_memory().await;
         let mut tokens = Vec::new();
         for (name, admin) in [("admin", true), ("viewer", false)] {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             tokens.push(
                 auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                     .await

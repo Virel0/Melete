@@ -51,10 +51,7 @@ async fn fixture() -> Fixture {
     .execute(&pool)
     .await
     .unwrap();
-    let user = auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "viewer", false).await;
     let (token_id, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
         .await
         .unwrap();
@@ -738,10 +735,7 @@ async fn progress_is_per_user() {
         Some(json!({ "position_seconds": 42.0 })),
     )
     .await;
-    let other = auth::create_user(&f.pool, "other", "other-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let other = crate::auth::testing::user(&f.pool, "other", false).await;
     let (_, token) = auth::issue_token(&f.pool, other.id, TokenKind::Session, "t")
         .await
         .unwrap();

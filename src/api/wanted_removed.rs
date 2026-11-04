@@ -157,10 +157,7 @@ mod tests {
         let pool = db::open_in_memory().await;
         let mut tokens = Vec::new();
         for (name, admin) in [("alice", true), ("bob", false)] {
-            let user = auth::create_user(&pool, name, format!("{name}-password"), admin)
-                .await
-                .unwrap()
-                .unwrap();
+            let user = crate::auth::testing::user(&pool, name, admin).await;
             tokens.push(
                 auth::issue_token(&pool, user.id, TokenKind::Session, "t")
                     .await

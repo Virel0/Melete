@@ -355,10 +355,7 @@ mod tests {
             .await
             .unwrap();
         scan(&pool, &before[0]).await.unwrap();
-        let user = crate::auth::create_user(&pool, "alice", "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
         sqlx::query(
             "INSERT INTO playback_progress (user_id, file_id, position_seconds, watched, updated_at)
              SELECT ?, id, 0, 1, 0 FROM media_files",

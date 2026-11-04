@@ -353,7 +353,7 @@ pub async fn want_song_album(pool: &SqlitePool, song: i64) -> anyhow::Result<Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{self, User};
+    use crate::auth::User;
     use crate::db;
     use crate::musicbrainz::testing::{self, OK_COMPUTER, PARANOID_ANDROID, RADIOHEAD};
     use crate::requests::{self, NewRequest, Refused};
@@ -377,12 +377,7 @@ mod tests {
         .unwrap();
         let user = |name: &'static str, admin| {
             let pool = pool.clone();
-            async move {
-                auth::create_user(&pool, name, "a-long-password".into(), admin)
-                    .await
-                    .unwrap()
-                    .unwrap()
-            }
+            async move { crate::auth::testing::user(&pool, name, admin).await }
         };
         let (admin, alice, bob) = (
             user("admin", true).await,

@@ -75,10 +75,7 @@ fn rows_a_device_would_refuse_are_skipped() {
 #[tokio::test]
 async fn liking_writes_the_tracks_own_row_and_unliking_deletes_it() {
     let pool = crate::db::open_in_memory().await;
-    let user = crate::auth::create_user(&pool, "u", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "u", false).await;
     sqlx::raw_sql(
         "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
          INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
@@ -162,10 +159,7 @@ async fn liking_writes_the_tracks_own_row_and_unliking_deletes_it() {
 #[tokio::test]
 async fn unliking_leaves_a_dislike_alone() {
     let pool = crate::db::open_in_memory().await;
-    let user = crate::auth::create_user(&pool, "u", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "u", false).await;
     let op = format!(
         r#"{{"opId":"o","entity":"likes","entityId":"D","operation":"upsert","payload":{},"createdAt":1}}"#,
         row("D", "7", false, 100, "phone", false)
@@ -191,10 +185,7 @@ async fn unliking_leaves_a_dislike_alone() {
 #[tokio::test]
 async fn an_unlike_in_the_same_millisecond_still_counts() {
     let pool = crate::db::open_in_memory().await;
-    let user = crate::auth::create_user(&pool, "u", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "u", false).await;
     sqlx::raw_sql(
         "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
          INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)

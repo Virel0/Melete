@@ -28,10 +28,7 @@ async fn fixture() -> Fixture {
 async fn session(f: &Fixture, name: &str) -> (String, i64) {
     let user = match auth::find_user(&f.pool, name).await.unwrap() {
         Some(user) => user,
-        None => auth::create_user(&f.pool, name, "a-long-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap(),
+        None => crate::auth::testing::user(&f.pool, name, false).await,
     };
     let token = auth::issue_token(&f.pool, user.id, TokenKind::Session, "t")
         .await

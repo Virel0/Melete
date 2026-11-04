@@ -21,10 +21,7 @@ async fn fixture(on: bool) -> Fixture {
     if on {
         turn_on(&pool).await;
     }
-    let bob = crate::auth::create_user(&pool, "bob", "bob-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let bob = crate::auth::testing::user(&pool, "bob", false).await;
     let mut tokens = Vec::new();
     for user in [1, bob.id] {
         let (_, token) = crate::auth::issue_token(&pool, user, TokenKind::Session, "t")

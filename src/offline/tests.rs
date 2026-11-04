@@ -119,10 +119,7 @@ pub(crate) async fn library(dir: &Path) -> SqlitePool {
     crate::probe::probe_pending(&pool, Path::new("ffprobe"))
         .await
         .unwrap();
-    crate::auth::create_user(&pool, "alice", "alice-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    crate::auth::testing::user(&pool, "alice", false).await;
     pool
 }
 

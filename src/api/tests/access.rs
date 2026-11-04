@@ -332,10 +332,7 @@ async fn every_route_refuses_a_caller_without_a_token() {
 async fn every_admin_route_refuses_a_signed_in_user_who_isnt_an_admin() {
     let (pool, app, _artwork) = full_server().await;
     let (answers, guarded) = sweep(&app).await;
-    let user = crate::auth::create_user(&pool, "viewer", "user-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "viewer", false).await;
     let mut tokens = Vec::new();
     for kind in [
         crate::auth::TokenKind::Session,

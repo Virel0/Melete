@@ -80,10 +80,7 @@ async fn a_highest_rating_hides_what_is_above_it_or_unrated() {
 #[tokio::test]
 async fn admins_see_everything_and_restrictions_are_kept_and_forgotten() {
     let pool = fixture().await;
-    let user = crate::auth::create_user(&pool, "kid", "a-long-password".into(), false)
-        .await
-        .unwrap()
-        .unwrap();
+    let user = crate::auth::testing::user(&pool, "kid", false).await;
     assert_eq!(restriction(&pool, user.id).await.unwrap(), None);
     let kids = Restriction {
         libraries: Some(vec![3]),

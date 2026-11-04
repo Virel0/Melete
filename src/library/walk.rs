@@ -347,10 +347,7 @@ mod tests {
         touch(dir.path(), "B (2001)/B.mkv");
         let (pool, library) = library(LibraryKind::Movies, dir.path()).await;
         scan(&pool, &library).await.unwrap();
-        let user = crate::auth::create_user(&pool, "u", "user-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         sqlx::query(
             "INSERT INTO playback_progress (user_id, file_id, position_seconds, watched,
                  play_count, updated_at)

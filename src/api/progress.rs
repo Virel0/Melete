@@ -179,10 +179,7 @@ mod tests {
     use crate::db;
 
     async fn token(pool: &SqlitePool, name: &str, admin: bool) -> String {
-        let user = auth::create_user(pool, name, "a-long-password".into(), admin)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(pool, name, admin).await;
         auth::issue_token(pool, user.id, TokenKind::Session, "t")
             .await
             .unwrap()

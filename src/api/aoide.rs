@@ -351,10 +351,7 @@ mod tests {
 
     async fn fixture() -> (Router, SqlitePool, String, tempfile::TempDir) {
         let pool = crate::db::open_in_memory().await;
-        let user = crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap()
-            .unwrap();
+        let user = crate::auth::testing::user(&pool, "u", false).await;
         let (_, token) =
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "phone")
                 .await

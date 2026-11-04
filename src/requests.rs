@@ -383,7 +383,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::auth;
     use crate::db;
     use crate::tmdb::testing::{FakeTmdb, Reply};
 
@@ -416,12 +415,7 @@ mod tests {
         .unwrap();
         let user = |name: &'static str, admin| {
             let pool = pool.clone();
-            async move {
-                auth::create_user(&pool, name, "a-long-password".into(), admin)
-                    .await
-                    .unwrap()
-                    .unwrap()
-            }
+            async move { crate::auth::testing::user(&pool, name, admin).await }
         };
         let (admin, alice, bob) = (
             user("admin", true).await,

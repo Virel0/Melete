@@ -367,9 +367,7 @@ mod tests {
 
     async fn pool() -> SqlitePool {
         let pool = crate::db::open_in_memory().await;
-        crate::auth::create_user(&pool, "u", "a-password".into(), false)
-            .await
-            .unwrap();
+        crate::auth::testing::user(&pool, "u", false).await;
         pool
     }
 
