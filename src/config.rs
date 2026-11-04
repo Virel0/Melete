@@ -186,6 +186,8 @@ impl Config {
         switch(&get, "MELETE_SCAN_WATCH")?;
         // AI picks: read where they're made (`ai_picks`), as they can change while running.
         switch(&get, "MELETE_AI_PICKS")?;
+        // Converted high frame rates: read where movies are decided on (`search`).
+        switch(&get, crate::search::frame_rate::ALLOW_SETTING)?;
         check_ratings_country(&get)?;
         // Posters of titles not in the library: read where they're served (`settings`), checked
         // here.
