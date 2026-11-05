@@ -3,8 +3,9 @@
 // frees and why, and ticks to choose several with the space they'd free together. Deleting
 // moves a title's files to its library's trash, where they wait 30 days and can be put back
 // (Replaced files). Swapping searches, slowly, for a release at most 1080p and clearly smaller,
-// which replaces the copy once it's in; the swaps under way are listed above the suggestions.
-// Compressing comes later, and says so.
+// which replaces the copy once it's in. Compressing converts its H.264 files to HEVC on the GPU,
+// one at a time, each copy replacing its file once checked. What's under way is listed above
+// the suggestions.
 
 import { confirmInline } from "/web/forms.js";
 import { SignedOut, announce, api, h, plural, size } from "/web/lib.js";
@@ -45,7 +46,7 @@ async function load(ctx, box) {
     const found = await api("/admin/make-room");
     if (!ctx.current()) return;
     const mine = ofService(ctx.service.key);
-    box.replaceChildren(underWay(found.swapping.filter(mine), found.downloads), ...view(ctx, found.items.filter(mine)));
+    box.replaceChildren(underWay(found.swapping.filter(mine), found.downloads), compressing(found.compressing.filter(mine)), ...view(ctx, found.items.filter(mine)));
   } catch (err) {
     if (err instanceof SignedOut) return ctx.signedOut();
     box.replaceChildren(failed("the suggestions", err, () => load(ctx, box)));
@@ -107,6 +108,8 @@ function row(ctx, s, chosen, redraw) {
   const actions = h("div", { class: "row-actions" });
   if (s.action === "delete") {
     actions.append(h("button", { type: "button", class: "quiet", "aria-label": `Move ${label} to the trash`, onclick: () => confirmOne(ctx, actions, s, label) }, "Move to trash"));
+  } else if (s.action === "compress") {
+    actions.append(h("button", { type: "button", class: "quiet", "aria-label": `Compress ${label}`, onclick: () => confirmCompress(ctx, actions, s, label) }, "Compress"));
   } else if (s.action === "swap") {
     actions.append(h("button", { type: "button", class: "quiet", "aria-label": `Swap ${label} for a smaller release`, onclick: () => confirmSwap(ctx, actions, s, label) }, "Swap"));
   } else {
@@ -145,6 +148,34 @@ function underWay(swapping, downloads) {
 }
 
 const number = (n) => new Intl.NumberFormat().format(n);
+
+// Compressions under way, by title: waiting, being converted, done (and what that freed), failed.
+function compressing(list) {
+  if (!list.length) return "";
+  const line = (c) => {
+    const parts = [
+      c.waiting && `${number(c.waiting)} waiting`,
+      c.running && "converting now",
+      c.done && `${number(c.done)} done, freeing ${size(c.saved)}`,
+      c.failed && `${number(c.failed)} failed`,
+    ].filter(Boolean);
+    return h("li", {}, h("strong", {}, c.title), `: ${parts.join(", ")}.`);
+  };
+  return h("section", { class: "swaps", "aria-label": "Compressions under way" }, h("h2", {}, "Compressing"), h("ul", {}, list.map(line)));
+}
+
+function confirmCompress(ctx, actions, s, label) {
+  confirmInline(actions, {
+    question: `Convert ${label}'s H.264 files to HEVC, one at a time while nothing else is converted, each copy replacing its file once it plays as long with the same tracks (the old file goes to the trash for 30 days)?`,
+    confirm: "Compress",
+    run: async () => {
+      const done = await api("/admin/make-room/compress", { method: "POST", body: { kind: s.kind, id: s.id } });
+      const words = `${label}: ${plural(done.files, "file", "files")} queued to compress.`;
+      announce(words);
+      ctx.reload(words);
+    },
+  });
+}
 
 function confirmSwap(ctx, actions, s, label) {
   confirmInline(actions, {

@@ -951,3 +951,80 @@ async fn nothing_moves_when_a_video_isnt_as_scanned() {
         Err(NotRemoved::NotFound)
     );
 }
+
+#[tokio::test]
+async fn a_compressed_copy_takes_the_files_place_and_row_and_the_file_goes_to_the_trash() {
+    let lib = library().await;
+    let id = file(&lib, "Dune (2024)/Dune.mp4", None, Some(160.0)).await;
+    let user = crate::auth::testing::user(&lib.pool, "u", false).await;
+    sqlx::query(
+        "INSERT INTO playback_progress (user_id, file_id, position_seconds, watched, play_count,
+             updated_at) VALUES (?, ?, 600, 0, 0, 1)",
+    )
+    .bind(user.id)
+    .bind(id)
+    .execute(&lib.pool)
+    .await
+    .unwrap();
+    let copy = lib._dir.path().join("copy.mkv");
+    std::fs::write(&copy, b"smaller").unwrap();
+
+    let saved = replace_with_compressed(&lib.pool, id, &copy)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved, "Dune (2024)/Dune.mp4".len() as i64 - 7);
+    assert!(
+        lib.root.join("Dune (2024)/Dune.mkv").is_file(),
+        "the copy, as .mkv"
+    );
+    assert!(!lib.root.join("Dune (2024)/Dune.mp4").exists());
+    assert!(!copy.exists(), "taken from where it was made");
+    let (rel, probed): (String, i64) = sqlx::query_as(
+        "SELECT rel_path, (SELECT count(*) FROM media_probes WHERE file_id = f.id)
+         FROM media_files f WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_one(&lib.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (rel.as_str(), probed),
+        ("Dune (2024)/Dune.mkv", 0),
+        "same row, probed again"
+    );
+    let position: f64 =
+        sqlx::query_scalar("SELECT position_seconds FROM playback_progress WHERE file_id = ?")
+            .bind(id)
+            .fetch_one(&lib.pool)
+            .await
+            .unwrap();
+    assert_eq!(position, 600.0, "where the viewer was stays");
+    let (trashed, replaced_by): (i64, String) =
+        sqlx::query_as("SELECT id, replaced_by FROM trashed_files")
+            .fetch_one(&lib.pool)
+            .await
+            .unwrap();
+    assert_eq!(replaced_by, "Dune (2024)/Dune.mkv");
+    restore(&lib.pool, trashed).await.unwrap().unwrap();
+    assert!(
+        lib.root.join("Dune (2024)/Dune.mp4").is_file(),
+        "and it can be put back"
+    );
+}
+
+#[tokio::test]
+async fn a_file_changed_since_its_scan_isnt_replaced_by_a_copy() {
+    let lib = library().await;
+    let id = file(&lib, "Dune (2024)/Dune.mkv", None, None).await;
+    std::fs::write(
+        lib.root.join("Dune (2024)/Dune.mkv"),
+        b"changed since the scan",
+    )
+    .unwrap();
+    let copy = lib._dir.path().join("copy.mkv");
+    std::fs::write(&copy, b"smaller").unwrap();
+    let refused = replace_with_compressed(&lib.pool, id, &copy).await.unwrap();
+    assert!(refused.unwrap_err().contains("scanned"));
+    assert!(lib.root.join("Dune (2024)/Dune.mkv").is_file());
+}

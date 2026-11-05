@@ -15,11 +15,13 @@ use sqlx::SqlitePool;
 use crate::db::unix_now;
 use crate::release::{self, Episodes};
 
+mod compressed;
 mod removing;
 mod retiring;
 mod trash;
 mod wrong;
 
+pub use compressed::*;
 pub use removing::*;
 pub use retiring::*;
 pub use trash::*;

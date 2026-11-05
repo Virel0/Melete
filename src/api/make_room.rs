@@ -25,6 +25,7 @@ pub fn routes(pool: SqlitePool) -> Router {
         .route("/api/v1/admin/make-room", get(list))
         .route("/api/v1/admin/make-room/delete", post(delete))
         .route("/api/v1/admin/make-room/swap", post(swap))
+        .route("/api/v1/admin/make-room/compress", post(compress))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
         .with_state(pool)
 }
@@ -42,6 +43,7 @@ async fn list(State(pool): State<SqlitePool>) -> Result<Json<Value>, ApiError> {
     let items = crate::make_room::suggestions(&pool, &extra).await?;
     let total: i64 = items.iter().map(|s| s.saves).sum();
     let swapping = crate::make_room::swapping::progress(&pool).await?;
+    let compressing = crate::make_room::compressing::progress(&pool).await?;
     // Swaps search and grab only while downloads are on.
     let downloads = crate::settings::value(&pool, "MELETE_DOWNLOADS")
         .await?
@@ -51,6 +53,7 @@ async fn list(State(pool): State<SqlitePool>) -> Result<Json<Value>, ApiError> {
         "saves": total,
         "items": items,
         "swapping": swapping,
+        "compressing": compressing,
         "downloads": downloads,
     })))
 }
@@ -104,6 +107,26 @@ async fn swap(
         Err(NotStarted::NothingToSwap) => Err(ApiError::new(
             StatusCode::CONFLICT,
             "it has no files to swap, or every one is being swapped already",
+        )),
+    }
+}
+
+/// Queues a title's H.264 (or older) files to be compressed to HEVC, one at a time.
+async fn compress(
+    State(pool): State<SqlitePool>,
+    Json(title): Json<Title>,
+) -> Result<Json<Value>, ApiError> {
+    let series = series_of(&title)?;
+    use crate::make_room::compressing::{self, NotStarted};
+    match compressing::start(&pool, series, title.id).await? {
+        Ok(files) => Ok(Json(json!({ "files": files }))),
+        Err(NotStarted::NotFound) => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no such title in the library",
+        )),
+        Err(NotStarted::NothingToCompress) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "it has no file that compresses (H.264 or older, not Dolby Vision), or all are queued",
         )),
     }
 }
@@ -221,5 +244,16 @@ mod tests {
             StatusCode::CONFLICT
         );
         assert_eq!(body["swapping"], json!([]));
+        assert_eq!(body["compressing"], json!([]));
+        // Compressing one with no probe: nothing compresses.
+        let compress = Request::post("/api/v1/admin/make-room/compress")
+            .header(header::AUTHORIZATION, format!("Bearer {admin}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "kind": "movie", "id": 1 }).to_string()))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(compress).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
     }
 }

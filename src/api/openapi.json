@@ -9086,6 +9086,51 @@
         }
       }
     },
+    "/api/v1/admin/make-room/compress": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Compress a title's files to HEVC",
+        "description": "Queues the title's video files that are H.264 or older (MPEG-2, VC-1, MPEG-4), Dolby Vision aside, to be converted to HEVC one at a time, only while nothing is being converted for anyone: on the GPU when it works, else the CPU; audio, subtitles and fonts copied, 10-bit and HDR kept; into the transcode folder first. A copy takes the file's place (as `.mkv`, keeping its row, so watching progress stays) only if it plays as long (within half a percent or two seconds), has the same audio and subtitle tracks and is at least a tenth smaller, and the file is still as scanned; the file goes to the library's trash for 30 days, replaced by the copy. Progress shows in `GET /api/v1/admin/make-room`'s `compressing`.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The library movie's or series' id."}
+            },
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "200": {
+            "description": "Queued",
+            "content": {"application/json": {"schema": {
+              "type": "object",
+              "required": ["files"],
+              "properties": {"files": {"type": "integer", "description": "Files queued."}},
+              "additionalProperties": false
+            }}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such title in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "No file that compresses, or all are queued already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/admin/health": {
       "get": {
         "tags": ["Admin"],
@@ -15088,10 +15133,30 @@
       },
       "MakeRoom": {
         "type": "object",
-        "required": ["saves", "items", "swapping", "downloads"],
+        "required": ["saves", "items", "swapping", "compressing", "downloads"],
         "properties": {
           "saves": {"type": "integer", "description": "Bytes all the suggestions would free together."},
           "downloads": {"type": "boolean", "description": "Whether downloads are on (MELETE_DOWNLOADS); swaps wait while they're off."},
+          "compressing": {
+            "type": "array",
+            "description": "Titles with files queued to compress, the most recently started first: how many are waiting, being converted, done and failed, and the bytes freed so far.",
+            "items": {
+              "type": "object",
+              "required": ["kind", "id", "title", "anime", "waiting", "running", "done", "failed", "saved"],
+              "properties": {
+                "kind": {"enum": ["movie", "series"]},
+                "id": {"type": "integer"},
+                "title": {"type": "string"},
+                "anime": {"type": "boolean"},
+                "waiting": {"type": "integer"},
+                "running": {"type": "integer"},
+                "done": {"type": "integer"},
+                "failed": {"type": "integer"},
+                "saved": {"type": "integer", "description": "Bytes freed so far."}
+              },
+              "additionalProperties": false
+            }
+          },
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/MakeRoomSuggestion"}},
           "swapping": {
             "type": "array",
@@ -15126,7 +15191,7 @@
           "year": {"type": ["integer", "null"]},
           "anime": {"type": "boolean", "description": "In a library with the anime category, or wanted as anime."},
           "size": {"type": "integer", "description": "Its files' size in bytes."},
-          "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: searched for a release at most 1080p and clearly smaller (POST /api/v1/admin/make-room/swap), the release found replacing its copy; only for titles on the wanted list. `compress`: converted to HEVC on the GPU, its copy going to the trash once the new file is checked."},
+          "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: searched for a release at most 1080p and clearly smaller (POST /api/v1/admin/make-room/swap), the release found replacing its copy; only for titles on the wanted list. `compress`: converted to HEVC on the GPU (POST /api/v1/admin/make-room/compress), its copy going to the trash once the new file is checked."},
           "saves": {"type": "integer", "description": "Bytes the action is expected to free."},
           "score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "How strongly it's suggested."},
           "reasons": {"type": "array", "items": {"enum": ["never_watched", "not_watched_lately", "untouched", "low_rating", "large_copy", "compressible"]}, "description": "Why, as codes for an app to put in words."}
