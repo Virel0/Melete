@@ -273,12 +273,16 @@ fn read_nfo_ids(root: &Path, files: &[(String, i64)]) -> NfoIds {
     ids
 }
 
+/// What a title's own images are made as; part of their names, so apps that kept an image made
+/// before (served as it was, before it was cropped to its kind's shape) fetch it again.
+const OWN_IMAGES: &str = "shaped";
+
 /// The artwork name a title's own image is served under: unique to the file as it is now
-/// (its library, path, size and date), so a changed image gets a new URL, and saying nothing
-/// about the path.
+/// (its library, path, size and date) and to how it's made, so a changed image gets a new URL,
+/// and saying nothing about the path.
 fn artwork_name(library_id: i64, file: &FoundFile) -> String {
     let digest = Sha256::digest(format!(
-        "{library_id}\0{}\0{}\0{}",
+        "{OWN_IMAGES}\0{library_id}\0{}\0{}\0{}",
         file.rel_path, file.size, file.modified
     ));
     let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();

@@ -1,6 +1,7 @@
 //! A title's own poster and backdrop, from its folder in the library: served under artwork
-//! names that say nothing about the path (`local-<hash>.jpg`), resized once by ffmpeg to the
-//! size asked for and cached beside TMDB's images. Only images a present title's row names
+//! names that say nothing about the path (`local-<hash>.jpg`), cropped to the shape of its kind
+//! (2:3 for a poster, 16:9 for a backdrop) around the picture's subject and resized once by
+//! ffmpeg to the size asked for, and cached beside TMDB's images. Only images a present title's row names
 //! are read, and only from inside its library.
 
 use std::path::Path;
@@ -63,7 +64,8 @@ pub(super) async fn image(
     let Some(bytes) = read_inside(Path::new(&root), &rel_path).await else {
         return Ok(None);
     };
-    match resize(ffmpeg, &bytes, width).await {
+    let shape = if poster { 2.0 / 3.0 } else { 16.0 / 9.0 };
+    match fit(ffmpeg, &bytes, shape, width).await {
         Ok(jpeg) => {
             if let Err(err) = save_atomically(&cached, &jpeg).await {
                 tracing::warn!(error = format!("{err:#}"), "could not cache artwork");
@@ -106,13 +108,48 @@ async fn read_inside(root: &Path, rel_path: &str) -> Option<Vec<u8>> {
     tokio::fs::read(&path).await.ok()
 }
 
+/// The image cropped to `shape` (width over height) around its subject, as the backdrop focus
+/// finds it (the middle when it can't), then as a JPEG at most `width` pixels wide. An image
+/// already of that shape loses nothing.
+async fn fit(ffmpeg: &Path, image: &[u8], shape: f64, width: u32) -> anyhow::Result<Vec<u8>> {
+    let (x, y) = crate::backdrop_focus::of_image(ffmpeg, image)
+        .await
+        .unwrap_or((0.5, 0.5));
+    let crop = crop_filter(shape, x, y);
+    to_jpeg(
+        ffmpeg,
+        image,
+        &format!("{crop},scale='min({width},iw)':-2:flags=lanczos"),
+    )
+    .await
+}
+
+/// ffmpeg's crop to `shape`, as large as fits, centred on `x`, `y` (0 to 1) as far as the edges
+/// allow.
+fn crop_filter(shape: f64, x: f64, y: f64) -> String {
+    format!(
+        "crop=w='min(iw,ih*{shape:.6})':h='min(ih,iw/{shape:.6})':\
+         x='max(0,min(iw-ow,{x:.4}*iw-ow/2))':y='max(0,min(ih-oh,{y:.4}*ih-oh/2))'"
+    )
+}
+
 /// The image as a JPEG at most `width` pixels wide, its proportions kept.
 pub(super) async fn resize(ffmpeg: &Path, image: &[u8], width: u32) -> anyhow::Result<Vec<u8>> {
+    to_jpeg(
+        ffmpeg,
+        image,
+        &format!("scale='min({width},iw)':-2:flags=lanczos"),
+    )
+    .await
+}
+
+/// The image through ffmpeg's `filter`, as a JPEG.
+async fn to_jpeg(ffmpeg: &Path, image: &[u8], filter: &str) -> anyhow::Result<Vec<u8>> {
     use tokio::io::AsyncWriteExt;
     let mut child = tokio::process::Command::new(ffmpeg)
         .args(["-nostdin", "-hide_banner", "-loglevel", "error"])
         .args(["-i", "pipe:0", "-frames:v", "1"])
-        .args(["-vf", &format!("scale='min({width},iw)':-2:flags=lanczos")])
+        .args(["-vf", filter])
         .args(["-pix_fmt", "yuvj420p", "-q:v", "3"])
         .args(["-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"])
         .stdin(Stdio::piped())
@@ -278,6 +315,77 @@ mod tests {
         let (status, jpeg) =
             get("/api/v1/artwork/w780/local-0123456789abcdef0123456789abcdef.jpg").await;
         assert_eq!((status, jpeg_width(&jpeg)), (StatusCode::OK, Some(780)));
+    }
+
+    /// The width and height a baseline or progressive JPEG says it is.
+    fn jpeg_size(bytes: &[u8]) -> Option<(u16, u16)> {
+        let mut i = 2;
+        while i + 9 < bytes.len() {
+            let marker = bytes[i + 1];
+            let length = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+            if (0xc0..=0xc2).contains(&marker) {
+                let height = u16::from_be_bytes([bytes[i + 5], bytes[i + 6]]);
+                let width = u16::from_be_bytes([bytes[i + 7], bytes[i + 8]]);
+                return Some((width, height));
+            }
+            i += 2 + length;
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn a_titles_own_images_come_in_their_kinds_shape() {
+        let library = tempfile::tempdir().unwrap();
+        let artwork = tempfile::tempdir().unwrap();
+        let pool = fixture(library.path(), artwork.path()).await;
+        // A square poster and a backdrop four times as wide as it's high.
+        let folder = library.path().join("Odd Shapes");
+        std::fs::create_dir_all(&folder).unwrap();
+        for (size, name) in [("1000x1000", "poster.png"), ("4000x1000", "fanart.png")] {
+            let made = std::process::Command::new("ffmpeg")
+                .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i"])
+                .arg(format!("color=c=green:s={size}"))
+                .args(["-frames:v", "1"])
+                .arg(folder.join(name))
+                .status()
+                .unwrap();
+            assert!(made.success());
+        }
+        sqlx::query(
+            "INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
+                 local_poster, local_poster_key, local_backdrop, local_backdrop_key) VALUES
+                 (2, 1, 'Odd Shapes', 'Odd Shapes', 1, 'Odd Shapes/poster.png',
+                  '/local-11111111111111111111111111111111.jpg', 'Odd Shapes/fanart.png',
+                  '/local-22222222222222222222222222222222.jpg')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let made = |size: &str, file: &str| {
+            let (pool, artwork, size, file) = (
+                pool.clone(),
+                artwork.path().to_path_buf(),
+                size.to_owned(),
+                file.to_owned(),
+            );
+            async move {
+                let made = image(&pool, &artwork, Path::new("ffmpeg"), &size, &file).await;
+                made.ok().flatten().expect("made")
+            }
+        };
+        let poster = made("w500", "local-11111111111111111111111111111111.jpg").await;
+        assert_eq!(jpeg_size(&poster), Some((500, 750)), "2:3");
+        let backdrop = made("w1280", "local-22222222222222222222222222222222.jpg").await;
+        assert_eq!(jpeg_size(&backdrop), Some((1280, 720)), "16:9");
+    }
+
+    #[test]
+    fn the_crop_centres_on_the_subject_as_far_as_the_edges_allow() {
+        assert_eq!(
+            crop_filter(16.0 / 9.0, 0.25, 0.5),
+            "crop=w='min(iw,ih*1.777778)':h='min(ih,iw/1.777778)':\
+             x='max(0,min(iw-ow,0.2500*iw-ow/2))':y='max(0,min(ih-oh,0.5000*ih-oh/2))'"
+        );
     }
 
     #[test]
