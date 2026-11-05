@@ -29,6 +29,7 @@ use crate::access::Access;
 
 mod because;
 mod cards;
+mod hero_clip;
 mod hero_trailer;
 mod kinds;
 mod more;
@@ -228,11 +229,13 @@ async fn home(
             cards.overlay_artwork(entry.title, &found);
         }
     }
-    // Each pick says which trailer it has, so an app needn't ask.
+    // Each pick says which trailer it has and which clip of itself it plays, so an app needn't
+    // ask, and chooses between them per screen.
     let mut picks = Vec::new();
     for entry in &hero {
         if let Some(mut pick) = cards.item(entry) {
             pick["trailer"] = hero_trailer::hero_trailer(pool, entry.title).await?;
+            pick["clip"] = hero_clip::hero_clip(pool, entry.title, &pick).await?;
             picks.push(pick);
         }
     }

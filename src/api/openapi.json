@@ -13356,7 +13356,8 @@
           "unwatched_episodes",
           "episode",
           "progress",
-          "trailer"
+          "trailer",
+          "clip"
         ],
         "properties": {
           "kind": {"enum": ["movie", "series"]},
@@ -13437,7 +13438,8 @@
             "additionalProperties": false,
             "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
           },
-          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder", "downloaded"], "description": "`folder`: a trailer in the title's folder; `downloaded`: one Melete downloaded for it (trailer downloads). Either plays as a file is (`POST /api/v1/files/{file_id}/play`, its height and length in `GET /api/v1/files/{file_id}`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, else one downloaded for it, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."}
+          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder", "downloaded"], "description": "`folder`: a trailer in the title's folder; `downloaded`: one Melete downloaded for it (trailer downloads). Either plays as a file is (`POST /api/v1/files/{file_id}/play`, its height and length in `GET /api/v1/files/{file_id}`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, else one downloaded for it, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."},
+          "clip": {"type": ["object", "null"], "required": ["file_id", "start_seconds", "duration_seconds"], "properties": {"file_id": {"type": "integer", "description": "The file to play (`POST /api/v1/files/{file_id}/play`): the episode the pick names, else the movie's file the viewer has progress in, else the movie's first file or the series' first episode on disk, specials last."}, "start_seconds": {"type": "number", "description": "Where the viewer left that file, else an eighth of the way in (past most films' titles and episodes' recaps)."}, "duration_seconds": {"type": "number", "description": "How long to play: 40 seconds."}}, "additionalProperties": false, "description": "A clip of the title itself, to play instead of `trailer` where an app prefers one (or when there's no trailer). Null when the title has no file. Never counts as watching."}
         },
         "description": "A hero pick: a row's item, and where its trailer comes from.",
         "additionalProperties": false
