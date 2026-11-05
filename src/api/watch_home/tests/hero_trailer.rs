@@ -85,3 +85,39 @@ async fn a_soft_trailer_gives_way_to_a_clip_of_the_title() {
     );
     assert_eq!(trailer(480, 720).await, Value::Null);
 }
+
+#[tokio::test]
+async fn a_downloaded_trailer_stands_in_when_the_folder_has_none() {
+    let f = fixture().await;
+    sqlx::query(
+        "INSERT INTO downloaded_trailers (id, movie_id, video, max_height, state, file, height,
+             queued_at, finished_at)
+             VALUES (5, 1, 'aaaaaaaaaaa', 2160, 'done', 'movie-1.mp4', 2160, 0, 0),
+                 (6, 2, 'bbbbbbbbbbb', 720, 'done', 'movie-2.mp4', 720, 0, 0);",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    // Film B's film is taller than 720 lines (as fixture() probes it, or not at all: 1080 then).
+    sqlx::query(
+        "INSERT INTO media_probes (file_id, size, modified_at, probed_at, info)
+         SELECT id, 1, 1, 1, '{\"video\":[{\"height\":2160}]}' FROM media_files WHERE movie_id = 2
+         ON CONFLICT (file_id) DO UPDATE SET info = excluded.info",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, token) = user(&f, "viewer").await;
+    let home = home_of(&f, &token).await;
+    assert_eq!(
+        trailer_of(&home, "movie:1"),
+        &json!({ "source": "downloaded", "file_id": crate::trailers::playable_id(5) })
+    );
+    assert_eq!(trailer_of(&home, "movie:2"), &Value::Null, "too soft");
+    // One in the folder wins.
+    heights(&f, 1080, 1080).await;
+    assert_eq!(
+        trailer_of(&home_of(&f, &token).await, "movie:1"),
+        &json!({ "source": "folder", "file_id": 1099511627776_i64 })
+    );
+}

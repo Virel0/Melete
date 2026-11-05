@@ -10443,7 +10443,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A movie's extras",
-        "description": "Trailers, featurettes, behind-the-scenes and other bonus videos in the movie's folder (in folders such as `Trailers/` or `Featurettes/`, or named like `Title-trailer.mkv`), trailers first. They're kept apart from its files, so they never count as the movie itself. Each plays through the file routes by its id; no progress is kept for it.",
+        "description": "Trailers, featurettes, behind-the-scenes and other bonus videos in the movie's folder (in folders such as `Trailers/` or `Featurettes/`, or named like `Title-trailer.mkv`), trailers first, and, when its folder has no trailer, the one Melete downloaded for it, titled \"Trailer\", first. They're kept apart from its files, so they never count as the movie itself. Each plays through the file routes by its id; no progress is kept for it.",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
         "responses": {
           "200": {
@@ -10487,7 +10487,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A series's extras",
-        "description": "Trailers, featurettes, behind-the-scenes and other bonus videos in the series's folder (in folders such as `Trailers/` or `Featurettes/`, or named like `Title-trailer.mkv`), trailers first. They're kept apart from its files, so they never count as the series itself. Each plays through the file routes by its id; no progress is kept for it.",
+        "description": "Trailers, featurettes, behind-the-scenes and other bonus videos in the series's folder (in folders such as `Trailers/` or `Featurettes/`, or named like `Title-trailer.mkv`), trailers first, and, when its folder has no trailer, the one Melete downloaded for it, titled \"Trailer\", first. They're kept apart from its files, so they never count as the series itself. Each plays through the file routes by its id; no progress is kept for it.",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
         "responses": {
           "200": {
@@ -13437,7 +13437,7 @@
             "additionalProperties": false,
             "description": "Your progress: on the episode partway through, or on a movie's file you played last. Null for a series otherwise, and for what you haven't started."
           },
-          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder"], "description": "`folder`: a trailer in the title's folder, played as a file is (`POST /api/v1/files/{file_id}/play`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."}
+          "trailer": {"type": ["object", "null"], "required": ["source", "file_id"], "properties": {"source": {"enum": ["folder", "downloaded"], "description": "`folder`: a trailer in the title's folder; `downloaded`: one Melete downloaded for it (trailer downloads). Either plays as a file is (`POST /api/v1/files/{file_id}/play`, its height and length in `GET /api/v1/files/{file_id}`). Kept open: an app should treat a source it doesn't know as none."}, "file_id": {"type": "integer", "description": "The trailer's id."}}, "additionalProperties": false, "description": "The pick's trailer: the one in its folder, else one downloaded for it, when it's at least 1080 lines tall or as tall as the title itself (one not measured yet counts). Null when there's none: an app plays a clip of the title instead. Play it muted, never when the device asks for reduced motion, and as the user's `hero_trailers` preference says."}
         },
         "description": "A hero pick: a row's item, and where its trailer comes from.",
         "additionalProperties": false

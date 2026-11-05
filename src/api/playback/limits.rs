@@ -30,7 +30,9 @@ pub(in super::super) async fn stored_bitrate(
     pool: &SqlitePool,
     id: i64,
 ) -> sqlx::Result<Option<i64>> {
-    let query = if extras::is_extra_id(id) {
+    let query = if crate::trailers::is_trailer_id(id) {
+        "SELECT size, probe_info FROM downloaded_trailers WHERE id = ? - 2199023255552"
+    } else if extras::is_extra_id(id) {
         "SELECT size, probe_info FROM media_extras WHERE id = ?"
     } else {
         "SELECT f.size, p.info FROM media_files f

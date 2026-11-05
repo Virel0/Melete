@@ -52,6 +52,35 @@ pub fn videos_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("trailers")
 }
 
+/// Where downloaded trailers' ids start, as apps know them: the extras' range (so each is
+/// played as an extra is), past any extra's.
+pub const ID_BASE: i64 = 1 << 41;
+// Written out where SQL needs it; kept in step here.
+const _: () = assert!(ID_BASE == 2_199_023_255_552);
+
+/// Whether an id names a downloaded trailer.
+pub fn is_trailer_id(id: i64) -> bool {
+    id >= ID_BASE
+}
+
+/// The id apps know a downloaded trailer by, from its row's.
+pub fn playable_id(row: i64) -> i64 {
+    ID_BASE + row
+}
+
+/// Records where the videos folder is, for stream links to name their files; at each start,
+/// whether or not trailers are downloaded now, so those kept still play.
+pub async fn remember_folder(pool: &SqlitePool, videos: &Path) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO app_folders (name, path) VALUES ('trailers', ?)
+         ON CONFLICT (name) DO UPDATE SET path = excluded.path",
+    )
+    .bind(videos.to_string_lossy())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// A title a trailer is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Title {

@@ -121,15 +121,20 @@ async fn record(
     leave(file.as_deref());
     match outcome {
         Ok((Some(file), _)) => {
+            // As it is now, so a probe is known to be of this file.
+            let (size, modified) = stamp(&folders.videos.join(&file));
             sqlx::query(
                 "UPDATE downloaded_trailers SET state = 'done', file = ?, height = ?,
-                     duration_seconds = ?, reason = NULL, attempts = 0, finished_at = ?
+                     duration_seconds = ?, reason = NULL, attempts = 0, finished_at = ?,
+                     size = ?, modified_at = ?
                  WHERE movie_id IS ? AND series_id IS ? AND state = 'queued'",
             )
             .bind(&file)
             .bind(answer.height)
             .bind(answer.duration)
             .bind(now)
+            .bind(size)
+            .bind(modified)
             .bind(movie_id)
             .bind(series_id)
             .execute(pool)
@@ -170,4 +175,20 @@ async fn record(
         }
     }
     Ok(())
+}
+
+/// A file's size and when it was last changed, in Unix seconds; zeros when it can't be read.
+fn stamp(path: &Path) -> (i64, i64) {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))
+        .map_or((0, 0), |(len, at)| {
+            let at = at
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            (
+                i64::try_from(len).unwrap_or(i64::MAX),
+                i64::try_from(at).unwrap_or(0),
+            )
+        })
 }
