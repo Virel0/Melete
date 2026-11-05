@@ -12,14 +12,14 @@ anyhow = "=1.0.104"
 argon2 = "=0.6.0"
 # AES-256-GCM for sealing stored secrets. Already in the build through rustls and russh, at
 # this version and with these features: naming it adds no crate.
-aws-lc-rs = { version = "=1.18.2", default-features = false, features = ["aws-lc-sys", "alloc"] }
+aws-lc-rs = { version = "=1.19.0", default-features = false, features = ["aws-lc-sys", "alloc"] }
 axum = "=0.8.9"
 base64 = "=0.23.1"
 # Guessing the encoding of subtitle files that aren't UTF-8 (Firefox's detector), and
 # decoding them.
 chardetng = "=1.0.0"
 encoding_rs = "=0.8.42"
-fancy-regex = "=0.19.2"
+fancy-regex = "=0.20.0"
 futures-util = { version = "=0.3.34", default-features = false }
 getrandom = "=0.4.3"
 # HMAC-SHA1 for two-factor codes (RFC 6238). Already in the build through russh, at this version.
@@ -32,7 +32,7 @@ russh = { version = "=0.65.0", default-features = false, features = ["aws-lc-rs"
 russh-sftp = "=3.0.1"
 scraper = { version = "=0.29.0", default-features = false }
 # Reads music tags and audio properties in-process (ID3, Vorbis comments, MP4 atoms, APE).
-lofty = "=0.25.4"
+lofty = "=0.25.5"
 # Reading Japanese lyrics (kanji in context) for their pronunciation, with the IPADIC
 # dictionary built in; its build fetches the dictionary once and checks its MD5.
 lindera = { version = "=6.2.0", default-features = false, features = ["embed-ipadic"] }
