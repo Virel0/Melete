@@ -30,7 +30,8 @@ pub(super) async fn decide_titles(
         };
         let items: Vec<(i64, &torznab::Item)> =
             releases.iter().map(|(i, item, _)| (*i, *item)).collect();
-        let mut decided = search::decide_all(pool, tmdb, wanted, &profile, *target, &items).await?;
+        let mut decided =
+            search::decide_all(pool, tmdb, wanted, &profile, *target, &items, true).await?;
         for ((_, _, decision), (_, _, why)) in decided.iter_mut().zip(releases) {
             if let Some(why) = why {
                 decision.rejections.insert(0, why.clone());

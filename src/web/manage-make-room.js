@@ -2,7 +2,9 @@
 // what to do with it (delete it, swap it for a smaller release, or compress it), the space that
 // frees and why, and ticks to choose several with the space they'd free together. Deleting
 // moves a title's files to its library's trash, where they wait 30 days and can be put back
-// (Replaced files); swapping and compressing come later, and say so.
+// (Replaced files). Swapping searches, slowly, for a release at most 1080p and clearly smaller,
+// which replaces the copy once it's in; the swaps under way are listed above the suggestions.
+// Compressing comes later, and says so.
 
 import { confirmInline } from "/web/forms.js";
 import { SignedOut, announce, api, h, plural, size } from "/web/lib.js";
@@ -42,7 +44,8 @@ async function load(ctx, box) {
   try {
     const found = await api("/admin/make-room");
     if (!ctx.current()) return;
-    box.replaceChildren(...view(ctx, found.items.filter(ofService(ctx.service.key))));
+    const mine = ofService(ctx.service.key);
+    box.replaceChildren(underWay(found.swapping.filter(mine), found.downloads), ...view(ctx, found.items.filter(mine)));
   } catch (err) {
     if (err instanceof SignedOut) return ctx.signedOut();
     box.replaceChildren(failed("the suggestions", err, () => load(ctx, box)));
@@ -104,6 +107,8 @@ function row(ctx, s, chosen, redraw) {
   const actions = h("div", { class: "row-actions" });
   if (s.action === "delete") {
     actions.append(h("button", { type: "button", class: "quiet", "aria-label": `Move ${label} to the trash`, onclick: () => confirmOne(ctx, actions, s, label) }, "Move to trash"));
+  } else if (s.action === "swap") {
+    actions.append(h("button", { type: "button", class: "quiet", "aria-label": `Swap ${label} for a smaller release`, onclick: () => confirmSwap(ctx, actions, s, label) }, "Swap"));
   } else {
     actions.append(h("span", { class: "note" }, "Not available yet"));
   }
@@ -118,6 +123,40 @@ function row(ctx, s, chosen, redraw) {
     cell("Why", s.reasons.map((r) => REASONS[r] ?? r).join(", ") || "—"),
     cell("", actions),
   );
+}
+
+// Swaps under way, by title: what's left to search, on its way, done, and not found. While
+// downloads are off, nothing is searched, and it says so.
+function underWay(swapping, downloads) {
+  if (!swapping.length) return "";
+  const waiting = swapping.some((s) => s.waiting > 0);
+  const line = (s) => {
+    const parts = [
+      s.waiting && `${number(s.waiting)} waiting`,
+      s.grabbed && `${number(s.grabbed)} on the way`,
+      s.done && `${number(s.done)} done`,
+      s.none_found && `${number(s.none_found)} with nothing smaller found`,
+      s.failed && `${number(s.failed)} failed`,
+    ].filter(Boolean);
+    return h("li", {}, h("strong", {}, s.title), `: ${parts.join(", ")}.`);
+  };
+  const off = !downloads && waiting ? h("p", { class: "note" }, "Downloads are off, so swaps wait. Turn them on in System → Outside services → Deluge.") : "";
+  return h("section", { class: "swaps", "aria-label": "Swaps under way" }, h("h2", {}, "Swaps"), off, h("ul", {}, swapping.map(line)));
+}
+
+const number = (n) => new Intl.NumberFormat().format(n);
+
+function confirmSwap(ctx, actions, s, label) {
+  confirmInline(actions, {
+    question: `Look for a smaller release of ${label}, at most 1080p, and replace its copy once it's in (the old one goes to the trash for 30 days)? It stops being upgraded.${s.kind === "series" ? " Each episode is searched on its own, a few a minute." : ""}`,
+    confirm: "Swap",
+    run: async () => {
+      const done = await api("/admin/make-room/swap", { method: "POST", body: { kind: s.kind, id: s.id } });
+      const words = `${label}: ${plural(done.files, "file", "files")} queued to swap for a smaller release.`;
+      announce(words);
+      ctx.reload(words);
+    },
+  });
 }
 
 async function remove(s) {

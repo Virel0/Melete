@@ -25,6 +25,7 @@ mod availability;
 pub(crate) mod frame_rate;
 mod indexer_params;
 mod on_disk;
+mod shrink;
 mod titles;
 mod view;
 mod wanted;
@@ -33,6 +34,7 @@ pub(crate) use availability::*;
 pub(crate) use indexer_params::*;
 use on_disk::*;
 pub(crate) use on_disk::{OnDisk, Read, best_read, cutoff_unmet, file_name, judge_file};
+pub use shrink::Shrink;
 pub(crate) use titles::*;
 pub use view::*;
 pub(crate) use wanted::*;
@@ -128,7 +130,7 @@ pub async fn search(
     tmdb: Option<&crate::tmdb::Client>,
     target: Target,
 ) -> anyhow::Result<Result<i64, Refused>> {
-    search_with(pool, client, tmdb, target, &[], None).await
+    search_with(pool, client, tmdb, target, &[], Narrow::None).await
 }
 
 /// Like [`search`], turning down releases by `group` (any case): the group of a copy in the
@@ -140,7 +142,7 @@ pub async fn search_avoiding(
     target: Target,
     group: &str,
 ) -> anyhow::Result<Result<i64, Refused>> {
-    search_with(pool, client, tmdb, target, &[], Some(group)).await
+    search_with(pool, client, tmdb, target, &[], Narrow::AvoidGroup(group)).await
 }
 
 /// Like [`search`], leaving out the indexers in `skip`: ones a search-all-missing run found at
@@ -152,7 +154,31 @@ pub async fn search_skipping(
     target: Target,
     skip: &[i64],
 ) -> anyhow::Result<Result<i64, Refused>> {
-    search_with(pool, client, tmdb, target, skip, None).await
+    search_with(pool, client, tmdb, target, skip, Narrow::None).await
+}
+
+/// Like [`search_skipping`], for a smaller copy of what's on disk: releases are judged by the
+/// profile without comparing them with the file there (they're meant to be smaller, not better),
+/// and any above `shrink`'s height or size is turned down.
+pub async fn search_shrinking(
+    pool: &SqlitePool,
+    client: &torznab::Client,
+    tmdb: Option<&crate::tmdb::Client>,
+    target: Target,
+    skip: &[i64],
+    shrink: Shrink,
+) -> anyhow::Result<Result<i64, Refused>> {
+    search_with(pool, client, tmdb, target, skip, Narrow::Shrink(shrink)).await
+}
+
+/// A rule a search adds to the profile's.
+#[derive(Debug, Clone, Copy)]
+enum Narrow<'a> {
+    None,
+    /// Turn down releases by this group: its copy in the library has no styled subtitles.
+    AvoidGroup(&'a str),
+    /// Judge without the file on disk, and turn down anything not small enough.
+    Shrink(Shrink),
 }
 
 async fn search_with(
@@ -161,7 +187,7 @@ async fn search_with(
     tmdb: Option<&crate::tmdb::Client>,
     target: Target,
     skip: &[i64],
-    avoid_group: Option<&str>,
+    narrow: Narrow<'_>,
 ) -> anyhow::Result<Result<i64, Refused>> {
     let Some(wanted) = load_wanted(pool, target).await? else {
         return Ok(Err(Refused::NotWanted));
@@ -227,13 +253,26 @@ async fn search_with(
         .flatten()
         .flat_map(|(outcome, items)| items.iter().map(|item| (outcome.indexer_id, item)))
         .collect();
-    let mut decided = decide_all(pool, tmdb, &wanted, &profile, target, &items).await?;
-    if let Some(group) = avoid_group {
-        for (_, item, decision) in &mut decided {
-            if let Some(why) = by_group(&item.title, group) {
-                decision.rejections.push(why);
-                decision.accepted = false;
-            }
+    let compare_with_disk = !matches!(narrow, Narrow::Shrink(_));
+    let mut decided = decide_all(
+        pool,
+        tmdb,
+        &wanted,
+        &profile,
+        target,
+        &items,
+        compare_with_disk,
+    )
+    .await?;
+    for (_, item, decision) in &mut decided {
+        let why = match narrow {
+            Narrow::None => None,
+            Narrow::AvoidGroup(group) => by_group(&item.title, group),
+            Narrow::Shrink(shrink) => shrink.rejection(&item.title, item.size),
+        };
+        if let Some(why) = why {
+            decision.rejections.push(why);
+            decision.accepted = false;
         }
     }
     let summary: Vec<&IndexerOutcome> = outcomes.iter().flatten().map(|(o, _)| o).collect();
@@ -297,6 +336,7 @@ pub(crate) async fn decide_all<'a>(
     profile: &Loaded,
     target: Target,
     items: &[(i64, &'a torznab::Item)],
+    compare_with_disk: bool,
 ) -> anyhow::Result<Vec<(i64, &'a torznab::Item, Decision)>> {
     let original = wanted.original_language.as_deref();
     let mut disk: HashMap<Option<(i64, i64, i64)>, OnDisk> = HashMap::new();
@@ -346,7 +386,7 @@ pub(crate) async fn decide_all<'a>(
             }
             _ => None,
         };
-        let mut decision = match place.filter(|_| mismatch.is_none()) {
+        let mut decision = match place.filter(|_| mismatch.is_none() && compare_with_disk) {
             Some(key) => {
                 let state = match disk.entry(key) {
                     Entry::Occupied(known) => known.into_mut(),
