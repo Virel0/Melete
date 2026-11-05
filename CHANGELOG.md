@@ -7,10 +7,156 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
 ### Added
 
 - Melete's own profile pictures: sixteen, the Muses and their companions in neon line art, shown
   first in the gallery.
+- Anime episodes without styled subtitles (no ASS/SSA track in the file and no ASS/SSA file
+  beside it) are noted in Anime's health, one note per series (`anime_unstyled_subtitles`),
+  and marked on the series' Manage page. `GET /api/v1/series/{id}/unstyled-subtitles` lists
+  them with the release group of each copy, and a series search takes `avoid_group` to turn
+  that group's releases down; Manage's "Find a release with subtitles" searches so and lets an
+  admin choose.
+- Artwork for large screens: the same file can be asked for at a larger size of its kind
+  (posters at w780; backdrops, stills and logos at `original`; people's pictures at h632), so
+  a 4K TV gets sharp art. A title's own images from its folder are made at those sizes too,
+  up to 3840 wide.
+- Continue Watching and Next Up items carry the title's `backdrop` and `backdrop_focus`, so a
+  movie has a wide picture for a wide tile and an episode without a still falls back to its
+  series'.
+- A player can say which subtitle track the viewer chose (`subtitle`) and whether it draws
+  ASS/SSA itself (`renders_ass`) when it asks for a conversion. When it can't and the track is
+  styled (signs, positioning, karaoke), Melete burns the track into the picture, as
+  `burn_subtitle` does, instead of leaving the player its WebVTT version; a request to copy the
+  video keeps copying and says so. The answer gives `burned_subtitle` and `burn_reason`. A
+  player that doesn't send `renders_ass` gets what it got before.
+- **ASS/SSA subtitles as they are, with the video's fonts**, for players that draw ASS
+  themselves (positions, signs, fonts, fades and karaoke as authored). The subtitle list marks
+  each ASS/SSA track with `ass` and gives its `ass_url` (`subtitles/{track}.ass`, beside the
+  stream URL as the WebVTT one is): an embedded track is copied out of the video unchanged once
+  and cached, a file beside the video is sent byte for byte. `GET /api/v1/stream/{token}/fonts`
+  lists the fonts the video carries (Matroska attachments: name, type, size and URL) and
+  `GET /api/v1/stream/{token}/fonts/{font}` serves each, both under the stream link's token.
+  The WebVTT version is unchanged.
+- Movie releases named as converted to a high frame rate (`48`, `50`, `60` or `120 fps`,
+  `interpolated`) are turned down, since their made-up frames can stutter on some players.
+  Settings → Outside services → Deluge has a switch to take them anyway, and each movie's Manage
+  page one to allow them for that film. Films really made at a high frame rate (the Hobbit
+  films, Gemini Man, Billy Lynn's Long Halftime Walk) start allowed; series aren't affected.
+- **A cover palette:** an album's `colours` now carry `palette`, the cover's main colours (up
+  to five, the most of it first), for what's around a square cover on a screen of another
+  shape, such as a full-screen player, rather than stretching it. Colours worked out before
+  are worked out again once.
+- Album covers at the size an app draws them: `/api/v1/music/albums/{id}/cover?size=160`
+  (or 400, 600, 800), a JPEG made once from the cover and kept, never larger than the cover.
+  A song row no longer downloads a large folder image.
+- Each Watch home hero pick carries a `clip` beside its `trailer`: the file, where to start and
+  for how long (40 seconds) to play a clip of the title itself, worked out as the web UI does
+  (from where the viewer left it, else an eighth of the way in). An app chooses per screen
+  which to play, and no longer works the clip out itself.
+- A movie whose copy plays at 48 fps or more is noted on its page. When the film isn't one high
+  frame rate releases are wanted for, the note says it's most likely made up from the film's 24
+  and may stutter, with a link for admins to search for another release, and Manage's health
+  lists it. Apps get it as `high_frame_rate` (`{fps, allowed}`) on `GET /api/v1/movies/{id}`.
+- Each movie's Manage page has a switch to allow releases at a high frame rate for that film,
+  for films really made so; `GET /api/v1/high-frame-rate-films` and
+  `PUT /api/v1/high-frame-rate-films/{tmdb_id}` do the same for apps.
+- **Compress** on the Make room page: a title's H.264 (or older) video files, Dolby Vision
+  aside, converted to HEVC one at a time while nothing else is converted, on the GPU when it
+  works, audio, subtitles and fonts copied and HDR kept. A copy takes its file's place (as
+  `.mkv`, keeping watching progress) only if it plays as long with the same tracks and is at
+  least a tenth smaller; the old file goes to the trash for 30 days. The page lists
+  compressions under way and what they've freed.
+- **Make room page** in Manage's Movies, Series and Anime: the service's suggestions, the
+  strongest first, with what each would free and why, ticks to choose several and the space
+  they'd free together. **Move to trash** removes a title: every file in its folder goes to
+  the library's trash for 30 days, where Replaced files can put each back, and a wanted title
+  stops being monitored so it isn't downloaded again. Swapping and compressing are listed but
+  not available yet.
+- **Make room suggestions** (`GET /api/v1/admin/make-room`, admins): movies and series to
+  delete, swap for a smaller release, or compress, the strongest first, each with the space it
+  would free and why, and the total. Nothing anyone is watching, has on their list or requested
+  lately is suggested; a major studio's titles are suggested less (Settings → Make room adds
+  studios to the built-in list). Suggestions only: acting on them comes later.
+- Titles' companies from TMDB (studios and networks), kept with their details; titles fetched
+  before are asked for theirs once.
+- **Swap for a smaller release** on the Make room page, for titles on the wanted list: a
+  movie, or each episode file of a series, is searched slowly (one search at a time, at least
+  15 seconds apart, an indexer at its limit left out for an hour) for a release at most 1080p
+  and clearly smaller (at most three quarters of the copy and 4.5 GB an hour). The best is
+  grabbed, and the usual check and replace puts the old file in the trash once the new one
+  plays as long. The title stops being monitored, so nothing upgrades it back. The page lists
+  swaps under way, and says when downloads are off and swaps wait.
+- Downloaded trailers play wherever a trailer in a title's folder does: in the Watch home's
+  hero (`trailer.source` is `downloaded`) and first in the title's extras, as "Trailer", when
+  its folder has none. Each plays through the file routes by its id, held to the same rules as
+  an extra: seen by whoever may see its title, converted for a player that can't play it.
+- **Trailer downloads** (off by default): each movie's, series' and anime's trailer, picked
+  from TMDB's list of its videos (official, in the title's own language, then the metadata
+  language, then English), downloaded once from YouTube by a new trailer downloader
+  (`compose.trailers.yaml`, the `-trailers` image) that runs behind `compose.soulseek.yaml`'s
+  VPN and won't start without it. Converted once on the GPU to HEVC (HDR kept) unless it's
+  already H.264 or HEVC, at most the quality set in Settings (4K, 1080p or 720p), and kept in
+  the config folder while the title is in the library; a title with a trailer in its folder
+  gets none. Progress shows in Tasks. Playing them comes in a later change.
+- The web player draws styled ASS/SSA subtitles as they were made, with their signs, placement,
+  fonts and karaoke, over the video, instead of their WebVTT version. It uses JASSUB (libass in
+  WebAssembly), served by Melete with the fonts the video carries; nothing is fetched from
+  anywhere else. Where a browser can't draw them, the WebVTT version shows, as before.
+
+### Changed
+
+- An ASS/SSA file beside the video comes back from its `ass_url` in UTF-8, so players whose
+  libass can't convert text encodings can read it. A file in another encoding (Windows-1252,
+  Shift_JIS…) is converted once, read the way the WebVTT version reads it, and cached until the
+  file changes; a UTF-8 file is still sent byte for byte, less a byte-order mark. Styles and
+  override tags are untouched. A file whose encoding can't be told for sure is sent as before.
+- A request's download progress moves every few seconds: Deluge is asked every 5 seconds while
+  something is downloading (every minute otherwise), and at once when a download starts.
+- A title's own poster and backdrop (`poster.*`, `fanart.*` in its folder) are cropped to the
+  shape of their kind, 2:3 and 16:9, around the picture's subject, so an image of another shape
+  never comes out stretched or letterboxed. They get new artwork URLs at the next scan, so apps
+  fetch them again.
+- The web player has its own controls over the picture, in full screen too: the seek bar with
+  its previews and chapters, play, back and forward 10 seconds, the sound, the time, panels for
+  Subtitles, Audio and Settings (speed, chapters), picture in picture and full screen. They fade
+  while the video plays and come back on any movement, touch or key. The pickers and the Full
+  screen button under the video are gone; a phone shows what fits.
+- **Add new says which albums Soulseek's users share.** In Manage → Music → Add new, while
+  slskd is set up, the one Soulseek search made when typing stops now serves albums as well as
+  songs: each of MusicBrainz's albums that users share as a whole album folder says by how
+  many and in which formats, and the Albums list is then ranked by how close each is to the
+  words, as Songs is. Only albums MusicBrainz knows are listed, and adding one works as before.
+  Only the words go to slskd. For the apps, `POST /api/v1/requests/soulseek/candidates` (admins)
+  takes the words and MusicBrainz's albums for them, and answers Soulseek's songs and the albums
+  its users share, from one search.
+- In a browser that can't draw ASS/SSA itself, choosing an ASS/SSA track converts the video so
+  the server can draw a styled one into the picture (`renders_ass: false`), instead of showing
+  only its words. Browsers that draw ASS ask for nothing new, so changing subtitles doesn't
+  restart their conversion.
+
+### Removed
+
+- **Motion covers made from still covers**, and their renderer (`compose.motion.yaml`, the
+  `-motion` image): they rarely looked right and took space. The videos made are deleted from
+  the config folder on the first start, and their records with them. Gone from the API:
+  `/api/v1/music/motion-covers`, `/api/v1/music/motion-covers/status` and albums'
+  `motion_cover_generation`; the Motion covers setting and task. An album's own motion cover,
+  from its folder, is still given as `motion_cover`. To tidy up: take `compose.motion.yaml` out
+  of `COMPOSE_FILE`, remove the `MELETE_MOTION_*` lines from `.env`, and delete the motion jobs
+  and models folders.
+
+### Fixed
+
+- AI picks, search by description and music by description could come back empty with a model
+  that thinks before answering: its thinking used up the room left for the answer. Melete now
+  asks OpenRouter for no thinking (kept low for a model that can't turn it off), leaves more
+  room, and an empty answer is logged with the model OpenRouter used and why it stopped.
+- An indexer that answers a web page where its feed should be is now reported with what the page
+  says ("the indexer answered a web page, not a feed: Feed disabled") instead of an XML parse
+  error. AnimeTosho's feed answers this way since it was turned off.
 
 ## [0.4.0] - 2026-11-02
 
@@ -320,7 +466,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Virel0/Melete/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Virel0/Melete/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Virel0/Melete/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Virel0/Melete/compare/v0.3.0...v0.3.1
