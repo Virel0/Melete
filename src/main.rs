@@ -51,6 +51,7 @@ mod live;
 mod logging;
 mod lrclib;
 mod lyrics;
+mod make_room;
 mod manage;
 mod metadata;
 mod mixes;

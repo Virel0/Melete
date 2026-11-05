@@ -358,6 +358,11 @@ async fn refresh_the_rest(pool: &sqlx::SqlitePool, tmdb: &tmdb::Client) {
         Ok(_) => {}
         Err(err) => tracing::warn!(error = format!("{err:#}"), "looking up trailers stopped"),
     }
+    match metadata::refresh_companies(pool, tmdb).await {
+        Ok(fetched) if fetched > 0 => tracing::info!(fetched, "titles' companies fetched"),
+        Ok(_) => {}
+        Err(err) => tracing::warn!(error = format!("{err:#}"), "fetching companies stopped"),
+    }
     match metadata::refresh_scores(pool, tmdb).await {
         Ok(fetched) if fetched > 0 => tracing::info!(fetched, "TMDB scores fetched"),
         Ok(_) => {}

@@ -28,6 +28,7 @@ mod languages;
 mod listen;
 mod lists;
 mod local_artwork;
+mod make_room;
 mod manage;
 mod matching;
 mod media;

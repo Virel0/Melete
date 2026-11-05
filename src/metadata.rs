@@ -16,6 +16,7 @@ use crate::tmdb::{
 };
 
 mod choose;
+mod companies;
 mod credits;
 mod imported;
 mod manual;
@@ -27,6 +28,7 @@ mod trailers;
 mod wanted;
 
 pub use choose::*;
+pub use companies::refresh_companies;
 pub use credits::refresh_credits;
 use imported::*;
 pub use manual::*;
