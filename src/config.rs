@@ -50,6 +50,11 @@ pub struct Config {
     /// Mixing into the next track like a DJ, with music split into its parts
     /// (`MELETE_AUTO_DJ=on`; off by default).
     pub auto_dj: bool,
+    /// Downloading titles' trailers (`MELETE_TRAILER_DOWNLOADS=on`; off by default).
+    pub trailer_downloads: bool,
+    /// The folder of jobs shared with the trailer downloader (`MELETE_TRAILER_JOBS`); no
+    /// trailers are downloaded unless it's set. The videos are kept under `data_dir`.
+    pub trailer_jobs: Option<PathBuf>,
     /// Looking for episodes' intros and credits (`MELETE_INTRO_DETECTION=on`; off by default,
     /// as the first run decodes part of every episode).
     pub intro_detection: bool,
@@ -167,6 +172,10 @@ impl Config {
         let ways_in = ways_in(&get)?;
         let stems = stems(&get)?;
         let auto_dj = switch(&get, "MELETE_AUTO_DJ")?;
+        let trailer_downloads = switch(&get, "MELETE_TRAILER_DOWNLOADS")?;
+        let trailer_jobs = get("MELETE_TRAILER_JOBS")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from);
         let romanisation = switch(&get, "MELETE_LYRICS_ROMANISATION")?;
         let intro_detection = switch(&get, "MELETE_INTRO_DETECTION")?;
         let discovery = switch(&get, "MELETE_DISCOVERY")?;
@@ -218,6 +227,8 @@ impl Config {
             lyrics,
             song_albums,
             auto_dj,
+            trailer_downloads,
+            trailer_jobs,
             intro_detection,
             trickplay,
             offline_copies,

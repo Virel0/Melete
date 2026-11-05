@@ -201,15 +201,19 @@ lists for it:
   file sets it): enough to search and download, not to administer slskd. If you run slskd
   some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
+- `compose.trailers.yaml`: the trailer downloader, behind `compose.soulseek.yaml`'s VPN (it
+  shares Gluetun's network and won't start without it), converting on an NVIDIA GPU.
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
 - `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,
   AnimeTosho's feed).
 
-The separator is published with each release, as `ghcr.io/virel0/melete:<version>-stems`, so
-adding the file and its folders and restarting is all it takes; `MELETE_STEMS_IMAGE` in `.env`
-names another, such as one built from `stems/`. It's large (PyTorch with CUDA). Its models
-are downloaded from their publishers on first start, never shipped.
+The separator and the trailer downloader are published with each release, as
+`ghcr.io/virel0/melete:<version>-stems` and `:<version>-trailers`, so adding the file and its
+folders and restarting is all it takes; `MELETE_STEMS_IMAGE` or `MELETE_TRAILERS_IMAGE` in
+`.env` names another, such as one built from `stems/` or `trailers/`. The separator is large
+(PyTorch with CUDA); its models are downloaded from their publishers on first start, never
+shipped.
 
 `compose.nvidia.yaml` (install step 4) is added the same way: it adds no container, only gives
 Melete the GPU. So is `compose.avatars.yaml`, a gallery of profile pictures (below).
@@ -362,6 +366,7 @@ with what leaves the server.
 | Indexers (Prowlarr feeds, Torznab, built-in public-tracker presets) | Searching for releases | The title, ids, season and episode searched for, and periodic RSS requests |
 | FlareSolverr | Trackers behind Cloudflare's browser check | The tracker page to fetch, to your FlareSolverr |
 | Deluge on a seedbox, and its SFTP | Downloading and copying home | Torrents to grab; SFTP signs in with a pinned host key, so the password goes to no other server |
+| YouTube, through the VPN (trailer downloads) | A title's trailer, downloaded once | The trailer's YouTube video id, chosen from TMDB's list of the title's videos (which TMDB is asked for by its TMDB id), sent only through the VPN |
 | slskd (Soulseek) | Music searches and downloads | Search words (artist and album, or a song), sent by slskd to the Soulseek network under its account. Melete never connects to peers |
 | Import lists (TMDB, IMDb, Rotten Tomatoes) | Adding titles to the wanted list | Which chart or list to read |
 | Radarr, Sonarr, Lidarr, Prowlarr imports | Bringing over lists, profiles and indexers | Run by an admin; the API key given is used for that import (Prowlarr's is kept for its feeds) |

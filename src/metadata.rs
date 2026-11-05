@@ -23,6 +23,7 @@ mod matching;
 mod nfo;
 mod scores;
 mod store;
+mod trailers;
 mod wanted;
 
 pub use choose::*;
@@ -33,6 +34,7 @@ use matching::*;
 use nfo::*;
 pub use scores::refresh_scores;
 use store::*;
+pub use trailers::{Trailer, chosen, languages, refresh_trailers};
 pub use wanted::*;
 
 const DAY: i64 = 86_400;

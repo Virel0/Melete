@@ -100,6 +100,7 @@ mod tmdb_status;
 mod torznab;
 mod track_artists;
 mod track_picks;
+mod trailers;
 mod transcode;
 mod transfer;
 mod trickplay;
@@ -166,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
     log_ways_in(&config.ways_in);
     start_stems(&pool, &config, &transcoder);
     remove_made_motion_covers(&config.data_dir);
+    start_trailers(&pool, &config, &transcoder);
     // Copies are made behind live conversions; the setting is read as each is due.
     tokio::spawn(offline::work(
         pool.clone(),
@@ -303,6 +305,28 @@ fn start_stems(
         None => tracing::info!(
             "music isn't split into parts; MELETE_STEMS_DIR and MELETE_STEMS_JOBS turn it on"
         ),
+    }
+}
+
+/// Trailers downloaded by the trailer downloader beside Melete, when it's set up.
+fn start_trailers(
+    pool: &sqlx::SqlitePool,
+    config: &config::Config,
+    transcoder: &Arc<transcode::Transcoder>,
+) {
+    match &config.trailer_jobs {
+        Some(jobs) => {
+            tracing::info!("titles' trailers are downloaded by the trailer downloader");
+            tokio::spawn(trailers::work(
+                pool.clone(),
+                trailers::Folders {
+                    jobs: jobs.clone(),
+                    videos: trailers::videos_dir(&config.data_dir),
+                },
+                transcoder.clone(),
+            ));
+        }
+        None => tracing::info!("no trailers are downloaded; MELETE_TRAILER_JOBS turns it on"),
     }
 }
 

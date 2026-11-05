@@ -23,7 +23,7 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 17] = [
+pub const TASKS: [Task; 18] = [
     Task {
         name: "library",
         what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
@@ -73,6 +73,11 @@ pub const TASKS: [Task; 17] = [
         name: "cover-colours",
         what: "works out album covers' colours",
         wake: Some(|| jobs::COVERS.notify_one()),
+    },
+    Task {
+        name: "trailers",
+        what: "downloads titles' trailers in the trailer downloader beside Melete, behind the VPN, while trailer downloads are on, one title at a time and never while video is converted",
+        wake: None,
     },
     Task {
         name: "stem-splitting",

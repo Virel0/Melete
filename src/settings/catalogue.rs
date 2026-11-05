@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod trailers;
+
 /// How a setting is entered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -346,6 +348,7 @@ pub const SERVICES: &[Service] = &[
             ),
         ],
     },
+    trailers::TRAILERS,
     Service {
         key: "auto_dj",
         name: "Auto DJ",
