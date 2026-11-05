@@ -213,6 +213,12 @@ impl Access {
             .await
     }
 
+    /// Whether the downloaded trailer with this row id is the user's to see: its title is.
+    pub async fn sees_trailer(&self, pool: &SqlitePool, id: i64) -> sqlx::Result<bool> {
+        self.sees(pool, "downloaded_trailers", &self.extra_sql("x"), id)
+            .await
+    }
+
     /// Whether the file with this id is there for the user to see.
     pub async fn sees_file(&self, pool: &SqlitePool, id: i64) -> sqlx::Result<bool> {
         self.sees(pool, "media_files", &self.file_sql("x"), id)

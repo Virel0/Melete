@@ -19,6 +19,21 @@ pub async fn store(
             return Ok(());
         }
     };
+    if crate::trailers::is_trailer_id(file_id) {
+        sqlx::query(
+            "UPDATE downloaded_trailers SET probed_size = ?, probed_modified_at = ?,
+                 probe_info = ?, probe_error = ?
+             WHERE id = ?",
+        )
+        .bind(size)
+        .bind(modified_at)
+        .bind(info)
+        .bind(error)
+        .bind(file_id - crate::trailers::ID_BASE)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
     if crate::library::extras::is_extra_id(file_id) {
         sqlx::query(
             "UPDATE media_extras SET probed_size = ?, probed_modified_at = ?, probe_info = ?,

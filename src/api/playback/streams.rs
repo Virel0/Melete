@@ -37,10 +37,15 @@ pub(in super::super) async fn create_play_session(
 ) -> Result<(String, i64), ApiError> {
     let now = unix_now();
     // An extra's links are kept apart, since a file's link must name a library file.
-    let table = if extras::is_extra_id(file_id) {
-        ("extra_play_sessions", "extra_id")
+    let (table, row) = if crate::trailers::is_trailer_id(file_id) {
+        (
+            ("trailer_play_sessions", "trailer_id"),
+            file_id - crate::trailers::ID_BASE,
+        )
+    } else if extras::is_extra_id(file_id) {
+        (("extra_play_sessions", "extra_id"), file_id)
     } else {
-        ("play_sessions", "file_id")
+        (("play_sessions", "file_id"), file_id)
     };
     let (sessions, column) = table;
     sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -57,7 +62,7 @@ pub(in super::super) async fn create_play_session(
     )))
     .bind(auth::token_hash(&token))
     .bind(token_id)
-    .bind(file_id)
+    .bind(row)
     .bind(now)
     .bind(expires_at)
     .bind(transcode)

@@ -982,3 +982,37 @@ async fn every_kind_has_larger_sizes_for_large_screens_and_only_its_own() {
         "none of those asked"
     );
 }
+
+#[tokio::test]
+async fn a_downloaded_trailer_is_listed_first_when_the_folder_has_none() {
+    let f = fixture().await;
+    exec(
+        &f.pool,
+        "INSERT INTO downloaded_trailers (id, movie_id, video, max_height, state, file, height,
+             duration_seconds, size, modified_at, queued_at, finished_at)
+             VALUES (4, 1, 'aaaaaaaaaaa', 2160, 'done', 'movie-1.mp4', 2160, 141.5, 5, 1, 0, 0);
+         INSERT INTO media_extras (id, library_id, rel_path, size, modified_at, movie_id, kind,
+             title, first_seen_generation, seen_generation)
+             VALUES (1099511627776, 1, 'The Matrix (1999)/Featurettes/Bullet Time.mkv', 5, 1, 1,
+                 'featurette', 'Bullet Time', 1, 1);",
+    )
+    .await;
+    let trailer = json!({ "id": crate::trailers::playable_id(4), "kind": "trailer",
+        "title": "Trailer", "duration_seconds": 141.5 });
+    let featurette = json!({ "id": 1099511627776_i64, "kind": "featurette",
+        "title": "Bullet Time", "duration_seconds": null });
+    let (_, body) = get(&f, "/api/v1/movies/1/extras").await;
+    assert_eq!(body, json!([trailer, featurette]));
+    // One in the folder: that one, not the downloaded one.
+    exec(
+        &f.pool,
+        "INSERT INTO media_extras (id, library_id, rel_path, size, modified_at, movie_id, kind,
+             title, first_seen_generation, seen_generation)
+             VALUES (1099511627777, 1, 'The Matrix (1999)/The Matrix-trailer.mkv', 5, 1, 1,
+                 'trailer', 'The Matrix', 1, 1);",
+    )
+    .await;
+    let (_, body) = get(&f, "/api/v1/movies/1/extras").await;
+    assert_eq!(body[0]["id"], 1099511627777_i64);
+    assert_eq!(body.as_array().unwrap().len(), 2);
+}

@@ -831,3 +831,89 @@ async fn extras_play_like_files_but_keep_no_progress() {
     let uri = format!("/api/v1/files/{id}/play");
     assert_eq!(send(&f, "POST", &uri, None).await.0, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn a_downloaded_trailer_plays_like_an_extra_while_its_title_is_seen() {
+    let f = fixture().await;
+    // Melete's own trailers folder, outside the library.
+    let folder = tempfile::tempdir().unwrap();
+    let clip = folder.path().join("movie-1.mp4");
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=1:s=64x48",
+        ])
+        .args(["-pix_fmt", "yuv420p", "-f", "mp4"])
+        .arg(&clip)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let size = std::fs::metadata(&clip).unwrap().len() as i64;
+    crate::trailers::remember_folder(&f.pool, folder.path())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO downloaded_trailers (id, movie_id, video, max_height, state, file, height,
+             size, modified_at, queued_at, finished_at)
+         VALUES (3, 1, 'aaaaaaaaaaa', 2160, 'done', 'movie-1.mp4', 48, ?, 1, 0, 0)",
+    )
+    .bind(size)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let id = crate::trailers::playable_id(3);
+
+    let (status, info) = send(&f, "GET", &format!("/api/v1/files/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{info}");
+    assert!(info["media"]["duration_seconds"].as_f64().unwrap() > 0.5);
+    let probed: Option<i64> =
+        sqlx::query_scalar("SELECT probed_size FROM downloaded_trailers WHERE id = 3")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!(probed, Some(size), "its probe kept");
+
+    let url = stream_url(&f, id).await;
+    let whole = fetch(&f, &url, None).await;
+    assert_eq!(whole.status(), StatusCode::OK);
+    let bytes = whole.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.len() as i64, size);
+    let sessions: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM play_sessions), (SELECT count(*) FROM extra_play_sessions),
+             (SELECT count(*) FROM trailer_play_sessions)",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(sessions, (0, 0, 1), "a trailer's link is kept apart");
+    assert_eq!(
+        send(
+            &f,
+            "PUT",
+            &format!("/api/v1/files/{id}/progress"),
+            Some(json!({ "position_seconds": 0.5 }))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND,
+        "no progress is kept"
+    );
+
+    // Gone (its title left, or got a trailer in its folder): neither it nor its link plays.
+    sqlx::query("DELETE FROM downloaded_trailers WHERE id = 3")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(fetch(&f, &url, None).await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        send(&f, "GET", &format!("/api/v1/files/{id}"), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+}

@@ -18,6 +18,10 @@ INSERT INTO media_extras (id, library_id, rel_path, size, modified_at, movie_id,
      'trailer', 'Zyxveil Trailer', 1, 1),
     (1099511627778, 4, 'Zyxveil Grown Series/Extras/Zyxveil Reel.mkv', 5, 1, NULL, 21, 'other',
      'Zyxveil Reel', 1, 1);
+INSERT INTO app_folders (name, path) VALUES ('trailers', '/nowhere');
+INSERT INTO downloaded_trailers (id, movie_id, video, max_height, state, file, height, size,
+    modified_at, queued_at, finished_at) VALUES
+    (1, 12, 'zyxveilzyxv', 2160, 'done', 'movie-12.mp4', 2160, 5, 1, 0, 0);
 INSERT INTO tmdb_people (id, name, profile_path) VALUES (1, 'Open Actor', '/open-p1.jpg'),
     (11, 'Zyxveil Actor', '/zyxveil-p11.jpg'), (12, 'Zyxveil Creator', NULL);
 INSERT INTO tmdb_credits (movie_tmdb_id, series_tmdb_id, person_id, role, character, job,
@@ -176,4 +180,30 @@ async fn hidden_titles_cast_and_collections_stay_hidden() {
             "GET {uri} ({status}) shows them once lifted: {body}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_hidden_titles_downloaded_trailer_cant_be_played() {
+    let w = world().await;
+    let id = crate::trailers::playable_id(1);
+    for (method, uri) in [
+        ("GET", format!("/api/v1/files/{id}")),
+        ("GET", format!("/api/v1/files/{id}/subtitles")),
+        ("POST", format!("/api/v1/files/{id}/play")),
+    ] {
+        assert_eq!(
+            ask(&w, method, &uri).await.0,
+            StatusCode::NOT_FOUND,
+            "{method} {uri}"
+        );
+    }
+    let uri = format!("/api/v1/files/{id}/transcode");
+    assert_eq!(
+        send_json(&w, "POST", &uri, json!({ "max_height": 480 })).await,
+        StatusCode::NOT_FOUND
+    );
+    // Once the restriction is lifted, it's there to play.
+    lift(&w).await;
+    let (status, play) = ask(&w, "POST", &format!("/api/v1/files/{id}/play")).await;
+    assert_eq!(status, StatusCode::OK, "{play}");
 }

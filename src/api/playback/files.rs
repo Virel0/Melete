@@ -39,7 +39,13 @@ pub(in super::super) async fn load_file(
     ffprobe: &std::path::Path,
     id: i64,
 ) -> Result<LoadedFile, ApiError> {
-    let query = if extras::is_extra_id(id) {
+    // A downloaded trailer, from Melete's own folder: known by its row's id past the base.
+    let query = if crate::trailers::is_trailer_id(id) {
+        "SELECT ?1 AS id, a.path AS root, d.file AS rel_path, d.size, d.modified_at,
+             d.probe_info AS info, d.probe_error, d.probed_size, d.probed_modified_at
+         FROM downloaded_trailers d JOIN app_folders a ON a.name = 'trailers'
+         WHERE d.id = ?1 - ?2 AND d.file IS NOT NULL AND d.size IS NOT NULL"
+    } else if extras::is_extra_id(id) {
         "SELECT e.id, l.path AS root, e.rel_path, e.size, e.modified_at, e.probe_info AS info,
              e.probe_error, e.probed_size, e.probed_modified_at
          FROM media_extras e
@@ -53,7 +59,11 @@ pub(in super::super) async fn load_file(
          LEFT JOIN media_probes p ON p.file_id = f.id
          WHERE f.id = ? AND f.missing_since IS NULL"
     };
-    let row: Option<FileRow> = sqlx::query_as(query).bind(id).fetch_optional(pool).await?;
+    let row: Option<FileRow> = sqlx::query_as(query)
+        .bind(id)
+        .bind(crate::trailers::ID_BASE)
+        .fetch_optional(pool)
+        .await?;
     let Some(f) = row else {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such file"));
     };
@@ -133,11 +143,18 @@ pub(in super::super) async fn require_playable(
     if !extras::is_extra_id(id) {
         return require_file(pool, access, id).await;
     }
+    // A downloaded trailer is seen by whoever sees its title, as an extra is.
+    let query = if crate::trailers::is_trailer_id(id) {
+        "SELECT x.id FROM downloaded_trailers x WHERE x.id = ?1 - ?2 AND x.file IS NOT NULL AND"
+    } else {
+        "SELECT x.id FROM media_extras x WHERE x.id = ?1 AND x.missing_since IS NULL AND"
+    };
     let found: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT x.id FROM media_extras x WHERE x.id = ? AND x.missing_since IS NULL AND {}",
+        "{query} {}",
         access.extra_sql("x")
     )))
     .bind(id)
+    .bind(crate::trailers::ID_BASE)
     .fetch_optional(pool)
     .await?;
     match found {
@@ -174,6 +191,11 @@ pub(in super::super) async fn holder_sees(
     file_id: i64,
 ) -> Result<bool, ApiError> {
     Ok(match holder_access(pool, token_id).await? {
+        Some(access) if crate::trailers::is_trailer_id(file_id) => {
+            access
+                .sees_trailer(pool, file_id - crate::trailers::ID_BASE)
+                .await?
+        }
         Some(access) if extras::is_extra_id(file_id) => access.sees_extra(pool, file_id).await?,
         Some(access) => access.sees_file(pool, file_id).await?,
         None => false,

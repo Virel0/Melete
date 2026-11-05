@@ -1,14 +1,15 @@
 //! The trailer each of the hero's picks has, so an app can play it behind the pick without
-//! asking again: one in the title's folder, when it's sharp enough to fill a screen. Null when
-//! there's none, and an app plays a clip of the title itself instead.
+//! asking again: one in the title's folder, else one downloaded for it, when it's sharp enough
+//! to fill a screen. Null when there's none, and an app plays a clip of the title itself instead.
 
 use super::*;
 
 /// The height, in lines, a trailer in the folder needs for the hero.
 const SHARP: i64 = 1080;
 
-/// A hero pick's trailer: `{source: "folder", file_id}`, an extra's id, played as a file is;
-/// null when it has none sharp enough.
+/// A hero pick's trailer: `{source: "folder", file_id}`, an extra's id, or `{source:
+/// "downloaded", file_id}`, a downloaded trailer's, each played as a file is; null when it has
+/// none sharp enough.
 pub(super) async fn hero_trailer(pool: &SqlitePool, title: TitleRef) -> Result<Value, ApiError> {
     let column = if title.series {
         "series_id"
@@ -36,8 +37,22 @@ pub(super) async fn hero_trailer(pool: &SqlitePool, title: TitleRef) -> Result<V
     .bind(sharp_enough)
     .fetch_optional(pool)
     .await?;
-    Ok(match folder {
-        Some(id) => json!({ "source": "folder", "file_id": id }),
+    if let Some(id) = folder {
+        return Ok(json!({ "source": "folder", "file_id": id }));
+    }
+    let downloaded: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM downloaded_trailers
+         WHERE {column} = ? AND file IS NOT NULL AND coalesce(height >= ?, 1)"
+    )))
+    .bind(title.id)
+    .bind(sharp_enough)
+    .fetch_optional(pool)
+    .await?;
+    Ok(match downloaded {
+        Some(row) => json!({
+            "source": "downloaded",
+            "file_id": crate::trailers::playable_id(row),
+        }),
         None => Value::Null,
     })
 }

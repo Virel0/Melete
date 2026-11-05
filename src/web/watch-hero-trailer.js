@@ -2,7 +2,7 @@
 // with Unmute and Stop beside the pick's buttons. The backdrop comes back when the preview
 // ends, when it's stopped, or when the hero moves on.
 //
-// The preview is the pick's trailer when its folder has one (`/home`'s `trailer`), played as it
+// The preview is the pick's trailer (`/home`'s `trailer`: its folder's, else one downloaded), played as it
 // is when this browser can play it, else converted. Without one, it's 40 seconds of the title
 // itself, from where the viewer left it or an eighth of the way in (past most films' titles and
 // most episodes' recaps). Either plays at full quality, chosen as the player chooses: the file as
@@ -61,7 +61,7 @@ function startOf(item, fileId, info) {
 // What to play for `item`: { url, hls, at, ms, trailer }, or null for nothing.
 async function find(item) {
   const home = onHomeNetwork();
-  const trailer = item.trailer?.source === "folder" ? item.trailer.file_id : null;
+  const trailer = ["folder", "downloaded"].includes(item.trailer?.source) ? item.trailer.file_id : null;
   if (trailer) {
     const found = await source(trailer, () => 0, TRAILER_MS, true, home);
     if (found) return found;

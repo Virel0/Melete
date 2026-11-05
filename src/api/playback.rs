@@ -50,7 +50,11 @@ pub(super) const LINKS: &str = "(SELECT p.token_hash, p.expires_at, p.file_id, p
      UNION ALL SELECT p.token_hash, p.expires_at, p.extra_id, p.transcode, p.token_id, l.path,
          e.rel_path
      FROM extra_play_sessions p JOIN media_extras e ON e.id = p.extra_id
-     JOIN libraries l ON l.id = e.library_id WHERE e.missing_since IS NULL)";
+     JOIN libraries l ON l.id = e.library_id WHERE e.missing_since IS NULL
+     UNION ALL SELECT p.token_hash, p.expires_at, 2199023255552 + p.trailer_id, p.transcode,
+         p.token_id, a.path, d.file
+     FROM trailer_play_sessions p JOIN downloaded_trailers d ON d.id = p.trailer_id
+     JOIN app_folders a ON a.name = 'trailers' WHERE d.file IS NOT NULL)";
 pub(super) const STREAM_LIFETIME: i64 = 24 * 60 * 60;
 /// Reaching this share of a file's duration marks it watched.
 const WATCHED_FRACTION: f64 = 0.9;

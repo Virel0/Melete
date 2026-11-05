@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
     log_ways_in(&config.ways_in);
     start_stems(&pool, &config, &transcoder);
     remove_made_motion_covers(&config.data_dir);
-    start_trailers(&pool, &config, &transcoder);
+    start_trailers(&pool, &config, &transcoder).await;
     // Copies are made behind live conversions; the setting is read as each is due.
     tokio::spawn(offline::work(
         pool.clone(),
@@ -309,11 +309,15 @@ fn start_stems(
 }
 
 /// Trailers downloaded by the trailer downloader beside Melete, when it's set up.
-fn start_trailers(
+async fn start_trailers(
     pool: &sqlx::SqlitePool,
     config: &config::Config,
     transcoder: &Arc<transcode::Transcoder>,
 ) {
+    let videos = trailers::videos_dir(&config.data_dir);
+    if let Err(err) = trailers::remember_folder(pool, &videos).await {
+        tracing::warn!(error = %err, "couldn't record where downloaded trailers are");
+    }
     match &config.trailer_jobs {
         Some(jobs) => {
             tracing::info!("titles' trailers are downloaded by the trailer downloader");
@@ -321,7 +325,7 @@ fn start_trailers(
                 pool.clone(),
                 trailers::Folders {
                     jobs: jobs.clone(),
-                    videos: trailers::videos_dir(&config.data_dir),
+                    videos,
                 },
                 transcoder.clone(),
             ));

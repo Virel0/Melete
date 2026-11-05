@@ -66,8 +66,28 @@ async fn extras_of(
         .bind(id)
         .fetch_all(pool)
         .await?;
+    // A trailer downloaded for it, first, when its folder has none.
+    let downloaded: Option<(i64, Option<f64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id, duration_seconds FROM downloaded_trailers
+         WHERE {file_column} = ? AND file IS NOT NULL"
+    )))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    let downloaded = downloaded
+        .filter(|_| !rows.iter().any(|(_, kind, ..)| kind == "trailer"))
+        .map(|(row, duration)| {
+            (
+                crate::trailers::playable_id(row),
+                "trailer".to_owned(),
+                "Trailer".to_owned(),
+                duration,
+            )
+        });
     Ok(Json(
-        rows.into_iter()
+        downloaded
+            .into_iter()
+            .chain(rows)
             .map(|(id, kind, title, duration)| {
                 json!({ "id": id, "kind": kind, "title": title, "duration_seconds": duration })
             })
