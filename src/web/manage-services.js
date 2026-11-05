@@ -15,6 +15,7 @@
 const LIBRARY = { key: "library", name: "Library", under: ["title"] };
 const ADD = { key: "add", name: "Add new" };
 const MATCH = { key: "match", name: "Needs a match" };
+const MAKE_ROOM = { key: "make-room", name: "Make room" };
 // Each opens on its Library, which took the place of its overview; its wanted list's page is
 // its Missing now.
 const MOVED = { overview: "library", wanted: "missing" };
@@ -32,7 +33,7 @@ const MISSING = { key: "missing", name: "Missing" };
 const TAKEN_OFF = { key: "removed", name: "Taken off" };
 
 const VIDEO = [
-  { items: [LIBRARY, ADD, MATCH] },
+  { items: [LIBRARY, ADD, MATCH, MAKE_ROOM] },
   CALENDAR,
   ACTIVITY,
   { name: "Wanted", items: [MISSING, { key: "cutoff", name: "Cutoff unmet" }, TAKEN_OFF] },
