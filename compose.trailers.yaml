@@ -1,0 +1,43 @@
+# Titles' trailers from YouTube, downloaded once and converted on the GPU so every player can play
+# them. Needs the VPN from compose.soulseek.yaml, and is off unless both are added in .env:
+#   COMPOSE_FILE=compose.yaml:compose.soulseek.yaml:compose.trailers.yaml
+# The downloader shares the Gluetun container's network, so YouTube only ever sees the VPN's
+# address, and Gluetun's firewall lets nothing out while the VPN is down. Without Gluetun it
+# doesn't start. It publishes no port, never sees the library, and talks to Melete only through
+# a folder of job files; only the trailers' YouTube video ids leave the server.
+
+services:
+  trailers:
+    # This version's release; .env can name another, such as one built from ./trailers.
+    image: ${MELETE_TRAILERS_IMAGE:-ghcr.io/virel0/melete:0.4.0-trailers}
+    container_name: melete-trailers
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on: [gluetun]
+    # Melete's own user: Melete moves, and on a title's removal deletes, what it writes.
+    user: "${MELETE_USER:-10001:10001}"
+    environment:
+      TRAILER_JOBS: /trailer-jobs
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+    volumes:
+      # Jobs and finished videos between Melete and the downloader; writable by Melete's user.
+      - ${MELETE_TRAILER_JOBS_DIR:?set MELETE_TRAILER_JOBS_DIR in .env}:/trailer-jobs
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+  melete:
+    environment:
+      MELETE_TRAILER_JOBS: /trailer-jobs
+    volumes:
+      - ${MELETE_TRAILER_JOBS_DIR:?set MELETE_TRAILER_JOBS_DIR in .env}:/trailer-jobs

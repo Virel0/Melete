@@ -86,6 +86,22 @@ pub async fn trickplay(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_TRICKPLAY").await?.as_deref() == Some("on"))
 }
 
+/// Whether titles' trailers are downloaded (`MELETE_TRAILER_DOWNLOADS`); off by default.
+pub async fn trailer_downloads(pool: &SqlitePool) -> sqlx::Result<bool> {
+    Ok(value(pool, "MELETE_TRAILER_DOWNLOADS").await?.as_deref() == Some("on"))
+}
+
+/// The most a trailer is downloaded at, in lines (`MELETE_TRAILER_QUALITY`: 720, 1080 or 2160);
+/// 2160 when unset or unknown.
+pub async fn trailer_quality(pool: &SqlitePool) -> sqlx::Result<i64> {
+    let set = value(pool, "MELETE_TRAILER_QUALITY").await?;
+    Ok(match set.as_deref() {
+        Some("720") => 720,
+        Some("1080") => 1080,
+        _ => 2160,
+    })
+}
+
 /// Whether Auto DJ is on (`MELETE_AUTO_DJ`); off by default.
 pub async fn auto_dj(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_AUTO_DJ").await?.as_deref() == Some("on"))

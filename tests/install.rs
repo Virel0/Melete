@@ -51,6 +51,27 @@ fn the_separator_runs_this_versions_release_unless_env_names_another() {
 }
 
 #[test]
+fn the_trailer_downloader_runs_this_versions_release_as_meletes_user_behind_the_vpn() {
+    let compose = read("compose.trailers.yaml");
+    let wanted = format!(
+        "image: ${{MELETE_TRAILERS_IMAGE:-ghcr.io/virel0/melete:{}-trailers}}",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert_eq!(lines_with(&compose, "image"), [wanted.as_str()]);
+    assert!(lines_with(&compose, "build").is_empty());
+    assert_eq!(
+        lines_with(&compose, "user"),
+        [r#"user: "${MELETE_USER:-10001:10001}""#]
+    );
+    assert_eq!(
+        lines_with(&compose, "network_mode"),
+        [r#"network_mode: "service:gluetun""#],
+        "only ever through the VPN"
+    );
+    assert!(lines_with(&compose, "ports").is_empty(), "no port");
+}
+
+#[test]
 fn building_from_source_is_an_override() {
     let build = read("compose.build.yaml");
     assert_eq!(lines_with(&build, "build"), ["build: ."]);

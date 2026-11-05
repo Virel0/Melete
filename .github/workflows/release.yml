@@ -5,10 +5,10 @@ name: Release
 # publish job builds nothing: it checks that checksum, pushes the archive as it is, attests its
 # build provenance, and makes the GitHub release.
 #
-# The stem separator is built and published the same way, as the same package's
-# `<version>-stems`, in jobs of their own: it's large (PyTorch with CUDA), and a failure there
-# never holds up Melete's own image. Its archive isn't attached to the release, being over its
-# 2 GB limit.
+# The stem separator and the trailer downloader are built and published the same way, as the
+# same package's `<version>-stems` and `<version>-trailers`, in jobs of their own, so a failure
+# there never holds up Melete's own image. Their archives aren't attached to the release: the
+# separator's is over its 2 GB limit (PyTorch with CUDA).
 
 on:
   push:
@@ -234,7 +234,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [stems]
+        part: [stems, trailers]
     env:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
@@ -308,7 +308,7 @@ jobs:
       # One at a time: each adds its line to the release's notes.
       max-parallel: 1
       matrix:
-        part: [stems]
+        part: [stems, trailers]
     env:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
@@ -366,6 +366,7 @@ jobs:
         run: |
           case "$PART" in
             stems) what="The stem separator, for Auto DJ and sing-along (compose.stems.yaml)" ;;
+            trailers) what="The trailer downloader (compose.trailers.yaml)" ;;
           esac
           # The publish job writes the notes afresh, a tag built again included, so this adds.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md

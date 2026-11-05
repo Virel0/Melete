@@ -1,0 +1,4 @@
+# Pinned exactly, with yt-dlp's own pins for what it needs (`pin`), its YouTube challenge
+# solver (`yt-dlp-ejs`, in `default`) and the JavaScript runtime that solver runs in (`deno`).
+yt-dlp[default,pin]==2026.10.21
+deno==2.9.8

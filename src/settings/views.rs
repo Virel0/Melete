@@ -69,6 +69,10 @@ pub struct Component {
 /// The component beside Melete that service `key` needs, as `config` sets it up.
 fn component(config: &Config, key: &str) -> Option<Component> {
     match key {
+        "trailers" => Some(Component {
+            name: "trailer downloader",
+            set_up: config.trailer_jobs.is_some(),
+        }),
         "auto_dj" => Some(Component {
             name: "stem separator",
             set_up: config.stems.is_some(),
@@ -103,6 +107,7 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "flaresolverr" => config.flaresolverr.is_some(),
         "song_albums" => config.song_albums,
         "auto_dj" => config.auto_dj,
+        "trailers" => config.trailer_downloads,
         "intro_detection" => config.intro_detection,
         "trickplay" => config.trickplay,
         "offline_copies" => config.offline_copies,
