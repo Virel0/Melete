@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod make_room;
 mod trailers;
 
 /// How a setting is entered.
@@ -349,6 +350,7 @@ pub const SERVICES: &[Service] = &[
         ],
     },
     trailers::TRAILERS,
+    make_room::MAKE_ROOM,
     Service {
         key: "auto_dj",
         name: "Auto DJ",

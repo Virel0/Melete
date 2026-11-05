@@ -120,8 +120,9 @@ pub(super) async fn store_movie(
     sqlx::query(
         "INSERT INTO tmdb_movies (tmdb_id, imdb_id, title, original_title, release_date, year,
              overview, runtime_minutes, poster_path, backdrop_path, genres, fetched_at,
-             language, english_fields, collection_id, original_language, score, score_votes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             language, english_fields, collection_id, original_language, score, score_votes,
+             companies)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              imdb_id = excluded.imdb_id, title = excluded.title,
              original_title = excluded.original_title, release_date = excluded.release_date,
@@ -135,7 +136,8 @@ pub(super) async fn store_movie(
              language = excluded.language, english_fields = excluded.english_fields,
              collection_id = excluded.collection_id,
              original_language = excluded.original_language,
-             score = excluded.score, score_votes = excluded.score_votes",
+             score = excluded.score, score_votes = excluded.score_votes,
+             companies = excluded.companies",
     )
     .bind(d.id)
     .bind(non_empty(&d.imdb_id))
@@ -155,6 +157,7 @@ pub(super) async fn store_movie(
     .bind(non_empty(&d.original_language))
     .bind(score(d.vote_average))
     .bind(d.vote_count.unwrap_or(0).max(0))
+    .bind(companies(&d.production_companies, &[])?)
     .execute(pool)
     .await?;
     // The title is searchable by its folded keys at once, not after the next scan.
@@ -175,8 +178,8 @@ pub(super) async fn store_series(
     sqlx::query(
         "INSERT INTO tmdb_series (tmdb_id, tvdb_id, imdb_id, name, original_name, first_air_date,
              year, overview, status, poster_path, backdrop_path, genres, fetched_at, language,
-             english_fields, original_language, score, score_votes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             english_fields, original_language, score, score_votes, companies)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (tmdb_id) DO UPDATE SET
              tvdb_id = excluded.tvdb_id, imdb_id = excluded.imdb_id, name = excluded.name,
              original_name = excluded.original_name, first_air_date = excluded.first_air_date,
@@ -187,7 +190,8 @@ pub(super) async fn store_series(
                  THEN tmdb_series.images_fetched_at END,
              language = excluded.language, english_fields = excluded.english_fields,
              original_language = excluded.original_language,
-             score = excluded.score, score_votes = excluded.score_votes",
+             score = excluded.score, score_votes = excluded.score_votes,
+             companies = excluded.companies",
     )
     .bind(d.id)
     .bind(ids.and_then(|i| i.tvdb_id))
@@ -207,6 +211,7 @@ pub(super) async fn store_series(
     .bind(non_empty(&d.original_language))
     .bind(score(d.vote_average))
     .bind(d.vote_count.unwrap_or(0).max(0))
+    .bind(companies(&d.production_companies, &d.networks)?)
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM tmdb_episodes WHERE series_tmdb_id = ?")
@@ -252,4 +257,18 @@ pub(super) fn non_empty(value: &Option<String>) -> Option<&str> {
 
 pub(super) fn year_of(date: Option<&str>) -> Option<i64> {
     date?.get(..4)?.parse().ok()
+}
+
+/// A title's companies as stored: their names, makers first then networks, each once.
+pub(super) fn companies(
+    makers: &[tmdb::Company],
+    networks: &[tmdb::Company],
+) -> serde_json::Result<String> {
+    let mut names: Vec<&str> = Vec::new();
+    for name in makers.iter().chain(networks).map(|c| c.name.trim()) {
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    serde_json::to_string(&names)
 }

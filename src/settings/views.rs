@@ -111,8 +111,8 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "intro_detection" => config.intro_detection,
         "trickplay" => config.trickplay,
         "offline_copies" => config.offline_copies,
-        // Whole scans always run, on their schedule.
-        "scans" => true,
+        // Whole scans always run, on their schedule; Make room is always there to look at.
+        "scans" | "make_room" => true,
         "discovery" => config.discovery,
         "oidc" => config.oidc.is_some(),
         "openrouter" => config.openrouter.is_some(),

@@ -8976,6 +8976,23 @@
         }
       }
     },
+    "/api/v1/admin/make-room": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Titles suggested for freeing space",
+        "description": "Movies and series (anime included, marked) suggested for making room, the strongest first, each with one action and the space it's expected to free, and their total. Never suggested: anything someone is partway through, has on their list, or requested in the last 90 days. A title is scored on how little it's watched (never, or not for half a year or a year), how long it's sat untouched since it came in, a low TMDB score (under 6, on 50 votes or more), and a copy over 10 GB an hour; a high TMDB score (7.5 and up) and a major studio among its companies (built in, plus MELETE_MAJOR_STUDIOS) count against suggesting it. One worth keeping (watched by someone, a major studio's, or rated 7 or more) is compressed when its copy is H.264 or older at 5 GB an hour or more (about half saved), else swapped for a release at about 3 GB an hour when its copy is large, else left alone; the rest are deleted. Worked out when asked; nothing is changed.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MakeRoom"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
     "/api/v1/admin/health": {
       "get": {
         "tags": ["Admin"],
@@ -14976,6 +14993,32 @@
         },
         "additionalProperties": false
       },
+      "MakeRoom": {
+        "type": "object",
+        "required": ["saves", "items"],
+        "properties": {
+          "saves": {"type": "integer", "description": "Bytes all the suggestions would free together."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MakeRoomSuggestion"}}
+        },
+        "additionalProperties": false
+      },
+      "MakeRoomSuggestion": {
+        "type": "object",
+        "required": ["kind", "id", "title", "year", "anime", "size", "action", "saves", "score", "reasons"],
+        "properties": {
+          "kind": {"enum": ["movie", "series"]},
+          "id": {"type": "integer", "description": "The library movie's or series' id."},
+          "title": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
+          "anime": {"type": "boolean", "description": "In a library with the anime category, or wanted as anime."},
+          "size": {"type": "integer", "description": "Its files' size in bytes."},
+          "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: wanted again at a smaller quality, the release found replacing its copy. `compress`: converted to HEVC on the GPU, its copy going to the trash once the new file is checked."},
+          "saves": {"type": "integer", "description": "Bytes the action is expected to free."},
+          "score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "How strongly it's suggested."},
+          "reasons": {"type": "array", "items": {"enum": ["never_watched", "not_watched_lately", "untouched", "low_rating", "large_copy", "compressible"]}, "description": "Why, as codes for an app to put in words."}
+        },
+        "additionalProperties": false
+      },
       "CoverColours": {
         "type": "object",
         "description": "An album cover's colours, worked out on the server so every app matches: a background (the colour around the cover's edges) and four text colours that read on it. text1 and text2 are the cover's own colours where they read (contrast at least 4.5:1 and 3:1), else white or black; text3 and text4 are them softened toward the background, for less important text.",
@@ -17327,6 +17370,7 @@
               "flaresolverr",
               "song_albums",
               "trailers",
+              "make_room",
               "auto_dj",
               "intro_detection",
               "trickplay",

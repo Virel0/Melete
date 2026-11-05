@@ -87,6 +87,12 @@ pub struct Genre {
     pub name: String,
 }
 
+/// A company behind a title (a studio, a network), as TMDB names it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Company {
+    pub name: String,
+}
+
 /// A movie's details, for matching and for showing it.
 #[derive(Debug, Deserialize)]
 pub struct MovieDetails {
@@ -120,6 +126,9 @@ pub struct MovieDetails {
     /// TMDB's score, its users' vote average from 0 to 10.
     #[serde(default)]
     pub vote_average: Option<f64>,
+    /// The companies that made it; empty when TMDB lists none.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub production_companies: Vec<Company>,
     /// How many votes the score rests on.
     #[serde(default)]
     pub vote_count: Option<i64>,
@@ -177,9 +186,15 @@ pub struct SeriesDetails {
     /// TMDB's score, its users' vote average from 0 to 10.
     #[serde(default)]
     pub vote_average: Option<f64>,
+    /// The companies that made it; empty when TMDB lists none.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub production_companies: Vec<Company>,
     /// How many votes the score rests on.
     #[serde(default)]
     pub vote_count: Option<i64>,
+    /// The networks it aired on; empty when TMDB lists none.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub networks: Vec<Company>,
     /// Its IMDb and TVDB ids, which [`Client::series`] always asks for; None if TMDB left them out.
     pub external_ids: Option<ExternalIds>,
     /// TMDB's translations, asked for when the metadata language isn't English, to fill what
