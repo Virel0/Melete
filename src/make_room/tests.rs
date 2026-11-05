@@ -64,6 +64,7 @@ fn a_title_worth_keeping_with_a_large_copy_is_swapped_or_compressed_not_deleted(
     // A 60 GB remux of a well-rated film nobody's seen in two years: swapped for a 1080p
     // release of about 6 GB (two hours at 3 GB an hour).
     let remux = Facts {
+        wanted: true,
         watchers: 1,
         last_watched: Some(NOW - 730 * DAY),
         tmdb_score: Some(7.8),
@@ -81,6 +82,13 @@ fn a_title_worth_keeping_with_a_large_copy_is_swapped_or_compressed_not_deleted(
     let (action, saves, _, reasons) = of(&h264).unwrap();
     assert_eq!((action, saves), (Action::Compress, 30 * GB));
     assert!(reasons.contains(&"compressible"));
+    // Not on the wanted list: there's no profile to search with, so it isn't swapped.
+    let unwanted = Facts {
+        wanted: false,
+        codec: Some("hevc".into()),
+        ..h264
+    };
+    assert_eq!(of(&unwanted), None);
 }
 
 #[test]

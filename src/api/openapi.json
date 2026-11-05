@@ -9041,6 +9041,51 @@
         }
       }
     },
+    "/api/v1/admin/make-room/swap": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Swap a title for a smaller release",
+        "description": "Queues a movie's file, or each episode file of a series (specials and unnumbered files aside), to be searched for a smaller release, slowly: one search at a time, at least 15 seconds apart, an indexer that says it's at its limit left out for an hour, and only while downloads are on. A release is judged by the title's profile without comparing it with the file on disk, and turned down above 1080p, above three quarters of the copy's size or 4.5 GB an hour, or when its name or size doesn't say. The best is grabbed; the usual check and replace puts the old file in the trash once the new one plays as long. The title stops being monitored at once, so nothing upgrades it back. Progress shows in `GET /api/v1/admin/make-room`'s `swapping`.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The library movie's or series' id."}
+            },
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "200": {
+            "description": "Queued",
+            "content": {"application/json": {"schema": {
+              "type": "object",
+              "required": ["files"],
+              "properties": {"files": {"type": "integer", "description": "Files queued to be swapped."}},
+              "additionalProperties": false
+            }}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such title in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Not on the wanted list, or nothing to swap (no files, or all being swapped already)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/admin/health": {
       "get": {
         "tags": ["Admin"],
@@ -15043,10 +15088,31 @@
       },
       "MakeRoom": {
         "type": "object",
-        "required": ["saves", "items"],
+        "required": ["saves", "items", "swapping", "downloads"],
         "properties": {
           "saves": {"type": "integer", "description": "Bytes all the suggestions would free together."},
-          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MakeRoomSuggestion"}}
+          "downloads": {"type": "boolean", "description": "Whether downloads are on (MELETE_DOWNLOADS); swaps wait while they're off."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MakeRoomSuggestion"}},
+          "swapping": {
+            "type": "array",
+            "description": "Titles with swaps for a smaller release, the most recently started first: how many of their files are waiting to be searched, on their way, done, without a release small enough, and failed.",
+            "items": {
+              "type": "object",
+              "required": ["kind", "id", "title", "anime", "waiting", "grabbed", "done", "none_found", "failed"],
+              "properties": {
+                "kind": {"enum": ["movie", "series"]},
+                "id": {"type": "integer"},
+                "title": {"type": "string"},
+                "anime": {"type": "boolean", "description": "In a library with the anime category, or wanted as anime."},
+                "waiting": {"type": "integer"},
+                "grabbed": {"type": "integer"},
+                "done": {"type": "integer"},
+                "none_found": {"type": "integer"},
+                "failed": {"type": "integer"}
+              },
+              "additionalProperties": false
+            }
+          }
         },
         "additionalProperties": false
       },
@@ -15060,7 +15126,7 @@
           "year": {"type": ["integer", "null"]},
           "anime": {"type": "boolean", "description": "In a library with the anime category, or wanted as anime."},
           "size": {"type": "integer", "description": "Its files' size in bytes."},
-          "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: wanted again at a smaller quality, the release found replacing its copy. `compress`: converted to HEVC on the GPU, its copy going to the trash once the new file is checked."},
+          "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: searched for a release at most 1080p and clearly smaller (POST /api/v1/admin/make-room/swap), the release found replacing its copy; only for titles on the wanted list. `compress`: converted to HEVC on the GPU, its copy going to the trash once the new file is checked."},
           "saves": {"type": "integer", "description": "Bytes the action is expected to free."},
           "score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "How strongly it's suggested."},
           "reasons": {"type": "array", "items": {"enum": ["never_watched", "not_watched_lately", "untouched", "low_rating", "large_copy", "compressible"]}, "description": "Why, as codes for an app to put in words."}

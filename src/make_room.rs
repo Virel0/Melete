@@ -15,6 +15,7 @@ use sqlx::SqlitePool;
 use crate::db::unix_now;
 
 mod studios;
+pub mod swapping;
 
 const DAY: i64 = 86_400;
 /// A request this recent keeps its title off the list.
@@ -89,8 +90,11 @@ pub(crate) struct Facts {
     pub tmdb_votes: Option<i64>,
     /// Its companies, as stored (a JSON array of names).
     pub companies: Option<String>,
-    /// Someone's partway through it, has it on their list, or asked for it lately.
+    /// Someone's partway through it, has it on their list, asked for it lately, or it's being
+    /// swapped now.
     pub protected: bool,
+    /// On the wanted list, so a smaller release can be searched for with its profile.
+    pub wanted: bool,
 }
 
 /// Every title worth suggesting, the strongest first, `major` naming extra studios to count as
@@ -198,7 +202,8 @@ fn rated(f: &Facts) -> bool {
 
 /// The action for a title and the bytes it frees. One worth keeping (watched by someone, well
 /// rated, or a major studio's) is compressed when its copy compresses well, else swapped when
-/// it's large, else left alone; the rest are deleted.
+/// it's large and on the wanted list (a swap searches with its profile), else left alone; the
+/// rest are deleted.
 fn action(f: &Facts, studio: bool, large: bool, compressible: bool) -> Option<(Action, i64)> {
     let worth_keeping =
         f.watchers > 0 || studio || (rated(f) && f.tmdb_score.unwrap_or(0.0) >= 7.0);
@@ -211,7 +216,7 @@ fn action(f: &Facts, studio: bool, large: bool, compressible: bool) -> Option<(A
     let swapped = f
         .seconds
         .map(|s| (s / 3600.0 * SWAPPED_GB_PER_HOUR * 1e9) as i64)?;
-    large.then(|| (Action::Swap, (f.size - swapped).max(0)))
+    (large && f.wanted).then(|| (Action::Swap, (f.size - swapped).max(0)))
 }
 
 /// What's known about every present movie and series with files.
@@ -238,6 +243,11 @@ async fn facts(pool: &SqlitePool, now: i64) -> sqlx::Result<Vec<Facts>> {
             "series",
         ),
     ] {
+        let wanted = if series {
+            "wanted_series"
+        } else {
+            "wanted_movies"
+        };
         let anime = if series {
             "(l.category IS 'anime' OR EXISTS (SELECT 1 FROM wanted_series w
                  WHERE w.series_id = x.id AND w.series_type = 'anime'))"
@@ -272,7 +282,11 @@ async fn facts(pool: &SqlitePool, now: i64) -> sqlx::Result<Vec<Facts>> {
                      WHERE fi.title_id = x.id AND pp.watched = 0 AND pp.position_seconds > 0)
                   OR EXISTS (SELECT 1 FROM favourites v WHERE v.{column} = x.id)
                   OR EXISTS (SELECT 1 FROM requests r WHERE r.kind = '{kind}'
-                      AND r.tmdb_id = x.match_tmdb_id AND r.created_at >= ?1)) AS protected
+                      AND r.tmdb_id = x.match_tmdb_id AND r.created_at >= ?1)
+                  OR EXISTS (SELECT 1 FROM swaps sw JOIN files fi ON fi.id = sw.file_id
+                      WHERE fi.title_id = x.id AND sw.state IN ('waiting', 'grabbed')))
+                     AS protected,
+                 EXISTS (SELECT 1 FROM {wanted} w WHERE w.{column} = x.id) AS wanted
              FROM {titles} x JOIN libraries l ON l.id = x.library_id
              LEFT JOIN {tmdb} t ON t.tmdb_id = x.match_tmdb_id
              WHERE x.missing_since IS NULL

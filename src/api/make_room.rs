@@ -24,6 +24,7 @@ pub fn routes(pool: SqlitePool) -> Router {
     Router::new()
         .route("/api/v1/admin/make-room", get(list))
         .route("/api/v1/admin/make-room/delete", post(delete))
+        .route("/api/v1/admin/make-room/swap", post(swap))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
         .with_state(pool)
 }
@@ -40,7 +41,18 @@ async fn list(State(pool): State<SqlitePool>) -> Result<Json<Value>, ApiError> {
         .collect();
     let items = crate::make_room::suggestions(&pool, &extra).await?;
     let total: i64 = items.iter().map(|s| s.saves).sum();
-    Ok(Json(json!({ "saves": total, "items": items })))
+    let swapping = crate::make_room::swapping::progress(&pool).await?;
+    // Swaps search and grab only while downloads are on.
+    let downloads = crate::settings::value(&pool, "MELETE_DOWNLOADS")
+        .await?
+        .as_deref()
+        == Some("on");
+    Ok(Json(json!({
+        "saves": total,
+        "items": items,
+        "swapping": swapping,
+        "downloads": downloads,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -56,16 +68,7 @@ async fn delete(
     State(pool): State<SqlitePool>,
     Json(title): Json<Title>,
 ) -> Result<Json<Value>, ApiError> {
-    let series = match title.kind.as_str() {
-        "movie" => false,
-        "series" => true,
-        _ => {
-            return Err(ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "kind is movie or series",
-            ));
-        }
-    };
+    let series = series_of(&title)?;
     match crate::upgrades::remove_title(&pool, series, title.id).await? {
         Ok(removed) => Ok(Json(
             json!({ "files": removed.files, "size": removed.size }),
@@ -77,6 +80,42 @@ async fn delete(
         Err(crate::upgrades::NotRemoved::Failed(why)) => Err(ApiError::new(
             StatusCode::CONFLICT,
             format!("nothing was moved: {why}"),
+        )),
+    }
+}
+
+/// Starts swapping a title for a smaller release, slowly, and stops it being monitored.
+async fn swap(
+    State(pool): State<SqlitePool>,
+    Json(title): Json<Title>,
+) -> Result<Json<Value>, ApiError> {
+    let series = series_of(&title)?;
+    use crate::make_room::swapping::{self, NotStarted};
+    match swapping::start(&pool, series, title.id).await? {
+        Ok(files) => Ok(Json(json!({ "files": files }))),
+        Err(NotStarted::NotFound) => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no such title in the library",
+        )),
+        Err(NotStarted::NotWanted) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "it isn't on the wanted list, so there's no profile to search with",
+        )),
+        Err(NotStarted::NothingToSwap) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "it has no files to swap, or every one is being swapped already",
+        )),
+    }
+}
+
+/// Whether a request names a series (or a movie); a 400 for anything else.
+fn series_of(title: &Title) -> Result<bool, ApiError> {
+    match title.kind.as_str() {
+        "movie" => Ok(false),
+        "series" => Ok(true),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "kind is movie or series",
         )),
     }
 }
@@ -171,5 +210,16 @@ mod tests {
             StatusCode::CONFLICT,
             "a file not as scanned moves nothing"
         );
+        // Swapping one that isn't wanted: there's no profile to search with.
+        let swap = Request::post("/api/v1/admin/make-room/swap")
+            .header(header::AUTHORIZATION, format!("Bearer {admin}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "kind": "movie", "id": 1 }).to_string()))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(swap).await.unwrap().status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(body["swapping"], json!([]));
     }
 }

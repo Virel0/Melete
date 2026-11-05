@@ -221,6 +221,13 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
         built.tmdb.clone(),
         built.pipeline.clone(),
     )));
+    if let Some(pipeline) = &built.pipeline {
+        tasks.push(tokio::spawn(crate::make_room::swapping::run(
+            pool.clone(),
+            built.tmdb.clone(),
+            pipeline.clone(),
+        )));
+    }
     if let Some(sources) = api::list_sources(built.tmdb.clone()) {
         tasks.push(tokio::spawn(lists::run(pool.clone(), sources)));
     }
