@@ -14,6 +14,7 @@ use sqlx::SqlitePool;
 
 use crate::db::unix_now;
 
+pub mod compressing;
 mod studios;
 pub mod swapping;
 
@@ -91,7 +92,7 @@ pub(crate) struct Facts {
     /// Its companies, as stored (a JSON array of names).
     pub companies: Option<String>,
     /// Someone's partway through it, has it on their list, asked for it lately, or it's being
-    /// swapped now.
+    /// swapped or compressed now.
     pub protected: bool,
     /// On the wanted list, so a smaller release can be searched for with its profile.
     pub wanted: bool,
@@ -126,10 +127,11 @@ pub(crate) fn suggest(f: &Facts, now: i64, major: &[String]) -> Option<Suggestio
         .filter(|s| *s > 60.0)
         .map(|s| f.size as f64 / 1e9 / (s / 3600.0));
     let large = gb_per_hour.is_some_and(|g| g >= LARGE_GB_PER_HOUR);
-    let compressible = matches!(
-        f.codec.as_deref(),
-        Some("h264" | "mpeg2video" | "vc1" | "mpeg4")
-    ) && gb_per_hour.is_some_and(|g| g >= LARGE_GB_PER_HOUR / 2.0);
+    let compressible = f
+        .codec
+        .as_deref()
+        .is_some_and(|c| compressing::COMPRESSIBLE.contains(&c))
+        && gb_per_hour.is_some_and(|g| g >= LARGE_GB_PER_HOUR / 2.0);
     let (score, mut reasons) = score(f, now, studio, large);
     if compressible {
         reasons.push("compressible");
@@ -284,7 +286,9 @@ async fn facts(pool: &SqlitePool, now: i64) -> sqlx::Result<Vec<Facts>> {
                   OR EXISTS (SELECT 1 FROM requests r WHERE r.kind = '{kind}'
                       AND r.tmdb_id = x.match_tmdb_id AND r.created_at >= ?1)
                   OR EXISTS (SELECT 1 FROM swaps sw JOIN files fi ON fi.id = sw.file_id
-                      WHERE fi.title_id = x.id AND sw.state IN ('waiting', 'grabbed')))
+                      WHERE fi.title_id = x.id AND sw.state IN ('waiting', 'grabbed'))
+                  OR EXISTS (SELECT 1 FROM compressions c JOIN files fi ON fi.id = c.file_id
+                      WHERE fi.title_id = x.id AND c.state IN ('waiting', 'running')))
                      AS protected,
                  EXISTS (SELECT 1 FROM {wanted} w WHERE w.{column} = x.id) AS wanted
              FROM {titles} x JOIN libraries l ON l.id = x.library_id

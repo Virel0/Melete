@@ -167,6 +167,12 @@ async fn main() -> anyhow::Result<()> {
     let transcoder = start_transcoder(&config)?;
     log_ways_in(&config.ways_in);
     start_stems(&pool, &config, &transcoder);
+    // Compressing for Make room: only what an admin queued, never while video is converted.
+    tokio::spawn(make_room::compressing::run(
+        pool.clone(),
+        transcoder.clone(),
+        config.ffprobe.clone(),
+    ));
     remove_made_motion_covers(&config.data_dir);
     start_trailers(&pool, &config, &transcoder).await;
     // Copies are made behind live conversions; the setting is read as each is due.
