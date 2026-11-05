@@ -109,7 +109,12 @@ async fn fixture(coverart: Option<Arc<coverart::Client>>) -> Fixture {
         .await
         .unwrap();
     let covers = tempfile::tempdir().unwrap();
-    let app = routes(pool.clone(), covers.path().join("music"), coverart);
+    let app = routes(
+        pool.clone(),
+        covers.path().join("music"),
+        "ffmpeg".into(),
+        coverart,
+    );
     Fixture {
         app,
         pool,
@@ -695,4 +700,63 @@ async fn songs_are_found_by_their_own_title_and_artist() {
     assert_eq!(hidden["total"], 0);
     let (_, artists) = json_of(&f, "/api/v1/music/artists?q=radiohead").await;
     assert_eq!(artists["total"], 0);
+}
+
+/// The width a JPEG says it is, from its frame header.
+fn jpeg_width(bytes: &[u8]) -> Option<u16> {
+    let mut i = 2;
+    while i + 9 < bytes.len() {
+        let marker = bytes[i + 1];
+        let length = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if (0xc0..=0xc2).contains(&marker) {
+            return Some(u16::from_be_bytes([bytes[i + 7], bytes[i + 8]]));
+        }
+        i += 2 + length;
+    }
+    None
+}
+
+#[tokio::test]
+async fn covers_come_at_the_size_asked_for_made_once_and_never_enlarged() {
+    let f = fixture(None).await;
+    let folder_cover = f.library.path().join("r/ok/cover.jpg");
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i"])
+        .args(["color=c=blue:s=1000x1000", "-frames:v", "1"])
+        .arg(&folder_cover)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let body = |r: Response| async { r.into_body().collect().await.unwrap().to_bytes().to_vec() };
+
+    let sized = get(&f, "/api/v1/music/albums/1/cover?size=400", None).await;
+    assert_eq!(sized.status(), StatusCode::OK);
+    assert_eq!(sized.headers()[header::CONTENT_TYPE], "image/jpeg");
+    assert_eq!(jpeg_width(&body(sized).await), Some(400));
+    let kept: Vec<_> = std::fs::read_dir(f.covers.path().join("music/sized"))
+        .unwrap()
+        .collect();
+    assert_eq!(kept.len(), 1, "made once and kept");
+    let again = get(&f, "/api/v1/music/albums/1/cover?size=400", None).await;
+    assert_eq!(jpeg_width(&body(again).await), Some(400));
+    assert_eq!(
+        std::fs::read_dir(f.covers.path().join("music/sized"))
+            .unwrap()
+            .count(),
+        1
+    );
+    // Without a size, the cover as it is.
+    let whole = get(&f, "/api/v1/music/albums/1/cover", None).await;
+    assert_eq!(jpeg_width(&body(whole).await), Some(1000));
+    // A cover smaller than the size asked for isn't enlarged: the tags' picture is 8 wide.
+    let small = get(&f, "/api/v1/music/albums/2/cover?size=800", None).await;
+    assert_eq!(small.status(), StatusCode::OK);
+    assert_eq!(jpeg_width(&body(small).await), Some(8));
+    // Only the sizes apps draw at.
+    assert_eq!(
+        get(&f, "/api/v1/music/albums/1/cover?size=123", None)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
 }

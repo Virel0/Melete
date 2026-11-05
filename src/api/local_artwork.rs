@@ -107,7 +107,7 @@ async fn read_inside(root: &Path, rel_path: &str) -> Option<Vec<u8>> {
 }
 
 /// The image as a JPEG at most `width` pixels wide, its proportions kept.
-async fn resize(ffmpeg: &Path, image: &[u8], width: u32) -> anyhow::Result<Vec<u8>> {
+pub(super) async fn resize(ffmpeg: &Path, image: &[u8], width: u32) -> anyhow::Result<Vec<u8>> {
     use tokio::io::AsyncWriteExt;
     let mut child = tokio::process::Command::new(ffmpeg)
         .args(["-nostdin", "-hide_banner", "-loglevel", "error"])

@@ -52,8 +52,11 @@ const COVER_CACHE: &str = "private, max-age=86400";
 #[derive(Clone)]
 pub(super) struct MusicState {
     pub(super) pool: SqlitePool,
-    /// Where pictures pulled from tags and the Cover Art Archive's covers are kept.
+    /// Where pictures pulled from tags and the Cover Art Archive's covers are kept, and covers
+    /// made at the sizes apps ask for.
     covers: PathBuf,
+    /// Makes those sizes.
+    ffmpeg: PathBuf,
     pub(super) coverart: Option<Arc<coverart::Client>>,
 }
 
@@ -62,6 +65,7 @@ pub(super) struct MusicState {
 pub fn routes(
     pool: SqlitePool,
     covers: PathBuf,
+    ffmpeg: PathBuf,
     coverart: Option<Arc<coverart::Client>>,
 ) -> Router {
     let auth = AppState {
@@ -82,6 +86,7 @@ pub fn routes(
         .with_state(MusicState {
             pool,
             covers,
+            ffmpeg,
             coverart,
         })
 }

@@ -491,7 +491,8 @@ mod tests {
             crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
                 .await
                 .unwrap();
-        let app = super::super::music::routes(pool.clone(), "/nowhere".into(), None);
+        let app =
+            super::super::music::routes(pool.clone(), "/nowhere".into(), "ffmpeg".into(), None);
         (pool, app, token)
     }
 

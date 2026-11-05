@@ -60,6 +60,7 @@ async fn fixture() -> Fixture {
         .merge(crate::api::music::routes(
             pool.clone(),
             dir.path().join("covers"),
+            "ffmpeg".into(),
             None,
         ));
     Fixture {
@@ -441,6 +442,7 @@ async fn an_album_keyed_anew_by_a_rescan_stays_liked() {
         .merge(crate::api::music::routes(
             pool.clone(),
             dir.path().join("covers"),
+            "ffmpeg".into(),
             None,
         ));
     let f = Fixture {

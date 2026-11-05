@@ -7,6 +7,7 @@ pub(super) fn music_routes(
     router: Router,
     pool: &SqlitePool,
     artwork_dir: &std::path::Path,
+    ffmpeg: &std::path::Path,
     coverart: Option<Arc<crate::coverart::Client>>,
     converter: Arc<crate::music_convert::Converter>,
 ) -> Router {
@@ -19,6 +20,7 @@ pub(super) fn music_routes(
         .merge(music::routes(
             pool.clone(),
             artwork_dir.join("music"),
+            ffmpeg.to_path_buf(),
             coverart,
         ))
         .merge(music_play::routes(pool.clone(), converter))
