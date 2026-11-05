@@ -1,11 +1,14 @@
 //! Make room (admins only): the titles suggested for freeing space, each with its action and the
-//! space it would free, and the total (`make_room`). Nothing is changed here.
+//! space it would free, and the total (`make_room`); and removing a title an admin chooses, its
+//! files to the library's trash (`upgrades::remove_title`).
 
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::routing::get;
+use axum::http::StatusCode;
+use axum::routing::{get, post};
 use axum::{Json, Router, middleware};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
@@ -20,6 +23,7 @@ pub fn routes(pool: SqlitePool) -> Router {
     };
     Router::new()
         .route("/api/v1/admin/make-room", get(list))
+        .route("/api/v1/admin/make-room/delete", post(delete))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
         .with_state(pool)
 }
@@ -37,6 +41,44 @@ async fn list(State(pool): State<SqlitePool>) -> Result<Json<Value>, ApiError> {
     let items = crate::make_room::suggestions(&pool, &extra).await?;
     let total: i64 = items.iter().map(|s| s.saves).sum();
     Ok(Json(json!({ "saves": total, "items": items })))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Title {
+    /// `movie` or `series`.
+    kind: String,
+    id: i64,
+}
+
+/// Moves a title's files to its library's trash, where they wait 30 days and can be put back.
+async fn delete(
+    State(pool): State<SqlitePool>,
+    Json(title): Json<Title>,
+) -> Result<Json<Value>, ApiError> {
+    let series = match title.kind.as_str() {
+        "movie" => false,
+        "series" => true,
+        _ => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "kind is movie or series",
+            ));
+        }
+    };
+    match crate::upgrades::remove_title(&pool, series, title.id).await? {
+        Ok(removed) => Ok(Json(
+            json!({ "files": removed.files, "size": removed.size }),
+        )),
+        Err(crate::upgrades::NotRemoved::NotFound) => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no such title in the library",
+        )),
+        Err(crate::upgrades::NotRemoved::Failed(why)) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!("nothing was moved: {why}"),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -101,5 +143,33 @@ mod tests {
             json!(["never_watched", "untouched"])
         );
         assert_eq!(get(&app, &viewer).await.0, StatusCode::FORBIDDEN);
+
+        // Removing one: refused here, as its file was never on disk.
+        let delete = |token: &str, body: Value| {
+            let request = Request::post("/api/v1/admin/make-room/delete")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap();
+            let app = app.clone();
+            async move { app.oneshot(request).await.unwrap().status() }
+        };
+        assert_eq!(
+            delete(&viewer, json!({ "kind": "movie", "id": 1 })).await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            delete(&admin, json!({ "kind": "album", "id": 1 })).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            delete(&admin, json!({ "kind": "movie", "id": 99 })).await,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            delete(&admin, json!({ "kind": "movie", "id": 1 })).await,
+            StatusCode::CONFLICT,
+            "a file not as scanned moves nothing"
+        );
     }
 }

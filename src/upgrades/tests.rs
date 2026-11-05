@@ -879,3 +879,75 @@ async fn an_upgrade_keeps_who_watched_it_and_where_they_were() {
         ]
     );
 }
+
+#[tokio::test]
+async fn removing_a_title_moves_all_its_files_to_the_trash_and_back_again() {
+    let lib = library().await;
+    file(&lib, "Dune (2024)/Dune.mkv", None, Some(160.0)).await;
+    std::fs::create_dir_all(lib.root.join("Dune (2024)/Subs")).unwrap();
+    std::fs::write(lib.root.join("Dune (2024)/Subs/en.srt"), b"1\n").unwrap();
+    std::fs::write(lib.root.join("Dune (2024)/poster.jpg"), b"art").unwrap();
+    // A link is left where it is, never followed.
+    let outside = lib._dir.path().join("elsewhere.txt");
+    std::fs::write(&outside, b"not the library's").unwrap();
+    std::os::unix::fs::symlink(&outside, lib.root.join("Dune (2024)/link.txt")).unwrap();
+
+    let removed = remove_title(&lib.pool, false, 1).await.unwrap().unwrap();
+    assert_eq!(removed.files, 3, "the video, its subtitles and its art");
+    assert!(!lib.root.join("Dune (2024)/Dune.mkv").exists());
+    assert!(outside.exists(), "a link's target is left alone");
+    let trashed: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT rel_path, trash_path, reason FROM trashed_files ORDER BY rel_path")
+            .fetch_all(&lib.pool)
+            .await
+            .unwrap();
+    assert_eq!(trashed.len(), 3);
+    for (rel, trash, reason) in &trashed {
+        assert_eq!(reason, "removed");
+        assert!(trash.starts_with(".melete-trash/removed-") && trash.ends_with(rel.as_str()));
+        assert!(lib.root.join(trash).is_file(), "{trash}");
+    }
+    let (movie_gone, monitored): (bool, i64) = sqlx::query_as(
+        "SELECT (SELECT missing_since IS NOT NULL FROM movies WHERE id = 1),
+             (SELECT monitored FROM wanted_movies WHERE id = 1)",
+    )
+    .fetch_one(&lib.pool)
+    .await
+    .unwrap();
+    assert!(movie_gone, "gone from the library");
+    assert_eq!(monitored, 0, "and not downloaded again");
+
+    // Each file can be put back, its folder made again.
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM trashed_files")
+        .fetch_all(&lib.pool)
+        .await
+        .unwrap();
+    for id in ids {
+        restore(&lib.pool, id).await.unwrap().unwrap();
+    }
+    assert!(lib.root.join("Dune (2024)/Dune.mkv").is_file());
+    assert!(lib.root.join("Dune (2024)/Subs/en.srt").is_file());
+}
+
+#[tokio::test]
+async fn nothing_moves_when_a_video_isnt_as_scanned() {
+    let lib = library().await;
+    file(&lib, "Show/S01E01.mkv", Some((1, 1, None)), None).await;
+    file(&lib, "Show/S01E02.mkv", Some((1, 2, None)), None).await;
+    std::fs::write(lib.root.join("Show/S01E02.mkv"), b"changed since").unwrap();
+    let refused = remove_title(&lib.pool, true, 2).await.unwrap();
+    assert!(
+        matches!(&refused, Err(NotRemoved::Failed(why)) if why.contains("as it was scanned")),
+        "{refused:?}"
+    );
+    assert!(lib.root.join("Show/S01E01.mkv").is_file(), "nothing moved");
+    let trashed: i64 = sqlx::query_scalar("SELECT count(*) FROM trashed_files")
+        .fetch_one(&lib.pool)
+        .await
+        .unwrap();
+    assert_eq!(trashed, 0);
+    assert_eq!(
+        remove_title(&lib.pool, false, 99).await.unwrap(),
+        Err(NotRemoved::NotFound)
+    );
+}

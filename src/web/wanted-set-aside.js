@@ -163,7 +163,7 @@ export async function trash(ctx) {
         "div",
         {},
         h("span", { class: "path" }, t.rel_path),
-        h("p", { class: "note" }, `${library(t.library_id)}, ${size(t.size)}. ${t.reason === "wrong" ? "Set aside as the wrong file" : `Replaced by ${t.replaced_by}`} on ${when(t.trashed_at)}.`),
+        h("p", { class: "note" }, `${library(t.library_id)}, ${size(t.size)}. ${{ wrong: "Set aside as the wrong file", removed: "Removed on Make room" }[t.reason] ?? `Replaced by ${t.replaced_by}`} on ${when(t.trashed_at)}.`),
         h("p", { class: "note" }, days ? `Deleted in ${plural(days, "day", "days")}.` : "Deleted at the next clean-up."),
       ),
       actions,

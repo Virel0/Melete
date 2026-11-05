@@ -26,6 +26,7 @@ import { wantedSongs } from "/web/wanted-music.js";
 import { musicFollowing, musicProfiles } from "/web/admin-music.js";
 import { addPage, needsMatch } from "/web/manage-add.js";
 import { historyFor, queueFor, replacedFor, takenOffFor } from "/web/manage-activity.js";
+import { makeRoomFor } from "/web/manage-make-room.js";
 import { downloadingFor, filesFor, indexersFor, toDecideFor, whereTheyGoFor } from "/web/manage-settings.js";
 import { MANAGE, managePage } from "/web/manage.js";
 import { requestsOverview } from "/web/admin-overviews.js";
@@ -40,6 +41,7 @@ const SERVICE_PAGES = {
   activity: queueFor,
   history: historyFor,
   replaced: replacedFor,
+  "make-room": makeRoomFor,
   removed: takenOffFor,
   decide: toDecideFor,
   defaults: whereTheyGoFor,

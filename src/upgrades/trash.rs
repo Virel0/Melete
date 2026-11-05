@@ -191,6 +191,10 @@ pub async fn restore(pool: &SqlitePool, id: i64) -> anyhow::Result<Result<(), No
         if !trashed {
             return Err("the trash doesn't hold the file it put there".to_owned());
         }
+        // A removed title's folder went with its last file.
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| format!("making its folder: {err}"))?;
+        }
         crate::transfer::move_without_replacing(&from, &to)
     })
     .await?;

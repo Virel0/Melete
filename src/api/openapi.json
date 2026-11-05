@@ -8993,6 +8993,54 @@
         }
       }
     },
+    "/api/v1/admin/make-room/delete": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Remove a title, its files to the trash",
+        "description": "Moves every regular file in the title's folder (its one file, for a loose movie file) to `.melete-trash/removed-<when>-<title>/` at the top of its library, keeping each one's path under it, never over anything and never following a link; its emptied folders go. Each is in the trash list (reason `removed`), can be put back one by one, and is deleted 30 days later. The title and its files and extras are gone from the library at once, and a wanted title stops being monitored so it isn't downloaded again. Nothing moves unless every video is still as it was scanned; a move that fails puts back what had moved.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {"enum": ["movie", "series"]},
+              "id": {"type": "integer", "description": "The library movie's or series' id."}
+            },
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "200": {
+            "description": "Moved to the trash",
+            "content": {"application/json": {"schema": {
+              "type": "object",
+              "required": ["files", "size"],
+              "properties": {
+                "files": {"type": "integer", "description": "Files moved."},
+                "size": {"type": "integer", "description": "Their size together, in bytes."}
+              },
+              "additionalProperties": false
+            }}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such title in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Nothing was moved (a video isn't as scanned, or a move failed), with why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/admin/health": {
       "get": {
         "tags": ["Admin"],
@@ -14822,8 +14870,8 @@
             "description": "The file that replaced it, relative to the library's folder; empty for a wrong file."
           },
           "reason": {
-            "enum": ["upgrade", "wrong"],
-            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong); its history says set_aside, not upgraded."
+            "enum": ["upgrade", "wrong", "removed"],
+            "description": "upgrade: replaced by a better release. wrong: set aside by an admin as the wrong file for its title (POST /api/v1/files/{id}/wrong); its history says set_aside, not upgraded. removed: one of the files of a title an admin removed on the Make room page (POST /api/v1/admin/make-room/delete). Kept open: an app should show a reason it doesn't know plainly."
           },
           "trashed_at": {"type": "integer", "description": "Unix seconds."},
           "delete_after": {
