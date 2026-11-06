@@ -546,6 +546,19 @@ mod tests {
     }
 
     #[test]
+    fn a_title_partway_through_can_be_played_from_the_start() {
+        let page = module("title-page.js");
+        // Beside a movie's Resume, and a series' Resume of the episode partway through.
+        assert!(page.contains("fromStart: playHref(file.id, { movie: m.id }, true)"));
+        assert!(page.contains(
+            "playHref(going.file_id, { series: s.id, season: going.season, episode: going.episode }, true)"
+        ));
+        // Hidden unless Play resumes, and labelled with the title.
+        assert!(page.contains("restart.hidden = !target?.fromStart;"));
+        assert!(page.contains("`From the start: ${title}`"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
