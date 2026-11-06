@@ -6,7 +6,7 @@ use super::*;
 
 /// A wanted series "New Show" in the shows library, unmonitored, whose season 1 episodes run 45
 /// minutes on TMDB.
-async fn new_show(r: &Rig) -> i64 {
+pub(super) async fn new_show(r: &Rig) -> i64 {
     let show: i64 = sqlx::query_scalar(
         "INSERT INTO wanted_series (tvdb_id, tmdb_id, title, monitored, series_type, source,
              added_at, library_id)
@@ -26,7 +26,7 @@ async fn new_show(r: &Rig) -> i64 {
     show
 }
 
-fn shows(r: &Rig) -> Vec<String> {
+pub(super) fn shows(r: &Rig) -> Vec<String> {
     tree(&r.local.path().join("shows"))
 }
 

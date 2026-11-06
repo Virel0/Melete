@@ -53,13 +53,13 @@ const SUFFIXES: &[(&str, Option<&str>)] = &[
 
 /// Whether a folder below a title folder holds extras (or samples) rather than the title's
 /// own videos.
-pub(super) fn is_extras_folder(name: &str) -> bool {
+pub(crate) fn is_extras_folder(name: &str) -> bool {
     let lower = name.to_lowercase();
     FOLDERS.iter().any(|(folder, _)| *folder == lower)
 }
 
 /// Whether a video's name marks it as an extra or a sample (`Movie-trailer.mkv`, `sample.mkv`).
-pub(super) fn has_extra_name(name: &str) -> bool {
+pub(crate) fn has_extra_name(name: &str) -> bool {
     let stem = stem(name).to_lowercase();
     stem == "sample" || SUFFIXES.iter().any(|(suffix, _)| stem.ends_with(suffix))
 }

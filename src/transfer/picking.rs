@@ -1,5 +1,5 @@
 //! Which of a download's files are fetched, and where it goes: the plan, by extension, track and
-//! cover.
+//! cover; a movie's or season's extras go in its `Extras` folder.
 
 use super::*;
 
@@ -58,11 +58,15 @@ pub(super) async fn plan(
             })
             .unwrap_or_default()
     });
+    let film = film(row, &paths);
     let mut planned: Vec<Planned> = Vec::new();
     for (file, parts) in &paths {
         let (folders, name) = parts.split_at(parts.len() - 1);
         let name = name[0];
         let folder = match shared {
+            None if wanted_file(parts) && is_extra(parts) && film != Some(file.path.as_str()) => {
+                EXTRAS.to_owned()
+            }
             None if wanted_file(parts) => String::new(),
             Some(shared) if is_track(parts) => folders[shared.len()..].join("/"),
             Some(shared) if is_cover(name) && folders == shared => String::new(),
@@ -84,21 +88,46 @@ pub(super) async fn plan(
             name: name.to_owned(),
         });
     }
-    let (needed, kind) = match shared {
-        Some(_) => (AUDIO_EXTENSIONS, "audio"),
-        None => (VIDEO, "video"),
-    };
-    if !planned.iter().any(|p| has_extension(&p.name, needed)) {
-        return Ok(Err(Stop::Fail(format!(
-            "{} has no {kind} files to import",
-            row.title
-        ))));
+    if let Some(stop) = nothing_to_import(row, &planned, shared.is_some()) {
+        return Ok(Err(stop));
     }
     Ok(Ok(Plan {
         root,
         dir,
         files: planned,
     }))
+}
+
+/// A movie's largest video, which is the film whatever its name says ("Trailer Park…").
+fn film<'a>(row: &Row, paths: &[(&'a TorrentFile, Vec<&str>)]) -> Option<&'a str> {
+    row.wanted_movie_id?;
+    paths
+        .iter()
+        .filter(|(file, _)| has_extension(&file.path, VIDEO))
+        .max_by_key(|(file, _)| file.size)
+        .map(|(file, _)| file.path.as_str())
+}
+
+/// Why a plan has nothing to import: no audio for an album, no video, or only extras.
+fn nothing_to_import(row: &Row, planned: &[Planned], album: bool) -> Option<Stop> {
+    let (needed, kind) = if album {
+        (AUDIO_EXTENSIONS, "audio")
+    } else {
+        (VIDEO, "video")
+    };
+    if !planned.iter().any(|p| has_extension(&p.name, needed)) {
+        return Some(Stop::Fail(format!(
+            "{} has no {kind} files to import",
+            row.title
+        )));
+    }
+    let own_video = |p: &Planned| has_extension(&p.name, VIDEO) && p.folder != EXTRAS;
+    (!album && !planned.iter().any(own_video)).then(|| {
+        Stop::Fail(format!(
+            "{} holds only extras (creditless songs, trailers and the like), none of the title's own videos",
+            row.title
+        ))
+    })
 }
 
 pub(crate) fn has_extension(name: &str, extensions: &[&str]) -> bool {
