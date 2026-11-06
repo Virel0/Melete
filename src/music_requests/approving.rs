@@ -1,5 +1,5 @@
 //! Approving a music request: putting the artist, album or song on the wanted list, with what
-//! MusicBrainz knows of it (an artist's studio albums, a song's album).
+//! MusicBrainz knows of it (all of an artist's music, a song's album).
 
 use super::*;
 
@@ -42,7 +42,7 @@ fn approval_lookup_error<T>(err: musicbrainz::Error) -> anyhow::Result<Result<T,
     }
 }
 
-/// Wants an artist with every album MusicBrainz lists for it.
+/// Wants an artist with all the music MusicBrainz lists for it.
 async fn approve_artist(
     pool: &SqlitePool,
     mb: Option<&musicbrainz::Client>,
@@ -60,7 +60,7 @@ async fn approve_artist(
     };
     let artist = want_artist(pool, artist_id, &asked.title, "all", library, profile).await?;
     for album in &albums {
-        want_album(pool, artist, album).await?;
+        want_album(pool, artist, album, true).await?;
     }
     Ok(Ok(artist))
 }
@@ -96,7 +96,7 @@ async fn approve_album(
         secondary_types: group.secondary_types,
         first_release_date: group.first_release_date,
     };
-    Ok(Ok(want_album(pool, artist, &as_listed).await?))
+    Ok(Ok(want_album(pool, artist, &as_listed, false).await?))
 }
 
 /// Wants a song, with its length and album when MusicBrainz knows them.

@@ -115,6 +115,7 @@ pub async fn work_with(
         tmdb,
         slskd: None,
         pipeline: Some(pipeline.clone()),
+        musicbrainz: None,
     };
     // A transfer cut off by a restart starts again, resuming its files.
     if let Err(err) =

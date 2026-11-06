@@ -135,6 +135,39 @@ pub(super) struct Browse {
     pub(super) count: usize,
 }
 
+/// Secondary types of release groups that aren't music.
+const NOT_MUSIC: &[&str] = &["Spokenword", "Interview", "Audiobook", "Audio drama"];
+
+/// Whether a release group is music an artist is wanted for: not a broadcast, nor spoken word.
+pub(super) fn is_music(group: &ReleaseGroup) -> bool {
+    group.primary_type.as_deref() != Some("Broadcast")
+        && !group
+            .secondary_types
+            .iter()
+            .flatten()
+            .any(|t| NOT_MUSIC.contains(&t.as_str()))
+}
+
+/// A song on a release group: its recording, and its title there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Song {
+    pub recording_id: String,
+    pub title: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ReleaseBrowse {
+    #[serde(default)]
+    pub(super) releases: Vec<ReleaseMedia>,
+}
+
+/// A release as a browse with its recordings gives it: its discs and their tracks.
+#[derive(Deserialize)]
+pub(super) struct ReleaseMedia {
+    #[serde(default)]
+    pub(super) media: Vec<Medium>,
+}
+
 /// An artist's release groups asked for at a time, and pages at most.
 pub(super) const BROWSE_PAGE: usize = 100;
 pub(super) const BROWSE_PAGES: usize = 5;

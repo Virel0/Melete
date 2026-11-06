@@ -135,11 +135,12 @@ pub(super) fn wanting_routes(
         ))
         .merge(requests::routes(
             pool.clone(),
-            musicbrainz,
+            musicbrainz.clone(),
             crate::fulfil::Sources {
                 tmdb: tmdb.clone(),
                 slskd: slskd.clone(),
                 pipeline: downloads.clone(),
+                musicbrainz,
             },
         ))
         .merge(artist_search::routes(
@@ -165,6 +166,7 @@ pub(super) fn wanting_routes(
                 tmdb: tmdb.clone(),
                 slskd: None,
                 pipeline: downloads.clone(),
+                musicbrainz: None,
             },
         ))
         .merge(runtime_checks::routes(pool.clone()))

@@ -184,6 +184,7 @@ fn spawn_downloads(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<
                     tmdb: built.tmdb.clone(),
                     slskd: built.slskd.clone(),
                     pipeline: Some(pipeline.clone()),
+                    musicbrainz: None,
                 },
             )));
             tasks.push(tokio::spawn(transfer::work_with(
@@ -249,6 +250,7 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
         tmdb: built.tmdb.clone(),
         slskd: built.slskd.clone(),
         pipeline: built.pipeline.clone(),
+        musicbrainz: built.musicbrainz.clone(),
     };
     match &built.musicbrainz {
         Some(mb) => {

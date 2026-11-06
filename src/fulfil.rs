@@ -29,6 +29,9 @@ pub struct Sources {
     pub slskd: Option<Arc<slskd::Client>>,
     /// Deluge, for torrents; None when downloads are off.
     pub pipeline: Option<Arc<Pipeline>>,
+    /// MusicBrainz, to leave out a wanted artist's singles whose songs are all on an album;
+    /// None when it's off.
+    pub musicbrainz: Option<Arc<crate::musicbrainz::Client>>,
 }
 
 /// What a run did.
@@ -144,6 +147,9 @@ pub async fn run(pool: &SqlitePool, sources: &Sources, request_id: i64) -> anyho
             let Some(id) = approved.wanted_artist_id else {
                 return Ok(fetched);
             };
+            if let Some(mb) = &sources.musicbrainz {
+                leave_out_covered(pool, mb, id, &mut fetched).await;
+            }
             fetch_artist(pool, music, &approved, id, &mut fetched).await?;
         }
         _ => {}
@@ -237,6 +243,26 @@ async fn fetch_song(
         }
     }
     Ok(())
+}
+
+/// Leaves out the artist's singles and EPs whose songs are all on its albums, before its
+/// music is searched for; says which. MusicBrainz failing leaves them to the next look.
+async fn leave_out_covered(
+    pool: &SqlitePool,
+    mb: &crate::musicbrainz::Client,
+    artist: i64,
+    fetched: &mut Fetched,
+) {
+    match crate::single_songs::leave_out_covered(pool, mb, Some(artist)).await {
+        Ok(left) if !left.is_empty() => fetched.notes.push(format!(
+            "left out singles and EPs whose songs are all on its albums: {}",
+            left.join(", ")
+        )),
+        Ok(_) => {}
+        Err(err) => fetched.notes.push(format!(
+            "couldn't compare its singles' songs with its albums': {err:#}"
+        )),
+    }
 }
 
 /// Starts a whole-artist run for an artist approved by someone, when downloads are on.

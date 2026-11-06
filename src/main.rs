@@ -87,6 +87,7 @@ mod seedbox;
 mod segments;
 mod service_check;
 mod settings;
+mod single_songs;
 mod slskd;
 mod song_search;
 mod soulseek;

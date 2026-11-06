@@ -139,9 +139,9 @@ impl Client {
         serde_json::from_str(&body).map_err(|err| Error::Failed(format!("its answer: {err}")))
     }
 
-    /// An artist's studio albums: release groups of the Album type with no secondary type
-    /// (no live albums, compilations, soundtracks…), as Lidarr's standard metadata profile
-    /// wants. Up to 500 release groups are looked through.
+    /// An artist's music: every release group credited to them (albums, EPs, singles, and live,
+    /// compilation, remix and soundtrack ones), but not spoken word, interviews, audiobooks,
+    /// audio drama or broadcasts. Up to 500 release groups are looked through.
     pub async fn artist_albums(&self, artist_id: &str) -> Result<Vec<ReleaseGroup>, Error> {
         if !crate::library::tags::is_mbid(artist_id) {
             return Err(Error::NotFound);
@@ -154,7 +154,6 @@ impl Client {
                 &format!("{}/release-group", self.base),
                 &[
                     ("artist", artist_id),
-                    ("type", "album"),
                     ("limit", limit.as_str()),
                     ("offset", offset.as_str()),
                     ("fmt", "json"),
@@ -165,15 +164,48 @@ impl Client {
             let browse: Browse = serde_json::from_str(&body)
                 .map_err(|err| Error::Failed(format!("its answer: {err}")))?;
             let got = browse.release_groups.len();
-            albums.extend(browse.release_groups.into_iter().filter(|g| {
-                g.primary_type.as_deref() == Some("Album")
-                    && g.secondary_types.as_ref().is_none_or(Vec::is_empty)
-            }));
+            albums.extend(browse.release_groups.into_iter().filter(is_music));
             if got < BROWSE_PAGE || (page + 1) * BROWSE_PAGE >= browse.count {
                 break;
             }
         }
         Ok(albums)
+    }
+
+    /// The songs on a release group: every recording on its first 25 releases (editions), with
+    /// its title there, each once.
+    pub async fn release_group_songs(&self, group_id: &str) -> Result<Vec<Song>, Error> {
+        if !crate::library::tags::is_mbid(group_id) {
+            return Err(Error::NotFound);
+        }
+        let url = reqwest::Url::parse_with_params(
+            &format!("{}/release", self.base),
+            &[
+                ("release-group", group_id),
+                ("inc", "recordings"),
+                ("limit", "25"),
+                ("fmt", "json"),
+            ],
+        )
+        .map_err(|err| Error::Failed(err.to_string()))?;
+        let body = self.get(url.as_str()).await?;
+        let browse: ReleaseBrowse = serde_json::from_str(&body)
+            .map_err(|err| Error::Failed(format!("its answer: {err}")))?;
+        let mut songs: Vec<Song> = Vec::new();
+        for track in browse
+            .releases
+            .iter()
+            .flat_map(|r| &r.media)
+            .flat_map(|m| &m.tracks)
+        {
+            if !songs.iter().any(|s| s.recording_id == track.recording.id) {
+                songs.push(Song {
+                    recording_id: track.recording.id.clone(),
+                    title: track.title.clone(),
+                });
+            }
+        }
+        Ok(songs)
     }
 
     /// A recording (a song, as performed) with its artists and the releases it's on.
@@ -326,6 +358,41 @@ pub mod testing {
     pub const SEARCH_AMBIGUOUS: &str =
         include_str!("../tests/fixtures/musicbrainz/search_amb.json");
     pub const RADIOHEAD: &str = "a74b1b7f-71a5-4011-9441-d0b5e4122711";
+    /// Singles the fake lists for Radiohead: Creep, on no album it lists; Karma Police, its
+    /// radio edit of the album's song; Paranoid Android, the album's song and a B-side.
+    pub const CREEP_SINGLE: &str = "4d4e5f6a-0b1c-4d2e-8f3a-5b6c7d8e9f02";
+    pub const KARMA_SINGLE: &str = "5e6f7a8b-1c2d-4e3f-9a4b-6c7d8e9f0a13";
+    pub const PARANOID_SINGLE: &str = "7a8b9c0d-2e3f-4a5b-8c6d-9e0f1a2b3c4d";
+
+    /// A release browse with recordings for a release group the fake lists: its songs.
+    pub fn songs(group: &str) -> serde_json::Value {
+        let songs: &[(&str, &str)] = match group {
+            OK_COMPUTER => &[
+                ("rec-airbag", "Airbag"),
+                (PARANOID_ANDROID, "Paranoid Android"),
+                ("rec-karma", "Karma Police"),
+            ],
+            "2a0981fb-9593-3019-864b-ce934d97a16e" => {
+                &[("rec-eiirp", "Everything in Its Right Place")]
+            }
+            CREEP_SINGLE => &[("rec-creep", "Creep")],
+            KARMA_SINGLE => &[("rec-karma-edit", "Karma Police (Radio Edit)")],
+            PARANOID_SINGLE => &[
+                (PARANOID_ANDROID, "Paranoid Android"),
+                ("rec-poly", "Polyethylene (Parts 1 & 2)"),
+            ],
+            _ => &[],
+        };
+        let tracks: Vec<serde_json::Value> = songs
+            .iter()
+            .enumerate()
+            .map(|(n, (id, title))| {
+                serde_json::json!({"id": format!("t{n}"), "position": n + 1, "title": title,
+                    "recording": {"id": id}})
+            })
+            .collect();
+        serde_json::json!({"releases": [{"media": [{"position": 1, "tracks": tracks}]}]})
+    }
     pub const OK_COMPUTER: &str = "b1392450-e666-3926-a536-22c65f834433";
     pub const PARANOID_ANDROID: &str = "4d4e5f6a-0b1c-4d2e-8f3a-5b6c7d8e9f01";
     pub const PARANOID_ISRC: &str = "GBAYE9700245";
@@ -400,6 +467,11 @@ pub mod testing {
                 axum::routing::get(
                     |State((log, busy)): State<Fake>, RawQuery(query): RawQuery| async move {
                         let query = query.unwrap_or_default();
+                        if let Some(group) = query.split('&').find_map(|p| p.strip_prefix("release-group=")) {
+                            log.lock().unwrap().push(format!("songs {group}"));
+                            let body = super::testing::songs(group).to_string();
+                            return (StatusCode::OK, body).into_response();
+                        }
                         let decoded = reqwest::Url::parse(&format!("http://x/?{query}"))
                             .unwrap()
                             .query_pairs()
@@ -526,12 +598,15 @@ pub mod testing {
                                 "secondary-types": secondary, "first-release-date": date})
                         };
                         (StatusCode::OK, serde_json::json!({
-                            "release-group-count": 4,
+                            "release-group-count": 7,
                             "release-groups": [
                                 group(super::testing::OK_COMPUTER, "OK Computer", "Album", &[], "1997-05-21"),
                                 group("2a0981fb-9593-3019-864b-ce934d97a16e", "Kid A", "Album", &[], "2000-10-02"),
                                 group("3c7b8d16-60f6-4f8a-8a5b-2a0f9b1c4e21", "I Might Be Wrong", "Album", &["Live"], "2001-11-12"),
-                                group("4d4e5f6a-0b1c-4d2e-8f3a-5b6c7d8e9f02", "Creep", "Single", &[], "1992-09-21"),
+                                group(super::testing::CREEP_SINGLE, "Creep", "Single", &[], "1992-09-21"),
+                                group(super::testing::KARMA_SINGLE, "Karma Police", "Single", &[], "1997-08-25"),
+                                group(super::testing::PARANOID_SINGLE, "Paranoid Android", "Single", &[], "1997-05-26"),
+                                group("6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c", "Interviews", "Other", &["Interview"], "1998-01-01"),
                             ],
                         }).to_string())
                     },
@@ -605,9 +680,24 @@ mod tests {
             .collect();
         assert_eq!(
             albums,
-            ["OK Computer", "Kid A"],
-            "no live albums or singles"
+            [
+                "OK Computer",
+                "Kid A",
+                "I Might Be Wrong",
+                "Creep",
+                "Karma Police",
+                "Paranoid Android"
+            ],
+            "albums, live albums and singles, but no interviews"
         );
+        let songs: Vec<String> = client
+            .release_group_songs(testing::PARANOID_SINGLE)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.title)
+            .collect();
+        assert_eq!(songs, ["Paranoid Android", "Polyethylene (Parts 1 & 2)"]);
         let song = client.recording(testing::PARANOID_ANDROID).await.unwrap();
         assert_eq!(
             (song.title.as_str(), song.length),
@@ -621,7 +711,8 @@ mod tests {
             log.lock()
                 .unwrap()
                 .iter()
-                .any(|l| l.starts_with("browse ") && l.contains("type=album"))
+                .any(|l| l.starts_with("browse ") && !l.contains("type=")),
+            "every type of release group is asked for"
         );
     }
 
