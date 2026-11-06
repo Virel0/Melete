@@ -7,7 +7,7 @@ import { SignedOut, announce, api, h, plural } from "/web/lib.js";
 import { follow } from "/web/progress.js";
 import { decide, settings } from "/web/requests-admin.js";
 import { imports } from "/web/requests-imports.js";
-import { KINDS, facts, requestRow } from "/web/requests-row.js";
+import { KINDS, facts, picture, requestRow } from "/web/requests-row.js";
 
 export { decide, settings } from "/web/requests-admin.js";
 export { imports } from "/web/requests-imports.js";
@@ -143,7 +143,8 @@ function candidateRow(ctx, c) {
   }
   return h(
     "li",
-    {},
+    { class: "pictured" },
+    picture(c),
     h(
       "div",
       {},
@@ -177,10 +178,37 @@ function songByName(ctx) {
 
 // ---------- Your requests ----------
 
+// Your requests by where they stand, in this order.
+const STAGES = [
+  ["coming", "On the way"],
+  ["waiting", "Waiting for approval"],
+  ["here", "In the library"],
+  ["declined", "Declined"],
+];
+
+// Where a request stands: declined, waiting, or approved and either here or on its way. A series
+// is here once every season it asks for is (specials aside, for the whole series).
+function stage(r) {
+  if (r.state === "declined") return "declined";
+  if (r.state === "requested") return "waiting";
+  if (r.seasons?.length) {
+    const own = r.season === null ? r.seasons.filter((s) => s.season > 0) : r.seasons.filter((s) => s.season === r.season);
+    return own.length && own.every((s) => s.step === "in_library") ? "here" : "coming";
+  }
+  return r.progress?.step === "in_library" ? "here" : "coming";
+}
+
 async function mine(ctx) {
   const first = await api("/requests?limit=50");
   if (!ctx.current()) return [];
-  const list = h("ul", { class: "rows" });
+  // A heading and list for each stage, left out while it has nothing in it.
+  const stages = new Map(
+    STAGES.map(([key, name]) => {
+      const list = h("ul", { class: "rows" });
+      const box = h("section", { class: "request-stage", "aria-labelledby": `stage-${key}`, hidden: true }, h("h3", { id: `stage-${key}` }, name), list);
+      return [key, { box, list }];
+    }),
+  );
   const empty = h(
     "p",
     { class: "status" },
@@ -208,16 +236,19 @@ async function mine(ctx) {
     // Other seasons are offered once per series, on its newest request (the list is newest
     // first).
     const offered = new Set();
-    list.replaceChildren(
-      ...items.map((r) => {
-        const others = r.kind === "series" && !offered.has(r.tmdb_id);
-        if (others) offered.add(r.tmdb_id);
-        return requestRow(ctx, r, { items, others, open });
-      }),
-    );
+    const rows = new Map(STAGES.map(([key]) => [key, []]));
+    for (const r of items) {
+      const others = r.kind === "series" && !offered.has(r.tmdb_id);
+      if (others) offered.add(r.tmdb_id);
+      rows.get(stage(r)).push(requestRow(ctx, r, { items, others, open }));
+    }
+    for (const [key, { box, list }] of stages) {
+      list.replaceChildren(...rows.get(key));
+      box.hidden = rows.get(key).length === 0;
+    }
     empty.hidden = items.length > 0;
   };
   draw(first.items);
   follow(ctx, "/api/v1/requests/events", "requests", draw, live);
-  return [group("Your requests", live, empty, list)];
+  return [group("Your requests", live, empty, [...stages.values()].map((s) => s.box))];
 }
