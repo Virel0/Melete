@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 118] = [
+const MODULES: [(&str, &str); 120] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -126,6 +126,8 @@ const MODULES: [(&str, &str); 118] = [
     ("music.js", include_str!("../web/music.js")),
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
+    ("music-flags.js", include_str!("../web/music-flags.js")),
+    ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
@@ -1044,6 +1046,15 @@ mod tests {
             assert!(body.contains("if (!hold("), "{name}");
             assert!(!body.contains("button.disabled = true;"), "{name}");
         }
+    }
+
+    #[test]
+    fn hidden_songs_are_closed_to_a_user_limited_to_some_music() {
+        assert!(module("music-hidden.js").contains(
+            r#"if (!seesAllMusic()) return show("Hidden songs", title, emptyState(SYNC_CLOSED));"#
+        ));
+        // The strip offers the flags only where likes are open too.
+        assert!(module("music-actions.js").contains("open ? flagButtons(track, said) : null,"));
     }
 
     #[test]
