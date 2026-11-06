@@ -1,10 +1,13 @@
 //! Following artists: a wanted artist's rule for later albums (`monitor_new`: all, new
-//! or none, as Lidarr has it) acted on. Now and then each followed artist's studio albums are
+//! or none, as Lidarr has it) acted on. Now and then each followed artist's music (every release
+//! group but spoken word, [`musicbrainz::Client::artist_albums`]) is
 //! looked up on MusicBrainz, through the client the matching shares so together they keep to
 //! one request a second. The first look only notes what's there; a release group that appears
 //! after it is wanted, with "all" whatever its date, with "new" when it's released from the day
 //! of that first look on (or has no date yet: an album announced). RSS and searches then fetch
-//! it as any wanted album. What leaves the server: the artists' MusicBrainz ids, to MusicBrainz.
+//! it as any wanted album, once a new single or EP whose songs are all on an album is left out
+//! ([`crate::single_songs`]). What leaves the server: the artists' and release groups' MusicBrainz
+//! ids, to MusicBrainz.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -229,7 +232,16 @@ pub async fn run(pool: SqlitePool, mb: Arc<musicbrainz::Client>) {
             let mb = mb.clone();
             async move { mb.artist_albums(&id).await }
         };
-        match check_due(&pool, albums, unix_now()).await {
+        let checked = check_due(&pool, albums, unix_now()).await;
+        match crate::single_songs::leave_out_covered(&pool, &mb, None).await {
+            Ok(left) if !left.is_empty() => tracing::info!(
+                left_out = left.join("; "),
+                "left out new singles whose songs are all on an album"
+            ),
+            Ok(_) => {}
+            Err(err) => tracing::warn!(error = %err, "couldn't compare new singles' songs"),
+        }
+        match checked {
             Ok(report) if report.checked == 0 => {}
             Ok(report) => tracing::info!(
                 checked = report.checked,
@@ -421,8 +433,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             seen.len(),
-            2,
-            "the two studio albums, not the live one or the single"
+            6,
+            "the albums, the live one and the singles, not the interviews"
         );
         let asked = log.lock().unwrap().clone();
         assert_eq!(asked.len(), 1);

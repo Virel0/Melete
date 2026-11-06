@@ -1,6 +1,7 @@
 //! Music requests: an artist, an album or a song, looked up on
 //! MusicBrainz, and put on the wanted list once approved. A whole artist is followed for new
-//! releases and wants every studio album; an album wants its artist too, followed for nothing
+//! releases and wants all its music (singles and EPs whose songs are all on an album left out
+//! before searching); an album wants its artist too, followed for nothing
 //! else; a song is wanted on its own. They go where the music defaults say, else
 //! to the only music library, decided with the default music profile, else the preset that
 //! prefers FLAC.
@@ -275,18 +276,26 @@ async fn want_artist(
     .await
 }
 
+/// Wants a release group of the artist's. One wanted as part of the whole artist has its songs
+/// compared with the artist's albums before it's searched for ([`crate::single_songs`]), and a
+/// single left out that way stays left out; one asked for by itself never is.
 async fn want_album(
     pool: &SqlitePool,
     artist: i64,
     group: &musicbrainz::ReleaseGroup,
+    with_artist: bool,
 ) -> sqlx::Result<i64> {
     let secondary = serde_json::to_string(group.secondary_types.as_deref().unwrap_or_default())
         .unwrap_or_else(|_| "[]".into());
+    let now = unix_now();
     sqlx::query_scalar(
         "INSERT INTO wanted_albums (wanted_artist_id, mb_release_group_id, title, album_type,
-             secondary_types, release_date, monitored, source, added_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'manual', ?)
-         ON CONFLICT (mb_release_group_id) DO UPDATE SET monitored = 1
+             secondary_types, release_date, monitored, source, added_at, songs_checked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 'manual', ?7, ?8)
+         ON CONFLICT (mb_release_group_id) DO UPDATE SET
+             monitored = CASE WHEN excluded.songs_checked_at IS NULL
+                               AND songs_checked_at IS NOT NULL THEN monitored ELSE 1 END,
+             songs_checked_at = coalesce(excluded.songs_checked_at, songs_checked_at)
          RETURNING id",
     )
     .bind(artist)
@@ -295,7 +304,8 @@ async fn want_album(
     .bind(&group.primary_type)
     .bind(secondary)
     .bind(&group.first_release_date)
-    .bind(unix_now())
+    .bind(now)
+    .bind((!with_artist).then_some(now))
     .fetch_one(pool)
     .await
 }
@@ -341,7 +351,7 @@ pub async fn want_song_album(pool: &SqlitePool, song: i64) -> anyhow::Result<Opt
         secondary_types: None,
         first_release_date: None,
     };
-    let album = want_album(pool, artist, &wanted).await?;
+    let album = want_album(pool, artist, &wanted, false).await?;
     sqlx::query("UPDATE wanted_songs SET wanted_album_id = ? WHERE id = ?")
         .bind(album)
         .bind(song)
@@ -573,12 +583,17 @@ mod tests {
             (followed.len(), followed[0].2, followed[0].3.as_str()),
             (1, true, "all")
         );
-        // Every studio album; live albums and singles aren't.
+        // All of its music: albums, live albums and singles, but not interviews. Singles whose
+        // songs are all on an album are left out later, before anything is searched for.
         assert_eq!(
             albums(&r.pool).await,
             [
                 ("OK Computer".into(), true, Some("1997-05-21".into())),
                 ("Kid A".into(), true, Some("2000-10-02".into())),
+                ("I Might Be Wrong".into(), true, Some("2001-11-12".into())),
+                ("Creep".into(), true, Some("1992-09-21".into())),
+                ("Karma Police".into(), true, Some("1997-08-25".into())),
+                ("Paranoid Android".into(), true, Some("1997-05-26".into())),
             ]
         );
 
@@ -592,6 +607,63 @@ mod tests {
             ),
             ("approved", None, approved.wanted_id)
         );
+    }
+
+    #[tokio::test]
+    async fn only_an_artists_whole_music_has_its_singles_compared() {
+        let r = rig().await;
+        let asked = ask(&r, &r.alice, album(OK_COMPUTER)).await.unwrap();
+        approve(&r, asked.id, &Choice::default()).await.unwrap();
+        let asked = ask(&r, &r.alice, artist(RADIOHEAD)).await.unwrap();
+        approve(&r, asked.id, &Choice::default()).await.unwrap();
+        let checked = |pool: SqlitePool| async move {
+            sqlx::query_as::<_, (String, bool, bool)>(
+                "SELECT title, monitored, songs_checked_at IS NULL FROM wanted_albums ORDER BY id",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        };
+        let waiting: Vec<(String, bool)> = checked(r.pool.clone())
+            .await
+            .into_iter()
+            .map(|(title, _, waiting)| (title, waiting))
+            .collect();
+        assert_eq!(
+            waiting[..3],
+            [
+                ("OK Computer".into(), false),
+                ("Kid A".into(), true),
+                ("I Might Be Wrong".into(), true),
+            ],
+            "the album asked for by itself is never compared; the artist's others wait to be"
+        );
+
+        // A single left out stays left out when the artist is asked for again.
+        sqlx::query(
+            "UPDATE wanted_albums SET monitored = 0, songs_checked_at = 1 WHERE title = 'Karma Police'",
+        )
+        .execute(&r.pool)
+        .await
+        .unwrap();
+        let artist: i64 = sqlx::query_scalar("SELECT id FROM wanted_artists")
+            .fetch_one(&r.pool)
+            .await
+            .unwrap();
+        let group = musicbrainz::ReleaseGroup {
+            id: musicbrainz::testing::KARMA_SINGLE.into(),
+            title: Some("Karma Police".into()),
+            primary_type: Some("Single".into()),
+            secondary_types: Some(Vec::new()),
+            first_release_date: None,
+        };
+        want_album(&r.pool, artist, &group, true).await.unwrap();
+        let karma = checked(r.pool.clone())
+            .await
+            .into_iter()
+            .find(|(title, ..)| title == "Karma Police")
+            .unwrap();
+        assert_eq!(karma, ("Karma Police".into(), false, false));
     }
 
     #[tokio::test]
