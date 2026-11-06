@@ -21,6 +21,7 @@ mod following;
 mod grabbing;
 mod records;
 mod removing;
+mod stalls;
 
 pub use clearing::*;
 pub use copying::*;
@@ -29,6 +30,7 @@ pub use following::*;
 pub use grabbing::*;
 pub use records::*;
 pub use removing::*;
+pub use stalls::*;
 
 /// The largest .torrent fetched.
 const MAX_TORRENT_BYTES: usize = 10 * 1024 * 1024;
@@ -582,6 +584,54 @@ mod tests {
             download.message.as_deref(),
             Some("it was already in Deluge")
         );
+    }
+
+    #[tokio::test]
+    async fn progress_that_moves_is_timed_and_clears_a_stall_note() {
+        let pool = db::open_in_memory().await;
+        let base = indexer().await;
+        let ids = releases(&pool, &[format!("{base}/t"), String::new()]).await;
+        let (p, fake) = pipeline().await;
+        let movie = grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        let note = "no progress for 4 hours, but searched again; nothing else to grab yet";
+        sqlx::query("UPDATE downloads SET stall_note = ? WHERE id = ?")
+            .bind(note)
+            .bind(movie.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let at = |pool: SqlitePool| async move {
+            sqlx::query_as::<_, (Option<i64>, Option<String>, Option<String>)>(
+                "SELECT progress_at, stall_note, message FROM downloads WHERE id = ?",
+            )
+            .bind(movie.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        let stuck = testing::status("Some.Movie", "Downloading", 0.0, false);
+        fake.lock()
+            .unwrap()
+            .torrents
+            .insert(MOVIE_HASH.into(), stuck);
+        refresh(&pool, &p.deluge).await.unwrap();
+        let (moved, kept, message) = at(pool.clone()).await;
+        assert_eq!(moved, None, "no progress yet");
+        assert_eq!(kept.as_deref(), Some(note));
+        assert_eq!(message, Some(format!("Downloading; {note}")));
+
+        let moving = testing::status("Some.Movie", "Downloading", 3.0, false);
+        fake.lock()
+            .unwrap()
+            .torrents
+            .insert(MOVIE_HASH.into(), moving);
+        refresh(&pool, &p.deluge).await.unwrap();
+        let (moved, kept, message) = at(pool.clone()).await;
+        assert!(moved.is_some_and(|t| unix_now() - t < 60));
+        assert_eq!((kept, message.as_deref()), (None, Some("Downloading")));
     }
 
     #[tokio::test]

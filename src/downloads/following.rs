@@ -53,13 +53,23 @@ pub async fn refresh(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Resu
                     "Error" => format!("Deluge: {}", status.message),
                     state => state.to_owned(),
                 };
+                // Progress that went up clears what was said about a stall (see `stalls`).
                 sqlx::query(
-                    "UPDATE downloads SET state = ?, progress = ?, size = ?, save_path = ?, name = ?,
-                         files = ?, message = ?, missing_since = NULL, updated_at = ?, completed_at = ?
-                     WHERE id = ? AND state = 'downloading'",
+                    "UPDATE downloads SET state = ?1, progress = ?2, size = ?3, save_path = ?4,
+                         name = ?5, files = ?6,
+                         message = CASE WHEN ?2 <= progress AND stall_note IS NOT NULL
+                                        THEN ?7 || '; ' || stall_note ELSE ?7 END,
+                         progress_at = CASE WHEN ?2 > progress THEN ?8 ELSE progress_at END,
+                         stall_note = CASE WHEN ?2 > progress THEN NULL ELSE stall_note END,
+                         missing_since = NULL, updated_at = ?8, completed_at = ?9
+                     WHERE id = ?10 AND state = 'downloading'",
                 )
                 .bind(if finished { "completed" } else { "downloading" })
-                .bind(if finished { 100.0 } else { status.progress.clamp(0.0, 100.0) })
+                .bind(if finished {
+                    100.0
+                } else {
+                    status.progress.clamp(0.0, 100.0)
+                })
                 .bind(status.total_size)
                 .bind(&status.save_path)
                 .bind(&status.name)

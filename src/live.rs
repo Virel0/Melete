@@ -164,6 +164,39 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
     })
 }
 
+/// The torrent downloads' tasks, when downloads are on: following them in Deluge, replacing
+/// stalled ones, and copying finished ones home.
+fn spawn_downloads(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<()>>) {
+    match &built.pipeline {
+        Some(pipeline) => {
+            if pipeline.seedbox.is_none() {
+                tracing::warn!(
+                    "MELETE_SEEDBOX_HOST is not set; finished downloads stay on the seedbox"
+                );
+            }
+            tasks.push(tokio::spawn(downloads::follow(
+                pool.clone(),
+                pipeline.clone(),
+            )));
+            tasks.push(tokio::spawn(downloads::watch_stalls(
+                pool.clone(),
+                crate::fulfil::Sources {
+                    tmdb: built.tmdb.clone(),
+                    slskd: built.slskd.clone(),
+                    pipeline: Some(pipeline.clone()),
+                },
+            )));
+            tasks.push(tokio::spawn(transfer::work_with(
+                pool.clone(),
+                pipeline.clone(),
+                built.fixes.clone(),
+                built.tmdb.clone(),
+            )));
+        }
+        None => tracing::info!("downloads are off; MELETE_DOWNLOADS=on turns them on"),
+    }
+}
+
 /// Starts the background work the services need, saying what's on and off.
 fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
     let pool = &fixed.pool;
@@ -196,26 +229,7 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
             ),
         }
     }
-    match &built.pipeline {
-        Some(pipeline) => {
-            if pipeline.seedbox.is_none() {
-                tracing::warn!(
-                    "MELETE_SEEDBOX_HOST is not set; finished downloads stay on the seedbox"
-                );
-            }
-            tasks.push(tokio::spawn(downloads::follow(
-                pool.clone(),
-                pipeline.clone(),
-            )));
-            tasks.push(tokio::spawn(transfer::work_with(
-                pool.clone(),
-                pipeline.clone(),
-                built.fixes.clone(),
-                built.tmdb.clone(),
-            )));
-        }
-        None => tracing::info!("downloads are off; MELETE_DOWNLOADS=on turns them on"),
-    }
+    spawn_downloads(pool, built, &mut tasks);
     tasks.push(tokio::spawn(rss::run(
         pool.clone(),
         built.tmdb.clone(),
