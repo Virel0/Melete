@@ -5,7 +5,8 @@
 // - row(key, heading, items, { wide, more, spotlight, watching }): a <section> with its
 //   heading, a link to the whole list when `more` is { href, label }, and a tile per item;
 //   null for none.
-// - posterTile(item, href) and wideTile(item, href): one tile each.
+// - posterTile(item, href) and wideTile(item, href): one tile each; in a row, a wide tile that
+//   plays has a "Go to series" (or movie) link under it.
 // - badgeOf(item, watching): the one badge a tile wears, or null.
 
 import { h } from "/web/lib.js";
@@ -87,13 +88,13 @@ export function wideTile(item, href) {
 export function row(key, heading, items, { wide = false, more = null, spotlight = null, watching = new Map() } = {}) {
   if (!items.length) return null;
   spotlight?.add(items);
-  const tiles = items.map((item) =>
-    wide ? wideTile(item, playsAt(item)) : posterTile(item, titleHref(item), badgeOf(item, watching.has(item.id))),
+  const cells = items.map((item) =>
+    wide ? [wideTile(item, playsAt(item)), openLink(item)] : [posterTile(item, titleHref(item), badgeOf(item, watching.has(item.id)))],
   );
   const list = h(
     "ul",
     { class: `watch-shelf${wide ? " wide" : ""}`, "aria-labelledby": `row-${key}` },
-    tiles.map((tile) => h("li", {}, tile)),
+    cells.map((cell) => h("li", {}, cell)),
   );
   rove(list);
   if (spotlight) spotlight.watch(list);
@@ -110,25 +111,39 @@ export function row(key, heading, items, { wide = false, more = null, spotlight 
   );
 }
 
+// Under a tile that plays, a link to its series' or movie's page, for another episode or the
+// rest of it; null when the tile opens the page itself.
+function openLink(item) {
+  const href = titleHref(item);
+  if (playsAt(item) === href) return null;
+  const what = item.kind === "movie" ? "movie" : "series";
+  return h("a", { class: "tile-open", href, "aria-label": `Go to ${what}, ${item.title}` }, `Go to ${what}`);
+}
+
 // One Tab stop per row: the arrow keys move along it, Home and End to its ends, and Tab comes
-// back to the tile last on.
+// back to the tile last on; the next Tab reaches that tile's own "Go to" link, if it has one.
 function rove(list) {
   const links = () => [...list.querySelectorAll("a.tile")];
-  links().forEach((a, i) => a.setAttribute("tabindex", i ? "-1" : "0"));
+  const reach = (tile, on) => {
+    tile.setAttribute("tabindex", on ? "0" : "-1");
+    tile.parentElement?.querySelector("a.tile-open")?.setAttribute("tabindex", on ? "0" : "-1");
+  };
+  links().forEach((a, i) => reach(a, !i));
   list.addEventListener("keydown", (event) => {
     const all = links();
-    const at = all.indexOf(document.activeElement);
+    // From a tile or its "Go to" link alike.
+    const at = all.indexOf(document.activeElement?.closest("li")?.querySelector("a.tile"));
     if (at < 0) return;
     const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: all.length - 1 }[event.key];
     if (to === undefined || !all[to]) return;
     event.preventDefault();
-    all[at].setAttribute("tabindex", "-1");
-    all[to].setAttribute("tabindex", "0");
+    reach(all[at], false);
+    reach(all[to], true);
     all[to].focus();
   });
   list.addEventListener("focusin", (event) => {
-    const tile = event.target.closest("a.tile");
+    const tile = event.target.closest("li")?.querySelector("a.tile");
     if (!tile) return;
-    for (const a of links()) a.setAttribute("tabindex", a === tile ? "0" : "-1");
+    for (const a of links()) reach(a, a === tile);
   });
 }

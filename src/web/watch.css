@@ -144,6 +144,9 @@
 .tile-caption > .clip:first-child { flex: 1; }
 .tile-caption > .clip + .clip { max-width: 45%; color: var(--muted); }
 .tile-note { flex: none; color: var(--muted); }
+/* Under a tile that plays: its title's page, small and quiet, with room for a finger. */
+.tile-open { display: inline-block; margin-block-start: var(--space-1); min-height: 24px; color: var(--muted); font-size: var(--step--1); }
+.tile-open:hover { color: inherit; }
 /* Why the AI picked it: three lines at most, all of it on hover. */
 .tile-reason {
   color: var(--muted);
