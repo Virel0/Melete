@@ -546,6 +546,29 @@ mod tests {
     }
 
     #[test]
+    fn the_hero_wide_tiles_and_grid_cards_wear_a_tiles_badge() {
+        // Wide tiles as well as posters, by whether the series is being watched.
+        let tiles = module("watch-tiles.js");
+        assert!(tiles.contains("const badge = badgeOf(item, watching.has(item.id));"));
+        assert!(tiles.contains("wideTile(item, playsAt(item), badge)"));
+        // The hero, at the end of its facts.
+        let hero = module("watch-hero.js");
+        assert!(hero.contains("const badge = badgeOf(item, watching.has(item.id));"));
+        assert!(hero.contains(r#"h("li", { class: "hero-badge" }, badge)"#));
+        // The grids of all shows, anime and movies, which know the series being watched from
+        // their page's home; list items don't say their kind, so it's added.
+        let browse = module("browse.js");
+        assert!(browse.contains(
+            r#"badgeOf({ ...item, kind: kind === "movies" ? "movie" : "series" }, kind === "series" && watching.has(item.id))"#
+        ));
+        assert!(
+            module("watch-kind.js")
+                .contains("everything(page, params, gen, { genres, libraries, ai, watching })")
+        );
+        assert!(module("cards.js").contains("export function titleCard(kind, item, badge = null)"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.

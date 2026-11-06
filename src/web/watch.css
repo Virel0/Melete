@@ -136,6 +136,16 @@
   font-size: var(--step--1);
   font-weight: 600;
 }
+/* A grid's cards wear it over their poster's corner too. */
+.card { position: relative; }
+/* The hero's, at the end of its facts: brass, as the stage is the chip's own colour. */
+.hero-facts .hero-badge {
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
 /* How far through: the bar on its track, so the end shows. */
 .tile-progress { display: block; height: 4px; margin-block-start: calc(-1 * var(--space-1)); border-radius: 2px; overflow: hidden; background: var(--line); }
 .tile-progress span { display: block; height: 100%; background: var(--accent); }
