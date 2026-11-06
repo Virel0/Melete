@@ -31,30 +31,56 @@ pub(crate) async fn search_again(
     sources: &crate::fulfil::Sources,
     target: Target,
 ) -> anyhow::Result<String> {
+    Ok(match search_again_for(pool, sources, target).await? {
+        Again::Grabbed(title) => format!("searched again and grabbed {title}"),
+        Again::Not(why) => why,
+    })
+}
+
+/// What searching again came to.
+pub(crate) enum Again {
+    /// A download was started, of this release.
+    Grabbed(String),
+    /// Nothing was grabbed: why, as said to an admin.
+    Not(String),
+}
+
+/// [`search_again`], saying whether a download was started.
+pub(crate) async fn search_again_for(
+    pool: &SqlitePool,
+    sources: &crate::fulfil::Sources,
+    target: Target,
+) -> anyhow::Result<Again> {
     if !monitored(pool, target).await? {
-        return Ok("it isn't monitored, so it wasn't searched for again".into());
-    }
-    if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
-        return Ok(format!(
-            "{} downloads of it didn't pass the running-time check, so Melete has stopped searching for it by itself; if its runtime is right after all, an admin can say so on its page",
-            crate::runtime_checks::STOP_AFTER
+        return Ok(Again::Not(
+            "it isn't monitored, so it wasn't searched for again".into(),
         ));
     }
+    if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
+        return Ok(Again::Not(format!(
+            "{} downloads of it didn't pass the running-time check, so Melete has stopped searching for it by itself; if its runtime is right after all, an admin can say so on its page",
+            crate::runtime_checks::STOP_AFTER
+        )));
+    }
     let Some(pipeline) = sources.pipeline.as_deref() else {
-        return Ok("downloads are off, so it wasn't searched for again".into());
+        return Ok(Again::Not(
+            "downloads are off, so it wasn't searched for again".into(),
+        ));
     };
     let client = crate::torznab::Client::new()?;
     let search_id =
         match crate::search::search(pool, &client, sources.tmdb.as_deref(), target).await? {
             Ok(search_id) => search_id,
-            Err(refused) => return Ok(format!("couldn't search again: {refused}")),
+            Err(refused) => return Ok(Again::Not(format!("couldn't search again: {refused}"))),
         };
     let mut grabbed = Vec::new();
     crate::rss::grab_for(pool, pipeline, target, search_id, &mut grabbed).await?;
-    Ok(match grabbed.iter().find(|g| g.download_id.is_some()) {
-        Some(g) => format!("searched again and grabbed {}", g.title),
-        None => "searched again; nothing else to grab yet".into(),
-    })
+    Ok(
+        match grabbed.into_iter().find(|g| g.download_id.is_some()) {
+            Some(g) => Again::Grabbed(g.title),
+            None => Again::Not("searched again; nothing else to grab yet".into()),
+        },
+    )
 }
 
 /// Whether the movie, or the series and its season, are still monitored.
