@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 118] = [
+const MODULES: [(&str, &str); 119] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -179,6 +179,7 @@ const MODULES: [(&str, &str); 118] = [
         "requests-admin.js",
         include_str!("../web/requests-admin.js"),
     ),
+    ("search.js", include_str!("../web/search.js")),
     ("services.js", include_str!("../web/services.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
@@ -576,6 +577,26 @@ mod tests {
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, HLS_SHA256, "src/web/vendor/hls-1.7.3.mjs changed");
         assert!(!HLS.contains("eval(") && !HLS.contains("new Function"));
+    }
+
+    /// The search page asks TMDB for titles not in the library only once discovery says it's
+    /// on, and the palette's last result leads there.
+    #[test]
+    fn search_asks_tmdb_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let search = module("search.js");
+        let status = search.find("api(\"/discover/status\")").unwrap();
+        let gate = search
+            .find("v.discovery && q.length >= 2 ? findOutside")
+            .unwrap();
+        let tmdb = search.find("/discover/search?").unwrap();
+        assert!(status < gate && search.contains("discovery: false,"));
+        assert!(tmdb > search.find("async function findOutside").unwrap());
+        assert_eq!(search.matches("/discover/search").count(), 1);
+        assert!(search.contains("candidateRow(ctx, candidate(d))"));
+        assert!(module("requests.js").contains("export function candidateRow"));
+        assert!(module("palette.js").contains("#/search?${new URLSearchParams({ q: typed })}"));
+        assert!(module("app.js").contains("searchPage(params, gen)"));
     }
 
     #[tokio::test]

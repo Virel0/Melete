@@ -91,8 +91,9 @@ async function ask(ctx) {
   ];
 }
 
-// One thing found, with a button to ask for it, or why there's no need.
-function candidateRow(ctx, c) {
+// One thing found, with a button to ask for it, or why there's no need. The search page uses it
+// too, for titles not in the library.
+export function candidateRow(ctx, c) {
   const result = h("span", { class: "note", role: "status" });
   const actions = h("div", { class: "row-actions" });
   const badges = [
