@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 119] = [
+const MODULES: [(&str, &str); 120] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -180,6 +180,7 @@ const MODULES: [(&str, &str); 119] = [
         include_str!("../web/requests-admin.js"),
     ),
     ("search.js", include_str!("../web/search.js")),
+    ("trending.js", include_str!("../web/trending.js")),
     ("services.js", include_str!("../web/services.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
@@ -597,6 +598,25 @@ mod tests {
         assert!(module("requests.js").contains("export function candidateRow"));
         assert!(module("palette.js").contains("#/search?${new URLSearchParams({ q: typed })}"));
         assert!(module("app.js").contains("searchPage(params, gen)"));
+    }
+
+    /// Trending is asked for only once discovery says it's on (the page's own answer, or
+    /// /discover/status), on the search page before anything is typed and on the Ask page.
+    #[test]
+    fn trending_is_asked_for_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let trending = module("trending.js");
+        let status = trending
+            .find("known ?? (await api(\"/discover/status\")).on")
+            .unwrap();
+        let gate = trending.find("if (!on) return;").unwrap();
+        let chart = trending.find("/discover/trending?").unwrap();
+        assert!(status < gate && gate < chart);
+        assert!(trending.contains("body: { kind: item.kind, tmdb_id: item.tmdb_id }"));
+        let search = module("search.js");
+        assert!(search.contains("if (v.discovery) v.start.append(trendingSection("));
+        assert!(search.contains("v.start.hidden = Boolean(q);"));
+        assert!(module("requests.js").contains("trendingSection(ctx, { id: \"ask-trending\""));
     }
 
     #[tokio::test]

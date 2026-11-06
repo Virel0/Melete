@@ -8,6 +8,7 @@ import { follow } from "/web/progress.js";
 import { decide, settings } from "/web/requests-admin.js";
 import { imports } from "/web/requests-imports.js";
 import { KINDS, facts, requestRow } from "/web/requests-row.js";
+import { trendingSection } from "/web/trending.js";
 
 export { decide, settings } from "/web/requests-admin.js";
 export { imports } from "/web/requests-imports.js";
@@ -87,6 +88,8 @@ async function ask(ctx) {
       search,
       results,
     ),
+    // This week's trending titles, while discovery is on.
+    trendingSection(ctx, { id: "ask-trending", className: "group trending" }),
     byName,
   ];
 }

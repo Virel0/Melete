@@ -2,13 +2,15 @@
 // while discovery is on, TMDB's titles that aren't in the library, each to ask for. The words
 // go to TMDB only then; with discovery off, only the library is searched. What's typed is kept
 // in the page's address (#/search?q=…), so Back, a reload and the palette's "See all results"
-// open the same search.
+// open the same search. Before anything is typed, while discovery is on, what's trending this
+// week (trending.js).
 
 import { SignedOut, api, h, plural, show } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { titleCard } from "/web/cards.js";
 import { failed, placeholders } from "/web/page-parts.js";
 import { candidateRow } from "/web/requests.js";
+import { trendingSection } from "/web/trending.js";
 
 // How many of each kind the library shows, and TMDB's per kind.
 const LIBRARY_LIMIT = 24;
@@ -24,6 +26,8 @@ export async function searchPage(params, gen) {
     discovery: false,
     input: h("input", { id: "search-words", type: "search", autocomplete: "off", spellcheck: "false", maxlength: 200 }),
     said: h("p", { class: "status", role: "status" }),
+    // What's shown before anything is typed.
+    start: h("div", { class: "search-start" }),
     library: h("section", { class: "search-library", "aria-labelledby": "search-library-head", hidden: true }),
     outside: h("section", { class: "search-outside", "aria-labelledby": "search-outside-head", hidden: true }),
   };
@@ -38,6 +42,7 @@ export async function searchPage(params, gen) {
     h("h1", {}, "Search"),
     box,
     v.said,
+    v.start,
     v.library,
     v.outside,
     h("p", { class: "note" }, "Not here, or looking for music? ", h("a", { href: "#/requests/ask" }, "Ask for something"), "."),
@@ -49,6 +54,7 @@ export async function searchPage(params, gen) {
     // Unknown is off: nothing goes to TMDB.
   }
   if (gen !== generation) return;
+  if (v.discovery) v.start.append(trendingSection({ signedOut }, { id: "search-trending", on: true }));
   listen(v, box);
   find(v);
 }
@@ -81,6 +87,7 @@ async function find(v) {
   const mine = ++v.asking;
   const stale = () => v.gen !== generation || mine !== v.asking;
   const { q } = v;
+  v.start.hidden = Boolean(q);
   if (!q) {
     v.library.hidden = v.outside.hidden = true;
     v.said.textContent = v.discovery

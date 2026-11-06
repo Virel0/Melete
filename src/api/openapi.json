@@ -1697,7 +1697,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Whether discovery is on",
-        "description": "On when an admin turned trending and similar titles on (`MELETE_DISCOVERY`, off by default) and TMDB is set up. Nothing is asked of TMDB. The web UI's search looks up titles not in the library (`GET /api/v1/discover/search`) only while it's on, so a search of the library sends nothing out while it's off.",
+        "description": "On when an admin turned trending and similar titles on (`MELETE_DISCOVERY`, off by default) and TMDB is set up. Nothing is asked of TMDB. The web UI's search looks up titles not in the library (`GET /api/v1/discover/search`) only while it's on, so a search of the library sends nothing out while it's off; it asks for trending titles only while it's on, too.",
         "responses": {
           "200": {
             "description": "OK",
