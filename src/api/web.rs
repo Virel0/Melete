@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 118] = [
+const MODULES: [(&str, &str); 119] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -88,6 +88,10 @@ const MODULES: [(&str, &str); 118] = [
     (
         "player-subtitle-search.js",
         include_str!("../web/player-subtitle-search.js"),
+    ),
+    (
+        "player-subtitle-size.js",
+        include_str!("../web/player-subtitle-size.js"),
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
@@ -543,6 +547,30 @@ mod tests {
         let keys = module("player-keys.js");
         assert!(keys.contains(r#"video.addEventListener("dblclick""#));
         assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    #[test]
+    fn subtitles_come_in_four_sizes_kept_by_the_browser_for_plain_and_styled_tracks() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        assert!(
+            module("player.js").contains("sizePicker(s.video, (scale) => scaleStyled(s, scale))")
+        );
+        let size = module("player-subtitle-size.js");
+        for label in ["\"Small\"", "\"Medium\"", "\"Large\"", "\"Extra large\""] {
+            assert!(size.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off still plays.
+        assert!(size.contains("try {\n    const kept = localStorage.getItem(KEY);"));
+        assert!(size.contains("try {\n    localStorage.setItem(KEY, size.size);"));
+        assert!(size.contains("announce(`Subtitle size: ${size.label}`)"));
+        // Text tracks through ::cue, styled ones by their styles' font sizes.
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "watch.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(r#".stage video[data-subtitle-size="extra-large"]::cue"#));
+        assert!(module("player-ass.js").contains("FontSize: style.FontSize * scale"));
     }
 
     #[test]
