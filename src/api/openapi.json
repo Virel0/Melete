@@ -6157,7 +6157,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "playback",
         "summary": "Keep a listen",
-        "description": "For apps that don't sync through Aoide (whose devices' play events reach the history by themselves). Send it when the listen ends, or when it starts and again when it ends with the same id: a listen sent again with its id is changed, not added twice.",
+        "description": "For apps that don't sync through Aoide (whose devices' play events reach the history by themselves). Send it when the listen ends, or when it starts and again when it ends with the same id: a listen sent again with its id is changed, not added twice. It's also written into your sync log as the play event an Aoide device would push (its `id` the event's id, the session as the device), so it counts on your Aoide devices too; deleting it from your history doesn't take it off them, as play events there are append-only. A song you flagged \"don't count plays\" has no listen kept (409).",
         "requestBody": {
           "required": true,
           "content": {
@@ -6211,7 +6211,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "You deleted the listen with this id from your history; it stays deleted",
+            "description": "You deleted the listen with this id from your history (it stays deleted), or flagged its song \"don't count plays\"",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
