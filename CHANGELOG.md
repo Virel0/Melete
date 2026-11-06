@@ -7,6 +7,41 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-06
+
+### Added
+
+- A torrent that Deluge says is downloading but that hasn't moved for 4 hours is replaced: its
+  title (or album) is searched for again, passing over its release, and when another release
+  is grabbed the stalled one is removed from Deluge with its data and its release blocklisted.
+  With nothing else to grab it keeps going, says so, and is looked at again 4 hours later.
+  Paused and queued torrents aren't stalled.
+- On the web Watch home, each Continue watching and Next up tile that plays has a "Go to
+  series" (or "Go to movie") link under it, to choose another episode or see the title. The
+  row stays one Tab stop: Tab goes from a tile to its link, then on past the row.
+- Before an artist's music is searched for, and after following finds new releases, each
+  single or EP is compared with the artist's albums on MusicBrainz: one whose every song is on
+  an album (the same recording, or the same title but for an edit or version note like "Radio
+  Edit") is left out, so its songs don't come in twice. One with a song of its own (a B-side, a
+  remix, a live take) is wanted whole. An album or single asked for by itself is never left out.
+
+### Changed
+
+- Asking for an artist (or following one) wants all their music: albums, EPs, singles, and live,
+  compilation, remix and soundtrack release groups; only spoken word and broadcasts stay out.
+  Before, only studio albums were wanted, so an artist with one album and many singles got one
+  album.
+
+### Fixed
+
+- An album whose tracks mostly carry a MusicBrainz release id, with one that doesn't (a bonus
+  track the release doesn't list), is one album again rather than two of the same name in the
+  same folder. The extra entry goes at the next scan.
+- A season pack (or a movie) with extras beside its videos imports: creditless openings and
+  endings (NCOP, NCED), PVs, CMs, menus, trailers, and what's in an Extras, NC, Featurettes or
+  Bonus folder go in the title's `Extras` folder, and the running-time check passes them over.
+  Before, one extra without an episode number held the whole pack back and blocklisted it.
+
 ## [0.5.0] - 2026-11-05
 
 ### Added
@@ -466,7 +501,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Virel0/Melete/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Virel0/Melete/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Virel0/Melete/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Virel0/Melete/compare/v0.3.1...v0.3.2
