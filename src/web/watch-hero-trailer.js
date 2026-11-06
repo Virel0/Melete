@@ -15,9 +15,10 @@
 // Never when the device asks for less motion. On a phone-sized screen only when the user's
 // playback preferences say every screen; "Never" there turns previews off.
 //
-// heroTrailer(art) → { el, show(item), stop(), playing() }: `art` is where the picture goes,
-// `el` holds the buttons, `show` starts the wait for an item's preview, and `playing` says
-// whether one is playing now, so the hero holds still meanwhile.
+// heroTrailer(art) → { el, show(item), stop(), playing(), close() }: `art` is where the picture
+// goes, `el` holds the buttons, `show` starts the wait for an item's preview, `stop` ends it,
+// `playing` says whether one is playing now, so the hero holds still meanwhile, and `close`
+// ends it for good, for leaving the page.
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
 import { HLS_MODULE, choose, mse } from "/web/player-choice.js";
@@ -181,6 +182,11 @@ export function heroTrailer(art) {
       }
     }, WAIT_MS);
   };
-  addEventListener("visibilitychange", () => document.hidden && end());
-  return { el, show, stop: end, playing: () => Boolean(t.picture) };
+  const hidden = () => document.hidden && end();
+  addEventListener("visibilitychange", hidden);
+  const close = () => {
+    end();
+    removeEventListener("visibilitychange", hidden);
+  };
+  return { el, show, stop: end, playing: () => Boolean(t.picture), close };
 }
