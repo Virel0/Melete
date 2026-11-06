@@ -283,7 +283,7 @@ fn episodes_of<'a>(
 pub(super) async fn check_staged(check: &Check, staged: &[Staged]) -> Result<(), Stop> {
     let videos: Vec<Video> = staged
         .iter()
-        .filter(|s| has_extension(&s.name, VIDEO))
+        .filter(|s| has_extension(&s.name, VIDEO) && !s.extra)
         .map(|s| Video {
             name: &s.name,
             path: s.partial.as_deref().unwrap_or(&s.target),

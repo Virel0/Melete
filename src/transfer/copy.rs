@@ -237,6 +237,8 @@ pub(super) struct Staged {
     pub(super) partial: Option<PathBuf>,
     /// Where it goes.
     pub(super) target: PathBuf,
+    /// Whether it's one of the title's extras, which the running-time check passes over.
+    pub(super) extra: bool,
 }
 
 /// Copies one file into `dir` under its part name, resuming a partial copy, telling `tracker`
@@ -256,6 +258,7 @@ pub(super) async fn fetch(
         name: file.name.clone(),
         partial,
         target: target.clone(),
+        extra: file.folder == EXTRAS,
     };
     // Anything at the name (a file, a folder, even a dangling link) stops the copy, unless this
     // download put it there itself (and a restart came before the database heard).
