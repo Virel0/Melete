@@ -63,6 +63,38 @@ pub(super) fn album_key(track: &TrackFacts) -> String {
     }
 }
 
+/// Each track's album key, by [`album_key`], except that a track without a release id joins the
+/// MusicBrainz release its folder's tracks with the same album tag carry, when there's exactly
+/// one: a bonus track the release doesn't list stays with the album rather than making another.
+pub(super) fn album_keys(tracks: &[TrackFacts]) -> Vec<String> {
+    let mut releases: HashMap<(&str, String), Vec<&str>> = HashMap::new();
+    for track in tracks {
+        if let (Some(release), Some(album)) = (&track.mb_release_id, &track.album) {
+            let found = releases
+                .entry((album_folder(&track.rel_path), album.to_lowercase()))
+                .or_default();
+            if !found.contains(&release.as_str()) {
+                found.push(release);
+            }
+        }
+    }
+    tracks
+        .iter()
+        .map(|track| {
+            let joined = match (&track.mb_release_id, &track.album) {
+                (None, Some(album)) => releases
+                    .get(&(album_folder(&track.rel_path), album.to_lowercase()))
+                    .and_then(|found| match found.as_slice() {
+                        [one] => Some(format!("mb:{one}")),
+                        _ => None,
+                    }),
+                _ => None,
+            };
+            joined.unwrap_or_else(|| album_key(track))
+        })
+        .collect()
+}
+
 pub(super) fn artist_key(name: &str, mb_artist_id: Option<&str>) -> String {
     match mb_artist_id {
         Some(id) => format!("mb:{id}"),
@@ -137,5 +169,57 @@ pub(super) fn album_of(tracks: &[&TrackFacts]) -> AlbumFacts {
             tracks.iter().filter_map(|t| t.mb_release_group_id.clone()),
         ),
         mb_artist_id,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(rel_path: &str, album: &str, release: Option<&str>) -> TrackFacts {
+        TrackFacts {
+            rel_path: rel_path.into(),
+            tagged: true,
+            album: Some(album.into()),
+            mb_release_id: release.map(Into::into),
+            ..TrackFacts::default()
+        }
+    }
+
+    #[test]
+    fn a_track_without_a_release_id_stays_with_its_album() {
+        let mut tracks: Vec<TrackFacts> = (1..=16)
+            .map(|n| {
+                track(
+                    &format!("A/Halcyon (2025)/{n:02}.flac"),
+                    "Halcyon",
+                    Some("rel-1"),
+                )
+            })
+            .collect();
+        tracks.push(track("A/Halcyon (2025)/17 Bonus.flac", "HALCYON", None));
+        let keys = album_keys(&tracks);
+        assert!(keys.iter().all(|k| k == "mb:rel-1"), "{keys:?}");
+    }
+
+    #[test]
+    fn two_releases_or_another_album_tag_stay_apart() {
+        let tracks = [
+            track("A/Both/01.flac", "Greatest Hits", Some("rel-1")),
+            track("A/Both/02.flac", "Greatest Hits", Some("rel-2")),
+            track("A/Both/03.flac", "Greatest Hits", None),
+            track("A/Both/04.flac", "Other", None),
+            track("A/Elsewhere/01.flac", "Greatest Hits", None),
+        ];
+        assert_eq!(
+            album_keys(&tracks),
+            [
+                "mb:rel-1",
+                "mb:rel-2",
+                "tag:A/Both\u{1f}greatest hits",
+                "tag:A/Both\u{1f}other",
+                "tag:A/Elsewhere\u{1f}greatest hits",
+            ]
+        );
     }
 }

@@ -226,8 +226,8 @@ async fn store_albums(
     .await?;
     report.unparsed = tracks.iter().filter(|t| !t.tagged).count();
     let mut groups: HashMap<String, Vec<&TrackFacts>> = HashMap::new();
-    for track in &tracks {
-        groups.entry(album_key(track)).or_default().push(track);
+    for (track, key) in tracks.iter().zip(album_keys(&tracks)) {
+        groups.entry(key).or_default().push(track);
     }
     for (key, members) in &groups {
         upsert_album(&mut *tx, library, key, members, artwork, generation).await?;
