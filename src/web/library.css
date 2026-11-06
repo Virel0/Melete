@@ -78,6 +78,9 @@ section + section { margin-block-start: var(--space-7); }
   overflow-wrap: anywhere;
 }
 .card .meta { color: var(--muted); font-size: var(--step--1); }
+/* Ask for it under a card (a collection's films), with what asking said. */
+.card-ask { margin-block-start: var(--space-2); }
+.card-ask .meta { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--step--1); }
 
 .more { margin-block-start: var(--space-6); text-align: center; }
 

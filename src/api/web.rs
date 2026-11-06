@@ -545,6 +545,17 @@ mod tests {
         assert!(keys.contains("stage.requestFullscreen"));
     }
 
+    /// A collection's film that isn't in the library and that nobody asked for can be asked for
+    /// from the collection's page, by its TMDB id, as a movie.
+    #[test]
+    fn a_collections_missing_films_can_be_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let people = module("people.js");
+        assert!(people.contains(r#"item.state === "requestable" ? askFor(item, state) : null"#));
+        assert!(people.contains(r#"body: { kind: "movie", tmdb_id: item.tmdb_id }"#));
+        assert!(people.contains("state.textContent = STATES.requested;"));
+    }
+
     #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
