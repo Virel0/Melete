@@ -4,12 +4,30 @@ import { api, h, loading, metaRow, plural, show } from "/web/lib.js";
 import { art, titleCard } from "/web/cards.js";
 import { generation } from "/web/page-state.js";
 
-// One person in a title's credits: their name, linking to their page, and what they did.
-function personItem(name, personId, what) {
+// "Erin Van Der Test" → "ET", "Dee" → "D": the letters standing in for a missing picture.
+function initials(name) {
+  const words = name.split(/\s+/).filter(Boolean);
+  const first = (word) => [...(word ?? "")][0] ?? "";
+  return (first(words[0]) + (words.length > 1 ? first(words.at(-1)) : "")).toUpperCase() || "?";
+}
+
+// A small round picture of someone in the credits, read only as it nears the screen; their
+// initials when there's none, or it can't be read. The name beside it says who it is.
+function face(name, src) {
+  const letters = () => h("span", { class: "avatar avatar-credit avatar-none", "aria-hidden": "true" }, initials(name));
+  if (!src) return letters();
+  const img = h("img", { class: "avatar avatar-credit", src, alt: "", loading: "lazy", decoding: "async" });
+  img.addEventListener("error", () => img.replaceWith(letters()), { once: true });
+  return img;
+}
+
+// One person in a title's credits: their picture and name, linking to their page, and what
+// they did.
+function personItem(name, personId, what, profile) {
   return h(
     "li",
     {},
-    h("span", { class: "path" }, h("a", { href: `#/people/${personId}` }, name)),
+    h("span", { class: "path" }, h("a", { class: "credit", href: `#/people/${personId}` }, face(name, profile), h("span", { class: "credit-name" }, name))),
     what ? h("span", { class: "size" }, what) : null,
   );
 }
@@ -26,9 +44,9 @@ export function creditsSection(credits) {
       ? h("p", {}, "Part of ", h("a", { href: `#/collections/${collection.id}` }, collection.name), ".")
       : null,
     crew.length ? h("h3", {}, "Made by") : null,
-    crew.length ? h("ul", { class: "files" }, crew.map((c) => personItem(c.name, c.person_id, c.job))) : null,
+    crew.length ? h("ul", { class: "files credits" }, crew.map((c) => personItem(c.name, c.person_id, c.job, c.profile))) : null,
     cast.length ? h("h3", {}, "Cast") : null,
-    cast.length ? h("ul", { class: "files" }, cast.map((c) => personItem(c.name, c.person_id, c.character))) : null,
+    cast.length ? h("ul", { class: "files credits" }, cast.map((c) => personItem(c.name, c.person_id, c.character, c.profile))) : null,
   );
 }
 

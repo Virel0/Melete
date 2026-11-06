@@ -546,6 +546,20 @@ mod tests {
     }
 
     #[test]
+    fn cast_and_crew_show_their_pictures_or_initials() {
+        let people = module("people.js");
+        // Each credit's picture, read as it nears the screen, said by the name beside it.
+        assert!(people.contains(r#"src, alt: "", loading: "lazy""#));
+        assert!(people.contains("personItem(c.name, c.person_id, c.job, c.profile)"));
+        assert!(people.contains("personItem(c.name, c.person_id, c.character, c.profile)"));
+        // Initials stand in when there's none, or it can't be read.
+        assert!(people.contains("if (!src) return letters();"));
+        assert!(people.contains(
+            r#"img.addEventListener("error", () => img.replaceWith(letters()), { once: true });"#
+        ));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
