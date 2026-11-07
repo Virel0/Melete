@@ -282,3 +282,72 @@ async fn choices_are_kept_for_episodes_only() {
         picked(1, "file_default", json!("s3"), "forced")
     );
 }
+
+#[tokio::test]
+async fn anime_can_have_languages_of_its_own() {
+    let f = fixture().await;
+    let viewer = token(&f, "viewer").await;
+    let english = json!({ "audio_languages": ["eng"], "subtitle_languages": ["en"],
+                          "subtitle_mode": "foreign" });
+    send(&f, &viewer, "PUT", "/api/v1/me/languages", Some(english)).await;
+    // A kind with none of its own follows the user's languages, and says so.
+    let (status, anime) = send(&f, &viewer, "GET", "/api/v1/me/languages/anime", None).await;
+    assert_eq!(status, StatusCode::OK, "{anime}");
+    assert_eq!(
+        (&anime["kind"], &anime["own"], &anime["audio_languages"]),
+        (&json!("anime"), &json!(false), &json!(["en"]))
+    );
+
+    let japanese = json!({ "audio_languages": ["jpn"], "subtitle_languages": ["en"],
+                           "subtitle_mode": "foreign" });
+    let (status, anime) = send(
+        &f,
+        &viewer,
+        "PUT",
+        "/api/v1/me/languages/anime",
+        Some(japanese),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{anime}");
+    assert_eq!(
+        (&anime["own"], &anime["audio_languages"]),
+        (&json!(true), &json!(["ja"]))
+    );
+    // The series isn't anime yet: the user's languages, the dub.
+    assert_eq!(tracks(&f, &viewer, 1).await["audio"], 1);
+    // In an anime library, it is: Japanese audio, and the full English subtitles beside it.
+    sqlx::query("UPDATE libraries SET category = 'anime' WHERE id = 1")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let picks = tracks(&f, &viewer, 1).await;
+    assert_eq!(picks["audio"], 2);
+    assert_eq!(picks["subtitle_reason"], "foreign_audio");
+    // A movie keeps the user's languages, and nobody else takes this user's anime ones.
+    assert_eq!(tracks(&f, &viewer, 3).await["audio"], 1);
+    let other = token(&f, "other").await;
+    assert_eq!(tracks(&f, &other, 1).await["audio_reason"], "file_default");
+
+    // Let go of, anime follows the user's languages again.
+    let (status, anime) = send(&f, &viewer, "DELETE", "/api/v1/me/languages/anime", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (&anime["own"], &anime["audio_languages"]),
+        (&json!(false), &json!(["en"]))
+    );
+    assert_eq!(tracks(&f, &viewer, 1).await["audio"], 1);
+
+    let (status, _) = send(&f, &viewer, "GET", "/api/v1/me/languages/cartoons", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let wrong = json!({ "audio_languages": ["nope!"], "subtitle_languages": [],
+                        "subtitle_mode": "foreign" });
+    let (status, _) = send(
+        &f,
+        &viewer,
+        "PUT",
+        "/api/v1/me/languages/shows",
+        Some(wrong),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
