@@ -33,8 +33,10 @@ export function drawStyled(s, track, cantDraw) {
   s.styled = drawing;
   start(s.video, s.streamBase, track).then(
     (renderer) => {
-      if (s.styled === drawing) drawing.stop = () => renderer.destroy();
-      else renderer.destroy();
+      if (s.styled !== drawing) return renderer.destroy();
+      drawing.stop = () => renderer.destroy();
+      drawing.scale = sizer(renderer);
+      drawing.scale(s.subtitleScale ?? 1);
     },
     (err) => {
       if (s.styled !== drawing) return;
@@ -43,6 +45,31 @@ export function drawStyled(s, track, cantDraw) {
       cantDraw(track);
     },
   );
+}
+
+// Draws styled subtitles at `scale` times their styles' font sizes (the Subtitles panel's
+// size), now and for each track drawn after.
+export function scaleStyled(s, scale) {
+  s.subtitleScale = scale;
+  s.styled?.scale?.(scale);
+}
+
+// What sets `renderer`'s styles to `scale` times their font sizes as the track made them, and
+// draws again so a paused picture shows it too.
+function sizer(renderer) {
+  let made = null;
+  let now = 1;
+  return async (scale) => {
+    if (scale === now) return;
+    now = scale;
+    try {
+      made ??= await renderer.renderer.getStyles();
+      await Promise.all(made.map((style, i) => renderer.renderer.setStyle({ ...style, FontSize: style.FontSize * scale }, i)));
+      await renderer.resize(true);
+    } catch (err) {
+      console.warn("Styled subtitles couldn't be resized:", err);
+    }
+  };
 }
 
 // Stops drawing, on leaving the player.

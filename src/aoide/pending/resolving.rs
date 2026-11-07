@@ -1,5 +1,7 @@
 //! Swapping a song's track in for the items pending on its request, once the library has it:
-//! a track whose MusicBrainz recording (from its tags, else from matching) is the request's.
+//! a track whose MusicBrainz recording (from its tags, else from matching) is the request's,
+//! else the one track the request's own song download put in the library, whatever recording
+//! it's tagged with (MusicBrainz often lists a song several times).
 //! Each item is written again with its own id, playlist and place, now naming the track, as
 //! the playlist's owner from Melete's own device, timed just after the item's own last write,
 //! so an edit a device made later (even one it sends later, from offline) still wins; an item
@@ -51,15 +53,33 @@ async fn waiting(
     .await
 }
 
-/// Which of `requests` brought their song: each as (request, the track), the lowest track id
-/// when several fit.
+/// Which of `requests` brought their song: each as (request, the track). A track of the
+/// request's recording comes first, the lowest id when several are; else the track its wanted
+/// song's imported downloads placed, by its path, when they placed exactly one.
 async fn arrived(pool: &SqlitePool, requests: &[i64]) -> sqlx::Result<Vec<(i64, i64)>> {
     sqlx::query_as(
-        "SELECT r.id, min(t.id) FROM requests r
-         JOIN music_tracks t ON t.missing_since IS NULL
-              AND coalesce(t.mb_recording_id, t.match_recording_id) = +r.mb_recording_id
-         WHERE r.kind = 'song' AND r.id IN (SELECT value FROM json_each(?))
-         GROUP BY r.id",
+        "WITH asked AS (
+             SELECT id, mb_recording_id, wanted_song_id FROM requests
+             WHERE kind = 'song' AND id IN (SELECT value FROM json_each(?))),
+         by_recording AS (
+             SELECT a.id, min(t.id) AS track FROM asked a
+             JOIN music_tracks t ON t.missing_since IS NULL
+                  AND coalesce(t.mb_recording_id, t.match_recording_id) = +a.mb_recording_id
+             GROUP BY a.id),
+         by_download AS (
+             SELECT a.id, min(t.id) AS track FROM asked a
+             JOIN downloads d ON d.wanted_song_id = a.wanted_song_id AND d.state = 'imported'
+             JOIN json_each(d.placed) p
+             JOIN libraries l
+                  ON substr(p.value, 1, length(rtrim(l.path, '/')) + 1) = rtrim(l.path, '/') || '/'
+             JOIN music_tracks t ON t.library_id = l.id AND t.missing_since IS NULL
+                  AND t.rel_path = substr(p.value, length(rtrim(l.path, '/')) + 2)
+             GROUP BY a.id
+             HAVING count(DISTINCT t.id) = 1)
+         SELECT a.id, coalesce(r.track, d.track) FROM asked a
+         LEFT JOIN by_recording r ON r.id = a.id
+         LEFT JOIN by_download d ON d.id = a.id
+         WHERE coalesce(r.track, d.track) IS NOT NULL",
     )
     .bind(Value::from(requests.to_vec()).to_string())
     .fetch_all(pool)

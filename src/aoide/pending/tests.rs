@@ -233,3 +233,88 @@ async fn an_edit_made_before_the_swap_but_sent_after_it_still_wins() {
     );
     assert_eq!(resolve(&pool, None).await.unwrap(), 0);
 }
+
+#[tokio::test]
+async fn the_track_a_requests_own_download_brought_fills_its_items_whatever_its_recording() {
+    let pool = crate::db::open_in_memory().await;
+    let owner = user(&pool, "owner").await;
+    let download = |id: i64, song: i64, state: &str, placed: &str| {
+        format!(
+            "INSERT INTO downloads (id, source, soulseek, title, wanted_song_id, decision, state,
+                 placed, added_at, updated_at)
+             VALUES ({id}, 'soulseek', '{{\"username\":\"peer{id}\",\"folder\":\"f\",\"parts\":[]}}',
+                     't', {song}, '{{}}', '{state}', '{placed}', 0, 0);"
+        )
+    };
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m/');
+         INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+             VALUES (1, 1, 'k', 'OK Computer', 'Radiohead', 'a', 1);
+         INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at, first_seen_generation,
+             seen_generation, album_id, tagged, title, artist, genres, mb_recording_id,
+             duration_seconds)
+             VALUES (7, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Paranoid Android', 'Radiohead', '[]',
+                     'rec-other', 383.2),
+                    (8, 1, 'a/2', 1, 1, 1, 1, 1, 1, 'Lucky', 'Radiohead', '[]', NULL, 259.0),
+                    (9, 1, 'b/1', 1, 1, 1, 1, 1, 1, 'Lucky', 'Radiohead', '[]', NULL, 259.0),
+                    (6, 1, 'c/1', 1, 1, 1, 1, 1, 1, 'Airbag', 'Radiohead', '[]', NULL, 284.0);
+         INSERT INTO wanted_songs (id, title, artist, source, added_at)
+             VALUES (2, 'Paranoid Android', 'Radiohead', 'manual', 0),
+                    (3, 'Lucky', 'Radiohead', 'manual', 0),
+                    (4, 'Airbag', 'Radiohead', 'manual', 0),
+                    (5, 'Airbag', 'Radiohead', 'manual', 0);
+         {}{}{}{}
+         INSERT INTO requests (id, user_id, kind, mb_recording_id, title, state, created_at,
+             decided_at, wanted_song_id)
+             VALUES (10, {owner}, 'song', 'rec-1', 'Paranoid Android', 'approved', 0, 0, 2),
+                    (11, {owner}, 'song', 'rec-2', 'Lucky', 'approved', 0, 0, 3),
+                    (12, {owner}, 'song', 'rec-3', 'Airbag', 'approved', 0, 0, 4),
+                    (13, {owner}, 'song', 'rec-4', 'Airbag', 'approved', 0, 0, 5);",
+        // Tagged as another recording of the same song, and a cover beside it.
+        download(1, 2, "imported", r#"["/m/a/1", "/m/a/cover.jpg"]"#),
+        // Two downloads of one song that placed a track each: which is it?
+        download(2, 3, "imported", r#"["/m/a/2"]"#),
+        download(3, 3, "imported", r#"["/m/b/1"]"#),
+        // Failed after placing a file: not the song's.
+        download(4, 4, "failed", r#"["/m/c/1"]"#),
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let list = json!({"id": "P", "name": "Mix", "isSmart": false, "sortIndex": "V",
+                      "updatedAt": 1, "deleted": false, "originDevice": "phone"});
+    push(&pool, owner, "p", "upsert", "playlists", list).await;
+    for (id, request, position) in [
+        ("a", 10, "a0"),
+        ("b", 11, "a1"),
+        ("c", 12, "a2"),
+        ("d", 13, "a3"),
+    ] {
+        let item = pending_item(id, Some(request), position, 10);
+        push(&pool, owner, id, "upsert", "playlist_items", item).await;
+    }
+
+    assert_eq!(resolve(&pool, None).await.unwrap(), 1, "only a");
+    let held = playlists::visible(&pool, owner).await.unwrap();
+    let rows: HashMap<&str, &Row> = held[0]
+        .items
+        .iter()
+        .map(|i| (i["id"].as_str().unwrap(), i))
+        .collect();
+    assert_eq!(rows["a"]["jellyfinId"], "7");
+    for waiting in ["b", "c", "d"] {
+        assert!(
+            Pending::of(rows[waiting]).is_some(),
+            "{waiting} still waits"
+        );
+    }
+    // The request says it's in the library, and its playlist item now plays it.
+    let progress = crate::progress::of(&pool, "song", 2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (progress.step, progress.download_id),
+        (crate::progress::Step::InLibrary, Some(1))
+    );
+}

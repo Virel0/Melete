@@ -3,7 +3,7 @@
 // plays). Text subtitles come as WebVTT tracks; picture subtitles are drawn into a conversion.
 // Progress goes back to the server every 10 seconds and on leaving.
 
-import { SignedOut, announce, api, clock, episodeLabel, h, loading, show } from "/web/lib.js";
+import { SignedOut, announce, api, episodeLabel, h, loading, show } from "/web/lib.js";
 import { HLS_MODULE, SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
 import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
@@ -11,9 +11,11 @@ import { controlBar } from "/web/player-controls.js";
 import { chapterPicker, keptQuality, panelButtons, qualityPicker, speedPicker } from "/web/player-menus.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
-import { canDrawAss, drawStyled, serverDraws, stopStyled } from "/web/player-ass.js";
+import { canDrawAss, drawStyled, scaleStyled, serverDraws, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
+import { resumedNote, startAt } from "/web/player-resume.js";
+import { sizePicker } from "/web/player-subtitle-size.js";
 
 const REPORT_EVERY_MS = 10_000;
 
@@ -40,9 +42,9 @@ export async function playerPage(fileId, params, ctx) {
   const seasonQuery = seasonNumber === null ? "" : `?season=${seasonNumber}`;
   const backHref = movieId ? `#/movies/${movieId}` : seriesId ? `#/series/${seriesId}${seasonQuery}` : "#/";
   // Starting over is said with each report, or the server keeps a saved position over one
-  // near the start.
+  // near the start. Picking up starts a few seconds early when this browser asks.
   const restart = params.get("start") === "0";
-  const start = restart ? 0 : play.resume_seconds;
+  const start = startAt(play, restart);
 
   const textTracks = subtitles.filter((t) => t.text);
   // What the player's parts share: the video, the choices made, and the source playing.
@@ -135,14 +137,16 @@ function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) 
   return { stage, onKey, onFullscreen, controls };
 }
 
-// The control bar's panels: Subtitles (every choice as a chip, and finding more), Audio (the
-// track and the sound) and Settings (speed, quality and chapters), each only when it has something.
+// The control bar's panels: Subtitles (every choice as a chip, their size, and finding more),
+// Audio (the track and the sound) and Settings (speed, quality and chapters), each only when it
+// has something.
 function playerPanels(s, subtitlesBox, search) {
   if (subtitlesBox) subtitlesBox.hidden = true;
   const find = search
     ? h("button", { type: "button", class: "quiet", onclick: () => (panels.close(), search.scrollIntoView({ block: "center" }), search.querySelector("select, input, button")?.focus()) }, "Find more subtitles")
     : null;
-  const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, find].filter(Boolean);
+  const size = subtitlesBox ? sizePicker(s.video, (scale) => scaleStyled(s, scale)) : null;
+  const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, size, find].filter(Boolean);
   const audioBody = [audioPicker(s), soundPicker(s)].filter(Boolean);
   const requality = (bits) => ((s.choice.quality = bits), load(s, s.video.currentTime).catch((err) => onError(s, err)));
   const quality = s.info.media?.video.length ? qualityPicker(s.choice.quality, requality) : null;
@@ -467,31 +471,4 @@ function startReports(s, restart) {
   const onHide = () => report(true);
   addEventListener("pagehide", onHide);
   return { report, timer, onHide };
-}
-
-// ---------- Picking up where it was left ----------
-
-// "Picking up at 12:34", with a button to start from the beginning instead.
-function resumedNote(start, fileId, params) {
-  return start > 0
-    ? h(
-        "p",
-        { class: "resumed" },
-        `Picking up at ${clock(start)}. `,
-        h(
-          "button",
-          {
-            type: "button",
-            class: "link",
-            // Starting over is its own address, so the server is told with every report.
-            onclick: () => {
-              const again = new URLSearchParams(params);
-              again.set("start", "0");
-              location.replace(`#/play/${fileId}?${again}`);
-            },
-          },
-          "Start from the beginning",
-        ),
-      )
-    : null;
 }

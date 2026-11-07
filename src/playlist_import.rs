@@ -1,6 +1,7 @@
 //! Playlists imported as song requests: a CSV export (Exportify's, with
 //! the column names other exporters use too) whose every track is matched to a MusicBrainz
-//! recording, by its ISRC first, then by title, artist and length, and asked for as a song by
+//! recording, by its ISRC first, then by title (or, with an artist, a close one), artist and
+//! length, and asked for as a song by
 //! whoever imported it. Imports run one at a time in the background, a track at a time, as
 //! MusicBrainz answers one request a second; a track asked for at once (an admin's, or a user's
 //! whose requests go straight through) is fetched before the next is matched. What can't be
@@ -149,6 +150,133 @@ mod tests {
             .is_some()
         );
         assert_eq!(core_title("Song (feat. Someone) - Live"), "song");
+    }
+
+    fn rovers(title: &str, artists: &[&str]) -> Track {
+        Track {
+            title: title.into(),
+            artists: artists.iter().map(|a| (*a).to_owned()).collect(),
+            length_ms: Some(120_500),
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn a_close_title_by_the_same_artist_fits_when_none_has_its_title() {
+        let track = rovers("The Rare Old Mountain Dew", &["The Irish Rovers"]);
+        let found = [
+            recording("The Rare Old Mountain Dew", "A Tribute Band", Some(120_500)),
+            recording("Rare Old Mountain Dew", "The Irish Rovers", Some(121_000)),
+            recording("Mountain Dew", "The Irish Rovers", Some(120_500)),
+        ];
+        assert_eq!(
+            best(&track, &found, true),
+            None,
+            "no recording has its title"
+        );
+        assert_eq!(
+            near(&track, &found).as_deref(),
+            Some("Rare Old Mountain Dew/The Irish Rovers/Some(121000)"),
+            "its title but its \"the\", by its artist; not its title by another, nor a part of it"
+        );
+        let bracketed = rovers("Rare Old Mountain Dew", &["The Irish Rovers"]);
+        assert!(
+            near(
+                &bracketed,
+                &[recording(
+                    "Rare Old Mountain Dew (Live)",
+                    "The Irish Rovers",
+                    None
+                )]
+            )
+            .is_some()
+        );
+        // Still within 10 seconds of its length.
+        assert_eq!(
+            near(
+                &track,
+                &[recording(
+                    "Rare Old Mountain Dew",
+                    "The Irish Rovers",
+                    Some(200_000)
+                )]
+            ),
+            None
+        );
+        // A track without an artist needs its title, as before.
+        assert_eq!(
+            near(&rovers("The Rare Old Mountain Dew", &[]), &found),
+            None
+        );
+        assert_eq!(
+            near(
+                &rovers("The Rare Old Mountain Dew", &["The Irish Rovers"]),
+                &[recording(
+                    "Whiskey in the Jar",
+                    "The Irish Rovers",
+                    Some(120_500)
+                )]
+            ),
+            None,
+            "a title that isn't close"
+        );
+    }
+
+    #[test]
+    fn its_own_title_wins_over_a_close_one_nearer_in_length() {
+        let track = rovers("Rare Old Mountain Dew", &["The Irish Rovers"]);
+        let found = [
+            recording(
+                "The Rare Old Mountain Dew",
+                "The Irish Rovers",
+                Some(120_500),
+            ),
+            recording("Rare Old Mountain Dew", "The Irish Rovers", Some(128_000)),
+        ];
+        assert_eq!(
+            fitting(&track, &found).as_deref(),
+            Some("Rare Old Mountain Dew/The Irish Rovers/Some(128000)")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_title_its_phrase_doesnt_find_is_found_by_its_words() {
+        let (mb, log) = testing::start(0).await;
+        let track = rovers("The Rare Old Mountain Dew", &["The Irish Rovers"]);
+        assert_eq!(
+            recording_for(&mb, &track).await.unwrap(),
+            Ok(testing::MOUNTAIN_DEW.to_owned())
+        );
+        let searches: Vec<String> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.starts_with("search recording"))
+            .map(|l| {
+                let query = l.trim_start_matches("search recording ");
+                reqwest::Url::parse(&format!("http://x/?{query}"))
+                    .unwrap()
+                    .query_pairs()
+                    .find(|(k, _)| k == "query")
+                    .unwrap()
+                    .1
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(
+            searches,
+            [
+                "recording:\"The Rare Old Mountain Dew\" AND artist:\"The Irish Rovers\"",
+                "recording:(the rare old mountain dew) AND artist:\"The Irish Rovers\"",
+            ],
+            "the phrase, then its words once, by the artist as a phrase"
+        );
+
+        // Without an artist, it's the phrase alone, and nothing fits.
+        log.lock().unwrap().clear();
+        let anyone = rovers("The Rare Old Mountain Dew", &[]);
+        assert!(recording_for(&mb, &anyone).await.unwrap().is_err());
+        assert_eq!(log.lock().unwrap().len(), 1);
     }
 
     async fn user(pool: &SqlitePool, name: &str, admin: bool) -> User {

@@ -42,6 +42,7 @@ pub fn routes(pool: SqlitePool, tmdb: Option<Arc<tmdb::Client>>) -> Router {
         limiter: Arc::default(),
     };
     Router::new()
+        .route("/api/v1/discover/status", get(status))
         .route("/api/v1/discover/trending", get(trending))
         .route("/api/v1/discover/search", get(search))
         .route("/api/v1/discover/similar/{id}", get(similar))
@@ -138,6 +139,13 @@ fn metadata(state: &DiscoverState) -> Result<&tmdb::Client, ApiError> {
 fn outside(err: anyhow::Error) -> ApiError {
     tracing::warn!(error = format!("{err:#}"), "TMDB discovery request failed");
     ApiError::new(StatusCode::BAD_GATEWAY, "TMDB didn't answer")
+}
+
+/// Whether discovery is on as things stand: turned on, with TMDB set up. Asks nothing of TMDB,
+/// so an app can leave out what discovery gives while it's off.
+async fn status(State(state): State<DiscoverState>) -> Result<Json<Value>, ApiError> {
+    let on = state.tmdb.is_some() && crate::settings::discovery(&state.pool).await?;
+    Ok(Json(json!({ "on": on })))
 }
 
 #[derive(Deserialize)]
@@ -857,6 +865,46 @@ mod tests {
                 ("tmdb:movie:606".into(), "requestable".into()),
             ],
             "in release order"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_says_whether_discovery_is_on_without_asking_tmdb() {
+        let off = fixture(false).await;
+        assert_eq!(
+            get(&off, "/api/v1/discover/status").await,
+            (StatusCode::OK, json!({ "on": false }))
+        );
+        let on = fixture(true).await;
+        assert_eq!(
+            get(&on, "/api/v1/discover/status").await,
+            (StatusCode::OK, json!({ "on": true }))
+        );
+        assert!(
+            off.fake.log.lock().unwrap().is_empty() && on.fake.log.lock().unwrap().is_empty(),
+            "nothing asked of TMDB"
+        );
+        // Turned on, but with no TMDB to ask, it's off.
+        let untold = Fixture {
+            app: routes(on.pool.clone(), None),
+            ..on
+        };
+        assert_eq!(
+            get(&untold, "/api/v1/discover/status").await,
+            (StatusCode::OK, json!({ "on": false }))
+        );
+        let anonymous = Request::get("/api/v1/discover/status")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            untold
+                .app
+                .clone()
+                .oneshot(anonymous)
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
         );
     }
 }

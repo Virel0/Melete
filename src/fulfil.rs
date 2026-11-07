@@ -11,7 +11,6 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 use crate::downloads::Pipeline;
-use crate::progress::{self, Step};
 use crate::rss::Grabbed;
 use crate::search::{self, Target};
 use crate::{album_search, artist_search, music_requests, slskd, song_search, tmdb, torznab};
@@ -206,13 +205,7 @@ async fn fetch_song(
     id: i64,
     fetched: &mut Fetched,
 ) -> anyhow::Result<()> {
-    let on_its_way = progress::of(pool, "song", id).await?.is_some_and(|p| {
-        matches!(
-            p.step,
-            Step::Downloading | Step::Transferring | Step::Importing | Step::InLibrary
-        )
-    });
-    if on_its_way {
+    if song_search::taken(pool, id).await? {
         fetched.notes.push("it's on disk or downloading".into());
         return Ok(());
     }
@@ -400,6 +393,7 @@ mod tests {
     use crate::db;
     use crate::deluge;
     use crate::downloads::{self, Fetcher};
+    use crate::progress::{self, Step};
     use crate::rss::tests::{indexer, releases, setup, want_dune, want_frieren};
 
     /// A new user each time, as each asks once.
