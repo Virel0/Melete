@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 141] = [
+const MODULES: [(&str, &str); 142] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -183,6 +183,7 @@ const MODULES: [(&str, &str); 141] = [
         include_str!("../web/music-album-menu.js"),
     ),
     ("music-home.js", include_str!("../web/music-home.js")),
+    ("music-jump.js", include_str!("../web/music-jump.js")),
     ("music-play.js", include_str!("../web/music-play.js")),
     ("music-pins.js", include_str!("../web/music-pins.js")),
     ("music-album.js", include_str!("../web/music-album.js")),
@@ -1490,6 +1491,42 @@ mod tests {
         );
         assert!(album.contains(r#"  return "albums";"#));
         assert!(album.contains("? albumGroups(artist.album_list)"));
+    }
+
+    #[test]
+    fn home_has_favourites_releases_random_albums_and_a_jump_back_in_of_its_own() {
+        let home = module("music-home.js");
+        let rows = [
+            "Recently played",
+            "Favourites",
+            "Recently released",
+            "Most played lately",
+            "Moods",
+            "Albums to try",
+            "Genres",
+        ];
+        let at: Vec<usize> = rows
+            .iter()
+            .map(|r| home.find(&format!(r#", "{r}", "#)).expect(r))
+            .collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{rows:?} at {at:?}");
+        assert!(home.contains(r#"albums({ liked: "true", sort: "random" }),"#));
+        assert!(home.contains(r#"albums({ sort: "year" }),"#));
+        assert!(home.contains("shuffled(genres).slice(0, GENRES_SHOWN)"));
+        // Jump back in: what was started here (albums, playlists, stations), then the play
+        // history's albums, each removable.
+        assert!(home.contains("jumpBackIn(more.recent, home.recently_played)"));
+        let jump = module("music-jump.js");
+        assert!(jump.contains("const removed = new Set(recent.removed_albums);"));
+        assert!(jump.contains(r#"{ method: "DELETE" }"#));
+        assert!(jump.contains("`Remove ${name} from Jump back in`"));
+        // Starting an album, a playlist or a station records it.
+        let play = module("music-play.js");
+        assert!(play.contains(r#"api(`/music/recent/${kind}/${encodeURIComponent(id)}`, { method: "PUT" }).catch(() => {});"#));
+        assert!(play.contains(r#"remember("album", album.id);"#));
+        assert!(module("music-radio.js").contains(r#"remember("station", seed.id);"#));
+        assert!(module("music-playlist.js").contains(r#"remember("playlist", p.id)"#));
+        assert!(module("music-album.js").contains(r#"remember("album", album.id)"#));
     }
 
     #[test]

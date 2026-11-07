@@ -34,6 +34,10 @@
   text-align: start;
 }
 .jump-card:hover { background: var(--surface-raised); }
+/* Each card with its Remove beside it. */
+.jump li { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.jump li .jump-card { flex: 1; min-width: 0; }
+.jump .jump-remove { flex: none; width: 2.25rem; height: 2.25rem; }
 .jump-card .art { width: 3.5rem; aspect-ratio: 1 / 1; background: var(--surface-raised); }
 .jump-card .art img { width: 100%; height: 100%; object-fit: cover; }
 .jump-card .words { display: flex; flex-direction: column; min-width: 0; }
