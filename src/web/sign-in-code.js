@@ -12,12 +12,15 @@ const POLL_MS = 3000;
 // codeSignIn({ deviceName, signedIn, back }) → { el, focus(), stop() }: `signedIn` gets the
 // user once the code is approved; `back` returns to the password form.
 export function codeSignIn({ deviceName, signedIn, back }) {
-  const s = { secret: null, timer: null, stopped: false };
+  // `stopped` ends the waiting; `leftForPassword` is set when the viewer chose a password
+  // instead, where an approval already on its way still signs this browser in.
+  const s = { secret: null, timer: null, stopped: false, leftForPassword: false };
   const heading = h("h2", { id: "code-sign-in-head", tabindex: "-1" }, "Sign in with a code");
   const body = h("div", { class: "code-sign-in-body" });
   const usePassword = h("button", { type: "button", class: "quiet" }, "Use a password instead");
   usePassword.addEventListener("click", () => {
     stop();
+    s.leftForPassword = true;
     back();
   });
   const el = h("section", { class: "code-sign-in", "aria-labelledby": "code-sign-in-head" }, heading, body, usePassword);
@@ -71,11 +74,13 @@ export function codeSignIn({ deviceName, signedIn, back }) {
       s.timer = setTimeout(poll, POLL_MS * 2);
       return;
     }
-    if (s.stopped) return;
-    if (answer?.user) {
+    // An approval that lands just after "Use a password instead" has already set the cookie:
+    // go on signed in rather than leave the password form up over a signed-in browser.
+    if (answer?.user && (!s.stopped || s.leftForPassword)) {
       stop();
       return signedIn(answer.user);
     }
+    if (s.stopped) return;
     s.timer = setTimeout(poll, POLL_MS);
   }
 
