@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 
 mod jassub;
+mod licences;
 
 const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
@@ -25,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 131] = [
+const MODULES: [(&str, &str); 145] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -58,6 +59,10 @@ const MODULES: [(&str, &str); 131] = [
     ("watch-kind.js", include_str!("../web/watch-kind.js")),
     ("watch-live.js", include_str!("../web/watch-live.js")),
     ("browse.js", include_str!("../web/browse.js")),
+    (
+        "grid-spotlight.js",
+        include_str!("../web/grid-spotlight.js"),
+    ),
     ("title-page.js", include_str!("../web/title-page.js")),
     ("title-colour.js", include_str!("../web/title-colour.js")),
     (
@@ -101,7 +106,9 @@ const MODULES: [(&str, &str); 131] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("licences.js", include_str!("../web/licences.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),
+    ("sign-in-code.js", include_str!("../web/sign-in-code.js")),
     ("languages.js", include_str!("../web/languages.js")),
     (
         "playback-prefs.js",
@@ -136,11 +143,16 @@ const MODULES: [(&str, &str); 131] = [
     ("music.js", include_str!("../web/music.js")),
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
+    (
+        "music-collections.js",
+        include_str!("../web/music-collections.js"),
+    ),
     ("music-flags.js", include_str!("../web/music-flags.js")),
     ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
     ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
+    ("music-info.js", include_str!("../web/music-info.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
     (
         "music-album-likes.js",
@@ -166,7 +178,12 @@ const MODULES: [(&str, &str); 131] = [
         include_str!("../web/music-playlist-pick.js"),
     ),
     ("music-parts.js", include_str!("../web/music-parts.js")),
+    (
+        "music-album-menu.js",
+        include_str!("../web/music-album-menu.js"),
+    ),
     ("music-home.js", include_str!("../web/music-home.js")),
+    ("music-jump.js", include_str!("../web/music-jump.js")),
     ("music-play.js", include_str!("../web/music-play.js")),
     ("music-pins.js", include_str!("../web/music-pins.js")),
     ("music-album.js", include_str!("../web/music-album.js")),
@@ -180,6 +197,10 @@ const MODULES: [(&str, &str); 131] = [
     ("music-bar.js", include_str!("../web/music-bar.js")),
     ("music-panel.js", include_str!("../web/music-panel.js")),
     ("music-lyrics.js", include_str!("../web/music-lyrics.js")),
+    (
+        "music-lyrics-timing.js",
+        include_str!("../web/music-lyrics-timing.js"),
+    ),
     ("music-now.js", include_str!("../web/music-now.js")),
     ("music-motion.js", include_str!("../web/music-motion.js")),
     ("wanted-music.js", include_str!("../web/wanted-music.js")),
@@ -244,6 +265,15 @@ const MODULES: [(&str, &str); 131] = [
     ("health.js", include_str!("../web/health.js")),
     ("calendar.js", include_str!("../web/calendar.js")),
     ("palette.js", include_str!("../web/palette.js")),
+    ("music-keys.js", include_str!("../web/music-keys.js")),
+    ("music-ask.js", include_str!("../web/music-ask.js")),
+    (
+        "palette-recent.js",
+        include_str!("../web/palette-recent.js"),
+    ),
+    ("theme.js", include_str!("../web/theme.js")),
+    ("appearance.js", include_str!("../web/appearance.js")),
+    ("tab-title.js", include_str!("../web/tab-title.js")),
     (
         "profile-editor.js",
         include_str!("../web/profile-editor.js"),
@@ -302,7 +332,7 @@ pub fn routes() -> Router {
             get(move || async move { file("text/css; charset=utf-8", ALWAYS_ASK, body) }),
         );
     }
-    router.merge(jassub::routes())
+    router.merge(jassub::routes()).merge(licences::routes())
 }
 
 fn file(content_type: &'static str, cache: &'static str, body: &'static str) -> impl IntoResponse {
@@ -484,6 +514,127 @@ mod tests {
             .unwrap()
             .1;
         assert!(css.contains(".rows > li.pictured"));
+    }
+
+    /// The appearance chosen in Your account is set before anything is drawn: theme.js is a
+    /// plain script ahead of the styles, so it runs before the first paint, and the light palette
+    /// follows what it sets rather than a media query it would have to fight.
+    #[test]
+    fn the_appearance_is_set_before_the_first_paint() {
+        let theme = INDEX
+            .find(r#"<script src="/web/theme.js"></script>"#)
+            .unwrap();
+        assert!(theme < INDEX.find(r#"<link rel="stylesheet""#).unwrap());
+        assert!(!module("theme.js").contains("import ") && !module("theme.js").contains("export "));
+        assert!(module("theme.js").contains("document.documentElement.dataset.theme"));
+        assert!(STYLES.contains(":root[data-theme=\"light\"] {"));
+        for (name, css) in MORE_STYLES.iter().chain([("app.css", STYLES)].iter()) {
+            assert!(!css.contains("prefers-color-scheme"), "{name}");
+        }
+        // Your account offers the choice; it's kept under the key theme.js reads.
+        assert!(module("account.js").contains("appearanceGroup(),"));
+        assert!(module("appearance.js").contains("const KEY = \"melete.appearance\";"));
+        assert!(module("theme.js").contains("const KEY = \"melete.appearance\";"));
+    }
+
+    /// The palette keeps what was typed for a result chosen, offers it while its box is empty,
+    /// with Clear; and the tab says the song while music plays.
+    #[test]
+    fn recent_searches_and_the_song_in_the_tab() {
+        let palette = module("palette.js");
+        assert!(palette.contains("rememberSearch(pal.input.value);"));
+        assert!(palette.contains("const recent = q ? [] : recentSearches()"));
+        assert!(palette.contains(r#"name: "Clear recent searches""#));
+        let recent = module("palette-recent.js");
+        assert!(
+            recent.contains("const KEEP = 6;") && recent.contains("localStorage.removeItem(KEY)")
+        );
+        let tab = module("tab-title.js");
+        assert!(tab.contains(r#"document.addEventListener("melete:track""#));
+        assert!(tab.contains(r#"[track.title, track.artist].filter(Boolean).join(" – ")"#));
+        assert!(module("app.js").contains(r#"import "/web/tab-title.js";"#));
+    }
+
+    /// The spotlight beside All shows, All anime, All movies and My List looks a card's title up
+    /// with the per-title routes, after the follow delay, one at a time and once each, and only
+    /// on screens wide enough to show it.
+    #[test]
+    fn the_grid_spotlight_looks_titles_up_one_at_a_time_where_it_fits() {
+        assert!(module("browse.js").contains("spotlit(v.grid),"));
+        assert!(module("favourites.js").contains("[status, spotlit(grid)]"));
+        let spot = module("grid-spotlight.js");
+        assert!(spot.contains("api(`/${kind}/${id}`)"));
+        assert!(spot.contains("if (!looked.has(key))"));
+        assert!(spot.contains("if (s.asking || !s.wanted || s.wanted === s.shown) return;"));
+        assert!(spot.contains("if (!key || !wide.matches) return;"));
+        assert!(spot.contains("const wide = matchMedia(\"(min-width: 75rem)\");"));
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "watch.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".grid-spotlight { display: none; }"));
+        assert!(css.contains("@media (min-width: 75rem) {\n  .spotlit {"));
+    }
+
+    /// Signing in with a code: offered on the sign-in page, and the secret the page polls with
+    /// goes in a request's body to the cookie-issuing poll, never into an address.
+    #[test]
+    fn the_sign_in_page_offers_a_code_and_polls_with_the_secret_in_the_body() {
+        let app = module("app.js");
+        assert!(app.contains("\"Sign in with a code\""));
+        assert!(app.contains("codeWaiting?.stop();"));
+        let code = module("sign-in-code.js");
+        assert!(code.contains(
+            r#"api("/auth/quick-connect/web-poll", { method: "POST", body: { secret: s.secret } })"#
+        ));
+        assert!(!code.contains("secret=") && !code.contains("localStorage"));
+        assert!(!code.contains("/auth/quick-connect/poll"));
+    }
+
+    /// Music's shortcuts work only while Listen has the focus and nothing is being typed or
+    /// pressed, the palette offers the player's commands and playlists, and ? lists the keys.
+    #[test]
+    fn music_keys_work_on_listen_and_the_palette_drives_the_player() {
+        let keys = module("music-keys.js");
+        assert!(keys.contains(
+            r#"target.closest?.("input, select, textarea, button, a, summary, dialog, [contenteditable]")"#
+        ));
+        assert!(keys.contains(r##"location.hash.startsWith("#/music")"##));
+        assert!(keys.contains(r#"if (!found || (!current() && key !== "?")) return;"#));
+        for said in [
+            "Play or pause",
+            "Next track",
+            "Shuffle on or off",
+            "Like or unlike the track playing",
+        ] {
+            assert!(keys.contains(said), "{said}");
+        }
+        assert!(module("app.js").contains(r#"import "/web/music-keys.js";"#));
+        let palette = module("palette.js");
+        assert!(palette.contains("[...pal.places, ...musicCommands()]"));
+        assert!(palette.contains("if (item.run) {"));
+        assert!(palette.contains(r#"music("/playlists")"#));
+    }
+
+    /// Asking for music by description shows only once `GET /ai` says AI is on, above the Songs
+    /// list and in the palette; the phrase goes only to Melete's AI route.
+    #[test]
+    fn music_is_asked_for_by_description_only_while_ai_is_on() {
+        let ask = module("music-ask.js");
+        assert!(ask.contains(r#"api("/ai").then((a) => Boolean(a.enabled), () => false)"#));
+        assert!(ask.contains(r#""aria-label": "Ask by description", hidden: true"#));
+        let shown = ask.find("section.hidden = false;").unwrap();
+        assert!(ask[..shown].contains("if (!on || !ctx.current()) return;"));
+        assert!(
+            ask.contains(r#"api("/ai/music/search", { method: "POST", body: { query: phrase } })"#)
+        );
+        assert!(
+            module("music-browse.js").contains("intro: [songActions(), askSection(ctx, params)],")
+        );
+        let palette = module("palette.js");
+        assert!(palette.contains("if (pal.ai && typed.length >= 3) all.push("));
+        assert!(palette.contains("musicAi().then((on) => (pal.ai = on));"));
     }
 
     #[test]
@@ -1242,6 +1393,55 @@ mod tests {
     }
 
     #[test]
+    fn lyrics_timing_moves_both_the_lit_line_and_where_a_line_seeks() {
+        let lyrics = module("music-lyrics.js");
+        assert!(lyrics.contains("lineAt(lines, audio.currentTime - timing.seconds())"));
+        assert!(lyrics.contains("seek(Math.max(0, start + timing.seconds()))"));
+        assert!(lyrics.contains("lyricLine(line, i, answer.synced, seekLine)"));
+        // Only synced lyrics have times to move.
+        assert!(lyrics.contains("timing.box.hidden = !answer.synced;"));
+        // Kept by the browser, and working without storage.
+        let timing = module("music-lyrics-timing.js");
+        assert!(timing.contains(r#"const KEY = "melete.lyrics-offset";"#));
+        assert!(timing.contains("try {\n    const value = Number(localStorage.getItem(KEY));"));
+        assert!(
+            timing.contains("try {\n    if (seconds) localStorage.setItem(KEY, String(seconds));")
+        );
+        for label in [
+            "Show lyrics earlier",
+            "Show lyrics later",
+            "Reset timing",
+            r#""aria-labelledby": "lyrics-timing-name""#,
+        ] {
+            assert!(timing.contains(label), "{label}");
+        }
+    }
+
+    #[test]
+    fn furigana_is_drawn_over_kanji_when_chosen() {
+        let lyrics = module("music-lyrics.js");
+        // Asked for with the pronunciation, which brings the readings, and shown only when chosen.
+        assert!(
+            lyrics
+                .contains(r#"if (options.pronounce || furigana) query.set("pronounce", "true");"#)
+        );
+        assert!(lyrics.contains("ruby: furigana && !readings.hidden ? line.ruby : null,"));
+        assert!(lyrics.contains("pronunciation: options.pronounce ? line.pronunciation : null,"));
+        // Offered only for Japanese with kanji, and gone where pronunciation is turned off.
+        assert!(
+            lyrics.contains(
+                "readings.hidden = missing.pronounce || !japaneseWithKanji(answer.lines);"
+            )
+        );
+        // Ruby for the eye; a screen reader reads the line as written.
+        assert!(
+            lyrics.contains(
+                r#"h("ruby", {}, p.text, h("rt", { "aria-hidden": "true" }, p.reading))"#
+            )
+        );
+    }
+
+    #[test]
     fn now_playing_goes_full_screen_in_its_covers_colours_and_motion() {
         let panel = module("music-panel.js");
         assert!(panel.contains(r#"iconButton("fullscreen", "Full screen", () => setFull(!full))"#));
@@ -1309,6 +1509,116 @@ mod tests {
     }
 
     #[test]
+    fn the_library_shuffles_from_home_and_the_songs_page() {
+        // The server shuffles (leaving out Not interested songs); the page plays what it answers.
+        let play = module("music-play.js");
+        assert!(play.contains(
+            r#"new URLSearchParams({ ...filters, sort: "random", limit: String(SHUFFLE_SONGS) })"#
+        ));
+        assert!(play.contains("export const SHUFFLE_SONGS = 500;"));
+        let home = module("music-home.js");
+        assert!(home.contains(r#""Shuffle my library")"#));
+        assert!(home.contains(r#"show("Listen", title, shuffleAll(), root);"#));
+        // The Songs page plays or shuffles the songs its list shows, with its search and filters.
+        let songs = module("music-browse.js");
+        assert!(songs.contains("onclick: start(shuffleLibrary)"));
+        assert!(songs.contains("intro: [songActions(), askSection(ctx, params)],"));
+        assert!(songs.contains(r#"params.delete("shown");"#));
+    }
+
+    #[test]
+    fn songs_narrow_to_genres_years_and_likes_and_save_as_collections() {
+        let collections = module("music-collections.js");
+        assert!(
+            collections
+                .contains(r#"export const KEYS = ["genres", "year_from", "year_to", "liked"];"#)
+        );
+        assert!(collections.contains(r#"api("/music/collections", { method: "POST", body: { name: name.value.trim(), ...v } })"#));
+        assert!(collections.contains("api(`/music/collections/${c.id}`, { method: \"DELETE\" })"));
+        assert!(
+            collections.contains(r#"h("label", { for: "collection-liked" }, "Only songs I like")"#)
+        );
+        // The Songs page carries the panel; the list sends its keys and keeps them in the address.
+        assert!(module("music-browse.js").contains(
+            "panel: { keys: KEYS, make: (p, change) => collectionFilter(genres, p, change) },"
+        ));
+        let list = module("music-list.js");
+        assert!(
+            list.contains("for (const key of keys) if (chosen[key]) query.set(key, chosen[key]);")
+        );
+        assert!(list.contains(
+            "for (const key of v.keys) if (v.chosen[key]) next.set(key, v.chosen[key]);"
+        ));
+        // The sidebar lists them, each opening the Songs page so narrowed.
+        let sidebar = module("music-sidebar.js");
+        assert!(sidebar.contains(r#"api("/music/collections").catch(() => ({ items: [] })),"#));
+        assert!(
+            sidebar.contains(r#"saved.length ? { name: "Collections", items: saved } : null,"#)
+        );
+        assert!(collections.contains("return `#/music/songs?${params}`;"));
+    }
+
+    #[test]
+    fn an_artists_albums_are_grouped_by_release_type() {
+        let album = module("music-album.js");
+        // In this order, each kind under its own heading when there's more than one kind.
+        let kinds = [
+            r#"["albums", "Albums"]"#,
+            r#"["singles", "Singles & EPs"]"#,
+            r#"["live", "Live"]"#,
+            r#"["compilations", "Compilations"]"#,
+        ];
+        let at: Vec<usize> = kinds.iter().map(|k| album.find(k).expect(k)).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{kinds:?}");
+        // Live and Compilation (secondary types) come before Single and EP; an album without a
+        // known type is under Albums.
+        assert!(album.contains(r#"if (secondary.includes("Live")) return "live";"#));
+        assert!(
+            album.contains(
+                r#"if (["Single", "EP"].includes(album.primary_type)) return "singles";"#
+            )
+        );
+        assert!(album.contains(r#"  return "albums";"#));
+        assert!(album.contains("? albumGroups(artist.album_list)"));
+    }
+
+    #[test]
+    fn home_has_favourites_releases_random_albums_and_a_jump_back_in_of_its_own() {
+        let home = module("music-home.js");
+        let rows = [
+            "Recently played",
+            "Favourites",
+            "Recently released",
+            "Most played lately",
+            "Moods",
+            "Albums to try",
+            "Genres",
+        ];
+        let at: Vec<usize> = rows
+            .iter()
+            .map(|r| home.find(&format!(r#", "{r}", "#)).expect(r))
+            .collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{rows:?} at {at:?}");
+        assert!(home.contains(r#"albums({ liked: "true", sort: "random" }),"#));
+        assert!(home.contains(r#"albums({ sort: "year" }),"#));
+        assert!(home.contains("shuffled(genres).slice(0, GENRES_SHOWN)"));
+        // Jump back in: what was started here (albums, playlists, stations), then the play
+        // history's albums, each removable.
+        assert!(home.contains("jumpBackIn(more.recent, home.recently_played)"));
+        let jump = module("music-jump.js");
+        assert!(jump.contains("const removed = new Set(recent.removed_albums);"));
+        assert!(jump.contains(r#"{ method: "DELETE" }"#));
+        assert!(jump.contains("`Remove ${name} from Jump back in`"));
+        // Starting an album, a playlist or a station records it.
+        let play = module("music-play.js");
+        assert!(play.contains(r#"api(`/music/recent/${kind}/${encodeURIComponent(id)}`, { method: "PUT" }).catch(() => {});"#));
+        assert!(play.contains(r#"remember("album", album.id);"#));
+        assert!(module("music-radio.js").contains(r#"remember("station", seed.id);"#));
+        assert!(module("music-playlist.js").contains(r#"remember("playlist", p.id)"#));
+        assert!(module("music-album.js").contains(r#"remember("album", album.id)"#));
+    }
+
+    #[test]
     fn listen_lists_songs_and_genres_and_starts_radio() {
         let music = module("music.js");
         for route in [
@@ -1368,6 +1678,54 @@ mod tests {
         for button in [r#""Play")"#, r#""Shuffle")"#, r#""Add to playlist")"#] {
             assert!(album.contains(button), "{button}");
         }
+    }
+
+    #[test]
+    fn get_info_says_what_a_songs_file_is() {
+        // In the strip, for everyone (it reads only the track), opening under the buttons.
+        let actions = module("music-actions.js");
+        assert!(actions.contains(r#""aria-expanded": "false" }, "Get info")"#));
+        assert!(actions.contains(r#"infoArea.replaceChildren(opening ? songInfo(track) : "")"#));
+        let info = module("music-info.js");
+        for field in [
+            "track.codec",
+            "track.bitrate_kbps",
+            "track.sample_rate",
+            "track.bit_depth",
+            "track.channels",
+            "track.isrc",
+        ] {
+            assert!(info.contains(field), "{field}");
+        }
+        // What the file doesn't say is left out, not shown empty.
+        assert!(info.contains("facts.filter(([, value]) => value)"));
+        assert!(module("music-album.js").contains("const parts = [codecName(codec)];"));
+    }
+
+    #[test]
+    fn a_whole_album_plays_next_or_last_and_its_cards_have_its_actions() {
+        // The album page puts all its songs in Next up, first or last.
+        let album = module("music-album.js");
+        assert!(album.contains("queueButtons(album, async () => queue, said)"));
+        let menu = module("music-album-menu.js");
+        assert!(menu.contains(r#"button("Play next", playNext,"#));
+        assert!(menu.contains(r#"button("Play last", playLast,"#));
+        // Every album card has More, opening the album's actions as a popover (Escape and a
+        // press outside close it; the browser puts focus back on More).
+        assert!(module("music-parts.js").contains("    albumMenu(album),\n"));
+        assert!(menu.contains(r#"popover: "auto", role: "group""#));
+        assert!(menu.contains(r#"more.setAttribute("popovertarget", id);"#));
+        for action in [
+            r#"start("Play", "#,
+            r#"start("Shuffle", "#,
+            "queueButtons(album, queue, said, \"small\")",
+            "radioButton(() => albumSeed(album.id), album.title)",
+            r#""Add to playlist")"#,
+        ] {
+            assert!(menu.contains(action), "{action}");
+        }
+        // The album's tracks are asked for once, when an action first needs them.
+        assert!(menu.contains("asked ??= api(`/music/albums/${album.id}`)"));
     }
 
     #[test]
