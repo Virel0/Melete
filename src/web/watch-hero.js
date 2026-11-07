@@ -1,7 +1,7 @@
 // The hero at the top of Watch's pages: one title large (its textless backdrop cropped around
 // its subject, logo or title, facts, logline, and Play saying what it will do, More info and
 // My List), stepping between picks every 16 seconds or by its buttons. It holds still while
-// pointed at or focused, or while a pick's trailer plays (watch-hero-trailer.js), can be paused,
+// pointed at or focused, or while a preview plays (watch-hero-trailer.js), can be paused,
 // and doesn't move by itself for those who ask for less motion.
 //
 // hero(picks, { watching }) → { el, spotlight, stop }:
@@ -9,7 +9,8 @@
 //   next), so Play on that series goes there.
 // - `spotlight.add(items)` says which titles the tiles are; `spotlight.watch(list)` lets a
 //   row's tiles show their title here after a moment's hover or focus, going back to the pick
-//   a moment after they're left.
+//   a moment after they're left. A tile's title shown here plays its preview too, by the
+//   pick's rules; row items carry no trailer, so that's a clip, on the home network only.
 // - `stop()` ends the stepping and any trailer, for leaving the page.
 
 import { SignedOut, announce, h, runtime } from "/web/lib.js";
@@ -63,6 +64,8 @@ export function hero(picks, { watching = new Map() } = {}) {
     list: myListToggle(),
     held: false,
     paused: stillness.matches,
+    // Whether the hero can be seen, as last observed.
+    inView: true,
   };
   const art = h("div", { class: "hero-art" }, p.art);
   p.trailer = heroTrailer(art);
@@ -88,6 +91,17 @@ export function hero(picks, { watching = new Map() } = {}) {
   p.el.addEventListener("focusin", () => (p.held = true));
   p.el.addEventListener("focusout", (event) => (p.held = p.el.contains(event.relatedTarget)));
   if (p.picks.length) draw(p, p.picks[0]);
+  // Previews play only while the hero can be seen: a tile low on the page shows its title up
+  // here all the same, but its clip waits until the hero is scrolled back into view.
+  const seen = new IntersectionObserver(
+    ([entry]) => {
+      p.inView = entry.isIntersecting;
+      if (!p.inView) p.trailer.stop();
+      else if (p.shown && !p.trailer.playing()) p.trailer.show(p.shown);
+    },
+    { threshold: 0.25 },
+  );
+  seen.observe(p.el);
   const timer = setInterval(() => {
     if (p.paused || p.held || p.trailer.playing() || document.hidden || p.picks.length < 2 || p.shown !== p.picks[p.at]) return;
     p.at = (p.at + 1) % p.picks.length;
@@ -96,6 +110,7 @@ export function hero(picks, { watching = new Map() } = {}) {
   }, STEP_MS);
   const stop = () => {
     clearInterval(timer);
+    seen.disconnect();
     p.trailer.close();
   };
   return { el: p.el, spotlight: spotlight(p, enrich), stop };
@@ -158,8 +173,8 @@ function draw(p, item) {
   p.info.setAttribute("aria-label", `More info: ${item.title}`);
   p.list.show(item);
   aimPlay(p, item);
-  // A pick's trailer, after a few seconds on it; a tile's title shown here plays none.
-  if (p.picks.includes(item)) p.trailer.show(item);
+  // Its preview, after a few seconds on it: a pick's, or a tile's whose title is shown here.
+  if (p.inView) p.trailer.show(item);
   else p.trailer.stop();
 }
 

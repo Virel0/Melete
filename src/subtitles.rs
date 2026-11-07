@@ -175,6 +175,27 @@ mod tests {
     }
 
     #[test]
+    fn a_signs_sidecar_counts_as_forced() {
+        let dir = tempfile::tempdir().unwrap();
+        let video = dir.path().join("Show S01E01.mkv");
+        std::fs::write(&video, b"").unwrap();
+        touch(dir.path(), "Show S01E01.en.signs.ass");
+        touch(dir.path(), "Show S01E01.en.ass");
+        let found: Vec<(String, Option<String>, bool)> = sidecars(&video)
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.file, s.language, s.forced))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("Show S01E01.en.ass".into(), Some("en".into()), false),
+                ("Show S01E01.en.signs.ass".into(), Some("en".into()), true),
+            ]
+        );
+    }
+
+    #[test]
     fn a_sidecars_language_keeps_its_region() {
         let dir = tempfile::tempdir().unwrap();
         let video = dir.path().join("Show S01E01.mkv");

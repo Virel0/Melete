@@ -13,7 +13,8 @@ pub struct Sidecar {
     pub codec: String,
     /// The language tag in the name, such as "en" or "fre"; None without one.
     pub language: Option<String>,
-    /// Whether the name says forced: only the parts in another language.
+    /// Whether the name says forced, or signs (anime's signs and songs track): only the parts in
+    /// another language.
     pub forced: bool,
     /// Whether the name says it's for the hearing impaired: sdh, cc, or hi beside a language.
     pub hearing_impaired: bool,
@@ -78,7 +79,7 @@ pub fn sidecars(video: &Path) -> std::io::Result<Vec<Sidecar>> {
         // it's the flag when another language tag is there, the language when it's alone.
         let other_language = tags
             .iter()
-            .find(|t| is_language(t, &["sdh", "cc", "hi", "forced"]));
+            .find(|t| is_language(t, &["sdh", "cc", "hi", "forced", "signs"]));
         let language = other_language
             .or_else(|| tags.iter().find(|t| t.as_str() == "hi"))
             .cloned();
@@ -93,7 +94,7 @@ pub fn sidecars(video: &Path) -> std::io::Result<Vec<Sidecar>> {
                 other => other.into(),
             },
             language,
-            forced: has(&["forced"]),
+            forced: has(&["forced", "signs"]),
             hearing_impaired,
             path: entry.path(),
             size: metadata.len(),

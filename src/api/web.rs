@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 128] = [
+const MODULES: [(&str, &str); 129] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -79,6 +79,7 @@ const MODULES: [(&str, &str); 128] = [
         include_str!("../web/player-controls.js"),
     ),
     ("player-menus.js", include_str!("../web/player-menus.js")),
+    ("player-report.js", include_str!("../web/player-report.js")),
     ("player-jump.js", include_str!("../web/player-jump.js")),
     ("player-ass.js", include_str!("../web/player-ass.js")),
     (
@@ -680,6 +681,49 @@ mod tests {
     }
 
     #[test]
+    fn recaps_intros_and_previews_are_passed_over_once_a_play_when_the_user_asks() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let next = module("player-next.js");
+        // Credits are never passed over this way; the rest once each.
+        assert!(next.contains("[\"Skip credits\", segments?.credits, null],"));
+        assert!(next.contains("let skipped = !passedOver;"));
+        assert!(next.contains("if (within && auto && !skipped) {\n        skipped = true;"));
+        // Off until the user's preference says otherwise, asked once for Skip and Up next.
+        assert!(next.contains("auto_skip: false };"));
+        assert!(next.contains("(auto = Boolean(prefs.auto_skip))"));
+        assert!(module("playback-prefs.js").contains("auto_skip: skipping.input.checked"));
+    }
+
+    #[test]
+    fn the_player_keeps_what_it_saw_and_sends_it_only_when_asked() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let player = module("player.js");
+        assert!(player.contains("s.log = playbackLog(video, Number(fileId));"));
+        assert!(player.contains("s.log.note(\"mode\", { mode: next });"));
+        assert!(player.contains("s.log.note(\"conversion_error\""));
+        assert!(player.contains("reportButton(s.log, s.ctx)"));
+        assert!(module("account.js").contains("reportGroup(ctx),"));
+        let report = module("player-report.js");
+        // A short ring, kept under the server's 64 KiB, posted only from the button.
+        assert!(report.contains("const MOST = 200;"));
+        assert!(report.contains("if (log.events.length > MOST) log.events.shift();"));
+        assert!(report.contains("JSON.stringify(body).length > MOST_BYTES"));
+        assert_eq!(report.matches("api(\"/me/diagnostics\"").count(), 1);
+        assert!(report.contains("button.addEventListener(\"click\", async () => {"));
+        // What kind of conversion error, never its address, which can carry a session.
+        assert!(!player.contains("url: data.") && !report.contains("currentSrc"));
+        for event in [
+            "\"waiting\"",
+            "\"stalled\"",
+            "\"error\"",
+            "\"seek\"",
+            "\"subtitles\"",
+        ] {
+            assert!(report.contains(event), "{event}");
+        }
+    }
+
+    #[test]
     fn the_hero_wide_tiles_and_grid_cards_wear_a_tiles_badge() {
         // Wide tiles as well as posters, by whether the series is being watched.
         let tiles = module("watch-tiles.js");
@@ -850,6 +894,23 @@ mod tests {
         ));
         assert!(flash.contains("\"aria-hidden\": \"true\""));
         assert!(flash.contains("if (!stillness.matches) el.animate("));
+    }
+
+    #[test]
+    fn a_tile_shown_in_the_hero_plays_its_preview_there() {
+        // Picks and tiles alike go through the hero's preview player, with its rules.
+        let hero = module("watch-hero.js");
+        assert!(hero.contains("  aimPlay(p, item);\n  // Its preview"));
+        assert!(
+            hero.contains("  if (p.inView) p.trailer.show(item);\n  else p.trailer.stop();\n}")
+        );
+        assert!(!hero.contains("p.picks.includes(item)"));
+        // Only while the hero can be seen, so a tile low on the page plays nothing off screen.
+        assert!(hero.contains("if (!p.inView) p.trailer.stop();"));
+        assert!(hero.contains("seen.disconnect();"));
+        let player = module("watch-hero-trailer.js");
+        assert!(player.contains("if (stillness.matches || document.hidden || prefs.hero_trailers === \"off\") return false;"));
+        assert!(player.contains("if (!home) return null;"));
     }
 
     #[test]

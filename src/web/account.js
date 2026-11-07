@@ -1,11 +1,12 @@
-// Your account: your profile picture, password, two-factor sign-in, languages, playback,
-// signing in through an identity provider, sessions and API keys, and Quick Connect for signing
-// in another device. Every user has this page.
+// Your account: your profile picture, password, two-factor sign-in, languages, playback and a
+// report of the last play in this tab, signing in through an identity provider, sessions and API
+// keys, and Quick Connect for signing in another device. Every user has this page.
 
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
 import { playbackGroup } from "/web/playback-prefs.js";
 import { pictureGroup } from "/web/profile-picture.js";
+import { reportGroup } from "/web/player-report.js";
 import { SignedOut, announce, api, h, oidcOutcome } from "/web/lib.js";
 import { signInChanges, twoFactorGroup } from "/web/two-factor.js";
 
@@ -34,6 +35,7 @@ export async function account(ctx) {
     twoFactorGroup(twoFactor, ctx),
     languages,
     playback,
+    reportGroup(ctx),
     linking,
     group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list, signInChanges(twoFactor.changes)),
     group("Quick Connect", h("p", { class: "note" }, "Sign in a TV or a new device without typing your password on it: choose Quick Connect there and enter the code it shows."), ...quick),
