@@ -10,6 +10,7 @@ import { forgetSavedHomes, home } from "/web/home.js";
 import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { forgetExtras } from "/web/music-extras.js";
+import { forgetSaved, startSaved } from "/web/music-saved.js";
 import { musicPage } from "/web/music.js";
 import "/web/tab-title.js";
 import "/web/music-keys.js";
@@ -77,8 +78,9 @@ function signIn(message) {
   codeWaiting = null;
   // Its stream links stop working with the session anyway.
   stopPlayer();
-  // No private listening or sleep timer carries over to whoever signs in next.
+  // No private listening, sleep timer or kept queue carries over to whoever signs in next.
   forgetExtras();
+  forgetSaved();
   stopShell();
   // The next to sign in here may be someone else.
   forgetSavedHomes();
@@ -200,6 +202,7 @@ function startSession(user) {
   bar.hidden = false;
   openPalette = installPalette(user, document.getElementById("palette-open"));
   startPlayer({ onSignedOut: () => signIn("Your session ended. Sign in again.") });
+  startSaved(user);
   startBar();
   startTogether(user);
   render();

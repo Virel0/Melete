@@ -29,6 +29,7 @@ pub(super) fn music_routes(
         ))
         .merge(music_play::routes(pool.clone(), converter))
         .merge(music_plays::routes(pool.clone()))
+        .merge(music_queue::routes(pool.clone()))
         .merge(music_transitions::routes(pool.clone()))
 }
 

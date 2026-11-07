@@ -6617,6 +6617,44 @@
         }
       }
     },
+    "/api/v1/music/queue": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Publish this session's queue for your other devices",
+        "description": "For apps that don't sync through Aoide (the web UI's player): keeps the queue as this session's `queue_state` row, the row an Aoide device pushes for its own (`deviceId` and `originDevice` `token-{id}`, the session's device name, `trackIds` as JSON text, `position`, `elapsedMs`, `updatedAt`), replacing the one before, so `GET /aoide/queue` lists it for your other devices to pick up. Only your own log, only this session's row. An empty list says nothing is queued, which the apps don't offer.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["track_ids"],
+                "properties": {
+                  "track_ids": {"type": "array", "maxItems": 500, "items": {"type": "integer"}, "description": "The whole queue in play order, played tracks too; at most 500, as the apps keep."},
+                  "position": {"type": "integer", "minimum": 0, "default": 0, "description": "Index into track_ids of the track playing."},
+                  "elapsed_ms": {"type": "integer", "minimum": 0, "default": 0, "description": "How far into that track."}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Kept"},
+          "400": {
+            "description": "Over 500 tracks, a position outside the list, or a negative elapsed time",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "This account sees only some music libraries, which Aoide's sync doesn't support",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/replay": {
       "get": {
         "tags": ["Music"],

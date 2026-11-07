@@ -47,6 +47,7 @@ mod music_pins;
 mod music_play;
 mod music_plays;
 mod music_profiles;
+mod music_queue;
 mod music_recent;
 mod music_replay;
 mod music_stems;
