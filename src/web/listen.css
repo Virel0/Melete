@@ -184,6 +184,34 @@
 .album-card .card-like[aria-pressed="true"] svg { stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .album-card .card-like[aria-pressed="true"]::after { content: none; }
 .album-card .note { display: block; font-size: var(--step--1); }
+/* An album card's More: over the cover's other top corner, on a disc as its heart is; its
+   actions open under it, over the page (a popover), placed by music-album-menu.js. */
+.album-card .card-more {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-start: var(--space-2);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.album-card .card-more:hover { background: var(--surface-raised); }
+.card-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(17rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+.card-menu-buttons { display: grid; gap: var(--space-1); }
+.card-menu-buttons > button { justify-content: flex-start; margin: 0; }
+.card-menu .note:empty { display: none; }
+.card-menu .playlist-picker { max-width: none; }
 .album-card .note:empty { display: none; }
 .track-actions .note:empty { display: none; }
 @media (max-width: 40rem) {

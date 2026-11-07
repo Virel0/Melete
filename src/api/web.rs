@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 129] = [
+const MODULES: [(&str, &str); 130] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -166,6 +166,10 @@ const MODULES: [(&str, &str); 129] = [
         include_str!("../web/music-playlist-pick.js"),
     ),
     ("music-parts.js", include_str!("../web/music-parts.js")),
+    (
+        "music-album-menu.js",
+        include_str!("../web/music-album-menu.js"),
+    ),
     ("music-home.js", include_str!("../web/music-home.js")),
     ("music-play.js", include_str!("../web/music-play.js")),
     ("music-pins.js", include_str!("../web/music-pins.js")),
@@ -1334,6 +1338,32 @@ mod tests {
         for button in [r#""Play")"#, r#""Shuffle")"#, r#""Add to playlist")"#] {
             assert!(album.contains(button), "{button}");
         }
+    }
+
+    #[test]
+    fn a_whole_album_plays_next_or_last_and_its_cards_have_its_actions() {
+        // The album page puts all its songs in Next up, first or last.
+        let album = module("music-album.js");
+        assert!(album.contains("queueButtons(album, async () => queue, said)"));
+        let menu = module("music-album-menu.js");
+        assert!(menu.contains(r#"button("Play next", playNext,"#));
+        assert!(menu.contains(r#"button("Play last", playLast,"#));
+        // Every album card has More, opening the album's actions as a popover (Escape and a
+        // press outside close it; the browser puts focus back on More).
+        assert!(module("music-parts.js").contains("    albumMenu(album),\n"));
+        assert!(menu.contains(r#"popover: "auto", role: "group""#));
+        assert!(menu.contains(r#"more.setAttribute("popovertarget", id);"#));
+        for action in [
+            r#"start("Play", "#,
+            r#"start("Shuffle", "#,
+            "queueButtons(album, queue, said, \"small\")",
+            "radioButton(() => albumSeed(album.id), album.title)",
+            r#""Add to playlist")"#,
+        ] {
+            assert!(menu.contains(action), "{action}");
+        }
+        // The album's tracks are asked for once, when an action first needs them.
+        assert!(menu.contains("asked ??= api(`/music/albums/${album.id}`)"));
     }
 
     #[test]
