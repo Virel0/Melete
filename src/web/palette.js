@@ -1,9 +1,12 @@
 // The command palette: Ctrl+K (⌘K on a Mac) or / opens it anywhere, and typing finds a
 // page, a setting, or a title, artist or song in the library (what the user may see of it);
-// last, "See all results" opens the search page for what's typed (search.js). It's a modal dialog: focus goes into it and stays there, Escape closes it, and focus goes
-// back to where it was. Arrow keys move through the results, Enter opens one.
+// last, "See all results" opens the search page for what's typed (search.js). While the box is
+// empty it offers this browser's recent searches (palette-recent.js), with Clear. It's a modal
+// dialog: focus goes into it and stays there, Escape closes it, and focus goes back to where it
+// was. Arrow keys move through the results, Enter opens one.
 
 import { SignedOut, api, h } from "/web/lib.js";
+import { clearSearches, recentSearches, rememberSearch } from "/web/palette-recent.js";
 
 // Where everyone can go. `words` are other names people may type for the same place.
 const PAGES = [
@@ -156,8 +159,22 @@ function paletteParts(me) {
   return { input, results, said, keys };
 }
 
-// Closes the palette and goes to the place or title chosen.
-function go(item) {
+// Closes the palette and goes to the place or title chosen; for a title, or all the results,
+// what was typed is kept as a recent search. A recent search chosen is typed again instead;
+// Clear forgets them.
+function go(item, pal) {
+  if (item.recent) {
+    pal.input.value = item.recent;
+    pal.input.dispatchEvent(new Event("input"));
+    return;
+  }
+  if (item.clear) {
+    clearSearches();
+    pal.said.textContent = "Recent searches cleared";
+    draw(pal);
+    return;
+  }
+  if (pal.titles.includes(item) || item.kind === "Search") rememberSearch(pal.input.value);
   dialog.close();
   if (location.hash === item.href) dispatchEvent(new HashChangeEvent("hashchange"));
   else location.hash = item.href;
@@ -193,13 +210,15 @@ function draw(pal) {
   // those it hasn't to ask for.
   const typed = input.value.trim();
   const all = typed ? [{ name: `See all results for “${typed}”`, href: `#/search?${new URLSearchParams({ q: typed })}`, kind: "Search" }] : [];
-  pal.shown = [...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
+  const recent = q ? [] : recentSearches().map((r) => ({ name: r, kind: "Recent search", recent: r }));
+  if (recent.length) recent.push({ name: "Clear recent searches", kind: "Recent", clear: true });
+  pal.shown = [...recent, ...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
   pal.active = Math.min(pal.active, Math.max(0, pal.shown.length - 1));
   results.replaceChildren(
     ...pal.shown.map((item, i) =>
       h(
         "li",
-        { id: `palette-option-${i}`, role: "option", onclick: () => go(item), onmousemove: () => { if (pal.active !== i) { pal.active = i; mark(pal); } } },
+        { id: `palette-option-${i}`, role: "option", onclick: () => go(item, pal), onmousemove: () => { if (pal.active !== i) { pal.active = i; mark(pal); } } },
         h("span", { class: "palette-name" }, item.name),
         h("span", { class: "palette-kind" }, item.kind),
       ),
@@ -266,7 +285,7 @@ function listen(pal) {
       mark(pal);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (shown[pal.active]) go(shown[pal.active]);
+      if (shown[pal.active]) go(shown[pal.active], pal);
     }
   });
   // A click on the backdrop (outside the box) closes it, as Escape does.

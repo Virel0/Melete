@@ -250,6 +250,13 @@ const MODULES: [(&str, &str); 130] = [
     ("calendar.js", include_str!("../web/calendar.js")),
     ("palette.js", include_str!("../web/palette.js")),
     (
+        "palette-recent.js",
+        include_str!("../web/palette-recent.js"),
+    ),
+    ("theme.js", include_str!("../web/theme.js")),
+    ("appearance.js", include_str!("../web/appearance.js")),
+    ("tab-title.js", include_str!("../web/tab-title.js")),
+    (
         "profile-editor.js",
         include_str!("../web/profile-editor.js"),
     ),
@@ -526,6 +533,45 @@ mod tests {
             .1;
         assert!(css.contains(".grid-spotlight { display: none; }"));
         assert!(css.contains("@media (min-width: 75rem) {\n  .spotlit {"));
+    }
+
+    /// The appearance chosen in Your account is set before anything is drawn: theme.js is a
+    /// plain script ahead of the styles, so it runs before the first paint, and the light palette
+    /// follows what it sets rather than a media query it would have to fight.
+    #[test]
+    fn the_appearance_is_set_before_the_first_paint() {
+        let theme = INDEX
+            .find(r#"<script src="/web/theme.js"></script>"#)
+            .unwrap();
+        assert!(theme < INDEX.find(r#"<link rel="stylesheet""#).unwrap());
+        assert!(!module("theme.js").contains("import ") && !module("theme.js").contains("export "));
+        assert!(module("theme.js").contains("document.documentElement.dataset.theme"));
+        assert!(STYLES.contains(":root[data-theme=\"light\"] {"));
+        for (name, css) in MORE_STYLES.iter().chain([("app.css", STYLES)].iter()) {
+            assert!(!css.contains("prefers-color-scheme"), "{name}");
+        }
+        // Your account offers the choice; it's kept under the key theme.js reads.
+        assert!(module("account.js").contains("appearanceGroup(),"));
+        assert!(module("appearance.js").contains("const KEY = \"melete.appearance\";"));
+        assert!(module("theme.js").contains("const KEY = \"melete.appearance\";"));
+    }
+
+    /// The palette keeps what was typed for a result chosen, offers it while its box is empty,
+    /// with Clear; and the tab says the song while music plays.
+    #[test]
+    fn recent_searches_and_the_song_in_the_tab() {
+        let palette = module("palette.js");
+        assert!(palette.contains("rememberSearch(pal.input.value);"));
+        assert!(palette.contains("const recent = q ? [] : recentSearches()"));
+        assert!(palette.contains(r#"name: "Clear recent searches""#));
+        let recent = module("palette-recent.js");
+        assert!(
+            recent.contains("const KEEP = 6;") && recent.contains("localStorage.removeItem(KEY)")
+        );
+        let tab = module("tab-title.js");
+        assert!(tab.contains(r#"document.addEventListener("melete:track""#));
+        assert!(tab.contains(r#"[track.title, track.artist].filter(Boolean).join(" – ")"#));
+        assert!(module("app.js").contains(r#"import "/web/tab-title.js";"#));
     }
 
     #[test]
