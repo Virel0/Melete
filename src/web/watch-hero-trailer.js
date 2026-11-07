@@ -1,6 +1,6 @@
-// The hero's preview: after a few seconds on a pick, a muted preview plays behind the words,
-// with Unmute and Stop beside the pick's buttons. The backdrop comes back when the preview
-// ends, when it's stopped, or when the hero moves on.
+// The hero's preview: after a few seconds on a pick, or on a tile whose title the hero shows,
+// a muted preview plays behind the words, with Unmute and Stop beside the buttons. The backdrop
+// comes back when the preview ends, when it's stopped, or when the hero moves on.
 //
 // The preview is the pick's trailer (`/home`'s `trailer`: its folder's, else one downloaded), played as it
 // is when this browser can play it, else converted. Without one, it's 40 seconds of the title
