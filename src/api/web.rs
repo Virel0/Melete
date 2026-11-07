@@ -547,6 +547,26 @@ mod tests {
     }
 
     #[test]
+    fn home_draws_its_saved_copy_first_and_forgets_it_with_the_session() {
+        let home = module("home.js");
+        // Kept under the user's id, read and written with storage allowed to fail.
+        assert!(home.contains(r#"const SAVED = "melete.home.";"#));
+        assert!(
+            home.contains("return JSON.parse(localStorage.getItem(SAVED + user) ?? \"null\");")
+        );
+        assert!(home.contains("localStorage.setItem(SAVED + user, JSON.stringify(answer));"));
+        assert_eq!(home.matches("  } catch {\n").count(), 3);
+        // Drawn first; a failed refresh leaves it up.
+        assert!(home.contains("let stop = saved ? draw(saved) : null;"));
+        assert!(home.contains("if (!saved) show(\"Home\", h(\"h1\", {}, \"Home\"), failed("));
+        // Every saved copy goes whenever the sign-in form comes back: signing out, an ended
+        // session, or opening the page signed out.
+        let app = module("app.js");
+        assert!(app.contains("  stopShell();\n  // The next to sign in here may be someone else.\n  forgetSavedHomes();"));
+        assert!(app.contains("if (!kind) return home(gen, me.id);"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
