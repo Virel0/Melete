@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 129] = [
+const MODULES: [(&str, &str); 130] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -141,6 +141,7 @@ const MODULES: [(&str, &str); 129] = [
     ("music-radio.js", include_str!("../web/music-radio.js")),
     ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
+    ("music-info.js", include_str!("../web/music-info.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
     (
         "music-album-likes.js",
@@ -1334,6 +1335,28 @@ mod tests {
         for button in [r#""Play")"#, r#""Shuffle")"#, r#""Add to playlist")"#] {
             assert!(album.contains(button), "{button}");
         }
+    }
+
+    #[test]
+    fn get_info_says_what_a_songs_file_is() {
+        // In the strip, for everyone (it reads only the track), opening under the buttons.
+        let actions = module("music-actions.js");
+        assert!(actions.contains(r#""aria-expanded": "false" }, "Get info")"#));
+        assert!(actions.contains(r#"infoArea.replaceChildren(opening ? songInfo(track) : "")"#));
+        let info = module("music-info.js");
+        for field in [
+            "track.codec",
+            "track.bitrate_kbps",
+            "track.sample_rate",
+            "track.bit_depth",
+            "track.channels",
+            "track.isrc",
+        ] {
+            assert!(info.contains(field), "{field}");
+        }
+        // What the file doesn't say is left out, not shown empty.
+        assert!(info.contains("facts.filter(([, value]) => value)"));
+        assert!(module("music-album.js").contains("const parts = [codecName(codec)];"));
     }
 
     #[test]

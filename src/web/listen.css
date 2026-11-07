@@ -186,6 +186,8 @@
 .album-card .note { display: block; font-size: var(--step--1); }
 .album-card .note:empty { display: none; }
 .track-actions .note:empty { display: none; }
+/* Get info: what the song's file is, as name and value, under the strip's buttons. */
+.song-info { max-width: 32rem; margin-block: var(--space-3) var(--space-1); }
 @media (max-width: 40rem) {
   .tracks.songs li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
   .tracks.songs li.with-actions .track-more { grid-column: 3; grid-row: 1; }
