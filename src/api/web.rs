@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 118] = [
+const MODULES: [(&str, &str); 119] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -127,6 +127,7 @@ const MODULES: [(&str, &str); 118] = [
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
+    ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
     (
@@ -557,6 +558,19 @@ mod tests {
         assert!(people.contains(
             r#"img.addEventListener("error", () => img.replaceWith(letters()), { once: true });"#
         ));
+    }
+
+    #[test]
+    fn a_title_partway_through_can_be_played_from_the_start() {
+        let page = module("title-page.js");
+        // Beside a movie's Resume, and a series' Resume of the episode partway through.
+        assert!(page.contains("fromStart: playHref(file.id, { movie: m.id }, true)"));
+        assert!(page.contains(
+            "playHref(going.file_id, { series: s.id, season: going.season, episode: going.episode }, true)"
+        ));
+        // Hidden unless Play resumes, and labelled with the title.
+        assert!(page.contains("restart.hidden = !target?.fromStart;"));
+        assert!(page.contains("`From the start: ${title}`"));
     }
 
     #[test]
