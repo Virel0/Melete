@@ -3,14 +3,18 @@
 // anime), a page at a time, and finding a title by describing it when AI features are on. What's
 // shown is kept in the page's address, so Back and a reload return to it.
 //
-// everything(page, params, gen, { genres, libraries, ai, watching }) → the section, its grid
-// loading. `page` is "shows", "anime" or "movies": shows are `/series` with anime left out,
-// anime is `/series` with only anime, movies `/movies`. Each card wears the badge its tile
-// would on the home, `watching` (the series being watched, by id) choosing "N unwatched".
+// everything(page, params, gen, { genres, libraries, ai, watching, follow }) → the section, its
+// grid loading. `page` is "shows", "anime" or "movies": shows are `/series` with anime left out,
+// anime is `/series` with only anime, movies `/movies`. Each card wears the badge its tile would
+// on the home, `watching` (the series being watched, by id) choosing "N unwatched". `follow`, if
+// given, is handed a function that loads what's shown again in place (for a title come or gone),
+// quietly and keeping the keyboard's focus on the same card; without one, the section keeps it
+// as `refresh`.
 
 import { SignedOut, announce, api, append, failure, h, number, plural } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { titleCard } from "/web/cards.js";
+import { keepPlace } from "/web/watch-live.js";
 import { badgeOf } from "/web/watch-tiles.js";
 
 const PAGE_SIZE = 100;
@@ -36,7 +40,7 @@ function card(kind, item, watching) {
   return titleCard(kind, item, badge);
 }
 
-export function everything(page, params, gen, { genres, libraries, ai, watching = new Map() }) {
+export function everything(page, params, gen, { genres, libraries, ai, watching = new Map(), follow = null }) {
   const about = PAGES[page];
   // What the grid's parts share: what's shown, and the boxes it's shown in.
   const v = {
@@ -66,7 +70,7 @@ export function everything(page, params, gen, { genres, libraries, ai, watching 
   v.more = h("div", { class: "more" });
   listen(v, sorter);
   reload(v).catch((err) => failed(v, err));
-  return h(
+  const section = h(
     "section",
     { class: "everything", "aria-labelledby": "everything-head" },
     h("h2", { id: "everything-head" }, `All ${v.noun[1]}`),
@@ -84,6 +88,12 @@ export function everything(page, params, gen, { genres, libraries, ai, watching 
     v.grid,
     v.more,
   );
+  // Without a `follow`, the section keeps its in-place reload as `refresh`.
+  follow ??= (refresh) => {
+    section.refresh = refresh;
+  };
+  follow?.(() => reload(v, { quietly: true }).catch((err) => failed(v, err)));
+  return section;
 }
 
 // The search box, sort, genre and category pickers, set to what's shown. The search box and
@@ -159,12 +169,18 @@ function remember(v) {
 }
 
 // Loads the first `shown` titles for the current search and sort, replacing what's there.
-async function reload(v) {
+// `quietly` (a live update) says nothing while loading, and the count again only if it changed.
+async function reload(v, { quietly = false } = {}) {
   const { kind, noun, count, grid, more } = v;
   const mine = ++v.reloads;
   const stale = () => v.gen !== generation || mine !== v.reloads;
-  count.textContent = `Loading ${noun[1]}…`;
-  more.replaceChildren();
+  const say = (text) => {
+    if (count.textContent !== text) count.textContent = text;
+  };
+  if (!quietly) {
+    say(`Loading ${noun[1]}…`);
+    more.replaceChildren();
+  }
   const query = new URLSearchParams({ sort: v.sort });
   if (v.anime) query.set("anime", v.anime);
   if (v.q) query.set("q", v.q);
@@ -178,10 +194,11 @@ async function reload(v) {
   };
   const page = await load(0, v.shown);
   if (stale()) return;
-  grid.replaceChildren(...page.items.map((item) => card(kind, item, v.watching)));
+  keepPlace(grid, page.items.map((item) => card(kind, item, v.watching)));
   const narrowed = Boolean(v.q || v.genre || v.category);
   if (page.total === 0) {
-    count.textContent = narrowed ? `No ${noun[1]} match${v.q ? ` “${v.q}”` : ""}${v.genre ? ` in ${v.genre}` : ""}.` : `No ${noun[1]} yet.`;
+    more.replaceChildren();
+    say(narrowed ? `No ${noun[1]} match${v.q ? ` “${v.q}”` : ""}${v.genre ? ` in ${v.genre}` : ""}.` : `No ${noun[1]} yet.`);
     if (narrowed) {
       const clear = () => {
         v.search.value = v.q = "";
@@ -196,7 +213,7 @@ async function reload(v) {
     return;
   }
   const total = plural(page.total, noun[0], noun[1]);
-  count.textContent = [total, v.q ? `match “${v.q}”` : null, v.genre ? `in ${v.genre}` : null].filter(Boolean).join(" ");
+  say([total, v.q ? `match “${v.q}”` : null, v.genre ? `in ${v.genre}` : null].filter(Boolean).join(" "));
   offerMore(v, { page, load, stale, loaded: page.items.length });
 }
 
