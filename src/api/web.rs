@@ -435,6 +435,41 @@ mod tests {
         }
     }
 
+    /// Your requests come in stages, each with its poster, who decided and when, and where an
+    /// approved one is coming from; Ask results have their posters too.
+    #[test]
+    fn requests_say_who_decided_where_they_come_from_and_their_stage() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let row = module("requests-row.js");
+        assert!(row.contains(r#"[verb, r.decided_by ? ` by ${r.decided_by}` : null"#));
+        assert!(row.contains(r#"["Approved at once""#));
+        assert!(row.contains(r#"torrent: "From a torrent", soulseek: "From Soulseek""#));
+        assert!(row.contains("[stepBar(r.progress), whence(r.progress)]"));
+        assert!(row.contains(r#"{ class: "pictured" },"#) && row.contains("picture(r),"));
+        let requests = module("requests.js");
+        for stage in [
+            "On the way",
+            "Waiting for approval",
+            "In the library",
+            "Declined",
+        ] {
+            assert!(requests.contains(stage), "{stage}");
+        }
+        assert!(requests.contains("rows.get(stage(r)).push(requestRow("));
+        assert!(requests.contains("picture(c),"));
+        // An admin's choice of where it goes sits under the words, not in the poster's frame.
+        assert!(
+            module("requests-admin.js")
+                .contains(r#"row.querySelector(":scope > .art + div").append(choose);"#)
+        );
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "tools.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".rows > li.pictured"));
+    }
+
     #[test]
     fn the_page_has_no_inline_script_or_style() {
         // The policy would block them; this says so before a browser does.
