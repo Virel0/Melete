@@ -897,6 +897,23 @@ mod tests {
     }
 
     #[test]
+    fn a_tile_shown_in_the_hero_plays_its_preview_there() {
+        // Picks and tiles alike go through the hero's preview player, with its rules.
+        let hero = module("watch-hero.js");
+        assert!(hero.contains("  aimPlay(p, item);\n  // Its preview"));
+        assert!(
+            hero.contains("  if (p.inView) p.trailer.show(item);\n  else p.trailer.stop();\n}")
+        );
+        assert!(!hero.contains("p.picks.includes(item)"));
+        // Only while the hero can be seen, so a tile low on the page plays nothing off screen.
+        assert!(hero.contains("if (!p.inView) p.trailer.stop();"));
+        assert!(hero.contains("seen.disconnect();"));
+        let player = module("watch-hero-trailer.js");
+        assert!(player.contains("if (stillness.matches || document.hidden || prefs.hero_trailers === \"off\") return false;"));
+        assert!(player.contains("if (!home) return null;"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
