@@ -164,6 +164,15 @@ pub fn word_set(raw: Option<&str>) -> HashSet<String> {
     words(&text)
 }
 
+/// Whether two titles share enough words: the Jaccard index of their word sets at least the
+/// floor a match's title needs. Unlike a match's title score, one title inside the other counts
+/// for no more, so "Mountain Dew" isn't taken for "The Rare Old Mountain Dew".
+pub fn titles_share_words(a: &str, b: &str) -> bool {
+    let (a, b) = (word_set(Some(a)), word_set(Some(b)));
+    let shared = a.intersection(&b).count();
+    shared > 0 && shared as f64 / (a.len() + b.len() - shared) as f64 >= TITLE_FLOOR
+}
+
 fn set_score(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if a.is_empty() || b.is_empty() {
         return 0.0;

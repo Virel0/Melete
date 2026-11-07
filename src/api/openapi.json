@@ -1691,6 +1691,22 @@
         }
       }
     },
+    "/api/v1/discover/status": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Whether discovery is on",
+        "description": "On when an admin turned trending and similar titles on (`MELETE_DISCOVERY`, off by default) and TMDB is set up. Nothing is asked of TMDB. The web UI's search looks up titles not in the library (`GET /api/v1/discover/search`) only while it's on, so a search of the library sends nothing out while it's off; it asks for trending titles only while it's on, too.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiscoveryStatus"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
     "/api/v1/discover/trending": {
       "get": {
         "tags": ["Browse"],
@@ -3422,7 +3438,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Grab an accepted search result",
-        "description": "Fetches the torrent from the indexer (or takes its magnet link) and adds it to Deluge on the seedbox, then follows it there. Only accepted results can be grabbed, and a torrent already downloaded or downloading isn't grabbed again. A torrent Deluge already has (added by Radarr, say) is followed rather than added twice. A torrent needs MELETE_DOWNLOADS=on. A Soulseek result goes to slskd instead, which needs it set up and sharing nothing: its files are queued in one batch per folder below the album's, into folders of the download's own, and followed there. A song's result is its one file, queued the same way. A Soulseek folder (for a song, the file) isn't grabbed again while a download of it is under way or done.",
+        "description": "Fetches the torrent from the indexer (or takes its magnet link) and adds it to Deluge on the seedbox, then follows it there. Only accepted results can be grabbed, and a torrent already downloaded or downloading isn't grabbed again. A torrent Deluge already has (added by Radarr, say) is followed rather than added twice. A torrent needs MELETE_DOWNLOADS=on. A Soulseek result goes to slskd instead, which needs it set up and sharing nothing: its files are queued in one batch per folder below the album's, into folders of the download's own, and followed there. A song's result is its one file, queued the same way. A Soulseek folder (for a song, the file) isn't grabbed again while a download of it is under way or done. When a Soulseek download of a wanted album or song fails once slskd has it (the peer refused a file, it timed out, errored or was cancelled, or slskd lost it), the next best accepted Soulseek result of the same search from another user is grabbed, up to 3 downloads from a search, unless the album or song is on disk, on its way, or no longer wanted or monitored; the failed download's `message` says what became of the next source, and the next one's starts with why it's from there.",
         "parameters": [
           {
             "name": "id",
@@ -4277,7 +4293,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Import a playlist as song requests",
-        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length) and asked for as a song by you, in the background, one import at a time and a track at a time. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
+        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length; for a track with an artist, a close title by that artist when none has its own, searched for by its words once when its title as a phrase finds nothing) and asked for as a song by you, in the background, one import at a time and a track at a time. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewPlaylistImport"}}}
@@ -5860,6 +5876,79 @@
         }
       }
     },
+    "/api/v1/music/flags": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your flagged tracks",
+        "description": "The tracks you flagged \"not interested\" (kept out of mixes, stations, shuffle and smart playlists) or \"don't count plays\" (new listens not kept), the latest change first, read from your Aoide sync log as your devices read it: a flag set on any of them, or here, is the same flag. Each with its track as the music API shows it, or null when it isn't in the library now (its content key says what it was).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsList"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/music/tracks/{id}/flags": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set or clear a track's flags",
+        "description": "Writes into your Aoide sync log the track flags row an Aoide device of yours would (the track's own row if it has one, else a new one), as this session, changing only the flags the body names and stamping only those, so a change to the other flag on a device isn't undone. Your devices apply it on their next pull. Nothing is written for a flag already so.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The track's id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "not_interested": {"type": "boolean"},
+                  "dont_count": {"type": "boolean"}
+                },
+                "minProperties": 1,
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The track's flags now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsState"}}}
+          },
+          "400": {
+            "description": "The body names no flag",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such track in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/tracks/{id}/like": {
       "put": {
         "tags": ["Music"],
@@ -6157,7 +6246,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "playback",
         "summary": "Keep a listen",
-        "description": "For apps that don't sync through Aoide (whose devices' play events reach the history by themselves). Send it when the listen ends, or when it starts and again when it ends with the same id: a listen sent again with its id is changed, not added twice.",
+        "description": "For apps that don't sync through Aoide (whose devices' play events reach the history by themselves). Send it when the listen ends, or when it starts and again when it ends with the same id: a listen sent again with its id is changed, not added twice. It's also written into your sync log as the play event an Aoide device would push (its `id` the event's id, the session as the device), so it counts on your Aoide devices too; deleting it from your history doesn't take it off them, as play events there are append-only. A song you flagged \"don't count plays\" has no listen kept (409).",
         "requestBody": {
           "required": true,
           "content": {
@@ -6211,7 +6300,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "You deleted the listen with this id from your history; it stays deleted",
+            "description": "You deleted the listen with this id from your history (it stays deleted), or flagged its song \"don't count plays\"",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
@@ -6283,6 +6372,70 @@
             "description": "No such listen of yours",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
+        }
+      }
+    },
+    "/api/v1/music/replay": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your Replay: listening over a period, of everything, an album or an artist",
+        "description": "Your own listening between two times (all of it when they're left out), as the Aoide apps' Replay shows it, from your play history (every device's listens and those sent here). A listen counts as a play as the apps count one: it reached the end, or it wasn't skipped, ended, and ran at least half the track or four minutes, whichever is less (four minutes when the track's length isn't known). `minutes` counts every listen, skips too. The top lists hold only what you may see, each ordered by plays, the latest played first in a tie.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Only listens started at or after this (Unix seconds).",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Only listens started before this (Unix seconds); after `from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "offset_minutes",
+            "in": "query",
+            "required": false,
+            "description": "Your offset from UTC in minutes (60 for UTC+1), which decides the busiest day's date.",
+            "schema": {"type": "integer", "minimum": -840, "maximum": 840, "default": 0}
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "How many of each top list.",
+            "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}
+          },
+          {
+            "name": "album_id",
+            "in": "query",
+            "required": false,
+            "description": "Only listens of this album's songs.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "artist_id",
+            "in": "query",
+            "required": false,
+            "description": "Only listens of songs this artist is credited on (or an artist that joined them); not with `album_id`.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicReplay"}}}
+          },
+          "400": {
+            "description": "A bad window, offset or limit",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
         }
       }
     },
@@ -12368,6 +12521,14 @@
         "properties": {"name": {"type": "string"}, "movies": {"type": "integer"}, "series": {"type": "integer"}},
         "additionalProperties": false
       },
+      "DiscoveryStatus": {
+        "type": "object",
+        "required": ["on"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Trending and similar titles turned on, and TMDB set up."}
+        },
+        "additionalProperties": false
+      },
       "DiscoverItem": {
         "type": "object",
         "required": [
@@ -15401,6 +15562,37 @@
         },
         "additionalProperties": false
       },
+      "MusicTrackFlagsState": {
+        "type": "object",
+        "required": ["not_interested", "dont_count"],
+        "properties": {
+          "not_interested": {"type": "boolean"},
+          "dont_count": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackFlagsList": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["track", "content_key", "not_interested", "dont_count", "changed_at"],
+              "properties": {
+                "track": {"anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}], "description": "Null when the track isn't in the library now."},
+                "content_key": {"type": "string", "description": "`artist|album|title|seconds`, as the apps key a track."},
+                "not_interested": {"type": "boolean"},
+                "dont_count": {"type": "boolean"},
+                "changed_at": {"type": "integer", "description": "When the flags last changed (Unix seconds)."}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "MusicLikes": {
         "type": "object",
         "required": ["tracks", "albums"],
@@ -16184,6 +16376,65 @@
         },
         "additionalProperties": false
       },
+      "MusicReplay": {
+        "type": "object",
+        "required": ["plays", "minutes", "songs", "artists", "albums", "busiest_day", "finish", "top_songs", "top_artists", "top_albums"],
+        "properties": {
+          "plays": {"type": "integer", "description": "Listens that count as plays."},
+          "minutes": {"type": "integer", "description": "Minutes listened, every listen counted, skips too (whole minutes, rounded down)."},
+          "songs": {"type": "integer", "description": "Different songs among the plays."},
+          "artists": {"type": "integer", "description": "Different artists among the plays (each song's first credited artist)."},
+          "albums": {"type": "integer", "description": "Different albums among the plays."},
+          "busiest_day": {
+            "type": ["object", "null"],
+            "description": "The day, on your clock (`offset_minutes`), with the most plays, the latest of a tie; null with none.",
+            "required": ["date", "plays"],
+            "properties": {
+              "date": {"type": "string", "format": "date"},
+              "plays": {"type": "integer"}
+            },
+            "additionalProperties": false
+          },
+          "finish": {
+            "type": "object",
+            "description": "How often a listen reaches the end, as the Aoide apps' finish rate counts it: `decided` listens ended either finished or skipped (one stopped part way, or never ended, counts for neither), `finished` of them reached the end. The apps show no rate below 3 decided listens.",
+            "required": ["decided", "finished"],
+            "properties": {
+              "decided": {"type": "integer"},
+              "finished": {"type": "integer"}
+            },
+            "additionalProperties": false
+          },
+          "top_songs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["plays", "track"],
+              "properties": {"plays": {"type": "integer"}, "track": {"$ref": "#/components/schemas/MusicTrack"}},
+              "additionalProperties": false
+            }
+          },
+          "top_artists": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["plays", "artist"],
+              "properties": {"plays": {"type": "integer"}, "artist": {"$ref": "#/components/schemas/MusicArtist"}},
+              "additionalProperties": false
+            }
+          },
+          "top_albums": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["plays", "album"],
+              "properties": {"plays": {"type": "integer"}, "album": {"$ref": "#/components/schemas/MusicAlbum"}},
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "MusicLyrics": {
         "type": "object",
         "required": ["track_id", "source", "synced", "lines"],
@@ -16371,7 +16622,7 @@
       },
       "AoidePendingItem": {
         "type": "object",
-        "description": "A playlist_items payload for a song not in the library yet: in place of jellyfinId and contentKey it has pending. Any device or Melete may write one. Once the song is in the library (a track whose MusicBrainz recording is its request's), Melete writes the item again as the playlist's owner, from device \"melete\": the same id, playlistId and position (where it stands then), with jellyfinId and contentKey and without pending, and an updatedAt just after the item's own, so an edit a device made later still wins (an item still pending after that is written again on the next run). An item deleted or no longer pending isn't written. Only a request put in the playlist by the user who asked for it is swapped in. A device that doesn't know pending sees an item without a track, as for one gone from the library.",
+        "description": "A playlist_items payload for a song not in the library yet: in place of jellyfinId and contentKey it has pending. Any device or Melete may write one. Once the song is in the library (a track whose MusicBrainz recording is its request's, else the one track its request's own download brought, whatever recording it's tagged with), Melete writes the item again as the playlist's owner, from device \"melete\": the same id, playlistId and position (where it stands then), with jellyfinId and contentKey and without pending, and an updatedAt just after the item's own, so an edit a device made later still wins (an item still pending after that is written again on the next run). An item deleted or no longer pending isn't written. Only a request put in the playlist by the user who asked for it is swapped in. A device that doesn't know pending sees an item without a track, as for one gone from the library.",
         "required": ["id", "playlistId", "position", "pending", "updatedAt", "originDevice", "deleted"],
         "properties": {
           "id": {"type": "string"},

@@ -39,19 +39,21 @@ export async function kindPage(page, params, gen) {
     quiet(api("/ai"), { enabled: false }),
   ]);
   if (gen !== generation) return;
-  const top = home ? narrowed(page, home) : null;
+  // The series being watched, which wear "N unwatched" on their tiles and in the grid.
+  const watching = home ? watchingOf(home.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items)) : new Map();
+  const top = home ? narrowed(page, home, watching) : null;
   if (top) leaving.push(top.stop);
   const rows = top ? h("div", { class: "watch-rows", hidden: !top.rows.length }, top.rows) : null;
-  let refreshGrid = null;
+  const grid = everything(page, params, gen, { genres, libraries, ai, watching });
   show(
     about.title,
     h("h1", { class: top ? "visually-hidden" : null }, about.title),
     top?.hero,
     rows,
-    everything(page, params, gen, { genres, libraries, ai, follow: (refresh) => (refreshGrid = refresh) }),
+    grid,
   );
   const again = async () => {
-    refreshGrid?.();
+    grid.refresh?.();
     if (!top) return;
     let fresh;
     try {
@@ -80,14 +82,13 @@ export function oldSeriesList(params) {
 
 // This page's home (`/home?kind=`): its hero and rows, its "Because you watched" ones made from
 // titles of its kind alone; null when it has no picks.
-function narrowed(page, home) {
+function narrowed(page, home, watching) {
   const about = PAGES[page];
   const latest = home.rows.find((r) => r.key === about.latest)?.items ?? [];
   // Picks: the home's, then the newest of this kind, each once.
   const seen = new Set();
   const picks = [...home.hero, ...latest].filter((i) => !seen.has(i.id) && seen.add(i.id)).slice(0, HERO);
   if (!picks.length) return null;
-  const watching = watchingOf(home.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
   const top = hero(picks, { watching });
   top.spotlight.add(picks);
   const rows = homeRows(home.rows, top, watching, about.heading);
