@@ -1,20 +1,23 @@
-// Listen's Home, where `#/music` opens: Jump back in, Discover, Pinned, Recently added,
-// Recently played, Most played lately, Made for you and Moods, Genres and In the house, in that
-// order. A row with nothing in it is left out; a library with nothing in it says so in one
-// sentence. Mixes, moods, the household and genres are extras: one that fails leaves its row out
-// rather than the page.
+// Listen's Home, where `#/music` opens: Jump back in (music-jump.js), Discover, Pinned,
+// Recently added, Recently played, Favourites (albums you like or with songs you like),
+// Recently released, Most played lately, Made for you, Moods, Albums to try (at random), Genres
+// (a random dozen) and In the house, in that order. A row with nothing in it is left out; a
+// library with nothing in it says so in one sentence. Everything but the Home answer is an
+// extra: one that fails leaves its row out rather than the page.
 
 import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
-import { clip, emptyState, hold, placeholders, release, unlessEmpty } from "/web/page-parts.js";
-import { albumCard, cover, markPlaying, trackRow } from "/web/music-parts.js";
+import { emptyState, hold, placeholders, release, unlessEmpty } from "/web/page-parts.js";
+import { albumCard, markPlaying, trackRow } from "/web/music-parts.js";
 import { trackActions } from "/web/music-actions.js";
-import { looseQueue, play, playAlbum, shufflePlay } from "/web/music-play.js";
+import { looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.js";
+import { jumpBackIn } from "/web/music-jump.js";
 import { genreHref } from "/web/music-browse.js";
 import { pinnedRow } from "/web/music-pins.js";
 import { seesAllMusic } from "/web/music-access.js";
 
-const JUMP_BACK = 6;
 const GENRES_SHOWN = 12;
+// Albums in the Favourites, Recently released and Albums to try shelves.
+const SHELF = 12;
 
 function greeting() {
   const hour = new Date().getHours();
@@ -45,22 +48,6 @@ async function busy(button, said, action) {
     release(button);
     button.removeAttribute("aria-busy");
   }
-}
-
-// The albums played last, each a card that plays the album at once.
-function jumpBackIn(albums) {
-  const said = statusLine();
-  const cards = albums.slice(0, JUMP_BACK).map((album) => {
-    const button = h(
-      "button",
-      { type: "button", class: "jump-card", "aria-label": `Play ${album.title} by ${album.artist}` },
-      cover(album.cover),
-      h("span", { class: "words" }, clip(album.title, "strong"), clip(album.artist)),
-    );
-    button.addEventListener("click", () => busy(button, said, () => playAlbum(album.id)));
-    return h("li", {}, button);
-  });
-  return [h("ul", { class: "jump" }, cards), said];
 }
 
 // Tracks from different albums, numbered in order; each plays the list from there.
@@ -125,11 +112,21 @@ function moods(list) {
   );
 }
 
+// A copy of `list` in a random order.
+function shuffled(list) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function genreChips(genres) {
   return h(
     "ul",
     { class: "pills" },
-    genres.slice(0, GENRES_SHOWN).map((g) =>
+    shuffled(genres).slice(0, GENRES_SHOWN).map((g) =>
       h(
         "li",
         {},
@@ -186,21 +183,38 @@ function household(house) {
   ];
 }
 
+// Shuffle my library: every song the listener may see, in a random order, Not interested ones
+// left out.
+function shuffleAll() {
+  const said = statusLine();
+  const button = h("button", { type: "button", class: "quiet" }, "Shuffle my library");
+  button.addEventListener("click", () =>
+    busy(button, said, async () => {
+      const page = await shuffleLibrary();
+      if (!page.items.length) said.textContent = "There are no songs to shuffle.";
+    }),
+  );
+  return h("div", { class: "play-actions" }, button, said);
+}
+
 // The rows, in order, each left out when it has nothing.
-function rows(home, pins, mixList, house, genres) {
+function rows(home, pins, mixList, house, genres, more) {
   const discover = home.mixes.find((m) => m.key === "discover");
   const others = home.mixes.filter((m) => m !== discover && m.tracks.length);
   const shelf = (albums) => unlessEmpty(albums, (list) => h("ul", { class: "grid shelf" }, list.map((a) => albumCard(a))));
   const madeForYou = others.length ? h("div", { class: "wide-cards" }, others.map((m) => mixCard(m, true))) : null;
   return [
-    row("jump", "Jump back in", unlessEmpty(home.recently_played, jumpBackIn)),
+    row("jump", "Jump back in", jumpBackIn(more.recent, home.recently_played)),
     row("discover", "Discover", discover?.tracks.length ? mixCard(discover, false) : null),
     row("pinned", "Pinned", unlessEmpty(pins.items, () => pinnedRow(pins))),
     row("added", "Recently added", shelf(home.recently_added)),
     row("played", "Recently played", shelf(home.recently_played)),
+    row("favourites", "Favourites", shelf(more.favourites.items)),
+    row("released", "Recently released", shelf(more.released.items)),
     row("most", "Most played lately", unlessEmpty(home.most_played, mostPlayed)),
     row("for-you", "Made for you", madeForYou),
     row("moods", "Moods", moods(mixList)),
+    row("random", "Albums to try", shelf(more.random.items)),
     row("genres", "Genres", unlessEmpty(genres, genreChips)),
     house ? row("house", "In the house", household(house)) : null,
   ];
@@ -210,19 +224,24 @@ export async function homePage(ctx) {
   const title = h("h1", {}, greeting());
   show("Listen", title, placeholders("your music", { kind: "cards" }));
   const quiet = (promise, empty) => promise.catch((err) => (err instanceof SignedOut ? Promise.reject(err) : empty));
-  const [home, pins, mixList, house, genres] = await Promise.all([
+  const albums = (params) => quiet(api(`/music/albums?${new URLSearchParams({ ...params, limit: String(SHELF) })}`), { items: [] });
+  const [home, pins, mixList, house, genres, recent, favourites, released, random] = await Promise.all([
     api("/music/home"),
     quiet(api("/music/pins"), { items: [] }),
     quiet(api("/music/mixes"), []),
     seesAllMusic() ? quiet(api("/music/household"), null) : null,
     quiet(api("/music/genres"), []),
+    quiet(api("/music/recent"), { items: [], removed_albums: [] }),
+    albums({ liked: "true", sort: "random" }),
+    albums({ sort: "year" }),
+    albums({ sort: "random" }),
   ]);
   if (!ctx.current()) return;
   if (!home.recently_added.length && !home.recently_played.length) {
     show("Listen", title, emptyState("Nothing in the music library yet. Albums show here once a music library is scanned."));
     return;
   }
-  const root = h("div", { class: "listen-home" }, rows(home, pins, mixList, house, genres));
-  show("Listen", title, root);
+  const root = h("div", { class: "listen-home" }, rows(home, pins, mixList, house, genres, { recent, favourites, released, random }));
+  show("Listen", title, shuffleAll(), root);
   markPlaying(root, ctx);
 }
