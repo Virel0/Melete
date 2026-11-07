@@ -96,7 +96,7 @@ export function hero(picks, { watching = new Map() } = {}) {
   }, STEP_MS);
   const stop = () => {
     clearInterval(timer);
-    p.trailer.stop();
+    p.trailer.close();
   };
   return { el: p.el, spotlight: spotlight(p, enrich), stop };
 }

@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 124] = [
+const MODULES: [(&str, &str); 125] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -65,6 +65,7 @@ const MODULES: [(&str, &str); 124] = [
     ),
     ("title-more.js", include_str!("../web/title-more.js")),
     ("title-trailer.js", include_str!("../web/title-trailer.js")),
+    ("title-preview.js", include_str!("../web/title-preview.js")),
     ("people.js", include_str!("../web/people.js")),
     ("lib.js", include_str!("../web/lib.js")),
     ("player.js", include_str!("../web/player.js")),
@@ -696,6 +697,35 @@ mod tests {
                 .contains("everything(page, params, gen, { genres, libraries, ai, watching })")
         );
         assert!(module("cards.js").contains("export function titleCard(kind, item, badge = null)"));
+    }
+
+    #[test]
+    fn a_title_pages_header_plays_its_preview_by_the_heros_rules() {
+        // The hero's own player, so its rules hold: the setting, the home network, reduced
+        // motion, muted with Unmute and Stop.
+        let preview = module("title-preview.js");
+        assert!(
+            preview.contains(r#"const trailer = heroTrailer(header.querySelector(".hero-art"));"#)
+        );
+        // The trailer only when it's sharp enough to stand in for the title.
+        assert!(
+            preview
+                .contains("const needed = Math.min(1080, own.length ? Math.max(...own) : 1080);")
+        );
+        assert!(preview.contains("return tall >= needed ? trailer.id : null;"));
+        // Only while the header is in view, and gone with the page.
+        assert!(preview.contains("else trailer.stop();"));
+        assert!(preview.contains("seen.disconnect();\n    trailer.close();"));
+        // Closing it, as leaving a page does, lets go of what it listened to.
+        let player = module("watch-hero-trailer.js");
+        assert!(player.contains(r#"removeEventListener("visibilitychange", hidden);"#));
+        assert!(module("watch-hero.js").contains("p.trailer.close();"));
+        let page = module("title-page.js");
+        assert_eq!(
+            page.matches("leaving.push(headerPreview(head.el, item, ")
+                .count(),
+            2
+        );
     }
 
     #[test]

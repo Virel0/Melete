@@ -1,8 +1,9 @@
 // A movie's or a series' own page: a header on the stage (its textless backdrop, logo or title,
 // facts, overview and genres, then Play saying what it will do, From the start beside a Resume,
-// Mark watched and My List), the page fading down from the title's strongest colour, which Play wears too. A series then has
-// its seasons and episodes (title-episodes.js); extras, cast and the collection have their own
-// addresses, and About folds the file details away (title-more.js).
+// Mark watched and My List), the page fading down from the title's strongest colour, which Play
+// wears too; a preview plays behind the header while it's in view (title-preview.js). A series
+// then has its seasons and episodes (title-episodes.js); extras, cast and the collection have
+// their own addresses, and About folds the file details away (title-more.js).
 //
 // tint(src, known) stays for the album pages, which tint flat with a cover's colour.
 
@@ -15,6 +16,7 @@ import { placeholders } from "/web/page-parts.js";
 import { buttonColour, css, strongest, tintPage } from "/web/title-colour.js";
 import { episodesPicker, markFiles, markSeries, seasonOrder } from "/web/title-episodes.js";
 import { aboutSection, castPage, extrasPage, moreLikeThis, moreLinks } from "/web/title-more.js";
+import { headerPreview } from "/web/title-preview.js";
 import { trailerButton } from "/web/title-trailer.js";
 import { partway, playTarget, timeLeft } from "/web/watch-play.js";
 
@@ -188,6 +190,10 @@ export async function movie(id, gen, admin = false) {
     moreLikeThis("movie", m.id, gen),
     aboutSection(m, m.files, { admin, kind: "movie" }),
   );
+  // A clip, when it comes to one, starts where the viewer left the file last played.
+  const latest = [...progress.values()].sort((a, b) => b.updated_at - a.updated_at)[0] ?? null;
+  const item = { kind: "movie", id: m.id, runtime_minutes: m.runtime_minutes, progress: latest };
+  leaving.push(headerPreview(head.el, item, { extras, files: m.files.map((f) => f.id) }));
 }
 
 // Where Play starts for a series: the episode partway through (which From the start plays from
@@ -253,4 +259,8 @@ export async function series(id, params, gen, admin = false) {
     episodes = fresh;
   });
   show(s.title, head.el, episodes, moreLinks("series", s, extras, credits), moreLikeThis("series", s.id, gen), aboutSection(s, [], { admin, kind: "series", unparsed: s.unparsed_files }));
+  // A clip is of the episode Play goes to, from where the viewer left it.
+  const file = target?.file_id;
+  const item = { kind: "series", id: s.id, episode: file ? { file_id: file } : null, progress: (file && progress.get(file)) ?? null };
+  leaving.push(headerPreview(head.el, item, { extras, files: file ? [file] : [] }));
 }
