@@ -6,7 +6,7 @@ import { avatar } from "/web/profile-picture.js";
 import { SignedOut, announce, api, failure, h, oidcOutcome, show } from "/web/lib.js";
 import { adminPage } from "/web/admin.js";
 import { kindPage, oldSeriesList } from "/web/watch-kind.js";
-import { home } from "/web/home.js";
+import { forgetSavedHomes, home } from "/web/home.js";
 import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { musicPage } from "/web/music.js";
@@ -16,6 +16,7 @@ import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
 import { requestsPage } from "/web/requests.js";
+import { searchPage } from "/web/search.js";
 import { calendarPage } from "/web/calendar.js";
 import { generation, leaving, nextGeneration, setSignIn } from "/web/page-state.js";
 import { settingsPage } from "/web/settings.js";
@@ -67,6 +68,8 @@ function signIn(message) {
   // Its stream links stop working with the session anyway.
   stopPlayer();
   stopShell();
+  // The next to sign in here may be someone else.
+  forgetSavedHomes();
   me = null;
   // Pages still loading for the signed-out user must not replace the form.
   nextGeneration();
@@ -235,13 +238,14 @@ async function render() {
   placeShell({ parts, params });
   const page = () => {
     const [kind, id, under] = parts;
-    if (!kind) return home(gen);
+    if (!kind) return home(gen, me.id);
     if ((kind === "shows" || kind === "anime" || kind === "movies") && !id) return kindPage(kind, params, gen);
     if (kind === "series" && !id) return oldSeriesList(params);
     if ((kind === "movies" || kind === "series") && /^\d+$/.test(id) && (!under || under === "extras" || under === "cast")) {
       return titlePage(kind, id, under, params, gen, me.is_admin);
     }
     if (kind === "favourites" && !id) return favouritesPage(params, gen);
+    if (kind === "search" && !id) return searchPage(params, gen);
     if (kind === "people" && /^\d+$/.test(id)) return personPage(id, gen);
     if (kind === "collections" && /^\d+$/.test(id)) return collectionPage(id, gen);
     if (kind === "settings" || kind === "wanted" || kind === "requests") {

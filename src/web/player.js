@@ -11,10 +11,11 @@ import { controlBar } from "/web/player-controls.js";
 import { chapterPicker, panelButtons, speedPicker } from "/web/player-menus.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
-import { canDrawAss, drawStyled, serverDraws, stopStyled } from "/web/player-ass.js";
+import { canDrawAss, drawStyled, scaleStyled, serverDraws, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
 import { resumedNote, startAt } from "/web/player-resume.js";
+import { sizePicker } from "/web/player-subtitle-size.js";
 
 const REPORT_EVERY_MS = 10_000;
 
@@ -136,14 +137,16 @@ function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) 
   return { stage, onKey, onFullscreen, controls };
 }
 
-// The control bar's panels: Subtitles (every choice as a chip, and finding more), Audio (the
-// track and the sound) and Settings (speed and chapters), each only when it has something.
+// The control bar's panels: Subtitles (every choice as a chip, their size, and finding more),
+// Audio (the track and the sound) and Settings (speed and chapters), each only when it has
+// something.
 function playerPanels(s, subtitlesBox, search) {
   if (subtitlesBox) subtitlesBox.hidden = true;
   const find = search
     ? h("button", { type: "button", class: "quiet", onclick: () => (panels.close(), search.scrollIntoView({ block: "center" }), search.querySelector("select, input, button")?.focus()) }, "Find more subtitles")
     : null;
-  const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, find].filter(Boolean);
+  const size = subtitlesBox ? sizePicker(s.video, (scale) => scaleStyled(s, scale)) : null;
+  const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, size, find].filter(Boolean);
   const audioBody = [audioPicker(s), soundPicker(s)].filter(Boolean);
   const settingsBody = [speedPicker(s.video), chapterPicker(s.video, s.info.chapters ?? [])].filter(Boolean);
   const panels = panelButtons(

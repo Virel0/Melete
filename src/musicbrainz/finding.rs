@@ -1,7 +1,8 @@
 //! Finding by words, as someone types them: each word matched on its own, loosely (a typo, a
 //! missing colon or a word left out still finds it), with the words as one phrase counting
 //! most. Each result keeps MusicBrainz's score. Matching a file to a release still asks for the
-//! exact phrase (`search`, `search_songs`).
+//! exact phrase (`search`, `search_songs`), and a song whose phrase found nothing that fits
+//! asks once more for its title's words, by the artist as a phrase (`search_song_words`).
 
 use super::*;
 
@@ -112,6 +113,27 @@ impl Client {
             .into_iter()
             .map(|s| (s.score, s.item))
             .collect())
+    }
+
+    /// Recordings whose titles have any of the words of `title`, by `artist` as a phrase,
+    /// best first: a second look for a song whose title as a phrase found nothing that fits,
+    /// as "The Rare Old Mountain Dew" doesn't find "Rare Old Mountain Dew".
+    pub async fn search_song_words(
+        &self,
+        title: &str,
+        artist: &str,
+    ) -> Result<Vec<RecordingDetail>, Error> {
+        let words = words(title);
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let query = format!(
+            "recording:({}) AND artist:{}",
+            words.join(" "),
+            phrase(artist)
+        );
+        let found: RecordingSearch = self.find("recording", query).await?;
+        Ok(found.recordings)
     }
 
     /// Songs (recordings) whose titles have these words, by an artist with those words when

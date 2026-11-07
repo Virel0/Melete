@@ -5,9 +5,9 @@
 // - row(key, heading, items, { wide, more, spotlight, watching }): a <section> with its
 //   heading, a link to the whole list when `more` is { href, label }, and a tile per item;
 //   null for none.
-// - posterTile(item, href) and wideTile(item, href): one tile each; in a row, a wide tile that
-//   plays has a "Go to series" (or movie) link under it.
-// - badgeOf(item, watching): the one badge a tile wears, or null.
+// - posterTile(item, href, badge) and wideTile(item, href, badge): one tile each; in a row, a
+//   wide tile that plays has a "Go to series" (or movie) link under it.
+// - badgeOf(item, watching): the one badge a tile wears, or null; badgeChip(badge) draws it.
 
 import { h } from "/web/lib.js";
 import { clip } from "/web/page-parts.js";
@@ -52,14 +52,19 @@ export function posterTile(item, href, badge = badgeOf(item)) {
     picture(item.poster, item.title, false),
     clip(item.title, "span"),
     item.reason ? h("span", { class: "tile-reason", title: item.reason }, h("span", { class: "visually-hidden" }, ": "), item.reason) : null,
-    // After the title, so the link is read "Ninefold, New"; drawn over the poster's corner.
-    badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null,
+    badgeChip(badge),
   );
 }
 
+// A tile's badge, after its title so the link is read "Ninefold, New", drawn over the
+// picture's corner; null for none.
+export function badgeChip(badge) {
+  return badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null;
+}
+
 // A landscape tile for an episode or a title partway through: its still (else backdrop or
-// poster), a progress bar with its track, and a caption.
-export function wideTile(item, href) {
+// poster), a progress bar with its track, a caption and its badge.
+export function wideTile(item, href, badge = badgeOf(item)) {
   const e = item.episode;
   const still = e?.still ?? item.backdrop ?? item.poster;
   const code = e ? episodeCode(e.season, e.episode) : null;
@@ -79,6 +84,7 @@ export function wideTile(item, href) {
       clip(code ? `${code} · ${item.title}` : item.title, "span"),
       left ? h("span", { class: "tile-note" }, left) : e?.name ? clip(e.name, "span") : null,
     ),
+    badgeChip(badge),
   );
 }
 
@@ -88,9 +94,10 @@ export function wideTile(item, href) {
 export function row(key, heading, items, { wide = false, more = null, spotlight = null, watching = new Map() } = {}) {
   if (!items.length) return null;
   spotlight?.add(items);
-  const cells = items.map((item) =>
-    wide ? [wideTile(item, playsAt(item)), openLink(item)] : [posterTile(item, titleHref(item), badgeOf(item, watching.has(item.id)))],
-  );
+  const cells = items.map((item) => {
+    const badge = badgeOf(item, watching.has(item.id));
+    return wide ? [wideTile(item, playsAt(item), badge), openLink(item)] : [posterTile(item, titleHref(item), badge)];
+  });
   const list = h(
     "ul",
     { class: `watch-shelf${wide ? " wide" : ""}`, "aria-labelledby": `row-${key}` },

@@ -1,7 +1,7 @@
 // Your playback preferences, which every app follows: whether the next episode starts by itself,
 // how long the countdown before it lasts, and where the Watch home's hero plays trailers. And one
-// this browser keeps: how far before where you stopped the player picks up. A part of Your
-// account.
+// this browser keeps: whether those previews start with sound, and how far before where you
+// stopped the player picks up. A part of Your account.
 
 import { field, form, group } from "/web/forms.js";
 import { api, h } from "/web/lib.js";
@@ -14,6 +14,29 @@ const HERO_TRAILERS = [
   ["everywhere", "On every screen"],
   ["off", "Never"],
 ];
+
+// Whether the hero's previews start with sound, kept by this browser.
+const PREVIEW_SOUND_KEY = "melete.preview-sound";
+
+// Whether this browser asks for previews with sound; no when it keeps nothing, or storage is off.
+export function previewSound() {
+  try {
+    return localStorage.getItem(PREVIEW_SOUND_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+// Keeps `on` in this browser; false when its storage is turned off.
+function keepPreviewSound(on) {
+  try {
+    if (on) localStorage.setItem(PREVIEW_SOUND_KEY, "on");
+    else localStorage.removeItem(PREVIEW_SOUND_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // How many seconds before where you stopped the player picks up, kept by this browser.
 const RESUME_KEY = "melete.resume-earlier";
@@ -45,10 +68,14 @@ function keepResumeEarlier(seconds) {
   }
 }
 
-// A checkbox shaped like a form field, so `form` can clear it with the rest.
-function checkField(id, label, checked) {
+// A checkbox shaped like a form field, so `form` can clear it with the rest, with a hint under
+// it when there's one.
+function checkField(id, label, checked, hint) {
   const input = h("input", { type: "checkbox", id, checked });
-  return { box: h("div", { class: "check" }, input, h("label", { for: id }, label)), input, clear() {} };
+  const row = h("div", { class: "check" }, input, h("label", { for: id }, label));
+  if (!hint) return { box: row, input, clear() {} };
+  input.setAttribute("aria-describedby", `${id}-hint`);
+  return { box: h("div", {}, row, h("p", { class: "note check-hint", id: `${id}-hint` }, hint)), input, clear() {} };
 }
 
 export async function playbackGroup() {
@@ -68,7 +95,13 @@ export async function playbackGroup() {
       {},
       HERO_TRAILERS.map(([value, label]) => h("option", { value, selected: value === saved.hero_trailers }, label)),
     ),
-    "A pick's trailer when it has one in its folder, else a clip of the title, muted, after a few seconds on it, with buttons to unmute and stop. Never when your device asks for less motion.",
+    "A pick's trailer when it has one in its folder, else a clip of the title, muted unless you ask for sound below, after a few seconds on it, with buttons to unmute and stop. Never when your device asks for less motion.",
+  );
+  const sound = checkField(
+    "preview-sound",
+    "Play previews with sound",
+    previewSound(),
+    "Kept by this browser only. A browser lets sound start only after you've clicked or pressed a key on the page; until then previews start muted.",
   );
   const earlier = resumeEarlier();
   const resume = field(
@@ -81,7 +114,7 @@ export async function playbackGroup() {
     ),
     "Where a video you stopped starts again, so a sentence cut off isn't missed. Kept by this browser only.",
   );
-  const saving = form([autoplay, countdown, trailers, resume], "Save playback", async () => {
+  const saving = form([autoplay, countdown, trailers, sound, resume], "Save playback", async () => {
     const seconds = Number(countdown.input.value);
     if (!Number.isInteger(seconds) || seconds < MIN || seconds > MAX) {
       countdown.fail(`Enter a whole number of seconds from ${MIN} to ${MAX}.`);
@@ -95,7 +128,10 @@ export async function playbackGroup() {
     const said = kept.autoplay_next
       ? `Saved. The next episode starts after ${kept.countdown_seconds} seconds.`
       : "Saved. The next episode waits for you.";
-    return keepResumeEarlier(Number(resume.input.value)) ? said : `${said} This browser can't keep where to pick up: its storage is turned off.`;
+    const lost = [];
+    if (!keepPreviewSound(sound.input.checked)) lost.push("the previews' sound");
+    if (!keepResumeEarlier(Number(resume.input.value))) lost.push("where to pick up");
+    return lost.length ? `${said} This browser can't keep ${lost.join(" or ")}: its storage is turned off.` : said;
   });
   return group("Playback", h("p", { class: "note" }, "Every app follows these, apart from what's kept by this browser only."), saving);
 }

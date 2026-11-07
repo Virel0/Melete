@@ -5,7 +5,8 @@
 //! whatever slskd named the files, and nothing else.
 //!
 //! slskd is asked first whether it shares anything; Melete won't use it if it does. A download
-//! that fails stays recorded as failed, so its id (and its folder) is never reused.
+//! that fails stays recorded as failed, so its id (and its folder) is never reused, and the next
+//! source for its album or song is tried ([`next_source`]).
 
 use std::time::Duration;
 
@@ -16,6 +17,8 @@ use crate::db::unix_now;
 use crate::downloads::{self, Download, Refused};
 use crate::slskd::{self, Transfer, Wanted};
 use crate::soulseek::Source;
+
+mod next_source;
 
 /// How often slskd is asked about downloads in progress.
 const FOLLOW_EVERY: Duration = Duration::from_secs(30);
@@ -49,6 +52,7 @@ pub fn destination(id: i64, n: usize) -> String {
 
 #[derive(sqlx::FromRow)]
 struct ReleaseRow {
+    search_id: i64,
     title: String,
     accepted: bool,
     decision: String,
@@ -134,7 +138,7 @@ async fn grabbable(
     release_id: i64,
 ) -> anyhow::Result<Result<(ReleaseRow, Source), Refused>> {
     let row: Option<ReleaseRow> = sqlx::query_as(
-        "SELECT d.title, d.accepted, d.decision, d.soulseek, s.wanted_album_id, s.wanted_song_id
+        "SELECT d.search_id, d.title, d.accepted, d.decision, d.soulseek, s.wanted_album_id, s.wanted_song_id
          FROM release_decisions d JOIN searches s ON s.id = d.search_id
          WHERE d.id = ?",
     )
@@ -190,8 +194,8 @@ async fn insert_download(
     // The batches are recorded before slskd hears of them, so a restart can follow them.
     let id: Option<i64> = sqlx::query_scalar(
         "INSERT INTO downloads (source, soulseek, title, wanted_album_id, wanted_song_id, decision,
-             state, size, message, added_at, updated_at)
-         VALUES ('soulseek', ?, ?, ?, ?, ?, 'downloading', ?, 'asking slskd for it', ?, ?)
+             search_id, state, size, message, added_at, updated_at)
+         VALUES ('soulseek', ?, ?, ?, ?, ?, ?, 'downloading', ?, 'asking slskd for it', ?, ?)
          ON CONFLICT DO NOTHING
          RETURNING id",
     )
@@ -200,6 +204,7 @@ async fn insert_download(
     .bind(row.wanted_album_id)
     .bind(row.wanted_song_id)
     .bind(&row.decision)
+    .bind(row.search_id)
     .bind(size)
     .bind(now)
     .bind(now)
@@ -294,8 +299,15 @@ pub async fn follow(pool: SqlitePool, slskd: std::sync::Arc<slskd::Client>) {
 #[derive(Debug, PartialEq)]
 enum Standing {
     Done,
-    Failed(String),
-    Going { progress: f64, message: String },
+    /// Why, in slskd's words, and what happened, as the next source's note says it.
+    Failed {
+        why: String,
+        cause: &'static str,
+    },
+    Going {
+        progress: f64,
+        message: String,
+    },
 }
 
 fn standing(expected: usize, transfers: &[Transfer]) -> Standing {
@@ -310,7 +322,10 @@ fn standing(expected: usize, transfers: &[Transfer]) -> Standing {
             Some(exception) if !exception.is_empty() => format!(" ({exception})"),
             _ => String::new(),
         };
-        return Standing::Failed(format!("slskd: {name}: {state}{why}"));
+        return Standing::Failed {
+            why: format!("slskd: {name}: {state}{why}"),
+            cause: next_source::cause(state),
+        };
     }
     let done = transfers.iter().filter(|t| t.succeeded()).count();
     if done == expected && transfers.len() == expected {
@@ -338,7 +353,8 @@ fn standing(expected: usize, transfers: &[Transfer]) -> Standing {
 }
 
 /// Asks slskd how each Soulseek download is doing; marks finished ones completed and ones
-/// with a file that failed failed. Returns how many it asked about.
+/// with a file that failed failed, grabbing the next source for those. Returns how many it
+/// asked about.
 pub async fn refresh(pool: &SqlitePool, slskd: &slskd::Client) -> anyhow::Result<usize> {
     let rows: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, soulseek FROM downloads WHERE source = 'soulseek' AND state = 'downloading'",
@@ -357,7 +373,10 @@ pub async fn refresh(pool: &SqlitePool, slskd: &slskd::Client) -> anyhow::Result
             }
         }
         let standing = if forgotten {
-            Standing::Failed("slskd no longer knows part of it".into())
+            Standing::Failed {
+                why: "slskd no longer knows part of it".into(),
+                cause: next_source::LOST,
+            }
         } else {
             standing(expected, &transfers)
         };
@@ -375,9 +394,9 @@ pub async fn refresh(pool: &SqlitePool, slskd: &slskd::Client) -> anyhow::Result
                 .execute(pool)
                 .await?;
             }
-            Standing::Failed(why) => {
+            Standing::Failed { why, cause } => {
                 cancel(slskd, &stored).await;
-                sqlx::query(
+                let failed = sqlx::query(
                     "UPDATE downloads SET state = 'failed', message = ?, updated_at = ?
                      WHERE id = ? AND state = 'downloading'",
                 )
@@ -385,11 +404,16 @@ pub async fn refresh(pool: &SqlitePool, slskd: &slskd::Client) -> anyhow::Result
                 .bind(now)
                 .bind(id)
                 .execute(pool)
-                .await?;
+                .await?
+                .rows_affected();
+                if failed == 1 {
+                    next_source::after_failure(pool, slskd, *id, cause).await;
+                }
             }
             Standing::Going { progress, message } => {
                 sqlx::query(
-                    "UPDATE downloads SET progress = ?, message = ?, updated_at = ?
+                    "UPDATE downloads SET progress = ?,
+                         message = coalesce(next_source_note || ': ', '') || ?, updated_at = ?
                      WHERE id = ? AND state = 'downloading'",
                 )
                 .bind(progress)
