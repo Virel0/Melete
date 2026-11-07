@@ -10,6 +10,7 @@ import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
+import { codecName } from "/web/music-info.js";
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 
 // Play, Shuffle and Start radio for an artist: their songs (their albums', and the ones
@@ -78,21 +79,6 @@ export async function artistPage(id, ctx) {
 
 // ---------- An album ----------
 
-const CODECS = {
-  flac: "FLAC",
-  alac: "ALAC",
-  mp3: "MP3",
-  aac: "AAC",
-  opus: "Opus",
-  vorbis: "Vorbis",
-  wav: "WAV",
-  aiff: "AIFF",
-  wavpack: "WavPack",
-  ape: "APE",
-  musepack: "Musepack",
-  speex: "Speex",
-};
-
 // What the album's files are, when they all agree: "FLAC, 24-bit, 96 kHz" or "MP3, 320 kbit/s".
 function quality(tracks) {
   const one = (pick) => {
@@ -105,7 +91,7 @@ function quality(tracks) {
   const rate = one((t) => t.sample_rate);
   const bitrate = one((t) => t.bitrate_kbps);
   const lossless = ["flac", "alac", "wav", "aiff", "wavpack", "ape"].includes(codec);
-  const parts = [CODECS[codec] ?? codec.toUpperCase()];
+  const parts = [codecName(codec)];
   if (lossless) {
     if (depth) parts.push(`${depth}-bit`);
     if (rate) parts.push(`${number.format(rate / 1000)} kHz`);
