@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 134] = [
+const MODULES: [(&str, &str); 135] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -243,6 +243,7 @@ const MODULES: [(&str, &str); 134] = [
     ("calendar.js", include_str!("../web/calendar.js")),
     ("palette.js", include_str!("../web/palette.js")),
     ("music-keys.js", include_str!("../web/music-keys.js")),
+    ("music-ask.js", include_str!("../web/music-ask.js")),
     (
         "palette-recent.js",
         include_str!("../web/palette-recent.js"),
@@ -554,6 +555,24 @@ mod tests {
         assert!(palette.contains("[...pal.places, ...musicCommands()]"));
         assert!(palette.contains("if (item.run) {"));
         assert!(palette.contains(r#"music("/playlists")"#));
+    }
+
+    /// Asking for music by description shows only once `GET /ai` says AI is on, above the Songs
+    /// list and in the palette; the phrase goes only to Melete's AI route.
+    #[test]
+    fn music_is_asked_for_by_description_only_while_ai_is_on() {
+        let ask = module("music-ask.js");
+        assert!(ask.contains(r#"api("/ai").then((a) => Boolean(a.enabled), () => false)"#));
+        assert!(ask.contains(r#""aria-label": "Ask by description", hidden: true"#));
+        let shown = ask.find("section.hidden = false;").unwrap();
+        assert!(ask[..shown].contains("if (!on || !ctx.current()) return;"));
+        assert!(
+            ask.contains(r#"api("/ai/music/search", { method: "POST", body: { query: phrase } })"#)
+        );
+        assert!(module("music-browse.js").contains("intro: askSection(ctx, params),"));
+        let palette = module("palette.js");
+        assert!(palette.contains("if (pal.ai && typed.length >= 3) all.push("));
+        assert!(palette.contains("musicAi().then((on) => (pal.ai = on));"));
     }
 
     #[test]
