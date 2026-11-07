@@ -7045,6 +7045,144 @@
         }
       }
     },
+    "/api/v1/playlists/folders": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your playlist folders",
+        "description": "Your folders as your Aoide devices hold them, in their order, each with its parent (null at the top) and how many of your playlists are filed directly in it. Folders are each user's own; a playlist names its folder in `folder_id`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/PlaylistFolder"}}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Make a playlist folder",
+        "description": "A new folder, at the top or in `parent_id`, after every other. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string", "description": "1 to 200 characters, trimmed."},
+                  "parent_id": {"type": ["string", "null"], "description": "The folder to make it in; the top when left out."}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The folder",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistFolder"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such parent folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/playlists/folders/{id}": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Rename a playlist folder",
+        "description": "Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The folder's id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "description": "1 to 200 characters, trimmed."}},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The folder",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistFolder"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Delete a playlist folder",
+        "description": "Deletes no playlist: the folders and your playlists in it move up to where it was, as a device deletes one. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The folder's id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "204": {"description": "Deleted"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/playlists/{id}": {
       "get": {
         "tags": ["Music"],
@@ -7077,8 +7215,8 @@
         "tags": ["Music"],
         "x-melete-access": "user",
         "x-melete-scope": "full",
-        "summary": "Rename a playlist, or change its notes",
-        "description": "Changes only what's given: `name`, and `notes` (null or empty clears them). Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "summary": "Rename a playlist, change its notes, or file it in a folder",
+        "description": "Changes only what's given: `name`, `notes` (null or empty clears them), and `folder_id`. Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7099,6 +7237,10 @@
                   "notes": {
                     "type": ["string", "null"],
                     "description": "Up to 2000 characters; null or empty clears them."
+                  },
+                  "folder_id": {
+                    "type": ["string", "null"],
+                    "description": "Files it in one of your folders, or at the top with null, at the end there. Your own playlists only; a smart one is filed here too, though not renamed."
                   }
                 },
                 "additionalProperties": false
@@ -7300,6 +7442,65 @@
           },
           "404": {
             "description": "No such playlist, or a track that isn't in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "A smart playlist, or one whose order leaves no room there",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/playlists/{id}/waiting": {
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Add a song the library doesn't have yet",
+        "description": "Adds a song by your own song request for it, at `index` or at the end: it waits in the playlist as an item with `pending` set, on that request, until its song is in the library, when Melete swaps its track in, as for an imported playlist. A song the library has by now goes in as its track at once. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull. Only the playlist's owner adds one here, and a smart playlist is edited on the devices.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["request_id"],
+                "properties": {
+                  "request_id": {"type": "integer", "description": "A song request of yours (POST /api/v1/requests)."},
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Where it goes; the end when left out or past it."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The playlist as it is now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistDetail"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Not your playlist (shared with you, to edit or to listen); or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, or no such song request of yours",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
@@ -17956,6 +18157,17 @@
         },
         "additionalProperties": false
       },
+      "PlaylistFolder": {
+        "type": "object",
+        "required": ["id", "name", "parent_id", "playlists"],
+        "properties": {
+          "id": {"type": "string", "description": "Aoide's folder id."},
+          "name": {"type": "string"},
+          "parent_id": {"type": ["string", "null"], "description": "The folder it's in; null at the top."},
+          "playlists": {"type": "integer", "description": "How many of your playlists are filed directly in it."}
+        },
+        "additionalProperties": false
+      },
       "Playlist": {
         "type": "object",
         "required": [
@@ -17963,6 +18175,7 @@
           "name",
           "notes",
           "folder",
+          "folder_id",
           "smart",
           "image_url",
           "owner",
@@ -17978,6 +18191,10 @@
           "folder": {
             "type": ["string", "null"],
             "description": "The folder it's in, for its owner only (folders are each user's own)."
+          },
+          "folder_id": {
+            "type": ["string", "null"],
+            "description": "That folder's id (GET /api/v1/playlists/folders), for its owner only."
           },
           "smart": {
             "type": "boolean",
@@ -18053,6 +18270,7 @@
           "name",
           "notes",
           "folder",
+          "folder_id",
           "smart",
           "image_url",
           "owner",
@@ -18069,6 +18287,10 @@
           "folder": {
             "type": ["string", "null"],
             "description": "The folder it's in, for its owner only (folders are each user's own)."
+          },
+          "folder_id": {
+            "type": ["string", "null"],
+            "description": "That folder's id (GET /api/v1/playlists/folders), for its owner only."
           },
           "smart": {
             "type": "boolean",
