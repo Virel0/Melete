@@ -49,7 +49,7 @@ export function extrasMenu({ below = false } = {}) {
     "div",
     { class: `extras-menu${below ? " below" : ""}`, id, role: "group", "aria-label": "More", hidden: true },
     h("div", { class: "check" }, secret, h("label", { for: `${id}-private` }, "Private listening")),
-    h("p", { class: "note check-hint", id: `${id}-private-hint` }, "While it's on, nothing you play is kept in your history or sent to Melete."),
+    h("p", { class: "note check-hint", id: `${id}-private-hint` }, "While it's on, nothing you play is recorded as a listen or kept in your history."),
     doing.box,
     timer.box,
     left,
