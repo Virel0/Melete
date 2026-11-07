@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 143] = [
+const MODULES: [(&str, &str); 145] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -201,6 +201,8 @@ const MODULES: [(&str, &str); 143] = [
         "music-lyrics-timing.js",
         include_str!("../web/music-lyrics-timing.js"),
     ),
+    ("music-now.js", include_str!("../web/music-now.js")),
+    ("music-motion.js", include_str!("../web/music-motion.js")),
     ("wanted-music.js", include_str!("../web/wanted-music.js")),
     ("progress.js", include_str!("../web/progress.js")),
     ("requests.js", include_str!("../web/requests.js")),
@@ -1437,6 +1439,38 @@ mod tests {
                 r#"h("ruby", {}, p.text, h("rt", { "aria-hidden": "true" }, p.reading))"#
             )
         );
+    }
+
+    #[test]
+    fn now_playing_goes_full_screen_in_its_covers_colours_and_motion() {
+        let panel = module("music-panel.js");
+        assert!(panel.contains(r#"iconButton("fullscreen", "Full screen", () => setFull(!full))"#));
+        // Escape leaves full screen before it closes anything.
+        assert!(panel.contains("panel.addEventListener(\"cancel\", (event) => {\n  if (!full) return;\n  event.preventDefault();"));
+        assert!(panel.contains("look.show(track);") && panel.contains("look.pause();"));
+        let now = module("music-now.js");
+        for colour in [
+            r#""--np-bg": colours?.background"#,
+            r#""--np-ink": colours?.text1"#,
+            r#""--np-soft": colours?.text2"#,
+        ] {
+            assert!(now.contains(colour), "{colour}");
+        }
+        // Motion covers: muted, looped, never under reduced motion, on albums and in Now playing.
+        let motion = module("music-motion.js");
+        assert!(motion.contains("if (!url || stillness.matches) return null;"));
+        assert!(motion.contains("video.muted = true;") && motion.contains("loop: true,"));
+        assert!(!motion.contains("controls:") && !motion.contains(".controls"));
+        assert!(motion.contains("if (!stillness.matches) return;"));
+        assert!(module("music-album.js").contains("motionCover(album.motion_cover)"));
+        assert!(now.contains("video = motionCover(answer.motion_cover);"));
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "player.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".music-panel.full:modal {"));
+        assert!(css.contains("@media (max-width: 48rem) {\n  .music-panel.full:modal {"));
     }
 
     fn module(name: &str) -> &'static str {
