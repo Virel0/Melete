@@ -6,21 +6,18 @@ use super::super::*;
 use crate::db;
 use crate::logging::testing::capture;
 
-/// The sign-in routes over a Quick Connect store the test holds, so it can run codes out.
-async fn setup() -> (SqlitePool, Router, Arc<QuickConnect>) {
+/// The sign-in routes over a Quick Connect store the test holds, so it can run codes out, and
+/// the viewer's password.
+async fn setup() -> (SqlitePool, Router, Arc<QuickConnect>, String) {
     let pool = db::open_in_memory().await;
-    auth::create_user(&pool, "admin", "admin-password".into(), true)
-        .await
-        .unwrap();
-    auth::create_user(&pool, "viewer", "viewer-password".into(), false)
-        .await
-        .unwrap();
+    auth::testing::user(&pool, "admin", true).await;
+    let (_, viewer_password) = auth::testing::user_with_password(&pool, "viewer", false).await;
     let quick = Arc::new(QuickConnect::default());
     let state = AppState {
         pool: pool.clone(),
         limiter: Arc::new(LoginLimiter::default()),
     };
-    (pool, routes(state, quick.clone()), quick)
+    (pool, routes(state, quick.clone()), quick, viewer_password)
 }
 
 /// A request with these headers and JSON body; answers status, headers and the body's text.
@@ -77,8 +74,8 @@ async fn approve(app: &Router, user: &str, code: &str) {
 
 #[tokio::test]
 async fn an_approved_code_signs_the_web_ui_in_to_the_password_sign_ins_cookie_once() {
-    let (_, app, _) = setup().await;
-    let viewer = bearer(&app, "viewer", "viewer-password").await;
+    let (_, app, _, password) = setup().await;
+    let viewer = bearer(&app, "viewer", &password).await;
     let (code, secret) = start(&app).await;
     let poll = json!({ "secret": secret });
 
@@ -112,7 +109,7 @@ async fn an_approved_code_signs_the_web_ui_in_to_the_password_sign_ins_cookie_on
         &app,
         "/api/v1/auth/web-login",
         &[],
-        json!({ "username": "viewer", "password": "viewer-password", "device_name": "x" }),
+        json!({ "username": "viewer", "password": password, "device_name": "x" }),
     )
     .await;
     let by_password = signed_in[header::SET_COOKIE].to_str().unwrap();
@@ -159,8 +156,8 @@ async fn an_approved_code_signs_the_web_ui_in_to_the_password_sign_ins_cookie_on
 
 #[tokio::test]
 async fn an_unapproved_or_run_out_code_gives_no_cookie() {
-    let (_, app, quick) = setup().await;
-    let viewer = bearer(&app, "viewer", "viewer-password").await;
+    let (_, app, quick, password) = setup().await;
+    let viewer = bearer(&app, "viewer", &password).await;
     // Looked up but never approved: still waiting, whatever the lookup showed.
     let (code, secret) = start(&app).await;
     let headers = [("authorization", viewer.as_str())];
@@ -192,8 +189,8 @@ async fn an_unapproved_or_run_out_code_gives_no_cookie() {
 
 #[tokio::test]
 async fn only_the_browser_that_asked_collects_its_code() {
-    let (_, app, _) = setup().await;
-    let viewer = bearer(&app, "viewer", "viewer-password").await;
+    let (_, app, _, password) = setup().await;
+    let viewer = bearer(&app, "viewer", &password).await;
     let (theirs, their_secret) = start(&app).await;
     let (_, my_secret) = start(&app).await;
     approve(&app, &viewer, &theirs).await;
@@ -217,8 +214,8 @@ async fn only_the_browser_that_asked_collects_its_code() {
 
 #[tokio::test]
 async fn the_web_poll_keeps_the_apps_limits() {
-    let (_, app, _) = setup().await;
-    let viewer = bearer(&app, "viewer", "viewer-password").await;
+    let (_, app, _, password) = setup().await;
+    let viewer = bearer(&app, "viewer", &password).await;
     // As many codes wait at once from one address as for the apps.
     let start_uri = "/api/v1/auth/quick-connect";
     let mut busy = None;
@@ -243,8 +240,8 @@ async fn the_web_poll_keeps_the_apps_limits() {
 #[tokio::test]
 async fn no_secret_reaches_the_log_or_a_response_it_doesnt_belong_in() {
     let log = capture("trace");
-    let (_, app, _) = setup().await;
-    let viewer = bearer(&app, "viewer", "viewer-password").await;
+    let (_, app, _, password) = setup().await;
+    let viewer = bearer(&app, "viewer", &password).await;
     let (code, secret) = start(&app).await;
     let (_, _, waiting) = send(&app, POLL, &WEB, json!({ "secret": secret })).await;
     approve(&app, &viewer, &code).await;
