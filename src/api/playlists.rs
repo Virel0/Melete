@@ -1,6 +1,6 @@
 //! Aoide's playlists for apps that don't sync: the playlists a user owns or that are shared
 //! with them, one with its tracks as Melete has them, and editing one's own, written into the
-//! sync log as an Aoide device would write it (`edits`).
+//! sync log as an Aoide device would write it (`edits`); each user's folders (`folders`).
 
 use std::sync::Arc;
 
@@ -18,8 +18,10 @@ use crate::aoide::pending::{self, Pending};
 use crate::aoide::playlists::{self, Playlist};
 
 mod edits;
+mod folders;
 
 use edits::*;
+use folders::*;
 
 /// The playlist routes, for everyone signed in who may see every music library.
 pub fn routes(pool: SqlitePool) -> Router {
@@ -29,6 +31,14 @@ pub fn routes(pool: SqlitePool) -> Router {
     };
     Router::new()
         .route("/api/v1/playlists", get(list).post(create))
+        .route(
+            "/api/v1/playlists/folders",
+            get(list_folders).post(create_folder),
+        )
+        .route(
+            "/api/v1/playlists/folders/{id}",
+            put(rename_folder).delete(delete_folder),
+        )
         .route(
             "/api/v1/playlists/{id}",
             get(one).put(update).delete(remove_playlist),
@@ -42,6 +52,7 @@ pub fn routes(pool: SqlitePool) -> Router {
                 )),
         )
         .route("/api/v1/playlists/{id}/items", post(add_items))
+        .route("/api/v1/playlists/{id}/waiting", post(add_waiting))
         .route(
             "/api/v1/playlists/{id}/items/{item}",
             put(move_item).delete(remove_item),
@@ -74,6 +85,7 @@ pub(super) fn summary(
         "notes": str_of(r, "notes"),
         // Folders are each user's own: only the owner's playlist is in one.
         "folder": if p.owner_id == me { str_of(r, "folderId").and_then(|f| folders.get(f)) } else { None },
+        "folder_id": if p.owner_id == me { str_of(r, "folderId").filter(|f| folders.contains_key(*f)) } else { None },
         "smart": matches!(r.get("isSmart"), Some(Value::Bool(true))) || r.get("isSmart").and_then(Value::as_i64) == Some(1),
         "image_url": image.map(|h| format!("/aoide/images/{h}")),
         "owner": p.owner,
