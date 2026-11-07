@@ -2074,7 +2074,7 @@ mod tests {
     }
 
     /// Smart playlists are made and their rules changed on the web, in the apps' format, with
-    /// what the rules give shown as they're edited; only the owner gets Edit rules.
+    /// what the rules give shown as they're edited; the owner and its editors get Edit rules.
     #[test]
     fn smart_rules_are_edited_with_a_live_preview() {
         let editor = module("music-smart-editor.js");
@@ -2086,7 +2086,9 @@ mod tests {
             assert!(editor.contains(part), "{part}");
         }
         let one = module("music-playlist.js");
-        assert!(one.contains(r#"p.mine && p.smart ? toggle("rules", "Edit rules") : null"#));
+        assert!(one.contains(
+            r#"(p.mine || p.can_edit) && p.smart ? toggle("rules", "Edit rules") : null"#
+        ));
         assert!(one.contains("api(`${path(p)}/rules`, { method: \"PUT\", body: { rules } })"));
         let list = module("music-playlists.js");
         assert!(list.contains(r#"api("/playlists", { method: "POST", body: { name, rules } })"#));
