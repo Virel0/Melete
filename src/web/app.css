@@ -343,7 +343,7 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 [aria-invalid="true"] { border-color: var(--danger); }
 .check { display: flex; align-items: center; gap: var(--space-2); margin-block-end: var(--space-4); }
 .toolbar .check { margin-block-end: var(--space-2); }
-.check input { min-height: auto; width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
+.check input { flex: none; min-height: auto; width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
 .check label { font-weight: 400; margin: 0; }
 /* A hint under a checkbox, lined up with its label. */
 .check:has(+ .check-hint) { margin-block-end: var(--space-1); }

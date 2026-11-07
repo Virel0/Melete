@@ -10946,7 +10946,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "Your playback preferences",
-        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown, and the Watch home's hero plays trailers on screens larger than a phone's.",
+        "description": "Kept per user, so every app does the same for them. Someone who hasn't set any has the defaults: the next episode starts by itself after a 10-second countdown, the Watch home's hero plays trailers on screens larger than a phone's, and nothing is skipped without a press.",
         "responses": {
           "200": {
             "description": "OK",
@@ -10971,7 +10971,8 @@
                 "properties": {
                   "autoplay_next": {"type": "boolean"},
                   "countdown_seconds": {"type": "integer", "minimum": 5, "maximum": 30},
-                  "hero_trailers": {"enum": ["off", "large_screens", "everywhere"]}
+                  "hero_trailers": {"enum": ["off", "large_screens", "everywhere"]},
+                  "auto_skip": {"type": "boolean"}
                 },
                 "additionalProperties": false
               }
@@ -19186,7 +19187,7 @@
       },
       "PlaybackPreferences": {
         "type": "object",
-        "required": ["autoplay_next", "countdown_seconds", "hero_trailers"],
+        "required": ["autoplay_next", "countdown_seconds", "hero_trailers", "auto_skip"],
         "properties": {
           "autoplay_next": {
             "type": "boolean",
@@ -19201,6 +19202,10 @@
           "hero_trailers": {
             "enum": ["off", "large_screens", "everywhere"],
             "description": "Where the Watch home's hero plays previews of its picks, muted, after a few seconds on a pick: `large_screens` (default) on screens larger than a phone's, `everywhere`, or `off`. Never when the device asks for reduced motion, whatever this says. The web UI plays a trailer in the title's folder when it's sharp enough, else a clip of the title itself, both at full quality (the file as it is, its video copied, or converted at its own height; converted ones only on the home network)."
+          },
+          "auto_skip": {
+            "type": "boolean",
+            "description": "The player passes over a recap, an intro or a preview by itself as it starts (the parts `/files/{id}/segments` gives), once each a play: going back into one plays it, with its Skip button. Credits are never skipped this way; the next episode is offered then. Default false."
           }
         },
         "additionalProperties": false
