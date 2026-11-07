@@ -11,6 +11,7 @@ import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { musicPage } from "/web/music.js";
 import { setMusicAccess } from "/web/music-access.js";
+import { startTogether } from "/web/music-together.js";
 import { codeStep } from "/web/two-factor.js";
 import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
@@ -190,6 +191,7 @@ function startSession(user) {
   openPalette = installPalette(user, document.getElementById("palette-open"));
   startPlayer({ onSignedOut: () => signIn("Your session ended. Sign in again.") });
   startBar();
+  startTogether(user);
   render();
 }
 

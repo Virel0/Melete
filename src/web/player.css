@@ -260,3 +260,18 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .music-panel .cover, .album-cover { position: relative; }
 video.motion-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
 video.motion-cover.shown { opacity: 1; }
+
+/* Together: the session's code large to read out, who's in it, Leave and End. */
+.together { display: grid; gap: var(--space-3); padding-block: var(--space-2); }
+.together p { margin: 0; }
+.together .kind { font-size: var(--step--1); color: var(--muted); }
+.together-code { font-size: var(--step-3); font-weight: 600; letter-spacing: 0.15em; font-variant-numeric: tabular-nums; }
+.together h3 { font-size: var(--step--1); font-weight: 600; color: var(--muted); }
+.together-members { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.together-members li { display: flex; align-items: center; gap: var(--space-2); }
+.together-members .who { display: flex; flex-direction: column; min-width: 0; }
+.together-members small { color: var(--muted); font-size: var(--step--1); }
+.together-join label { margin: 0; }
+.together-code-row { display: flex; gap: var(--space-2); }
+.together-code-row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: 0.1em; }
+.together-ask { display: grid; gap: var(--space-2); }
