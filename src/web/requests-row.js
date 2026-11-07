@@ -1,9 +1,12 @@
-// A request as it's listed: what it is, where it's got to season by season, taking it back, and
-// changing the season a waiting one asks for.
+// A request as it's listed: its poster or cover, what it is, who decided and when, where it's got
+// to season by season and where it's coming from, taking it back, and changing the season a
+// waiting one asks for.
 
 import { confirmInline, when } from "/web/forms.js";
 import { SignedOut, api, h, metaRow, plural, seasonName } from "/web/lib.js";
 import { stepBar } from "/web/progress.js";
+import { art } from "/web/cards.js";
+import { ago } from "/web/manage-parts.js";
 
 export const KINDS = { movie: "Movie", series: "Series", artist: "Artist", album: "Album", song: "Song" };
 const STATES = { requested: "Waiting for an admin", approved: "Approved", declined: "Declined" };
@@ -16,6 +19,38 @@ export function facts(r) {
     r.artist ? `by ${r.artist}` : null,
     r.kind === "series" ? (r.season === null || r.season === undefined ? "Whole series" : seasonName(r.season)) : null,
   ]);
+}
+
+// A request's or a result's poster, or an album's or song's cover, beside its words (a row of
+// class `pictured`); an empty frame when there's none, so the words line up.
+export function picture(r) {
+  const frame = art(r.poster);
+  if (r.kind !== "movie" && r.kind !== "series") frame.classList.add("square");
+  return frame;
+}
+
+// A moment as "2 days ago", the date and time in full on hover.
+function lately(unix) {
+  return h("span", { title: when(unix) }, ago(unix));
+}
+
+// Who decided and when: "Approved by alice 2 days ago." An approval nobody had to make (the
+// requester's go straight through) is said so.
+function decision(r) {
+  if (r.state !== "approved" && r.state !== "declined") return null;
+  const at = r.decided_at ? lately(r.decided_at) : null;
+  if (r.state === "approved" && !r.decided_by) return ["Approved at once", at ? [", ", at] : null, "."];
+  const verb = r.state === "approved" ? "Approved" : "Declined";
+  return [verb, r.decided_by ? ` by ${r.decided_by}` : null, at ? [" ", at] : null, "."];
+}
+
+// Where it's coming from and when that last changed: "From a torrent, updated 5 minutes ago."
+const SOURCES = { torrent: "From a torrent", soulseek: "From Soulseek" };
+function whence(p) {
+  const from = SOURCES[p?.source];
+  const updated = p?.updated_at ? lately(p.updated_at) : null;
+  if (!from && !updated) return null;
+  return h("p", { class: "note" }, from ? [from, updated ? [", updated ", updated] : null] : ["Updated ", updated], ".");
 }
 
 // Where a season stands, in the words the step bar uses.
@@ -136,13 +171,14 @@ export function requestRow(ctx, r, { decide: deciding, ...mineOpts } = {}) {
     r.seasons?.length && !deciding
       ? seasonList(ctx, r, mineOpts)
       : r.state === "approved" && r.progress
-        ? stepBar(r.progress)
+        ? [stepBar(r.progress), whence(r.progress)]
         : r.state === "approved" && r.kind === "artist"
           ? h("p", { class: "note" }, "Their albums are looked for one by one.")
           : null;
   return h(
     "li",
-    {},
+    { class: "pictured" },
+    picture(r),
     h(
       "div",
       {},
@@ -150,7 +186,12 @@ export function requestRow(ctx, r, { decide: deciding, ...mineOpts } = {}) {
       " ",
       state,
       facts(r),
-      h("p", { class: "note" }, deciding ? `Asked for by ${r.username}, ${when(r.created_at)}.` : `Asked for ${when(r.created_at)}.`),
+      h(
+        "p",
+        { class: "note" },
+        deciding ? `Asked for by ${r.username}, ${when(r.created_at)}.` : `Asked for ${when(r.created_at)}.`,
+        decision(r) ? [" ", decision(r)] : null,
+      ),
       r.state === "declined" && r.reason ? h("p", { class: "note" }, `Why: ${r.reason}`) : null,
       progress,
     ),

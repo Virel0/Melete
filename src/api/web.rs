@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 120] = [
+const MODULES: [(&str, &str); 121] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -127,6 +127,7 @@ const MODULES: [(&str, &str); 120] = [
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
+    ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
     (
@@ -436,6 +437,41 @@ mod tests {
         }
     }
 
+    /// Your requests come in stages, each with its poster, who decided and when, and where an
+    /// approved one is coming from; Ask results have their posters too.
+    #[test]
+    fn requests_say_who_decided_where_they_come_from_and_their_stage() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let row = module("requests-row.js");
+        assert!(row.contains(r#"[verb, r.decided_by ? ` by ${r.decided_by}` : null"#));
+        assert!(row.contains(r#"["Approved at once""#));
+        assert!(row.contains(r#"torrent: "From a torrent", soulseek: "From Soulseek""#));
+        assert!(row.contains("[stepBar(r.progress), whence(r.progress)]"));
+        assert!(row.contains(r#"{ class: "pictured" },"#) && row.contains("picture(r),"));
+        let requests = module("requests.js");
+        for stage in [
+            "On the way",
+            "Waiting for approval",
+            "In the library",
+            "Declined",
+        ] {
+            assert!(requests.contains(stage), "{stage}");
+        }
+        assert!(requests.contains("rows.get(stage(r)).push(requestRow("));
+        assert!(requests.contains("picture(c),"));
+        // An admin's choice of where it goes sits under the words, not in the poster's frame.
+        assert!(
+            module("requests-admin.js")
+                .contains(r#"row.querySelector(":scope > .art + div").append(choose);"#)
+        );
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "tools.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".rows > li.pictured"));
+    }
+
     #[test]
     fn the_page_has_no_inline_script_or_style() {
         // The policy would block them; this says so before a browser does.
@@ -545,6 +581,30 @@ mod tests {
         let keys = module("player-keys.js");
         assert!(keys.contains(r#"video.addEventListener("dblclick""#));
         assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    /// A collection's film that isn't in the library and that nobody asked for can be asked for
+    /// from the collection's page, by its TMDB id, as a movie.
+    #[test]
+    fn a_collections_missing_films_can_be_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let people = module("people.js");
+        assert!(people.contains(r#"item.state === "requestable" ? askFor(item, state) : null"#));
+        assert!(people.contains(r#"body: { kind: "movie", tmdb_id: item.tmdb_id }"#));
+        assert!(people.contains("state.textContent = STATES.requested;"));
+    }
+
+    #[test]
+    fn a_title_partway_through_can_be_played_from_the_start() {
+        let page = module("title-page.js");
+        // Beside a movie's Resume, and a series' Resume of the episode partway through.
+        assert!(page.contains("fromStart: playHref(file.id, { movie: m.id }, true)"));
+        assert!(page.contains(
+            "playHref(going.file_id, { series: s.id, season: going.season, episode: going.episode }, true)"
+        ));
+        // Hidden unless Play resumes, and labelled with the title.
+        assert!(page.contains("restart.hidden = !target?.fromStart;"));
+        assert!(page.contains("`From the start: ${title}`"));
     }
 
     #[test]
