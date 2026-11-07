@@ -158,6 +158,7 @@ export function candidateRow(ctx, c) {
       facts(c),
       // "Album" again says nothing; "Live Album" does.
       c.detail && c.detail !== KINDS[c.kind] ? h("p", { class: "note" }, c.detail) : null,
+      c.overview ? h("p", { class: "candidate-overview", title: c.overview }, c.overview) : null,
     ),
     actions,
   );

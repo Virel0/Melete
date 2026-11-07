@@ -1,16 +1,20 @@
-// An artist's page, with their albums and the ones they appear on, and an album's: its cover on
-// the album's own colours, what its files are, Play, Shuffle, Start radio, Like, Add to playlist
-// and Pin, then its tracks by disc, each with its actions (music-actions.js).
+// An artist's page, with their albums (Albums, Singles & EPs, Live and Compilations, by their
+// MusicBrainz release types) and the ones they appear on, and an album's: its cover on the
+// album's own colours, what its files are, Play, Shuffle, Play next, Play last, Start radio, Like,
+// Add to playlist and Pin, then its tracks by disc, each with its actions (music-actions.js).
 
 import { SignedOut, api, h, loading, metaRow, number, plural, runtime, show } from "/web/lib.js";
 import { albumLike, trackActions } from "/web/music-actions.js";
 import { SPATIAL, albumCard, artistCounts, markPlaying, pinControl, trackRow } from "/web/music-parts.js";
-import { albumQueue, looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { albumQueue, looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
+import { codecName } from "/web/music-info.js";
+import { queueButtons } from "/web/music-album-menu.js";
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
+import { motionCover } from "/web/music-motion.js";
 
 // Play, Shuffle and Start radio for an artist: their songs (their albums', and the ones
 // crediting them elsewhere), asked for when pressed.
@@ -44,6 +48,35 @@ function artistActions(artist) {
 
 // ---------- An artist ----------
 
+// The kinds an artist's albums are shown under, in order.
+const KINDS = [
+  ["albums", "Albums"],
+  ["singles", "Singles & EPs"],
+  ["live", "Live"],
+  ["compilations", "Compilations"],
+];
+
+// An album's kind: Live and Compilations by its release group's secondary types (or, for a
+// compilation, its tags), Singles & EPs by its primary type. Everything else, and an album whose
+// type isn't known (not matched to MusicBrainz), is under Albums.
+function kindOf(album) {
+  const secondary = album.secondary_types ?? [];
+  if (secondary.includes("Live")) return "live";
+  if (album.compilation || secondary.includes("Compilation")) return "compilations";
+  if (["Single", "EP"].includes(album.primary_type)) return "singles";
+  return "albums";
+}
+
+// The artist's albums by kind, a heading for each kind there is; albums alone need none.
+function albumGroups(albums) {
+  const grid = (list) => h("ul", { class: "grid" }, list.map((album) => albumCard(album, { showArtist: false })));
+  const shown = KINDS.map(([key, name]) => ({ key, name, albums: albums.filter((a) => kindOf(a) === key) })).filter((g) => g.albums.length);
+  if (shown.length === 1 && shown[0].key === "albums") return grid(shown[0].albums);
+  return shown.map((g) =>
+    h("section", { class: "album-kind", "aria-labelledby": `kind-${g.key}` }, h("h2", { id: `kind-${g.key}` }, g.name), grid(g.albums)),
+  );
+}
+
 export async function artistPage(id, ctx) {
   show("Artist", loading("the artist"));
   const artist = await api(`/music/artists/${id}`);
@@ -60,7 +93,7 @@ export async function artistPage(id, ctx) {
     pinControl("artist", artist.id, artist.name),
     yourListening(`artist_id=${artist.id}`, "their songs"),
     artist.album_list.length
-      ? h("ul", { class: "grid" }, artist.album_list.map((album) => albumCard(album, { showArtist: false })))
+      ? albumGroups(artist.album_list)
       : guest.length
         ? null
         : h("p", { class: "status" }, "None of this artist's albums are in the library right now."),
@@ -78,21 +111,6 @@ export async function artistPage(id, ctx) {
 
 // ---------- An album ----------
 
-const CODECS = {
-  flac: "FLAC",
-  alac: "ALAC",
-  mp3: "MP3",
-  aac: "AAC",
-  opus: "Opus",
-  vorbis: "Vorbis",
-  wav: "WAV",
-  aiff: "AIFF",
-  wavpack: "WavPack",
-  ape: "APE",
-  musepack: "Musepack",
-  speex: "Speex",
-};
-
 // What the album's files are, when they all agree: "FLAC, 24-bit, 96 kHz" or "MP3, 320 kbit/s".
 function quality(tracks) {
   const one = (pick) => {
@@ -105,7 +123,7 @@ function quality(tracks) {
   const rate = one((t) => t.sample_rate);
   const bitrate = one((t) => t.bitrate_kbps);
   const lossless = ["flac", "alac", "wav", "aiff", "wavpack", "ape"].includes(codec);
-  const parts = [CODECS[codec] ?? codec.toUpperCase()];
+  const parts = [codecName(codec)];
   if (lossless) {
     if (depth) parts.push(`${depth}-bit`);
     if (rate) parts.push(`${number.format(rate / 1000)} kHz`);
@@ -170,8 +188,9 @@ function paint(head, colours) {
   head.style.setProperty("--album-line", colours.text2);
 }
 
-// Play, Shuffle, Start radio, Add to playlist and Pin for the whole album.
+// Play, Shuffle, Play next, Play last, Start radio, Add to playlist and Pin for the whole album.
 function albumActions(album, queue) {
+  const said = h("span", { class: "note", role: "status" });
   const area = h("div", { class: "pick-area" });
   const pick = h("button", { type: "button", class: "quiet", "aria-expanded": "false" }, "Add to playlist");
   pick.addEventListener("click", () => {
@@ -183,12 +202,14 @@ function albumActions(album, queue) {
     h(
       "div",
       { class: "play-actions" },
-      h("button", { type: "button", onclick: () => play(queue) }, "Play"),
-      h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle"),
+      h("button", { type: "button", onclick: () => (play(queue), remember("album", album.id)) }, "Play"),
+      h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("album", album.id)) }, "Shuffle"),
+      queueButtons(album, async () => queue, said),
       radioButton(() => albumSeed(album.id), album.title),
       seesAllMusic() ? albumLike(album) : null,
       seesAllMusic() ? pick : null,
       pinControl("album", album.id, album.title),
+      said,
     ),
     seesAllMusic() ? area : h("p", { class: "note" }, SYNC_CLOSED),
   ];
@@ -200,7 +221,7 @@ function albumHead(album, queue) {
   const head = h(
     "div",
     { class: "album-head" },
-    h("div", { class: "album-cover" }, album.cover ? h("img", { src: album.cover, alt: "" }) : null),
+    h("div", { class: "album-cover" }, album.cover ? h("img", { src: album.cover, alt: "" }) : null, motionCover(album.motion_cover)),
     h(
       "div",
       { class: "facts" },

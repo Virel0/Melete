@@ -173,6 +173,7 @@ function candidate(d) {
     year: d.year,
     artist: null,
     detail: null,
+    overview: d.overview,
     in_library: false,
     // Asked for by you, or wanted by the household already.
     requested: d.request_id,
