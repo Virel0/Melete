@@ -1,6 +1,7 @@
 //! A user's playback preferences, kept per user so they follow them to every app: whether the
-//! next episode starts by itself, how long the countdown before it lasts, and where the Watch
-//! home's hero plays its picks' trailers.
+//! next episode starts by itself, how long the countdown before it lasts, where the Watch home's
+//! hero plays its picks' trailers, and whether recaps, intros and previews are skipped by
+//! themselves.
 
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ pub struct Playback {
     pub countdown_seconds: i64,
     /// Where the hero plays trailers: `off`, `large_screens` (not on a phone) or `everywhere`.
     pub hero_trailers: String,
+    /// A recap, intro or preview is passed over by itself, once a play; credits never are.
+    pub auto_skip: bool,
 }
 
 impl Default for Playback {
@@ -36,6 +39,7 @@ impl Default for Playback {
             autoplay_next: true,
             countdown_seconds: 10,
             hero_trailers: "large_screens".into(),
+            auto_skip: false,
         }
     }
 }
@@ -54,8 +58,8 @@ pub fn routes(pool: SqlitePool) -> Router {
 
 /// A user's preferences; the defaults for one who hasn't set any.
 pub async fn playback(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Playback> {
-    let row: Option<(bool, i64, String)> = sqlx::query_as(
-        "SELECT autoplay_next, countdown_seconds, hero_trailers FROM user_playback
+    let row: Option<(bool, i64, String, bool)> = sqlx::query_as(
+        "SELECT autoplay_next, countdown_seconds, hero_trailers, auto_skip FROM user_playback
          WHERE user_id = ?",
     )
     .bind(user_id)
@@ -63,10 +67,11 @@ pub async fn playback(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Playback>
     .await?;
     Ok(match row {
         None => Playback::default(),
-        Some((autoplay_next, countdown_seconds, hero_trailers)) => Playback {
+        Some((autoplay_next, countdown_seconds, hero_trailers, auto_skip)) => Playback {
             autoplay_next,
             countdown_seconds,
             hero_trailers,
+            auto_skip,
         },
     })
 }
@@ -74,16 +79,18 @@ pub async fn playback(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Playback>
 async fn set_playback(pool: &SqlitePool, user_id: i64, p: &Playback) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO user_playback
-             (user_id, autoplay_next, countdown_seconds, hero_trailers, updated_at)
-         VALUES (?, ?, ?, ?, ?)
+             (user_id, autoplay_next, countdown_seconds, hero_trailers, auto_skip, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE SET autoplay_next = excluded.autoplay_next,
              countdown_seconds = excluded.countdown_seconds,
-             hero_trailers = excluded.hero_trailers, updated_at = excluded.updated_at",
+             hero_trailers = excluded.hero_trailers, auto_skip = excluded.auto_skip,
+             updated_at = excluded.updated_at",
     )
     .bind(user_id)
     .bind(p.autoplay_next)
     .bind(p.countdown_seconds)
     .bind(&p.hero_trailers)
+    .bind(p.auto_skip)
     .bind(crate::db::unix_now())
     .execute(pool)
     .await?;
@@ -105,6 +112,7 @@ struct Change {
     autoplay_next: Option<bool>,
     countdown_seconds: Option<i64>,
     hero_trailers: Option<String>,
+    auto_skip: Option<bool>,
 }
 
 async fn change(
@@ -115,6 +123,9 @@ async fn change(
     let mut kept = playback(&pool, current.user.id).await?;
     if let Some(on) = body.autoplay_next {
         kept.autoplay_next = on;
+    }
+    if let Some(on) = body.auto_skip {
+        kept.auto_skip = on;
     }
     if let Some(seconds) = body.countdown_seconds {
         if !COUNTDOWN.contains(&seconds) {

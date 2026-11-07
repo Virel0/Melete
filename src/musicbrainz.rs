@@ -394,6 +394,27 @@ pub mod testing {
         serde_json::json!({"releases": [{"media": [{"position": 1, "tracks": tracks}]}]})
     }
     pub const OK_COMPUTER: &str = "b1392450-e666-3926-a536-22c65f834433";
+    /// The Irish Rovers' "Rare Old Mountain Dew", which MusicBrainz doesn't find by the phrase
+    /// "The Rare Old Mountain Dew".
+    pub const MOUNTAIN_DEW: &str = "f6c870a1-c8f4-409d-b3a8-8338900893b2";
+
+    /// The fake's answer to a recording search for the Mountain Dew, its query in lower case:
+    /// nothing for the phrase with "the", as MusicBrainz answers; else the Irish Rovers' 2:00
+    /// recording, and another band's of that phrase.
+    fn mountain_dew(query: &str) -> serde_json::Value {
+        if query.contains("\"the rare old mountain dew\"") {
+            return serde_json::json!({"recordings": []});
+        }
+        let recording = |id: &str, title: &str, artist: &str, length: i64| {
+            serde_json::json!({"id": id, "title": title, "length": length, "score": 100,
+                "artist-credit": [{"name": artist, "joinphrase": "",
+                    "artist": {"id": format!("artist-{id}"), "name": artist}}]})
+        };
+        serde_json::json!({"recordings": [
+            recording("rec-other-dew", "The Rare Old Mountain Dew", "A Tribute Band", 121000),
+            recording(MOUNTAIN_DEW, "Rare Old Mountain Dew", "The Irish Rovers", 120000),
+        ]})
+    }
     pub const PARANOID_ANDROID: &str = "4d4e5f6a-0b1c-4d2e-8f3a-5b6c7d8e9f01";
     pub const PARANOID_ISRC: &str = "GBAYE9700245";
     /// An OK Computer edition MusicBrainz merged into the one the release fixture is: looking it
@@ -563,7 +584,17 @@ pub mod testing {
                 "/recording",
                 axum::routing::get(
                     |State((log, _)): State<Fake>, RawQuery(query): RawQuery| async move {
-                        log.lock().unwrap().push(format!("search recording {}", query.unwrap_or_default()));
+                        let query = query.unwrap_or_default();
+                        log.lock().unwrap().push(format!("search recording {query}"));
+                        let asked = reqwest::Url::parse(&format!("http://x/?{query}"))
+                            .unwrap()
+                            .query_pairs()
+                            .find(|(k, _)| k == "query")
+                            .map(|(_, v)| v.to_lowercase())
+                            .unwrap_or_default();
+                        if asked.contains("mountain dew") {
+                            return super::testing::mountain_dew(&asked).to_string();
+                        }
                         serde_json::json!({"recordings": [{
                             "id": super::testing::PARANOID_ANDROID, "title": "Paranoid Android", "length": 383000,
                             "score": 100,

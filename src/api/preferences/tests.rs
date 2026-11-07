@@ -44,8 +44,8 @@ async fn the_next_episode_starts_by_itself_after_ten_seconds_until_a_user_says_o
     let app = routes(pool.clone());
     let viewer = token(&pool, "viewer").await;
     let other = token(&pool, "other").await;
-    let defaults =
-        json!({ "autoplay_next": true, "countdown_seconds": 10, "hero_trailers": "large_screens" });
+    let defaults = json!({ "autoplay_next": true, "countdown_seconds": 10,
+                           "hero_trailers": "large_screens", "auto_skip": false });
     assert_eq!(
         send(&app, &viewer, "GET", None).await,
         (StatusCode::OK, defaults.clone())
@@ -56,14 +56,16 @@ async fn the_next_episode_starts_by_itself_after_ten_seconds_until_a_user_says_o
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         body,
-        json!({ "autoplay_next": false, "countdown_seconds": 10, "hero_trailers": "large_screens" })
+        json!({ "autoplay_next": false, "countdown_seconds": 10,
+                "hero_trailers": "large_screens", "auto_skip": false })
     );
     // A field left out keeps its value.
     let longer = json!({ "countdown_seconds": 25 });
     send(&app, &viewer, "PUT", Some(longer)).await;
     assert_eq!(
         send(&app, &viewer, "GET", None).await.1,
-        json!({ "autoplay_next": false, "countdown_seconds": 25, "hero_trailers": "large_screens" })
+        json!({ "autoplay_next": false, "countdown_seconds": 25,
+                "hero_trailers": "large_screens", "auto_skip": false })
     );
     // Each user's own.
     assert_eq!(send(&app, &other, "GET", None).await.1, defaults);
@@ -100,7 +102,8 @@ async fn a_countdown_out_of_range_or_an_unknown_field_is_refused_and_nothing_cha
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
         send(&app, &viewer, "GET", None).await.1,
-        json!({ "autoplay_next": true, "countdown_seconds": 10, "hero_trailers": "large_screens" })
+        json!({ "autoplay_next": true, "countdown_seconds": 10,
+                "hero_trailers": "large_screens", "auto_skip": false })
     );
     // The bounds themselves are kept.
     for seconds in [5, 30] {
@@ -145,4 +148,34 @@ async fn the_hero_plays_trailers_on_large_screens_until_a_user_says_otherwise() 
         send(&app, &viewer, "GET", None).await.1["hero_trailers"],
         "off"
     );
+}
+
+#[tokio::test]
+async fn recaps_intros_and_previews_are_skipped_by_themselves_only_once_a_user_asks() {
+    let pool = db::open_in_memory().await;
+    let app = routes(pool.clone());
+    let viewer = token(&pool, "viewer").await;
+    let other = token(&pool, "other").await;
+    assert_eq!(send(&app, &viewer, "GET", None).await.1["auto_skip"], false);
+
+    let (status, kept) = send(&app, &viewer, "PUT", Some(json!({ "auto_skip": true }))).await;
+    assert_eq!(status, StatusCode::OK, "{kept}");
+    assert_eq!(kept["auto_skip"], true);
+    assert_eq!(kept["autoplay_next"], true, "the rest kept");
+    // A change that leaves it out keeps it, and it's each user's own.
+    send(
+        &app,
+        &viewer,
+        "PUT",
+        Some(json!({ "countdown_seconds": 20 })),
+    )
+    .await;
+    assert_eq!(send(&app, &viewer, "GET", None).await.1["auto_skip"], true);
+    assert_eq!(send(&app, &other, "GET", None).await.1["auto_skip"], false);
+
+    let (status, _) = send(&app, &viewer, "PUT", Some(json!({ "auto_skip": "yes" }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(send(&app, &viewer, "GET", None).await.1["auto_skip"], true);
+    send(&app, &viewer, "PUT", Some(json!({ "auto_skip": false }))).await;
+    assert_eq!(send(&app, &viewer, "GET", None).await.1["auto_skip"], false);
 }

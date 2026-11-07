@@ -7,6 +7,7 @@ import { art } from "/web/cards.js";
 import { icon } from "/web/music-controls.js";
 import { emptyState, failed, placeholders } from "/web/page-parts.js";
 import { animeIds, titleHref } from "/web/watch-play.js";
+import { followWatch, keepPlace } from "/web/watch-live.js";
 
 const path = (kind, id) => `/me/favourites/${kind === "movie" ? "movies" : "series"}/${id}`;
 
@@ -67,19 +68,39 @@ const KINDS = [
 ];
 
 // Every title on My List, newest first, narrowed to a kind; each with Remove, and Undo after.
+// It follows My List as it changes on other devices, and the library (a title gone from it).
 export async function favouritesPage(params, gen) {
   const kind = KINDS.some(([k]) => k === params.get("kind")) ? params.get("kind") : "";
   show("My List", h("h1", {}, "My List"), placeholders("My List", { kind: "cards", count: 12 }));
-  let list;
-  let anime;
-  try {
-    [list, anime] = await Promise.all([api("/me/favourites?limit=500"), animeIds()]);
-  } catch (err) {
-    if (err instanceof SignedOut || gen !== generation) throw err;
-    show("My List", h("h1", {}, "My List"), failed("My List", err, () => favouritesPage(params, generation)));
-    return;
-  }
-  if (gen !== generation) return;
+  let drawn = null;
+  const load = async (again) => {
+    let list;
+    let anime;
+    try {
+      [list, anime] = await Promise.all([api("/me/favourites?limit=500"), animeIds()]);
+    } catch (err) {
+      if (gen !== generation) return;
+      // A live update that can't be had leaves the page as it is.
+      if (again) return err instanceof SignedOut ? signIn("Your session ended. Sign in again.") : undefined;
+      if (err instanceof SignedOut) throw err;
+      show("My List", h("h1", {}, "My List"), failed("My List", err, () => load(false)));
+      return;
+    }
+    if (gen !== generation) return;
+    const next = listParts(list, anime, kind);
+    // This page's own Remove and Undo already show what they did.
+    if (again && drawn && sameList(drawn, next)) return;
+    drawn = next;
+    const parts = [h("h1", {}, "My List"), next.parts].flat(Infinity).filter(Boolean);
+    if (again) keepPlace(document.getElementById("main"), parts);
+    else show("My List", ...parts);
+  };
+  followWatch(gen, { favourites: () => load(true), library: () => load(true) });
+  await load(false);
+}
+
+// What the page shows of `list`: its parts, its grid, and the titles in it, to compare.
+function listParts(list, anime, kind) {
   const kindOf = (item) => (item.kind === "movie" ? "movies" : anime.has(item.id) ? "anime" : "shows");
   const counts = new Map(KINDS.map(([k]) => [k, k ? list.items.filter((i) => kindOf(i) === k).length : list.items.length]));
   const items = list.items.filter((i) => !kind || kindOf(i) === kind);
@@ -87,16 +108,13 @@ export async function favouritesPage(params, gen) {
   const grid = h("ul", { class: "grid my-list-grid" });
   grid.replaceChildren(...items.map((item) => listCard(item, { grid, status })));
   // Kinds with nothing on the list aren't offered, except the one asked for.
+  const offered = KINDS.filter(([k]) => !k || counts.get(k) || k === kind);
   const tabs = h(
     "nav",
     { class: "tabs", "aria-label": "Kind" },
-    KINDS.filter(([k]) => !k || counts.get(k) || k === kind).map(([k, label]) =>
-      h("a", { href: `#/favourites${k ? `?kind=${k}` : ""}`, "aria-current": k === kind ? "page" : null }, label),
-    ),
+    offered.map(([k, label]) => h("a", { href: `#/favourites${k ? `?kind=${k}` : ""}`, "aria-current": k === kind ? "page" : null }, label)),
   );
-  show(
-    "My List",
-    h("h1", {}, "My List"),
+  const parts = [
     list.items.length ? tabs : null,
     items.length
       ? [status, grid]
@@ -104,7 +122,18 @@ export async function favouritesPage(params, gen) {
           list.items.length ? "Nothing of this kind on My List." : "Nothing on My List yet. Use My List on a title to keep it here, on every device.",
           { href: "#/", label: "Find something to watch" },
         ),
-  );
+  ];
+  return { parts, grid, keys: items.map(cardKey).join(",") };
+}
+
+const cardKey = (item) => `${item.kind}:${item.id}:${item.present}`;
+
+// Whether the grid on screen already shows `next`'s titles, counting what its own Remove and
+// Undo did; their note, and Undo, stay on screen then. The kinds offered aren't compared, so a
+// kind emptied by this page's own Remove keeps its tab until the next change, as it always has.
+function sameList(drawn, next) {
+  const onScreen = [...drawn.grid.querySelectorAll("li[data-key]")].map((li) => li.dataset.key).join(",");
+  return onScreen === next.keys;
 }
 
 // A title on My List: its card (its page when it's in the library) and Remove. Removing takes
@@ -113,7 +142,7 @@ function listCard(item, { grid, status }) {
   const facts = [h("div", { class: "title" }, item.title), h("div", { class: "meta" }, item.present ? (item.year ? String(item.year) : "") : "Not in the library now")];
   const card = item.present ? h("a", { class: "card", href: titleHref(item) }, art(item.poster), facts) : h("div", { class: "card" }, art(item.poster), facts);
   const remove = h("button", { type: "button", class: "quiet", "aria-label": `Remove ${item.title} from My List` }, "Remove");
-  const li = h("li", { class: "my-list-item" }, card, remove);
+  const li = h("li", { class: "my-list-item", "data-key": cardKey(item) }, card, remove);
   remove.addEventListener("click", async () => {
     remove.disabled = true;
     try {

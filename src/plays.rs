@@ -4,8 +4,9 @@
 //! Aoide's devices keep their listens as `play_events` in the sync log; those are read into the
 //! history after the fact, in log order, the way a client would read them (`listening`'s
 //! rules), and kept after the log's retention trims them. Apps that don't sync send listens
-//! through the music API. A listen sent again (the same id from the same source) is the same
-//! listen, changed; a play event deleted in the log leaves the history too. A user can delete
+//! through the music API, and Melete writes those into the log too, for the devices; reading
+//! the log passes over its own copies. A listen sent again (the same id from the same source) is
+//! the same listen, changed; a play event deleted in the log leaves the history too. A user can delete
 //! their own listens; each one's id is remembered, so it stays deleted when sent again.
 
 use serde_json::Value;
@@ -191,6 +192,7 @@ pub async fn catch_up(pool: &SqlitePool) -> sqlx::Result<u64> {
             // one the user deleted from their history.
             if let Some(listen) = from_payload(&event.entity_id, &event.device_id, &event.payload)
                 && !forgotten(&mut *tx, event.user_id, Source::Sync, &listen.event_id).await?
+                && !kept_from_api(&mut *tx, event.user_id, &listen.event_id).await?
             {
                 record(&mut *tx, event.user_id, Source::Sync, &listen).await?;
             }
@@ -202,6 +204,25 @@ pub async fn catch_up(pool: &SqlitePool) -> sqlx::Result<u64> {
         .await?;
     tx.commit().await?;
     Ok(count)
+}
+
+/// Whether a listen with this id came through the music API (kept, or deleted since): its play
+/// event in the log is Melete's own copy of it, written so the devices count it, and isn't
+/// kept a second time.
+async fn kept_from_api<'c, E>(conn: E, user_id: i64, event_id: &str) -> sqlx::Result<bool>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Sqlite>,
+{
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM music_plays
+                        WHERE user_id = ?1 AND source = 'api' AND event_id = ?2)
+             OR EXISTS (SELECT 1 FROM music_plays_forgotten
+                        WHERE user_id = ?1 AND source = 'api' AND event_id = ?2)",
+    )
+    .bind(user_id)
+    .bind(event_id)
+    .fetch_one(conn)
+    .await
 }
 
 /// Whether a user deleted the listen with this id from this source from their history.

@@ -90,7 +90,7 @@ async fn list(
                 "language": s.language,
                 "title": s.title,
                 "default": s.default,
-                "forced": s.forced,
+                "forced": s.counts_as_forced(),
                 "hearing_impaired": false,
                 "text": s.text,
                 "file": null,
