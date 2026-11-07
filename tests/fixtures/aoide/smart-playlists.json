@@ -1,0 +1,114 @@
+{
+  "about": "Smart playlist parity: rule sets, small libraries and the songs each gives, taken from the Aoide apps' own tests (Linux aoide-store tests/smart_playlist.rs, a port of iOS SmartPlaylistTests.swift). Tracks are named by key; ties in order go by track id as text, and each library's ids follow its keys' order, as the apps' do. Times are milliseconds; a play is days before `now`, lasting `ms`; `at_days` moves the clock a case is worked out at.",
+  "now": 1700000000000,
+  "libraries": {
+    "four": {
+      "tracks": [
+        {"key": "autumn", "title": "Autumn Leaves", "artist": "Bill Evans", "album": "Portrait in Jazz", "album_artist": null, "duration_ms": 350000, "year": 1960, "genres": ["Jazz", "Bebop"]},
+        {"key": "paranoid", "title": "Paranoid Android", "artist": "Radiohead", "album": "OK Computer", "album_artist": "Radiohead", "duration_ms": 383000, "year": 1997, "genres": ["Alternative Rock"]},
+        {"key": "so-what", "title": "So What", "artist": "Miles Davis", "album": "Kind of Blue", "album_artist": "Miles Davis", "duration_ms": 545000, "year": 1959, "genres": ["Jazz", "Modal"]},
+        {"key": "xtal", "title": "Xtal", "artist": "Aphex Twin", "album": "Selected Ambient Works", "album_artist": "Aphex Twin", "duration_ms": 293000, "year": 1992, "genres": ["Electronic"]}
+      ],
+      "plays": [
+        {"track": "so-what", "days_ago": 1, "ms": 545000, "completed": true},
+        {"track": "so-what", "days_ago": 40, "ms": 545000, "completed": true},
+        {"track": "so-what", "days_ago": 400, "ms": 545000, "completed": true},
+        {"track": "paranoid", "days_ago": 200, "ms": 200000, "completed": false},
+        {"track": "paranoid", "days_ago": 3, "ms": 10000, "completed": false},
+        {"track": "paranoid", "days_ago": 2, "ms": 10000, "completed": false},
+        {"track": "autumn", "days_ago": 5, "ms": 20000, "completed": false}
+      ],
+      "likes": [
+        {"track": "so-what", "liked": true, "deleted": false},
+        {"track": "paranoid", "liked": false, "deleted": false},
+        {"track": "autumn", "liked": true, "deleted": true}
+      ]
+    },
+    "thresholds": {
+      "tracks": [
+        {"key": "long", "title": "long", "artist": "A", "album": "A", "album_artist": "A", "duration_ms": 1200000, "year": null, "genres": []},
+        {"key": "short", "title": "short", "artist": "A", "album": "A", "album_artist": "A", "duration_ms": 180000, "year": null, "genres": []},
+        {"key": "unknown", "title": "unknown", "artist": "A", "album": "A", "album_artist": "A", "duration_ms": null, "year": null, "genres": []}
+      ],
+      "plays": [
+        {"track": "short", "days_ago": 1, "ms": 90000, "completed": false},
+        {"track": "short", "days_ago": 2, "ms": 60000, "completed": false},
+        {"track": "short", "days_ago": 3, "ms": 30000, "completed": false},
+        {"track": "long", "days_ago": 1, "ms": 240000, "completed": false},
+        {"track": "unknown", "days_ago": 1, "ms": 10000, "completed": false},
+        {"track": "unknown", "days_ago": 2, "ms": 300000, "completed": false}
+      ],
+      "likes": []
+    },
+    "wildcards": {
+      "tracks": [
+        {"key": "endurance", "title": "100% Endurance", "artist": "A", "album": "A", "album_artist": "A", "duration_ms": null, "year": null, "genres": []},
+        {"key": "years", "title": "100 Years", "artist": "B", "album": "B", "album_artist": "B", "duration_ms": null, "year": null, "genres": []}
+      ],
+      "plays": [],
+      "likes": []
+    },
+    "injection": {
+      "tracks": [
+        {"key": "bobby", "title": "'; DROP TABLE playlist; --", "artist": "'; DROP TABLE playlist; --", "album": "Exploits of a Mom", "album_artist": null, "duration_ms": 1000, "year": null, "genres": []},
+        {"key": "innocent", "title": "Innocent", "artist": "Somebody", "album": "Elsewhere", "album_artist": null, "duration_ms": 1000, "year": null, "genres": []}
+      ],
+      "plays": [],
+      "likes": []
+    }
+  },
+  "cases": [
+    {"name": "artist is, case-insensitively", "library": "four", "rules": {"match": "all", "rules": [{"field": "artist", "op": "is", "value": "miles davis"}]}, "expect": ["so-what"]},
+    {"name": "artist is not", "library": "four", "rules": {"match": "all", "rules": [{"field": "artist", "op": "isNot", "value": "Miles Davis"}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "title contains", "library": "four", "rules": {"match": "all", "rules": [{"field": "title", "op": "contains", "value": "an"}]}, "expect": ["paranoid"]},
+    {"name": "album begins with", "library": "four", "rules": {"match": "all", "rules": [{"field": "album", "op": "beginsWith", "value": "kind"}]}, "expect": ["so-what"]},
+    {"name": "album does not contain", "library": "four", "rules": {"match": "all", "rules": [{"field": "album", "op": "doesNotContain", "value": "jazz"}]}, "expect": ["paranoid", "so-what", "xtal"]},
+    {"name": "a missing album artist still satisfies is not", "library": "four", "rules": {"match": "all", "rules": [{"field": "album_artist", "op": "isNot", "value": "Radiohead"}]}, "expect": ["autumn", "so-what", "xtal"]},
+    {"name": "genre is any one genre", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "jazz"}]}, "expect": ["autumn", "so-what"]},
+    {"name": "genre is not: no genre is", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "isNot", "value": "Jazz"}]}, "expect": ["paranoid", "xtal"]},
+    {"name": "genre contains", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "contains", "value": "rock"}]}, "expect": ["paranoid"]},
+    {"name": "genre begins with", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "beginsWith", "value": "Elect"}]}, "expect": ["xtal"]},
+    {"name": "genre does not contain: no genre does", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "doesNotContain", "value": "e"}]}, "expect": ["so-what"]},
+    {"name": "year is", "library": "four", "rules": {"match": "all", "rules": [{"field": "year", "op": "is", "value": 1960}]}, "expect": ["autumn"]},
+    {"name": "year greater than", "library": "four", "rules": {"match": "all", "rules": [{"field": "year", "op": "greaterThan", "value": 1990}]}, "expect": ["paranoid", "xtal"]},
+    {"name": "year less than", "library": "four", "rules": {"match": "all", "rules": [{"field": "year", "op": "lessThan", "value": 1960}]}, "expect": ["so-what"]},
+    {"name": "duration greater than", "library": "four", "rules": {"match": "all", "rules": [{"field": "duration_ms", "op": "greaterThan", "value": 400000}]}, "expect": ["so-what"]},
+    {"name": "skip count greater than", "library": "four", "rules": {"match": "all", "rules": [{"field": "skip_count", "op": "greaterThan", "value": 1}]}, "expect": ["paranoid"]},
+    {"name": "never played has played fewer than three times", "library": "four", "rules": {"match": "all", "rules": [{"field": "play_count", "op": "lessThan", "value": 3}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "never played has a play count of zero", "library": "four", "rules": {"match": "all", "rules": [{"field": "play_count", "op": "is", "value": 0}]}, "expect": ["autumn", "xtal"]},
+    {"name": "in the last: a skip doesn't move the last play", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "inTheLast", "value": "30d"}]}, "expect": ["so-what"]},
+    {"name": "not in the last includes never played", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "30d"}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "first played before a year ago", "library": "four", "rules": {"match": "all", "rules": [{"field": "first_played", "op": "before", "value": "-1y"}]}, "expect": ["so-what"]},
+    {"name": "last played after", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "after", "value": "-30d"}]}, "expect": ["so-what"]},
+    {"name": "before excludes never played", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "before", "value": "-30d"}]}, "expect": ["paranoid"]},
+    {"name": "not in the last, with the minus", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "-30d"}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "a relative rule moves with the clock", "library": "four", "at_days": 40, "rules": {"match": "all", "rules": [{"field": "last_played", "op": "inTheLast", "value": "30d"}]}, "expect": []},
+    {"name": "a year back from a later clock", "library": "four", "at_days": 40, "rules": {"match": "all", "rules": [{"field": "last_played", "op": "inTheLast", "value": "1y"}]}, "expect": ["paranoid", "so-what"]},
+    {"name": "an epoch millisecond as the instant", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "after", "value": 1691360000000}]}, "expect": ["so-what"]},
+    {"name": "liked", "library": "four", "rules": {"match": "all", "rules": [{"field": "liked", "op": "is", "value": true}]}, "expect": ["so-what"]},
+    {"name": "not liked: a dislike and a withdrawn like", "library": "four", "rules": {"match": "all", "rules": [{"field": "liked", "op": "is", "value": false}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "liked is not true", "library": "four", "rules": {"match": "all", "rules": [{"field": "liked", "op": "isNot", "value": true}]}, "expect": ["autumn", "paranoid", "xtal"]},
+    {"name": "all narrows", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "Jazz"}, {"field": "year", "op": "greaterThan", "value": 1990}]}, "expect": []},
+    {"name": "any widens", "library": "four", "rules": {"match": "any", "rules": [{"field": "genre", "op": "is", "value": "Jazz"}, {"field": "year", "op": "greaterThan", "value": 1990}]}, "expect": ["autumn", "paranoid", "so-what", "xtal"]},
+    {"name": "sorted by play count, limited", "library": "four", "rules": {"match": "all", "rules": [], "sort": {"field": "play_count", "dir": "desc"}, "limit": 2}, "expect": ["so-what", "paranoid"]},
+    {"name": "sorted by title", "library": "four", "rules": {"match": "all", "rules": [], "sort": {"field": "title", "dir": "asc"}}, "expect": ["autumn", "paranoid", "so-what", "xtal"]},
+    {"name": "never played sorts last descending, ties by id", "library": "four", "rules": {"match": "all", "rules": [], "sort": {"field": "last_played", "dir": "desc"}}, "expect": ["so-what", "paranoid", "autumn", "xtal"]},
+    {"name": "no rules is every track", "library": "four", "rules": {"match": "all", "rules": []}, "expect": ["autumn", "paranoid", "so-what", "xtal"]},
+    {"name": "the design document's example, now", "library": "four", "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "Jazz"}, {"field": "play_count", "op": ">=", "value": 3}, {"field": "last_played", "op": "before", "value": "-30d"}], "sort": {"field": "last_played", "dir": "desc"}, "limit": 100}, "expect": []},
+    {"name": "the design document's example, later", "library": "four", "at_days": 60, "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "Jazz"}, {"field": "play_count", "op": ">=", "value": 3}, {"field": "last_played", "op": "before", "value": "-30d"}], "sort": {"field": "last_played", "dir": "desc"}, "limit": 100}, "expect": ["so-what"]},
+    {"name": "camelCase fields on the way in", "library": "four", "rules": {"match": "all", "rules": [{"field": "playCount", "op": "greaterThan", "value": 1}]}, "expect": ["so-what"]},
+    {"name": "rules stored as text, as a playlist row holds them", "library": "four", "rules": "{\"match\":\"all\",\"rules\":[{\"field\":\"genre\",\"op\":\"is\",\"value\":\"Jazz\"}],\"sort\":{\"dir\":\"asc\",\"field\":\"title\"}}", "expect": ["autumn", "so-what"]},
+    {"name": "half the track is a play", "library": "thresholds", "rules": {"match": "all", "rules": [{"field": "play_count", "op": "is", "value": 1}]}, "expect": ["long", "short", "unknown"]},
+    {"name": "under a fifth is a skip", "library": "thresholds", "rules": {"match": "all", "rules": [{"field": "skip_count", "op": "is", "value": 1}]}, "expect": ["short", "unknown"]},
+    {"name": "four minutes of twenty is no skip", "library": "thresholds", "rules": {"match": "all", "rules": [{"field": "skip_count", "op": "is", "value": 0}]}, "expect": ["long"]},
+    {"name": "a percent sign is literal", "library": "wildcards", "rules": {"match": "all", "rules": [{"field": "title", "op": "contains", "value": "100%"}]}, "expect": ["endurance"]},
+    {"name": "an underscore is literal", "library": "wildcards", "rules": {"match": "all", "rules": [{"field": "title", "op": "contains", "value": "_"}]}, "expect": []},
+    {"name": "SQL in a value is text: is", "library": "injection", "rules": {"match": "all", "rules": [{"field": "artist", "op": "is", "value": "'; DROP TABLE playlist; --"}]}, "expect": ["bobby"]},
+    {"name": "SQL in a value is text: contains", "library": "injection", "rules": {"match": "all", "rules": [{"field": "title", "op": "contains", "value": "DROP TABLE"}]}, "expect": ["bobby"]},
+    {"name": "SQL in a value is text: genre", "library": "injection", "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "'; DROP TABLE playlist; --"}]}, "expect": []},
+    {"name": "SQL in a value is text: begins with", "library": "injection", "rules": {"match": "all", "rules": [{"field": "album", "op": "beginsWith", "value": "' OR 1=1 --"}]}, "expect": []},
+    {"name": "built-in Rediscover Mix, now", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "-6m"}, {"field": "play_count", "op": "greaterThan", "value": 2}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 40}, "expect": []},
+    {"name": "built-in Rediscover Mix, after half a year", "library": "four", "at_days": 200, "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "-6m"}, {"field": "play_count", "op": "greaterThan", "value": 2}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 40}, "expect": ["so-what"]},
+    {"name": "built-in Heavy Rotation", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "inTheLast", "value": "-1m"}, {"field": "play_count", "op": "greaterThan", "value": 1}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 25}, "expect": ["so-what"]}
+  ]
+}

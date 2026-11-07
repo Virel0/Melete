@@ -92,7 +92,7 @@ pub fn part(path: &str) -> Part {
         {
             Part::Admin
         }
-        "music" | "playlists" => Part::Music,
+        "music" | "playlists" | "smart-playlists" => Part::Music,
         // Whether AI is on: a flag, read by music and video apps alike.
         "ai" if api == "ai" => Part::Always,
         // Music filters and mixes by description.

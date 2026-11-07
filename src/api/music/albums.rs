@@ -20,7 +20,7 @@ pub(in super::super) const ALBUM_COLUMNS: &str =
         (SELECT json_extract(c.artist_credit, '$[0].id') FROM mb_releases c
          WHERE c.id = a.match_release_id AND json_array_length(c.artist_credit) = 1))
         AS mb_artist_id,
-    a.match_status";
+    a.match_status, r.primary_type, coalesce(r.secondary_types, '[]') AS secondary_types";
 
 #[derive(sqlx::FromRow)]
 pub(in super::super) struct AlbumRow {
@@ -43,6 +43,9 @@ pub(in super::super) struct AlbumRow {
     /// credited.
     pub(super) mb_artist_id: Option<String>,
     pub(super) match_status: Option<String>,
+    /// The matched release group's type (Album, Single, EP…), and its secondary types as JSON.
+    pub(super) primary_type: Option<String>,
+    pub(super) secondary_types: String,
 }
 
 /// What a caller sees of an album: the Cover Art Archive's covers (with MusicBrainz matching
@@ -79,6 +82,9 @@ impl AlbumRow {
             "mb_release_group_id": self.mb_release_group_id,
             "mb_artist_id": self.mb_artist_id,
             "match_status": self.match_status,
+            "primary_type": self.primary_type,
+            "secondary_types": serde_json::from_str::<Value>(&self.secondary_types)
+                .unwrap_or_else(|_| json!([])),
         })
     }
 }
@@ -110,8 +116,17 @@ pub(super) struct AlbumQuery {
     /// Comma-separated artist ids.
     pub(super) artist_id: Option<String>,
     pub(super) genre: Option<String>,
-    /// `artist` (default), `title`, `year` (newest first) or `recent`.
+    /// Genres separated by semicolons: albums with a track of any of them (case-insensitive).
+    pub(super) genres: Option<String>,
+    /// The first and last year of the albums shown (the album's year), either end open.
+    pub(super) year_from: Option<i64>,
+    pub(super) year_to: Option<i64>,
+    /// `true`: only the albums the caller likes, and those with a track they like.
+    pub(super) liked: Option<bool>,
+    /// `artist` (default), `title`, `year` (newest first), `recent` or `random`.
     pub(super) sort: Option<String>,
+    /// For `random`: the shuffle to page through, as the first page answered.
+    pub(super) seed: Option<u32>,
     pub(super) limit: Option<i64>,
     pub(super) offset: Option<i64>,
 }
@@ -123,6 +138,20 @@ pub(super) async fn list_albums(
 ) -> Result<Json<Value>, ApiError> {
     let (limit, offset) = paging(query.limit, query.offset)?;
     let artists = ids(query.artist_id.as_deref(), "artist_id")?;
+    let genres = genre_list(query.genres.as_deref())?;
+    let (year_from, year_to) = years(query.year_from, query.year_to)?;
+    let (liked_albums, liked_tracks) = if query.liked == Some(true) {
+        let me = current.user.id;
+        let albums: Vec<i64> = crate::aoide::likes::liked_albums(&state.pool, me, &current.access)
+            .await?
+            .into_iter()
+            .filter_map(|(album, _)| album)
+            .collect();
+        let tracks = Liked::of(&state.pool, me).await?;
+        (Some(json!(albums).to_string()), Some(tracks.ids_json()))
+    } else {
+        (None, None)
+    };
     let order = match query.sort.as_deref().unwrap_or("artist") {
         "artist" => {
             "coalesce(a.artist_sort_key, a.artist_name) COLLATE NOCASE, a.year,
@@ -131,7 +160,8 @@ pub(super) async fn list_albums(
         "title" => "coalesce(a.sort_key, a.title) COLLATE NOCASE, a.id",
         "year" => "a.year IS NULL, a.year DESC, coalesce(a.sort_key, a.title) COLLATE NOCASE, a.id",
         "recent" => "a.id DESC",
-        _ => return Err(bad_request("sort is artist, title, year or recent")),
+        "random" => "",
+        _ => return Err(bad_request("sort is artist, title, year, recent or random")),
     };
     let from = format!(
         "FROM music_albums a LEFT JOIN mb_releases r ON r.id = a.match_release_id
@@ -140,32 +170,66 @@ pub(super) async fn list_albums(
                 OR a.search_key LIKE ?4)
            AND (?2 IS NULL OR a.artist_id IN (SELECT value FROM json_each(?2)))
            AND (?3 IS NULL OR EXISTS (SELECT 1 FROM music_tracks t, json_each(t.genres) g
-               WHERE t.album_id = a.id AND t.missing_since IS NULL AND g.value = ?3 COLLATE NOCASE))",
+               WHERE t.album_id = a.id AND t.missing_since IS NULL AND g.value = ?3 COLLATE NOCASE))
+           AND (?5 IS NULL OR EXISTS (SELECT 1 FROM music_tracks t, json_each(t.genres) g,
+                   json_each(?5) w
+               WHERE t.album_id = a.id AND t.missing_since IS NULL
+                   AND g.value = w.value COLLATE NOCASE))
+           AND (?6 IS NULL OR a.year >= ?6)
+           AND (?7 IS NULL OR a.year <= ?7)
+           AND (?8 IS NULL OR a.id IN (SELECT value FROM json_each(?8))
+                OR EXISTS (SELECT 1 FROM music_tracks t WHERE t.album_id = a.id
+                    AND t.missing_since IS NULL AND t.id IN (SELECT value FROM json_each(?9))))",
         current.access.album_sql("a")
     );
     let q = pattern(query.q.as_deref());
     let folded = crate::search_keys::pattern(query.q.as_deref());
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) {from}")))
-        .bind(&q)
-        .bind(&artists)
-        .bind(&query.genre)
-        .bind(&folded)
-        .fetch_one(&state.pool)
+    // The filters, bound to each query in turn.
+    macro_rules! filtered {
+        ($query:expr) => {
+            $query
+                .bind(&q)
+                .bind(&artists)
+                .bind(&query.genre)
+                .bind(&folded)
+                .bind(&genres)
+                .bind(year_from)
+                .bind(year_to)
+                .bind(&liked_albums)
+                .bind(&liked_tracks)
+        };
+    }
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
+    if order.is_empty() {
+        // Random: every album that fits, shuffled.
+        let ids: Vec<i64> = filtered!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT a.id {from}"
+        ))))
+        .fetch_all(&state.pool)
         .await?;
-    let rows: Vec<AlbumRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {ALBUM_COLUMNS} {from} ORDER BY {order} LIMIT ?5 OFFSET ?6"
-    )))
-    .bind(&q)
-    .bind(&artists)
-    .bind(&query.genre)
-    .bind(&folded)
+        let seed = seed_or_new(query.seed);
+        let (total, page) = shuffled_page(ids, seed, limit, offset);
+        let found = albums_by_id(&state.pool, &current.access, shown, &page).await?;
+        return Ok(Json(json!({
+            "total": total,
+            "seed": seed,
+            "items": page.iter().filter_map(|id| found.get(id)).collect::<Vec<_>>(),
+        })));
+    }
+    let total: i64 = filtered!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) {from}"
+    ))))
+    .fetch_one(&state.pool)
+    .await?;
+    let rows: Vec<AlbumRow> = filtered!(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {ALBUM_COLUMNS} {from} ORDER BY {order} LIMIT ?10 OFFSET ?11"
+    ))))
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
-    let shown = Shown {
-        archive: state.coverart.is_some(),
-    };
     Ok(Json(json!({
         "total": total,
         "items": rows.iter().map(|r| r.to_json(shown)).collect::<Vec<_>>(),

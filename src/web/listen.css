@@ -34,6 +34,10 @@
   text-align: start;
 }
 .jump-card:hover { background: var(--surface-raised); }
+/* Each card with its Remove beside it. */
+.jump li { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.jump li .jump-card { flex: 1; min-width: 0; }
+.jump .jump-remove { flex: none; width: 2.25rem; height: 2.25rem; }
 .jump-card .art { width: 3.5rem; aspect-ratio: 1 / 1; background: var(--surface-raised); }
 .jump-card .art img { width: 100%; height: 100%; object-fit: cover; }
 .jump-card .words { display: flex; flex-direction: column; min-width: 0; }
@@ -50,6 +54,11 @@
 }
 .wide-card .words p { margin: var(--space-1) 0 var(--space-3); }
 .wide-card .play-actions { margin: 0; }
+/* "Pick up from …": another device's queue, above the rows (music-pickup.js). */
+.pick-up { max-width: 48rem; margin-block-start: var(--space-5); padding: var(--space-4) var(--space-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); }
+.pick-up h2 { font-size: var(--step-1); }
+.pick-up p { display: flex; gap: 0.3em; min-width: 0; margin: var(--space-1) 0 var(--space-3); color: var(--muted); }
+.pick-up p strong { color: var(--text); }
 .mix-tracks { margin-block-start: var(--space-3); }
 .mix-tracks summary { cursor: pointer; color: var(--muted); min-height: 1.5rem; }
 .mix-tracks summary:hover { color: var(--text); }
@@ -184,8 +193,38 @@
 .album-card .card-like[aria-pressed="true"] svg { stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .album-card .card-like[aria-pressed="true"]::after { content: none; }
 .album-card .note { display: block; font-size: var(--step--1); }
+/* An album card's More: over the cover's other top corner, on a disc as its heart is; its
+   actions open under it, over the page (a popover), placed by music-album-menu.js. */
+.album-card .card-more {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-start: var(--space-2);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.album-card .card-more:hover { background: var(--surface-raised); }
+.card-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(17rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow);
+}
+.card-menu-buttons { display: grid; gap: var(--space-1); }
+.card-menu-buttons > button { justify-content: flex-start; margin: 0; }
+.card-menu .note:empty { display: none; }
+.card-menu .playlist-picker { max-width: none; }
 .album-card .note:empty { display: none; }
 .track-actions .note:empty { display: none; }
+/* Get info: what the song's file is, as name and value, under the strip's buttons. */
+.song-info { max-width: 32rem; margin-block: var(--space-3) var(--space-1); }
 @media (max-width: 40rem) {
   .tracks.songs li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
   .tracks.songs li.with-actions .track-more { grid-column: 3; grid-row: 1; }
@@ -227,6 +266,21 @@
 /* A folder's page: Rename and Delete, and New folder under its folders. */
 .folder-tools { margin-block: var(--space-2) var(--space-3); }
 .folder-form { margin-block-start: var(--space-3); }
+
+/* The smart playlist rule editor: a row a rule, the order, and what the rules give. */
+.new-smart { margin-block-end: var(--space-4); }
+.smart-editor { margin-block: var(--space-3); max-width: 44rem; }
+.rule-list { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: grid; gap: var(--space-2); }
+.rule-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.rule-row input:not(.year) { width: min(14rem, 100%); }
+.rule-row input[type="number"], .smart-order input[type="number"] { width: 7rem; }
+.smart-order { margin-block-start: var(--space-3); }
+.rule-value { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+.smart-order { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.smart-order .field select + select { margin-inline-start: var(--space-2); }
+.smart-editor h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.smart-preview { padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-s); min-height: 3rem; }
+.smart-preview p { margin-block: 0; }
 @media (max-width: 40rem) {
   .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
   .playlist-items .item-tools { grid-column: 1 / -1; justify-self: end; }
@@ -263,3 +317,33 @@
 .hidden-list li { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto; align-items: center; }
 .hidden-list ~ .row-actions { margin-block-start: var(--space-3); }
 .hidden-group + .hidden-group { margin-block-start: var(--space-6); }
+
+/* Music's keyboard shortcuts (music-keys.js), in a dialog: each key beside what it does. */
+.music-keys h2 { margin: 0; font-size: var(--step-1); }
+.music-keys .note { margin: 0; }
+.music-keys-list { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-2) 0; }
+.music-keys-list > div { display: contents; }
+.music-keys-list dd { margin: 0; }
+
+/* Ask by description, above the Songs list while AI features are on (music-ask.js). */
+.music-ask { margin-block-end: var(--space-5); }
+.music-ask-form input { width: min(100%, 32rem); }
+.music-ask .note { margin: var(--space-2) 0 0; max-width: 60ch; }
+.music-ask-said .status, .music-ask-said .error { margin: var(--space-3) 0 var(--space-2); }
+.music-ask-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-1); color: var(--muted); font-size: var(--step--1); }
+.music-ask-list .clip { display: block; }
+
+/* Songs: genres, years and likes folded under the toolbar, and saving them as a collection. */
+.collection-filter { margin-block: var(--space-3); max-width: 48rem; }
+.collection-filter > summary { cursor: pointer; font-weight: 600; padding-block: var(--space-1); }
+.collection-genres { margin: var(--space-3) 0 0; padding: 0; border: 0; }
+.collection-genres legend { padding: 0; margin-block-end: var(--space-2); font-weight: 600; }
+.collection-genres ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); max-height: 12rem; overflow-y: auto; }
+.collection-genres li.check { margin: 0; }
+.collection-years { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-block: var(--space-3); }
+.collection-years input { width: 7rem; }
+.collection-save { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin-block-start: var(--space-3); }
+.collection-save .note { flex-basis: 100%; margin: 0; }
+.collection-save .note:empty { display: none; }
+.collection-saved h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.collection-list li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }

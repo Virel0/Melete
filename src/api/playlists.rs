@@ -19,6 +19,7 @@ use crate::aoide::playlists::{self, Playlist};
 
 mod edits;
 mod folders;
+mod smart;
 
 use edits::*;
 use folders::*;
@@ -53,6 +54,9 @@ pub fn routes(pool: SqlitePool) -> Router {
         )
         .route("/api/v1/playlists/{id}/items", post(add_items))
         .route("/api/v1/playlists/{id}/waiting", post(add_waiting))
+        .route("/api/v1/playlists/{id}/songs", get(smart::songs))
+        .route("/api/v1/playlists/{id}/rules", put(smart::set_rules))
+        .route("/api/v1/smart-playlists/songs", post(smart::preview))
         .route(
             "/api/v1/playlists/{id}/items/{item}",
             put(move_item).delete(remove_item),

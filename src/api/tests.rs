@@ -364,7 +364,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 365);
+        assert_eq!(checked, 376);
     }
 
     /// The response's fields are exactly the schema's.
@@ -1911,6 +1911,12 @@ mod openapi {
         let tracks = get("/api/v1/music/tracks").await;
         assert_shape(&spec, "MusicTrackPage", &tracks);
         assert_shape(&spec, "MusicTrack", &tracks["items"][0]);
+        let shuffled = get("/api/v1/music/tracks?sort=random").await;
+        assert_shape(&spec, "MusicTrackShufflePage", &shuffled);
+        assert_shape(&spec, "MusicTrack", &shuffled["items"][0]);
+        let shuffled = get("/api/v1/music/albums?sort=random").await;
+        assert_shape(&spec, "MusicAlbumShufflePage", &shuffled);
+        assert_shape(&spec, "MusicAlbum", &shuffled["items"][0]);
         assert_shape(&spec, "MusicGenre", &get("/api/v1/music/genres").await[0]);
     }
 
@@ -3150,6 +3156,77 @@ mod openapi {
         assert_shape(&spec, "PlaylistItem", &one["items"][0]);
         assert_shape(&spec, "PlaylistItem", &one["items"][1]);
         assert_shape(&spec, "PlaylistPendingSong", &one["items"][1]["pending"]);
+    }
+
+    #[tokio::test]
+    async fn smart_playlist_songs_carry_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+             INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+                 VALUES (1, 1, 'k', 'Post', 'Björk', 'a', 1);
+             INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at,
+                 first_seen_generation, seen_generation, album_id, tagged, title, genres)
+                 VALUES (1, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Army of Me', '[]');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
+        let (_, token) =
+            crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        let op = r#"{"opId":"p","entity":"playlists","entityId":"p","operation":"upsert","payload":{"id":"p","name":"All","isSmart":true,"smartRules":"{\"match\":\"all\",\"rules\":[],\"sort\":{\"field\":\"title\",\"dir\":\"asc\"},\"limit\":5}","updatedAt":1},"createdAt":1}"#;
+        let op = crate::aoide::sync::validate(
+            &serde_json::value::RawValue::from_string(op.to_owned()).unwrap(),
+        )
+        .unwrap();
+        crate::aoide::sync::push(&pool, user.id, "dev", vec![op], 1)
+            .await
+            .unwrap();
+        let request = Request::get("/api/v1/playlists/p/songs")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = playlists::routes(pool).oneshot(request).await.unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let spec = spec();
+        assert_shape(&spec, "SmartPlaylistSongs", &body);
+        assert_shape(&spec, "MusicTrack", &body["tracks"][0]);
+    }
+
+    #[tokio::test]
+    async fn smart_playlist_previews_carry_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+             INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+                 VALUES (1, 1, 'k', 'Post', 'Björk', 'a', 1);
+             INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at,
+                 first_seen_generation, seen_generation, album_id, tagged, title, genres)
+                 VALUES (1, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Army of Me', '[]');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
+        let (_, token) =
+            crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        let request = Request::post("/api/v1/smart-playlists/songs")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"rules":{"match":"all","rules":[]}}"#))
+            .unwrap();
+        let response = playlists::routes(pool).oneshot(request).await.unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let spec = spec();
+        assert_shape(&spec, "SmartPlaylistPreview", &body);
+        assert_shape(&spec, "MusicTrack", &body["tracks"][0]);
     }
 
     #[tokio::test]

@@ -12,8 +12,8 @@
 //! A playlist's owner edits it here, and so does someone it's shared with to edit, as the sync
 //! log lets them from a device: the same writes, into their own log, which reach the owner and
 //! everyone else it's shared with. Only the owner deletes it or files it in a folder (folders are
-//! each user's own). Smart playlists aren't edited here at all: their rules are worked out on
-//! the devices. Melete itself writes as the owner too, when it fills
+//! each user's own). A smart playlist's rules are set here by its owner (`smart_rules`), but
+//! nothing else of it: its songs are worked out from them. Melete itself writes as the owner too, when it fills
 //! an imported playlist and when it swaps an arrived song in for a pending item.
 
 use std::collections::{BTreeMap, HashMap};
@@ -28,10 +28,12 @@ use super::writing::{self, Change, WriteError};
 mod folders;
 mod items;
 mod pending_items;
+mod smart_rules;
 
 pub use folders::*;
 pub use items::*;
 pub use pending_items::*;
+pub use smart_rules::*;
 
 /// Why an edit wasn't made.
 #[derive(Debug)]
@@ -54,6 +56,8 @@ pub enum EditError {
     NoSuchFolder,
     /// Writing it failed.
     Write(WriteError),
+    /// It's a hand-made playlist, which has no rules.
+    HandMade,
 }
 
 impl From<WriteError> for EditError {
