@@ -5,12 +5,16 @@
 // series is anime when `/series?anime=only` lists it (wanted as anime, or in an anime library),
 // else a show; its "Because you watched" rows come from titles of the page's kind. The grid
 // stands on its own, so when the home can't be had the page is the grid.
+//
+// When a title comes or goes, or My List changes (watch-live.js), the rows and the grid are
+// drawn again in place; the hero stays as it is.
 
 import { SignedOut, api, h, show } from "/web/lib.js";
-import { generation, leaving } from "/web/page-state.js";
+import { generation, leaving, signIn } from "/web/page-state.js";
 import { placeholders } from "/web/page-parts.js";
 import { everything } from "/web/browse.js";
 import { hero } from "/web/watch-hero.js";
+import { followWatch, keepPlace } from "/web/watch-live.js";
 import { watchingOf } from "/web/watch-tiles.js";
 import { homeRows } from "/web/home.js";
 
@@ -37,13 +41,32 @@ export async function kindPage(page, params, gen) {
   if (gen !== generation) return;
   const top = home ? narrowed(page, home) : null;
   if (top) leaving.push(top.stop);
+  const rows = top ? h("div", { class: "watch-rows", hidden: !top.rows.length }, top.rows) : null;
+  let refreshGrid = null;
   show(
     about.title,
     h("h1", { class: top ? "visually-hidden" : null }, about.title),
     top?.hero,
-    top?.rows.length ? h("div", { class: "watch-rows" }, top.rows) : null,
-    everything(page, params, gen, { genres, libraries, ai }),
+    rows,
+    everything(page, params, gen, { genres, libraries, ai, follow: (refresh) => (refreshGrid = refresh) }),
   );
+  const again = async () => {
+    refreshGrid?.();
+    if (!top) return;
+    let fresh;
+    try {
+      fresh = await api(`/home?kind=${page}`);
+    } catch (err) {
+      if (err instanceof SignedOut) signIn("Your session ended. Sign in again.");
+      return;
+    }
+    if (gen !== generation) return;
+    const watching = watchingOf(fresh.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
+    const drawn = homeRows(fresh.rows, top.top, watching, about.heading).filter(Boolean);
+    keepPlace(rows, drawn);
+    rows.hidden = !drawn.length;
+  };
+  followWatch(gen, { library: again, favourites: again });
 }
 
 // The old series list's address (`#/series`, links and bookmarks): anime has its own page now,
@@ -68,5 +91,5 @@ function narrowed(page, home) {
   const top = hero(picks, { watching });
   top.spotlight.add(picks);
   const rows = homeRows(home.rows, top, watching, about.heading);
-  return { hero: top.el, rows: rows.filter(Boolean), stop: top.stop };
+  return { top, hero: top.el, rows: rows.filter(Boolean), stop: top.stop };
 }

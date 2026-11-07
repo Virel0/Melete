@@ -3,11 +3,15 @@
 // (AI picks, while they're on), "Because you watched …" for what you finished most recently,
 // and the latest shows, anime and movies. A row with nothing in it isn't there; a home with
 // nothing at all says so, with a way to ask for something.
+//
+// It follows the server's live updates (watch-live.js): when a title comes or goes, or My List
+// changes (on any device), the rows are drawn again in place, the hero left as it is.
 
 import { SignedOut, api, h, show } from "/web/lib.js";
-import { generation, leaving } from "/web/page-state.js";
+import { generation, leaving, signIn } from "/web/page-state.js";
 import { emptyState, failed, placeholders } from "/web/page-parts.js";
 import { hero } from "/web/watch-hero.js";
+import { followWatch, keepPlace } from "/web/watch-live.js";
 import { row, watchingOf } from "/web/watch-tiles.js";
 
 // Each row the server sends: its heading, whether its tiles are landscape, and where "See all"
@@ -48,15 +52,39 @@ export async function home(gen) {
     h("div", { class: "hero-placeholder placeholder", "aria-hidden": "true" }),
     placeholders("your home", { kind: "cards", count: 6 }),
   );
+  // What's drawn: the hero (null before it's drawn, or with nothing to show) and its rows' box.
+  const page = { gen, top: null, rows: null };
+  const again = () => load(page, true);
+  followWatch(gen, { library: again, favourites: again });
+  await load(page, false);
+}
+
+// Asks for the home and draws it; `again` for a live update, which leaves the page as it is
+// when the answer can't be had.
+async function load(page, again) {
   let answer;
   try {
     answer = await api("/home");
   } catch (err) {
-    if (err instanceof SignedOut || gen !== generation) throw err;
-    show("Home", h("h1", {}, "Home"), failed("your home", err, () => home(generation)));
+    if (page.gen !== generation) return;
+    if (again) return err instanceof SignedOut ? signIn("Your session ended. Sign in again.") : undefined;
+    if (err instanceof SignedOut) throw err;
+    show("Home", h("h1", {}, "Home"), failed("your home", err, () => load(page, false)));
     return;
   }
-  if (gen !== generation) return;
+  if (page.gen !== generation) return;
+  draw(page, answer);
+}
+
+function draw(page, answer) {
+  const watching = watchingOf(answer.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
+  // A live update with a hero already up: the rows again, in place.
+  if (page.top && answer.hero.length) {
+    keepPlace(page.rows, homeRows(answer.rows, page.top, watching).filter(Boolean));
+    return;
+  }
+  page.top?.stop();
+  page.top = null;
   if (!answer.hero.length && !answer.rows.length) {
     show(
       "Home",
@@ -68,10 +96,10 @@ export async function home(gen) {
     );
     return;
   }
-  const watching = watchingOf(answer.rows.filter((r) => ["continue_watching", "next_up", "new_episodes"].includes(r.key)).flatMap((r) => r.items));
   const top = hero(answer.hero, { watching });
   leaving.push(top.stop);
   top.spotlight.add(answer.hero);
-  const rows = homeRows(answer.rows, top, watching);
-  show("Home", h("h1", { class: "visually-hidden" }, "Home"), top.el, h("div", { class: "watch-rows" }, rows));
+  page.top = top;
+  page.rows = h("div", { class: "watch-rows" }, homeRows(answer.rows, top, watching));
+  show("Home", h("h1", { class: "visually-hidden" }, "Home"), top.el, page.rows);
 }

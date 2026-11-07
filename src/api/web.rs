@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 118] = [
+const MODULES: [(&str, &str); 119] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -55,6 +55,7 @@ const MODULES: [(&str, &str); 118] = [
     ("watch-tiles.js", include_str!("../web/watch-tiles.js")),
     ("watch-play.js", include_str!("../web/watch-play.js")),
     ("watch-kind.js", include_str!("../web/watch-kind.js")),
+    ("watch-live.js", include_str!("../web/watch-live.js")),
     ("browse.js", include_str!("../web/browse.js")),
     ("title-page.js", include_str!("../web/title-page.js")),
     ("title-colour.js", include_str!("../web/title-colour.js")),
@@ -543,6 +544,31 @@ mod tests {
         let keys = module("player-keys.js");
         assert!(keys.contains(r#"video.addEventListener("dblclick""#));
         assert!(keys.contains("stage.requestFullscreen"));
+    }
+
+    #[test]
+    fn watch_pages_follow_the_library_and_my_list_live() {
+        // One stream, its kinds' first values only saying where things stand (unless first heard
+        // well after connecting), closed on leaving.
+        let live = module("watch-live.js");
+        assert!(live.contains(r#"source = new EventSource("/api/v1/events");"#));
+        assert!(live.contains(r#"for (const kind of ["library", "favourites"])"#));
+        assert!(live.contains(
+            "const changed = before === undefined ? Date.now() - opened > FIRST_MS : before !== version;"
+        ));
+        assert!(live.contains("source?.close();"));
+        // Redrawn in place: the focus and each row's sideways scroll stay.
+        assert!(live.contains("again?.focus({ preventScroll: true });"));
+        assert!(live.contains("if (left) shelf.scrollLeft = left;"));
+        for page in ["home.js", "watch-kind.js", "favourites.js"] {
+            assert!(module(page).contains("followWatch(gen, {"), "{page}");
+        }
+        assert!(module("browse.js").contains("follow?.(() => reload(v, { quietly: true })"));
+        // My List's own Remove and Undo aren't undone by their echo.
+        assert!(
+            module("favourites.js")
+                .contains("if (again && drawn && sameList(drawn, next)) return;")
+        );
     }
 
     #[test]
