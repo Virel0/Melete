@@ -607,6 +607,29 @@ mod tests {
     }
 
     #[test]
+    fn previews_start_with_sound_only_when_the_browser_asks_and_may() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let prefs = module("playback-prefs.js");
+        assert!(prefs.contains("\"Play previews with sound\""));
+        assert!(prefs.contains("Kept by this browser only."));
+        // Kept per browser, and off when storage is turned off.
+        assert!(
+            prefs.contains("try {\n    return localStorage.getItem(PREVIEW_SOUND_KEY) === \"on\";")
+        );
+        assert!(
+            prefs.contains("try {\n    if (on) localStorage.setItem(PREVIEW_SOUND_KEY, \"on\");")
+        );
+        // Sound only after the page has had a click or a key, and muted when refused anyway.
+        let hero = module("watch-hero-trailer.js");
+        assert!(
+            hero.contains(
+                "setMuted(!(previewSound() && navigator.userActivation?.hasBeenActive));"
+            )
+        );
+        assert!(hero.contains("setMuted(true);\n        video.play().catch(() => {});"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
