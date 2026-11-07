@@ -10,6 +10,7 @@
 import { SignedOut, api, h } from "/web/lib.js";
 import { clearSearches, recentSearches, rememberSearch } from "/web/palette-recent.js";
 import { musicCommands } from "/web/music-keys.js";
+import { musicAi, musicAskHref } from "/web/music-ask.js";
 
 // Where everyone can go. `words` are other names people may type for the same place.
 const PAGES = [
@@ -220,6 +221,8 @@ function draw(pal) {
   // those it hasn't to ask for.
   const typed = input.value.trim();
   const all = typed ? [{ name: `See all results for “${typed}”`, href: `#/search?${new URLSearchParams({ q: typed })}`, kind: "Search" }] : [];
+  // And, while AI features are on, songs from the library for what's typed as a description.
+  if (pal.ai && typed.length >= 3) all.push({ name: `Ask for music like “${typed}”`, href: musicAskHref(typed), kind: "Listen" });
   const recent = q ? [] : recentSearches().map((r) => ({ name: r, kind: "Recent search", recent: r }));
   if (recent.length) recent.push({ name: "Clear recent searches", kind: "Recent", clear: true });
   pal.shown = [...recent, ...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
@@ -318,6 +321,7 @@ function openPalette(pal) {
   pal.input.value = "";
   pal.titles = [];
   pal.playlists = null;
+  musicAi().then((on) => (pal.ai = on));
   pal.active = 0;
   draw(pal);
   dialog.showModal();
