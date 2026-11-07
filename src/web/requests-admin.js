@@ -76,7 +76,8 @@ export async function decide(ctx) {
       h("div", { class: "search-row" }, h("label", { for: library.id }, "Library"), library, h("label", { for: profile.id }, "Profile"), profile),
     );
     actions.append(approve, decline, said);
-    row.firstChild.append(choose);
+    // Under the request's words, beside its poster.
+    row.querySelector(":scope > .art + div").append(choose);
     return row;
   });
   const playlists = (await api("/requests/imports?all=true")).filter((i) => i.waiting > 0);

@@ -24,7 +24,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 120] = [
+const MODULES: [(&str, &str); 124] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -130,6 +130,8 @@ const MODULES: [(&str, &str); 120] = [
     ("music.js", include_str!("../web/music.js")),
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
+    ("music-flags.js", include_str!("../web/music-flags.js")),
+    ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
     ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
@@ -184,6 +186,8 @@ const MODULES: [(&str, &str); 120] = [
         "requests-admin.js",
         include_str!("../web/requests-admin.js"),
     ),
+    ("search.js", include_str!("../web/search.js")),
+    ("trending.js", include_str!("../web/trending.js")),
     ("services.js", include_str!("../web/services.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
@@ -439,6 +443,41 @@ mod tests {
         }
     }
 
+    /// Your requests come in stages, each with its poster, who decided and when, and where an
+    /// approved one is coming from; Ask results have their posters too.
+    #[test]
+    fn requests_say_who_decided_where_they_come_from_and_their_stage() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let row = module("requests-row.js");
+        assert!(row.contains(r#"[verb, r.decided_by ? ` by ${r.decided_by}` : null"#));
+        assert!(row.contains(r#"["Approved at once""#));
+        assert!(row.contains(r#"torrent: "From a torrent", soulseek: "From Soulseek""#));
+        assert!(row.contains("[stepBar(r.progress), whence(r.progress)]"));
+        assert!(row.contains(r#"{ class: "pictured" },"#) && row.contains("picture(r),"));
+        let requests = module("requests.js");
+        for stage in [
+            "On the way",
+            "Waiting for approval",
+            "In the library",
+            "Declined",
+        ] {
+            assert!(requests.contains(stage), "{stage}");
+        }
+        assert!(requests.contains("rows.get(stage(r)).push(requestRow("));
+        assert!(requests.contains("picture(c),"));
+        // An admin's choice of where it goes sits under the words, not in the poster's frame.
+        assert!(
+            module("requests-admin.js")
+                .contains(r#"row.querySelector(":scope > .art + div").append(choose);"#)
+        );
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "tools.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".rows > li.pictured"));
+    }
+
     #[test]
     fn the_page_has_no_inline_script_or_style() {
         // The policy would block them; this says so before a browser does.
@@ -550,6 +589,17 @@ mod tests {
         assert!(keys.contains("stage.requestFullscreen"));
     }
 
+    /// A collection's film that isn't in the library and that nobody asked for can be asked for
+    /// from the collection's page, by its TMDB id, as a movie.
+    #[test]
+    fn a_collections_missing_films_can_be_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let people = module("people.js");
+        assert!(people.contains(r#"item.state === "requestable" ? askFor(item, state) : null"#));
+        assert!(people.contains(r#"body: { kind: "movie", tmdb_id: item.tmdb_id }"#));
+        assert!(people.contains("state.textContent = STATES.requested;"));
+    }
+
     #[test]
     fn subtitles_come_in_four_sizes_kept_by_the_browser_for_plain_and_styled_tracks() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -588,6 +638,29 @@ mod tests {
     }
 
     #[test]
+    fn previews_start_with_sound_only_when_the_browser_asks_and_may() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let prefs = module("playback-prefs.js");
+        assert!(prefs.contains("\"Play previews with sound\""));
+        assert!(prefs.contains("Kept by this browser only."));
+        // Kept per browser, and off when storage is turned off.
+        assert!(
+            prefs.contains("try {\n    return localStorage.getItem(PREVIEW_SOUND_KEY) === \"on\";")
+        );
+        assert!(
+            prefs.contains("try {\n    if (on) localStorage.setItem(PREVIEW_SOUND_KEY, \"on\");")
+        );
+        // Sound only after the page has had a click or a key, and muted when refused anyway.
+        let hero = module("watch-hero-trailer.js");
+        assert!(
+            hero.contains(
+                "setMuted(!(previewSound() && navigator.userActivation?.hasBeenActive));"
+            )
+        );
+        assert!(hero.contains("setMuted(true);\n        video.play().catch(() => {});"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
@@ -618,6 +691,45 @@ mod tests {
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, HLS_SHA256, "src/web/vendor/hls-1.7.3.mjs changed");
         assert!(!HLS.contains("eval(") && !HLS.contains("new Function"));
+    }
+
+    /// The search page asks TMDB for titles not in the library only once discovery says it's
+    /// on, and the palette's last result leads there.
+    #[test]
+    fn search_asks_tmdb_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let search = module("search.js");
+        let status = search.find("api(\"/discover/status\")").unwrap();
+        let gate = search
+            .find("v.discovery && q.length >= 2 ? findOutside")
+            .unwrap();
+        let tmdb = search.find("/discover/search?").unwrap();
+        assert!(status < gate && search.contains("discovery: false,"));
+        assert!(tmdb > search.find("async function findOutside").unwrap());
+        assert_eq!(search.matches("/discover/search").count(), 1);
+        assert!(search.contains("candidateRow(ctx, candidate(d))"));
+        assert!(module("requests.js").contains("export function candidateRow"));
+        assert!(module("palette.js").contains("#/search?${new URLSearchParams({ q: typed })}"));
+        assert!(module("app.js").contains("searchPage(params, gen)"));
+    }
+
+    /// Trending is asked for only once discovery says it's on (the page's own answer, or
+    /// /discover/status), on the search page before anything is typed and on the Ask page.
+    #[test]
+    fn trending_is_asked_for_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let trending = module("trending.js");
+        let status = trending
+            .find("known ?? (await api(\"/discover/status\")).on")
+            .unwrap();
+        let gate = trending.find("if (!on) return;").unwrap();
+        let chart = trending.find("/discover/trending?").unwrap();
+        assert!(status < gate && gate < chart);
+        assert!(trending.contains("body: { kind: item.kind, tmdb_id: item.tmdb_id }"));
+        let search = module("search.js");
+        assert!(search.contains("if (v.discovery) v.start.append(trendingSection("));
+        assert!(search.contains("v.start.hidden = Boolean(q);"));
+        assert!(module("requests.js").contains("trendingSection(ctx, { id: \"ask-trending\""));
     }
 
     #[tokio::test]
@@ -1086,6 +1198,15 @@ mod tests {
             assert!(body.contains("if (!hold("), "{name}");
             assert!(!body.contains("button.disabled = true;"), "{name}");
         }
+    }
+
+    #[test]
+    fn hidden_songs_are_closed_to_a_user_limited_to_some_music() {
+        assert!(module("music-hidden.js").contains(
+            r#"if (!seesAllMusic()) return show("Hidden songs", title, emptyState(SYNC_CLOSED));"#
+        ));
+        // The strip offers the flags only where likes are open too.
+        assert!(module("music-actions.js").contains("open ? flagButtons(track, said) : null,"));
     }
 
     #[test]

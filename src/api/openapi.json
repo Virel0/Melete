@@ -1691,6 +1691,22 @@
         }
       }
     },
+    "/api/v1/discover/status": {
+      "get": {
+        "tags": ["Browse"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Whether discovery is on",
+        "description": "On when an admin turned trending and similar titles on (`MELETE_DISCOVERY`, off by default) and TMDB is set up. Nothing is asked of TMDB. The web UI's search looks up titles not in the library (`GET /api/v1/discover/search`) only while it's on, so a search of the library sends nothing out while it's off; it asks for trending titles only while it's on, too.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiscoveryStatus"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
     "/api/v1/discover/trending": {
       "get": {
         "tags": ["Browse"],
@@ -5860,6 +5876,79 @@
         }
       }
     },
+    "/api/v1/music/flags": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your flagged tracks",
+        "description": "The tracks you flagged \"not interested\" (kept out of mixes, stations, shuffle and smart playlists) or \"don't count plays\" (new listens not kept), the latest change first, read from your Aoide sync log as your devices read it: a flag set on any of them, or here, is the same flag. Each with its track as the music API shows it, or null when it isn't in the library now (its content key says what it was).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsList"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/music/tracks/{id}/flags": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set or clear a track's flags",
+        "description": "Writes into your Aoide sync log the track flags row an Aoide device of yours would (the track's own row if it has one, else a new one), as this session, changing only the flags the body names and stamping only those, so a change to the other flag on a device isn't undone. Your devices apply it on their next pull. Nothing is written for a flag already so.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The track's id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "not_interested": {"type": "boolean"},
+                  "dont_count": {"type": "boolean"}
+                },
+                "minProperties": 1,
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The track's flags now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsState"}}}
+          },
+          "400": {
+            "description": "The body names no flag",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such track in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/tracks/{id}/like": {
       "put": {
         "tags": ["Music"],
@@ -6291,7 +6380,7 @@
         "tags": ["Music"],
         "x-melete-access": "user",
         "x-melete-scope": "read",
-        "summary": "Your Replay: listening over a period",
+        "summary": "Your Replay: listening over a period, of everything, an album or an artist",
         "description": "Your own listening between two times (all of it when they're left out), as the Aoide apps' Replay shows it, from your play history (every device's listens and those sent here). A listen counts as a play as the apps count one: it reached the end, or it wasn't skipped, ended, and ran at least half the track or four minutes, whichever is less (four minutes when the track's length isn't known). `minutes` counts every listen, skips too. The top lists hold only what you may see, each ordered by plays, the latest played first in a tie.",
         "parameters": [
           {
@@ -6321,6 +6410,20 @@
             "required": false,
             "description": "How many of each top list.",
             "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}
+          },
+          {
+            "name": "album_id",
+            "in": "query",
+            "required": false,
+            "description": "Only listens of this album's songs.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "artist_id",
+            "in": "query",
+            "required": false,
+            "description": "Only listens of songs this artist is credited on (or an artist that joined them); not with `album_id`.",
+            "schema": {"type": "integer"}
           }
         ],
         "responses": {
@@ -12418,6 +12521,14 @@
         "properties": {"name": {"type": "string"}, "movies": {"type": "integer"}, "series": {"type": "integer"}},
         "additionalProperties": false
       },
+      "DiscoveryStatus": {
+        "type": "object",
+        "required": ["on"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Trending and similar titles turned on, and TMDB set up."}
+        },
+        "additionalProperties": false
+      },
       "DiscoverItem": {
         "type": "object",
         "required": [
@@ -15451,6 +15562,37 @@
         },
         "additionalProperties": false
       },
+      "MusicTrackFlagsState": {
+        "type": "object",
+        "required": ["not_interested", "dont_count"],
+        "properties": {
+          "not_interested": {"type": "boolean"},
+          "dont_count": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackFlagsList": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["track", "content_key", "not_interested", "dont_count", "changed_at"],
+              "properties": {
+                "track": {"anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}], "description": "Null when the track isn't in the library now."},
+                "content_key": {"type": "string", "description": "`artist|album|title|seconds`, as the apps key a track."},
+                "not_interested": {"type": "boolean"},
+                "dont_count": {"type": "boolean"},
+                "changed_at": {"type": "integer", "description": "When the flags last changed (Unix seconds)."}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "MusicLikes": {
         "type": "object",
         "required": ["tracks", "albums"],
@@ -16236,7 +16378,7 @@
       },
       "MusicReplay": {
         "type": "object",
-        "required": ["plays", "minutes", "songs", "artists", "albums", "busiest_day", "top_songs", "top_artists", "top_albums"],
+        "required": ["plays", "minutes", "songs", "artists", "albums", "busiest_day", "finish", "top_songs", "top_artists", "top_albums"],
         "properties": {
           "plays": {"type": "integer", "description": "Listens that count as plays."},
           "minutes": {"type": "integer", "description": "Minutes listened, every listen counted, skips too (whole minutes, rounded down)."},
@@ -16250,6 +16392,16 @@
             "properties": {
               "date": {"type": "string", "format": "date"},
               "plays": {"type": "integer"}
+            },
+            "additionalProperties": false
+          },
+          "finish": {
+            "type": "object",
+            "description": "How often a listen reaches the end, as the Aoide apps' finish rate counts it: `decided` listens ended either finished or skipped (one stopped part way, or never ended, counts for neither), `finished` of them reached the end. The apps show no rate below 3 decided listens.",
+            "required": ["decided", "finished"],
+            "properties": {
+              "decided": {"type": "integer"},
+              "finished": {"type": "integer"}
             },
             "additionalProperties": false
           },

@@ -35,6 +35,7 @@ mod media;
 mod missing_searches;
 mod music;
 mod music_classical;
+mod music_flags;
 mod music_home;
 mod music_household;
 mod music_likes;
