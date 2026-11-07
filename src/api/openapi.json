@@ -7743,7 +7743,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Change a smart playlist's rules",
-        "description": "New rules for your own smart playlist, checked as the apps check them; a sort on genre is refused. Only the rules change (its `smartRules`, with its own time, so a change to another field on a device stands). Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull. Only the playlist's owner changes its rules here.",
+        "description": "New rules for a smart playlist of yours, or one shared with you to edit, checked as the apps check them; a sort on genre is refused. Only the rules change (its `smartRules`, with its own time, so a change to another field on a device stands). Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those it's shared with, apply it on their next pull. Someone it's shared with to edit changes its rules here as their devices may: the change goes into their own sync log and reaches the owner's devices.",
         "parameters": [
           {
             "name": "id",
@@ -7776,7 +7776,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist (shared with you, to edit or to listen); or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {

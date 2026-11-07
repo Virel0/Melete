@@ -1,6 +1,7 @@
 //! Smart playlists' rules, written as a device writes them: a new smart playlist with its rules,
-//! and new rules for one of the user's own. The rules are the apps' format (`aoide::smart`), held
-//! in the row's `smartRules` as JSON text with its keys sorted, as the apps write it.
+//! and new rules for one of the user's own or one shared with them to edit. The rules are the
+//! apps' format (`aoide::smart`), held in the row's `smartRules` as JSON text with its keys
+//! sorted, as the apps write it.
 
 use super::*;
 use crate::aoide::smart::Rules;
@@ -50,44 +51,24 @@ pub async fn create_smart(
     Ok(id)
 }
 
-/// Gives the user's own smart playlist `id` new rules.
+/// Gives smart playlist `id` new rules: one of the user's own, or one shared with them to edit,
+/// as the sync log lets an editor change a playlist's row from a device.
 ///
 /// # Errors
 ///
-/// [`EditError::HandMade`] for a hand-made playlist, [`EditError::NotOwner`] for someone
-/// else's, [`EditError::NoSuchPlaylist`], or a write error.
+/// [`EditError::HandMade`] for a hand-made playlist, [`EditError::ListenOnly`] for one shared
+/// with them to listen to, [`EditError::NoSuchPlaylist`], or a write error.
 pub async fn set_rules(
     pool: &SqlitePool,
     editor: &Editor<'_>,
     id: &str,
     rules: &Rules,
 ) -> Result<(), EditError> {
-    let playlist = playlists::visible(pool, editor.user_id)
-        .await?
-        .into_iter()
-        .find(|p| p.id == id)
-        .ok_or(EditError::NoSuchPlaylist)?;
-    if playlist.owner_id != editor.user_id {
-        return Err(EditError::NotOwner);
-    }
+    let (playlist, editor) = checked(pool, editor, id, Who::Editors, true).await?;
     if !is_smart(&playlist.row) {
         return Err(EditError::HandMade);
     }
-    // After every change it holds, as `own` times an edit.
-    let latest = playlist
-        .row
-        .get("updatedAt")
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
-    let editor = Editor {
-        now: editor.now.max(latest.saturating_add(1)),
-        ..*editor
-    };
     let mut row = playlist.row.clone();
     row.insert("smartRules".into(), rules_text(rules).into());
-    if !row.contains_key("sortIndex") {
-        let key = fractional_index::between(None, None);
-        row.insert("sortIndex".into(), key.into());
-    }
     save_row(pool, &editor, &playlist, row).await
 }
