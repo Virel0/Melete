@@ -124,7 +124,7 @@ fn kind(name: &str) -> Result<Kind, ApiError> {
     Kind::parse(name).ok_or_else(|| {
         ApiError::new(
             StatusCode::NOT_FOUND,
-            &format!("the kinds are {}", Kind::NAMES.join(", ")),
+            format!("the kinds are {}", Kind::NAMES.join(", ")),
         )
     })
 }
