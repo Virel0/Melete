@@ -5876,6 +5876,79 @@
         }
       }
     },
+    "/api/v1/music/flags": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your flagged tracks",
+        "description": "The tracks you flagged \"not interested\" (kept out of mixes, stations, shuffle and smart playlists) or \"don't count plays\" (new listens not kept), the latest change first, read from your Aoide sync log as your devices read it: a flag set on any of them, or here, is the same flag. Each with its track as the music API shows it, or null when it isn't in the library now (its content key says what it was).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsList"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/music/tracks/{id}/flags": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set or clear a track's flags",
+        "description": "Writes into your Aoide sync log the track flags row an Aoide device of yours would (the track's own row if it has one, else a new one), as this session, changing only the flags the body names and stamping only those, so a change to the other flag on a device isn't undone. Your devices apply it on their next pull. Nothing is written for a flag already so.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The track's id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "not_interested": {"type": "boolean"},
+                  "dont_count": {"type": "boolean"}
+                },
+                "minProperties": 1,
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The track's flags now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackFlagsState"}}}
+          },
+          "400": {
+            "description": "The body names no flag",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries: flags live in Aoide's sync log, which is closed to you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such track in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/tracks/{id}/like": {
       "put": {
         "tags": ["Music"],
@@ -15486,6 +15559,37 @@
         "properties": {
           "total": {"type": "integer"},
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackFlagsState": {
+        "type": "object",
+        "required": ["not_interested", "dont_count"],
+        "properties": {
+          "not_interested": {"type": "boolean"},
+          "dont_count": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackFlagsList": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["track", "content_key", "not_interested", "dont_count", "changed_at"],
+              "properties": {
+                "track": {"anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}], "description": "Null when the track isn't in the library now."},
+                "content_key": {"type": "string", "description": "`artist|album|title|seconds`, as the apps key a track."},
+                "not_interested": {"type": "boolean"},
+                "dont_count": {"type": "boolean"},
+                "changed_at": {"type": "integer", "description": "When the flags last changed (Unix seconds)."}
+              },
+              "additionalProperties": false
+            }
+          }
         },
         "additionalProperties": false
       },
