@@ -1,7 +1,8 @@
 // One playlist: its cover, name, owner and notes, Play, Shuffle and Pin, then its songs. The
 // caller's own hand-made playlist is edited here, through the same sync log the devices use:
 // Rename (with its notes), Picture (choose one, or remove it), Delete (said plainly first), and
-// each song moved up, down or out;
+// each song moved up, down or out; any of the caller's own is filed in a folder (Folder) and
+// shared (Share);
 // songs are added from Add to playlist beside any song or on an album. A playlist shared with
 // the caller is read-only here. A smart one's songs are worked out by the server from its rules
 // and the listener's own likes and listens (`/playlists/{id}/songs`), as on the devices, and
@@ -14,8 +15,10 @@ import { trackActions } from "/web/music-actions.js";
 import { iconButton } from "/web/music-controls.js";
 import { goneRow } from "/web/music-liked.js";
 import { cover, markPlaying, pinControl, songRow } from "/web/music-parts.js";
-import { looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
+import { folderPicker } from "/web/music-playlist-folders.js";
+import { shareSection } from "/web/music-playlist-share.js";
 import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
@@ -226,14 +229,17 @@ function head(p, page, editable, open) {
       h(
         "div",
         { class: "play-actions" },
-        here.length ? h("button", { type: "button", onclick: () => play(queue) }, "Play") : null,
-        here.length ? h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle") : null,
+        here.length ? h("button", { type: "button", onclick: () => (play(queue), remember("playlist", p.id)) }, "Play") : null,
+        here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), toggle("delete", "Delete")] : null,
+        p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
         pinControl("playlist", p.id, p.name),
       ),
       open === "rename" ? renameForm(p, page) : null,
       open === "picture" ? pictureForm(p, page) : null,
       open === "delete" ? deleteCheck(p, page) : null,
+      open === "folder" ? folderPicker(p, page) : null,
+      open === "share" ? shareSection(p) : null,
       whoEdits(p) ? h("p", { class: "note" }, whoEdits(p)) : null,
     ),
   );
@@ -272,7 +278,7 @@ export async function playlistPage(id, ctx) {
       if (list?.matches("ul")) markPlaying(list, ctx);
       if (typeof focus === "string") document.querySelector(`[data-opens="${focus}"]`)?.focus();
       else if (focus) refocus(focus);
-      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture" }[open] ?? ".playlist-delete button")?.focus();
+      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture", folder: ".playlist-edit select", delete: ".playlist-delete button" }[open] ?? null)?.focus();
     },
   };
   page.draw(p);
