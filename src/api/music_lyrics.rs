@@ -134,7 +134,8 @@ async fn track_lyrics(
         _ => None,
     };
     // Translated, each line has its translation beside it (an empty line, itself); with its
-    // pronunciation asked for, that too (none for a line already in Latin letters).
+    // pronunciation asked for, that too (none for a line already in Latin letters), and the
+    // readings over its kanji (none for a line without any).
     let japanese = crate::romanise::japanese(&found.text);
     let lines: Vec<Value> = found
         .lines()
@@ -146,6 +147,7 @@ async fn track_lyrics(
             }
             if query.pronounce {
                 shown["pronunciation"] = json!(crate::romanise::line(&line.text, japanese));
+                shown["ruby"] = json!(crate::romanise::furigana::ruby(&line.text, japanese));
             }
             shown
         })
@@ -549,6 +551,55 @@ mod tests {
         // Not asked for, the lines are as they always were.
         let (_, plain) = get(&app, &f.token, "/api/v1/music/tracks/1/lyrics").await;
         assert_eq!(plain["lines"][0].get("pronunciation"), None);
+    }
+
+    #[tokio::test]
+    async fn readings_come_over_kanji_with_the_pronunciation() {
+        let f = fixture().await;
+        std::fs::write(
+            f.library.path().join("ok/01 Airbag.lrc"),
+            "[00:01.00]君の名は\n[00:02.00]さよなら\n[00:03.00]I love you 君が好き\n[00:04.00]Hello\n",
+        )
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO settings (name, value, updated_at)
+             VALUES ('MELETE_LYRICS_ROMANISATION', 'on', 0)",
+        )
+        .execute(&f.pool)
+        .await
+        .unwrap();
+        let app = routes(f.pool.clone(), None);
+        let uri = "/api/v1/music/tracks/1/lyrics?pronounce=true";
+        let (status, body) = get(&app, &f.token, uri).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let lines = body["lines"].as_array().unwrap();
+        assert_eq!(
+            lines[0]["ruby"],
+            json!([
+                { "text": "君", "reading": "きみ" },
+                { "text": "の", "reading": null },
+                { "text": "名", "reading": "な" },
+                { "text": "は", "reading": null },
+            ])
+        );
+        // Kana alone, and Latin letters alone, have nothing to read.
+        assert_eq!(lines[1]["ruby"], Value::Null);
+        assert_eq!(lines[3]["ruby"], Value::Null);
+        assert_eq!(
+            lines[2]["ruby"],
+            json!([
+                { "text": "I love you ", "reading": null },
+                { "text": "君", "reading": "きみ" },
+                { "text": "が", "reading": null },
+                { "text": "好", "reading": "す" },
+                { "text": "き", "reading": null },
+            ])
+        );
+        // The text and pronunciation are as before.
+        assert_eq!(lines[0]["text"], "君の名は");
+        assert_eq!(lines[0]["pronunciation"], "kimi no na wa");
+        let (_, plain) = get(&app, &f.token, "/api/v1/music/tracks/1/lyrics").await;
+        assert_eq!(plain["lines"][0].get("ruby"), None);
     }
 
     #[test]
