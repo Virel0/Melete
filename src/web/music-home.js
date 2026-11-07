@@ -73,6 +73,13 @@ function looseTracks(tracks) {
   );
 }
 
+// The songs played most lately, each with how often in place of its length.
+function mostPlayed(list) {
+  const tracks = looseTracks(list.map((m) => m.track));
+  tracks.querySelectorAll(":scope > li").forEach((row, i) => row.querySelector(".length")?.replaceChildren(plural(list[i].plays, "play", "plays")));
+  return tracks;
+}
+
 // A mix as a wide card: what it is, Play and Shuffle, and its songs on request.
 function mixCard(mix, heading) {
   const queue = looseQueue(mix.tracks);
@@ -191,7 +198,7 @@ function rows(home, pins, mixList, house, genres) {
     row("pinned", "Pinned", unlessEmpty(pins.items, () => pinnedRow(pins))),
     row("added", "Recently added", shelf(home.recently_added)),
     row("played", "Recently played", shelf(home.recently_played)),
-    row("most", "Most played lately", unlessEmpty(home.most_played, (list) => looseTracks(list.map((m) => m.track)))),
+    row("most", "Most played lately", unlessEmpty(home.most_played, mostPlayed)),
     row("for-you", "Made for you", madeForYou),
     row("moods", "Moods", moods(mixList)),
     row("genres", "Genres", unlessEmpty(genres, genreChips)),

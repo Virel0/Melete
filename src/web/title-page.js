@@ -1,9 +1,9 @@
 // A movie's or a series' own page: a header on the stage (its textless backdrop, logo or title,
-// facts, overview and genres, then Play saying what it will do, Mark watched and My List), the
-// page fading down from the title's strongest colour, which Play wears too; a preview plays
-// behind the header while it's in view (title-preview.js). A series then has
-// its seasons and episodes (title-episodes.js); extras, cast and the collection have their own
-// addresses, and About folds the file details away (title-more.js).
+// facts, overview and genres, then Play saying what it will do, From the start beside a Resume,
+// Mark watched and My List), the page fading down from the title's strongest colour, which Play
+// wears too; a preview plays behind the header while it's in view (title-preview.js). A series
+// then has its seasons and episodes (title-episodes.js); extras, cast and the collection have
+// their own addresses, and About folds the file details away (title-more.js).
 //
 // tint(src, known) stays for the album pages, which tint flat with a cover's colour.
 
@@ -80,14 +80,15 @@ const MATCH_NOTES = {
   unmatched: "Not found on TMDB, so the name comes from the folder.",
 };
 
-// The header: art, words, the actions given and any notes. Returns { el, play } so Play can be
-// aimed once what it does is known.
+// The header: art, words, the actions given and any notes. Returns { el, play, restart } so Play,
+// and From the start beside a Resume, can be aimed once what they do is known.
 function header(t, facts, genreHref, actions, notes = []) {
   const art = t.textless_backdrop ?? t.backdrop;
   const focus = t.textless_backdrop ? t.textless_backdrop_focus : t.backdrop_focus;
   const picture = art ? h("img", { class: "hero-picture shown", src: art, alt: "" }) : null;
   picture?.style.setProperty("object-position", focus ? `${focus.x * 100}% ${focus.y * 100}%` : "50% 25%");
   const play = h("a", { class: "button hero-play", "aria-disabled": "true" }, icon("play"), "Play");
+  const restart = h("a", { class: "button quiet", hidden: true }, "From the start");
   const el = h(
     "section",
     { class: `hero title-hero${art ? "" : " no-art"}`, "aria-labelledby": "title-name" },
@@ -99,16 +100,22 @@ function header(t, facts, genreHref, actions, notes = []) {
       h("ul", { class: "meta-row hero-facts" }, facts.filter(Boolean).map((f) => h("li", {}, f))),
       t.overview ? h("p", { class: "title-overview" }, t.overview) : null,
       t.genres.length ? h("ul", { class: "pills", "aria-label": "Genres" }, t.genres.map((g) => h("li", {}, h("a", { href: genreHref(g) }, g)))) : null,
-      h("div", { class: "actions" }, play, actions),
+      h("div", { class: "actions" }, play, restart, actions),
       MATCH_NOTES[t.match_status] ? h("p", { class: "note" }, MATCH_NOTES[t.match_status]) : null,
       ...notes,
     ),
   );
-  return { el, play };
+  return { el, play, restart };
 }
 
-// Points Play at `target` ({ href, label }), or hides it when there's nothing to play.
-function aim(play, target, title) {
+// Points Play at `target` ({ href, label, fromStart }), or hides it when there's nothing to
+// play. From the start shows beside a Resume, going to `fromStart`.
+function aim({ play, restart }, target, title) {
+  restart.hidden = !target?.fromStart;
+  if (target?.fromStart) {
+    restart.href = target.fromStart;
+    restart.setAttribute("aria-label", `From the start: ${title}`);
+  }
   play.hidden = !target;
   if (!target) return;
   play.href = target.href;
@@ -166,9 +173,9 @@ export async function movie(id, gen, admin = false) {
     const target = !file
       ? null
       : partway(p)
-        ? { href: playHref(file.id, { movie: m.id }), label: `Resume · ${timeLeft(p)}` }
+        ? { href: playHref(file.id, { movie: m.id }), label: `Resume · ${timeLeft(p)}`, fromStart: playHref(file.id, { movie: m.id }, true) }
         : { href: playHref(file.id, { movie: m.id }, Boolean(p?.watched)), label: p?.watched ? "Play again" : runtime(m.runtime_minutes) ? `Play · ${runtime(m.runtime_minutes)}` : "Play" };
-    aim(head.play, target, m.title);
+    aim(head, target, m.title);
     const watched = Boolean(p?.watched);
     mark.textContent = watched ? "Mark unwatched" : "Mark watched";
     mark.onclick = () => markFiles(m.files, !watched, progress, mark).then(redraw);
@@ -189,8 +196,8 @@ export async function movie(id, gen, admin = false) {
   leaving.push(headerPreview(head.el, item, { extras, files: m.files.map((f) => f.id) }));
 }
 
-// Where Play starts for a series: the episode partway through, else the next one, else the
-// first on disk; with the season it's in.
+// Where Play starts for a series: the episode partway through (which From the start plays from
+// its beginning), else the next one, else the first on disk; with the season it's in.
 async function seriesTarget(s, continuing, nextUp) {
   const going = continuing.find((c) => c.series_id === s.id && c.season !== null);
   const next = nextUp.find((n) => n.series_id === s.id);
@@ -204,7 +211,8 @@ async function seriesTarget(s, continuing, nextUp) {
       }
     : { kind: "series", id: s.id };
   const target = await playTarget(item);
-  return { target, season: at?.season ?? null };
+  const fromStart = target && going && partway(item.progress) ? playHref(going.file_id, { series: s.id, season: going.season, episode: going.episode }, true) : null;
+  return { target: fromStart ? { ...target, fromStart } : target, season: at?.season ?? null };
 }
 
 // Whether the series is anime, for where its genres lead: the anime list finds it by name.
@@ -234,7 +242,7 @@ export async function series(id, params, gen, admin = false) {
     list.el,
     trailerButton("series", s, extras),
   ]);
-  aim(head.play, target, s.title);
+  aim(head, target, s.title);
   colour(s, head.play, gen);
   const asked = params.has("season") ? Number(params.get("season")) : null;
   const opening = s.seasons.some((x) => x.season === asked) ? asked : season ?? seasonOrder(s.seasons).find((x) => x.available)?.season;
