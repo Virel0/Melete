@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 145] = [
+const MODULES: [(&str, &str); 147] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -203,6 +203,14 @@ const MODULES: [(&str, &str); 145] = [
     ),
     ("music-now.js", include_str!("../web/music-now.js")),
     ("music-motion.js", include_str!("../web/music-motion.js")),
+    (
+        "music-together.js",
+        include_str!("../web/music-together.js"),
+    ),
+    (
+        "music-together-tab.js",
+        include_str!("../web/music-together-tab.js"),
+    ),
     ("wanted-music.js", include_str!("../web/wanted-music.js")),
     ("progress.js", include_str!("../web/progress.js")),
     ("requests.js", include_str!("../web/requests.js")),
@@ -1439,6 +1447,37 @@ mod tests {
                 r#"h("ruby", {}, p.text, h("rt", { "aria-hidden": "true" }, p.reading))"#
             )
         );
+    }
+
+    #[test]
+    fn listening_together_does_only_what_the_server_allows() {
+        let engine = module("music-together.js");
+        for call in [
+            r#"api("/music/sessions", { method: "POST", body: here() })"#,
+            r#"api("/music/sessions/join", { method: "POST", body: { code } })"#,
+            "api(`/music/sessions/${session.id}/leave`, { method: \"POST\" })",
+            "api(`/music/sessions/${session.id}`, { method: \"DELETE\" })",
+            // Each change names the version it was made against; a refused one follows theirs.
+            "body: { version: session.version, ...here() }",
+            "if (err.status === 409) return refresh();",
+            // Every device follows the event stream's `listening` event.
+            r#"source.addEventListener("listening", (message) => {"#,
+            // A device picks up the session it's still in after a reload.
+            r#"const mine = await api("/music/sessions");"#,
+        ] {
+            assert!(engine.contains(call), "{call}");
+        }
+        // Only whoever started it, or an admin, ends it for everyone, as the server allows.
+        assert!(engine.contains("session && me && (session.host === me.username || me.is_admin)"));
+        let tab = module("music-together-tab.js");
+        assert!(tab.contains("mayEnd() ? end : null"));
+        assert!(tab.contains(r#""End it""#) && tab.contains(r#""Keep it""#));
+        // Sessions need every music library; anyone else is told, not refused.
+        assert!(tab.contains("if (!seesAllMusic()) return body.replaceChildren("));
+        assert!(engine.contains("if (!seesAllMusic()) return changed();"));
+        let panel = module("music-panel.js");
+        assert!(panel.contains(r#"const order = ["queue", "lyrics", "together"];"#));
+        assert!(module("app.js").contains("startTogether(user);"));
     }
 
     #[test]

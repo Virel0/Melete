@@ -9,6 +9,7 @@
 //   next or Play last), then the rest. A row plays when chosen; Move up, Move down and Remove
 //   work within its part; "Clear the rest" empties everything after the playing track.
 // - Lyrics: music-lyrics.js.
+// - Together: listening together with others in the household, music-together-tab.js.
 // The tabs are a tablist: arrow keys move between them. Escape or Close closes the panel, and
 // focus goes back to what opened it. togglePanel(tab) opens it on a tab, or closes it when it's
 // already open there; its state is sent as `melete:panel` ({ open, tab }).
@@ -20,19 +21,23 @@ import { clip, emptyState } from "/web/page-parts.js";
 import { icon, iconButton, transport } from "/web/music-controls.js";
 import { lyricsTab } from "/web/music-lyrics.js";
 import { nowLook } from "/web/music-now.js";
+import { togetherTab } from "/web/music-together-tab.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
 
 const lyrics = lyricsTab(audio, seekTo);
 const queueBody = h("div", { class: "queue" });
+const together = togetherTab();
 const tabs = {
   queue: h("button", { type: "button", role: "tab", id: "panel-tab-queue", "aria-controls": "panel-queue" }, "Queue"),
   lyrics: h("button", { type: "button", role: "tab", id: "panel-tab-lyrics", "aria-controls": "panel-lyrics" }, "Lyrics"),
+  together: h("button", { type: "button", role: "tab", id: "panel-tab-together", "aria-controls": "panel-together" }, "Together"),
 };
 const bodies = {
   queue: h("div", { role: "tabpanel", id: "panel-queue", "aria-labelledby": "panel-tab-queue", tabindex: "0" }, queueBody),
   lyrics: h("div", { role: "tabpanel", id: "panel-lyrics", "aria-labelledby": "panel-tab-lyrics", tabindex: "0" }, lyrics.body),
+  together: h("div", { role: "tabpanel", id: "panel-together", "aria-labelledby": "panel-tab-together", tabindex: "0" }, together.body),
 };
 const cover = h("img", { alt: "" });
 const coverBox = h("div", { class: "cover" }, cover);
@@ -55,9 +60,10 @@ const panel = h(
     h("div", { class: "panel-now" }, coverBox, h("div", { class: "words" }, title, artist)),
     h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
   ),
-  h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue and lyrics" }, tabs.queue, tabs.lyrics),
+  h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue, lyrics and listening together" }, tabs.queue, tabs.lyrics, tabs.together),
   bodies.queue,
   bodies.lyrics,
+  bodies.together,
 );
 
 let tab = "queue";
@@ -149,7 +155,7 @@ document.addEventListener("keydown", (event) => {
 });
 // Arrow keys, Home and End move between the tabs.
 panel.querySelector('[role="tablist"]').addEventListener("keydown", (event) => {
-  const order = ["queue", "lyrics"];
+  const order = ["queue", "lyrics", "together"];
   const moves = { ArrowRight: 1, ArrowLeft: -1, Home: -9, End: 9 };
   if (!(event.key in moves)) return;
   event.preventDefault();
