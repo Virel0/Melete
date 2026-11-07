@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 165] = [
+const MODULES: [(&str, &str); 166] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -150,6 +150,10 @@ const MODULES: [(&str, &str); 165] = [
     ("music-flags.js", include_str!("../web/music-flags.js")),
     ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
+    (
+        "music-infinity.js",
+        include_str!("../web/music-infinity.js"),
+    ),
     ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-info.js", include_str!("../web/music-info.js")),
@@ -1658,6 +1662,63 @@ mod tests {
         assert!(
             module("music-handover.js")
                 .contains("if (sleepsAfter(queue.current(), entry.track)) return null;")
+        );
+    }
+
+    #[test]
+    fn infinity_tops_the_queue_up_only_when_on_and_short() {
+        let infinity = module("music-infinity.js");
+        // Off unless switched on, kept by this browser.
+        assert!(infinity.contains(r#"return localStorage.getItem(KEY) === "on";"#));
+        assert!(infinity.contains("} catch {\n    return false;\n  }"));
+        // Asked when fewer than three are left, one question at a time, once per song and
+        // queue length; never while repeating, in a session, or for someone it's closed to.
+        assert!(infinity.contains("export const MINIMUM_AHEAD = 3;"));
+        assert!(infinity.contains(
+            "if (!on || asking || closed || !seesAllMusic() || together().session) return null;"
+        ));
+        assert!(infinity.contains(r#"if (queue.repeating() !== "off") return null;"#));
+        assert!(infinity.contains(
+            "if (askedFor?.key === seed.key && askedFor.length === all.length) return null;"
+        ));
+        assert!(infinity.contains("if (err.status === 403) closed = true;"));
+        // Seeded by what's playing and what this tab played lately; nothing queued twice, and
+        // an answer for a queue since replaced is dropped.
+        assert!(infinity.contains(
+            r#"body: { seed: String(seed.track.id), queue: after, recent: recentlyPlayed(), mode: "infinity", limit: BATCH },"#
+        ));
+        assert!(infinity.contains("next.candidates.filter((c) => !known.has(String(c.id)))"));
+        assert!(
+            infinity
+                .contains("if (!on || !queue.all().includes(seed) || together().session) return;")
+        );
+        // Its songs go at the end, marked with why, and kept so across a reload.
+        assert!(infinity.contains(
+            "queue.extend(looseQueue(tracks), tracks.map((t) => why.get(String(t.id))));"
+        ));
+        let queue = module("music-queue.js");
+        assert!(queue.contains("entries.push(...tracks.map((t, i) => entry(t, false, last + 1 + i, reasons[i] ?? \"\")));"));
+        assert!(module("music-saved.js").contains("({ track, added, order, infinity })"));
+        assert!(module("music-panel.js").contains(r#"why ? ", added by Infinity" : """#));
+        // A queue that had run out plays on into them; the listens stay as they were.
+        let player = module("music-player.js");
+        assert!(player.contains("if (ranOut && at >= 0 && at !== queue.position()) load(at);"));
+        assert_eq!(player.matches(r#"api("/music/plays""#).count(), 2);
+        // The switch is in the bar and the panel.
+        assert!(module("music-bar.js").contains("infinitySwitch(), lyricsButton,"));
+        assert!(module("music-panel.js").contains("transport(), infinitySwitch(),"));
+    }
+
+    #[test]
+    fn radio_starts_from_a_genre_and_a_playlist() {
+        assert!(module("music-browse.js").contains("radioButton(() => genreSeed(name), name),"));
+        assert!(
+            module("music-radio.js")
+                .contains("new URLSearchParams({ genre: name, limit: \"100\" })")
+        );
+        assert!(
+            module("music-playlist.js")
+                .contains("here.length ? radioButton(async () => queue[0], p.name) : null,")
         );
     }
 

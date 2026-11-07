@@ -1,6 +1,7 @@
 // Radio: songs like the one it starts from, chosen from the whole library by what this
-// listener plays (`POST /aoide/next`), played after it. Started from an album, an artist or a
-// song (radioButton), or from the Radio page (what's playing, or an album played lately).
+// listener plays (`POST /aoide/next`), played after it. Started from an album, an artist, a
+// genre, a playlist or a song (radioButton), or from the Radio page (what's playing, or an album
+// played lately). Infinity (music-infinity.js) asks the same route, seeded the same way.
 //
 // Radio reads the listener's sync log, which is closed to someone who may see only some music
 // libraries: that refusal (403) is said in a sentence where the button is.
@@ -18,7 +19,7 @@ const RECENT = 40;
 export const RADIO_CLOSED = "Radio isn't open to you, as you can see only some music libraries. An admin can change what you see.";
 
 // What this tab played lately, newest first, so radio doesn't play it again at once.
-function recentlyPlayed() {
+export function recentlyPlayed() {
   const all = queue.all();
   return all
     .filter((_, i) => queue.partOf(i) === "played")
@@ -95,6 +96,13 @@ export async function albumSeed(id) {
 // One of an artist's tracks, chosen at random, as a seed.
 export async function artistSeed(id) {
   const page = await api(`/music/tracks?${new URLSearchParams({ artist_id: String(id), limit: "100" })}`);
+  const tracks = looseQueue(page.items);
+  return tracks[Math.floor(Math.random() * tracks.length)] ?? null;
+}
+
+// One of a genre's songs, chosen at random, as a seed.
+export async function genreSeed(name) {
+  const page = await api(`/music/tracks?${new URLSearchParams({ genre: name, limit: "100" })}`);
   const tracks = looseQueue(page.items);
   return tracks[Math.floor(Math.random() * tracks.length)] ?? null;
 }

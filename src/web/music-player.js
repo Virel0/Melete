@@ -10,11 +10,12 @@
 //
 // For pages: playQueue(tracks, start) plays a list from a track; restoreQueue(kept) puts back a
 // kept queue (music-saved.js, music-pickup.js), ready where it was; playNext(tracks) and
-// playLast(tracks) add to Next up; nowPlaying() is the track playing (pages mark it, and follow
-// the `melete:now-playing` event). A track is { id, title, artist, album, album_id, cover, codec,
-// duration_seconds, disc_number, track_number }. The bar (music-bar.js) and the panel
-// (music-panel.js) show it; they follow `melete:track` ({ track, loading }) and `melete:status`
-// (a line of words, or ""). `audio` is what plays (music-decks.js), for its time and events.
+// playLast(tracks) add to Next up; goOn() plays on after songs were added to a queue that had
+// run out (Infinity, music-infinity.js); nowPlaying() is the track playing (pages mark it, and
+// follow the `melete:now-playing` event). A track is { id, title, artist, album, album_id,
+// cover, codec, duration_seconds, disc_number, track_number }. The bar (music-bar.js) and the
+// panel (music-panel.js) show it; they follow `melete:track` ({ track, loading }) and
+// `melete:status` (a line of words, or ""). `audio` is what plays (music-decks.js), for its time and events.
 
 import { SignedOut, announce, api } from "/web/lib.js";
 import { active, audio, empty, refreshed, spare, swap } from "/web/music-decks.js";
@@ -54,6 +55,8 @@ let listen = null;
 // The entry playing when Private listening went off: half heard in private, it isn't counted.
 let heldBack = null;
 let wasPrivate = privately();
+// The last song ended with nothing after it: songs added now are played (goOn).
+let ranOut = false;
 
 function endListen({ completed = false, skipped = false } = {}) {
   if (!listen) return;
@@ -112,6 +115,13 @@ export function playLast(tracks) {
   if (idle) load(queue.position());
 }
 
+// The queue had run out at its end, and songs were added after it since: the first of them
+// plays. Otherwise nothing: what plays goes on to them in its own time.
+export function goOn() {
+  const at = queue.nextIndex();
+  if (ranOut && at >= 0 && at !== queue.position()) load(at);
+}
+
 export function pause() {
   audio.pause();
 }
@@ -124,6 +134,7 @@ export function stopPlayer() {
   empty(spare());
   queue.clear();
   links.clear();
+  ranOut = false;
   if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
   playing(null);
 }
@@ -163,6 +174,7 @@ function prefetch() {
 async function load(at, { convert = false, paused = false, from = null } = {}) {
   const entry = queue.all()[at];
   if (!entry) return;
+  ranOut = false;
   // Moving on to another entry before this one ended is a skip.
   if (listen && (listen.track_id !== entry.track.id || at !== queue.position())) endListen({ skipped: true });
   cancelHandOver();
@@ -278,6 +290,8 @@ document.addEventListener("melete:extras", () => {
   else heldBack = queue.all()[queue.position()] ?? null;
 });
 audio.addEventListener("play", () => {
+  // Played again after the end: the queue is going once more.
+  ranOut = false;
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 });
 audio.addEventListener("pause", () => {
@@ -303,6 +317,7 @@ function songEnded() {
   }
   const at = queue.nextIndex();
   if (at >= 0) return load(at);
+  ranOut = true;
   say("End of the queue");
 }
 audio.addEventListener("ended", songEnded);

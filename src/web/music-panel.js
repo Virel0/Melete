@@ -6,8 +6,10 @@
 // all in the album's cover colours (music-now.js). Escape leaves full screen; Close closes.
 //
 // - Queue: Played (the last few, the rest on request), Now playing, Next up (added with Play
-//   next or Play last), then the rest. A row plays when chosen; Move up, Move down and Remove
-//   work within its part; "Clear the rest" empties everything after the playing track.
+//   next or Play last), then the rest, a song Infinity added saying so and why (Infinity's
+//   switch sits with the controls, music-infinity.js). A row plays when chosen; Move up, Move
+//   down and Remove work within its part; "Clear the rest" empties everything after the playing
+//   track.
 // - Lyrics: music-lyrics.js.
 // - Together: listening together with others in the household, music-together-tab.js.
 // The tabs are a tablist: arrow keys move between them. Escape or Close closes the panel, and
@@ -24,6 +26,7 @@ import { nowLook } from "/web/music-now.js";
 import { togetherTab } from "/web/music-together-tab.js";
 import { visualizer } from "/web/music-visualizer.js";
 import { extrasMenu } from "/web/music-extras-menu.js";
+import { infinityReason, infinitySwitch } from "/web/music-infinity.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
@@ -60,7 +63,7 @@ const panel = h(
     "div",
     { class: "panel-side" },
     h("div", { class: "panel-now" }, coverBox, h("div", { class: "words" }, title, artist), visualizer()),
-    h("div", { class: "panel-controls" }, transport(), extrasMenu({ below: true }), iconButton("stop", "Stop and close the player", stopPlayer)),
+    h("div", { class: "panel-controls" }, transport(), infinitySwitch(), extrasMenu({ below: true }), iconButton("stop", "Stop and close the player", stopPlayer)),
   ),
   h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue, lyrics and listening together" }, tabs.queue, tabs.lyrics, tabs.together),
   bodies.queue,
@@ -184,7 +187,8 @@ const PARTS = [
 
 function row(entry, at, part) {
   const t = entry.track;
-  const words = `${t.title}${t.artist ? ` by ${t.artist}` : ""}`;
+  const why = infinityReason(entry);
+  const words = `${t.title}${t.artist ? ` by ${t.artist}` : ""}${why ? ", added by Infinity" : ""}`;
   const can = (by) => at + by >= 0 && at + by < queue.all().length && queue.partOf(at + by) === part;
   return h(
     "li",
@@ -195,6 +199,7 @@ function row(entry, at, part) {
       { type: "button", class: "queue-play", "aria-label": part === "now" ? `${words}, playing` : `Play ${words}`, onclick: () => jumpTo(at) },
       clip(t.title),
       clip(t.artist ?? "", "small"),
+      why ? clip(why, "small") : null,
     ),
     h("span", { class: "length" }, t.duration_seconds ? clock(t.duration_seconds) : ""),
     part === "now"

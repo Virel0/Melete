@@ -1,9 +1,9 @@
-// The music bar at the foot of every page while something is queued; the page leaves room for
-// it (`with-player` on the body, and --player-height for what sits above it). Now playing on the
-// left (cover, title linked to its album, artist, what the player is doing, and a Private sign
-// while listening privately), the controls in the middle (music-controls.js), and Lyrics, Queue,
-// volume, More (music-extras-menu.js) and Stop on the right. On a
-// phone it shrinks to the cover, the title and play; the cover then opens the panel, which
+// The music bar at the foot of every page while something is queued; the page leaves room for it
+// (`with-player` on the body, and --player-height for what sits above it). Now playing on the left
+// (cover, title linked to its album, artist, what the player is doing, and a Private sign while
+// listening privately), the controls in the middle (music-controls.js), and Infinity
+// (music-infinity.js), Lyrics, Queue, volume, More (music-extras-menu.js) and Stop on the right.
+// On a phone it shrinks to the cover, the title and play; the cover then opens the panel, which
 // carries the rest of the controls there.
 //
 // startBar() puts it on the page once signed in; it shows and hides itself as tracks start and
@@ -13,6 +13,7 @@ import { h } from "/web/lib.js";
 import { audio, stopPlayer, toggle } from "/web/music-player.js";
 import { icon, iconButton, transport } from "/web/music-controls.js";
 import { extrasMenu, privateBadge } from "/web/music-extras-menu.js";
+import { infinitySwitch } from "/web/music-infinity.js";
 import { openPanel, togglePanel } from "/web/music-panel.js";
 
 const cover = h("img", { alt: "" });
@@ -37,7 +38,7 @@ const bar = h(
   { class: "music-bar", "aria-label": "Music player", hidden: true },
   h("div", { class: "now" }, coverButton, h("div", { class: "words" }, titleLink, artistLine, status, privateBadge()), phonePlay),
   transport(),
-  h("div", { class: "extras" }, lyricsButton, queueButton, h("div", { class: "volume" }, mute, volume), extrasMenu(), stop),
+  h("div", { class: "extras" }, infinitySwitch(), lyricsButton, queueButton, h("div", { class: "volume" }, mute, volume), extrasMenu(), stop),
 );
 
 export function startBar() {
