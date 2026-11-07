@@ -13,6 +13,7 @@ import { musicPage } from "/web/music.js";
 import "/web/tab-title.js";
 import "/web/music-keys.js";
 import { setMusicAccess } from "/web/music-access.js";
+import { startTogether } from "/web/music-together.js";
 import { codeStep } from "/web/two-factor.js";
 import { codeSignIn } from "/web/sign-in-code.js";
 import { installPalette, paletteKeys } from "/web/palette.js";
@@ -197,6 +198,7 @@ function startSession(user) {
   openPalette = installPalette(user, document.getElementById("palette-open"));
   startPlayer({ onSignedOut: () => signIn("Your session ended. Sign in again.") });
   startBar();
+  startTogether(user);
   render();
 }
 
