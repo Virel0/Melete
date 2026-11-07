@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 127] = [
+const MODULES: [(&str, &str); 128] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -79,6 +79,7 @@ const MODULES: [(&str, &str); 127] = [
         include_str!("../web/player-controls.js"),
     ),
     ("player-menus.js", include_str!("../web/player-menus.js")),
+    ("player-jump.js", include_str!("../web/player-jump.js")),
     ("player-ass.js", include_str!("../web/player-ass.js")),
     (
         "player-previews.js",
@@ -824,6 +825,31 @@ mod tests {
             choice.contains("overLimit(info, info.max_bitrate) || held) return request(\"h264\")")
         );
         assert!(choice.contains("Math.max(quality - AUDIO_ALLOWANCE, 100_000)"));
+    }
+
+    #[test]
+    fn each_jump_shows_how_far_it_went_and_adds_up() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        // The buttons and the keys jump the same way, so both show it.
+        let controls = module("player-controls.js");
+        assert!(
+            controls.contains("() => jump(video, -STEP)")
+                && controls.contains("() => jump(video, STEP)")
+        );
+        assert!(
+            controls.contains("const flash = jumpFlash(video);")
+                && controls.contains("flash.stop();")
+        );
+        assert!(module("player-keys.js").contains("const by = (seconds) => jump(video, seconds);"));
+        let flash = module("player-jump.js");
+        // A run adds up, said once to screen readers when it settles; the picture's flash is
+        // hidden from them. Reduced motion keeps the flash and drops its animation.
+        assert!(flash.contains("total += seconds;"));
+        assert!(flash.contains(
+            "announce(`${total > 0 ? \"Forward\" : \"Back\"} ${Math.abs(total)} seconds`)"
+        ));
+        assert!(flash.contains("\"aria-hidden\": \"true\""));
+        assert!(flash.contains("if (!stillness.matches) el.animate("));
     }
 
     #[test]
