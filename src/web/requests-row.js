@@ -1,12 +1,14 @@
 // A request as it's listed: its poster or cover, what it is, who decided and when, where it's got
-// to season by season and where it's coming from, taking it back, and changing the season a
-// waiting one asks for.
+// to season by season and where it's coming from, taking it back, changing the season a waiting
+// one asks for, and putting a song asked for in a playlist, where it waits until it arrives.
 
 import { confirmInline, when } from "/web/forms.js";
 import { SignedOut, api, h, metaRow, plural, seasonName } from "/web/lib.js";
 import { stepBar } from "/web/progress.js";
 import { art } from "/web/cards.js";
 import { ago } from "/web/manage-parts.js";
+import { seesAllMusic } from "/web/music-access.js";
+import { playlistPicker } from "/web/music-playlist-pick.js";
 
 export const KINDS = { movie: "Movie", series: "Series", artist: "Artist", album: "Album", song: "Song" };
 const STATES = { requested: "Waiting for an admin", approved: "Approved", declined: "Declined" };
@@ -164,6 +166,17 @@ export function requestRow(ctx, r, { decide: deciding, ...mineOpts } = {}) {
     );
     actions.append(back);
   }
+  const pick = h("div", { class: "request-pick" });
+  // A song asked for can wait in a playlist of the asker's until it's in the library.
+  if (r.kind === "song" && r.state !== "declined" && !deciding && seesAllMusic()) {
+    const toggle = h("button", { type: "button", class: "quiet", "aria-expanded": "false" }, "Add to playlist");
+    toggle.addEventListener("click", () => {
+      const opening = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(opening));
+      pick.replaceChildren(opening ? playlistPicker([], r.title, { waiting: r.id }) : "");
+    });
+    actions.prepend(toggle);
+  }
   const state = h("span", { class: `badge${r.state === "declined" ? " state-failed" : ""}` }, STATES[r.state] ?? r.state);
   // A series goes season by season; one step for all of it would say "in your library" once
   // any episode is.
@@ -194,6 +207,7 @@ export function requestRow(ctx, r, { decide: deciding, ...mineOpts } = {}) {
       ),
       r.state === "declined" && r.reason ? h("p", { class: "note" }, `Why: ${r.reason}`) : null,
       progress,
+      pick,
     ),
     actions,
   );

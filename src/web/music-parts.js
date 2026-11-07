@@ -1,10 +1,12 @@
-// Pieces the music pages share: covers and album cards, a track's row (on an album, or a song
-// from anywhere) and the mark on the one playing, and the Pin button.
+// Pieces the music pages share: covers and album cards (each with its heart and its More menu,
+// music-album-menu.js), a track's row (on an album, or a song from anywhere) and the mark on the
+// one playing, and the Pin button.
 
 import { nowPlaying } from "/web/music-player.js";
 import { SignedOut, api, clock, h, plural } from "/web/lib.js";
 import { hold, release } from "/web/page-parts.js";
 import { cardLike } from "/web/music-album-likes.js";
+import { albumMenu } from "/web/music-album-menu.js";
 
 // ---------- Pieces ----------
 
@@ -26,6 +28,7 @@ export function albumCard(album, { showArtist = true } = {}) {
       album.year ? h("div", { class: "meta" }, String(album.year)) : null,
     ),
     cardLike(album),
+    albumMenu(album),
   );
 }
 

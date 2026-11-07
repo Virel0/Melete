@@ -83,6 +83,7 @@ pub fn routes(state: AppState, quick: Arc<QuickConnect>) -> Router {
     let quick = Router::new()
         .route("/api/v1/auth/quick-connect", post(quick_start))
         .route("/api/v1/auth/quick-connect/poll", post(quick_poll))
+        .route("/api/v1/auth/quick-connect/web-poll", post(quick_web_poll))
         .merge(
             Router::new()
                 .route("/api/v1/auth/quick-connect/lookup", post(quick_lookup))
