@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 140] = [
+const MODULES: [(&str, &str); 141] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -143,6 +143,10 @@ const MODULES: [(&str, &str); 140] = [
     ("music.js", include_str!("../web/music.js")),
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
+    (
+        "music-collections.js",
+        include_str!("../web/music-collections.js"),
+    ),
     ("music-flags.js", include_str!("../web/music-flags.js")),
     ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
@@ -1430,6 +1434,38 @@ mod tests {
         assert!(songs.contains("onclick: start(shuffleLibrary)"));
         assert!(songs.contains("intro: [songActions(), askSection(ctx, params)],"));
         assert!(songs.contains(r#"params.delete("shown");"#));
+    }
+
+    #[test]
+    fn songs_narrow_to_genres_years_and_likes_and_save_as_collections() {
+        let collections = module("music-collections.js");
+        assert!(
+            collections
+                .contains(r#"export const KEYS = ["genres", "year_from", "year_to", "liked"];"#)
+        );
+        assert!(collections.contains(r#"api("/music/collections", { method: "POST", body: { name: name.value.trim(), ...v } })"#));
+        assert!(collections.contains("api(`/music/collections/${c.id}`, { method: \"DELETE\" })"));
+        assert!(
+            collections.contains(r#"h("label", { for: "collection-liked" }, "Only songs I like")"#)
+        );
+        // The Songs page carries the panel; the list sends its keys and keeps them in the address.
+        assert!(module("music-browse.js").contains(
+            "panel: { keys: KEYS, make: (p, change) => collectionFilter(genres, p, change) },"
+        ));
+        let list = module("music-list.js");
+        assert!(
+            list.contains("for (const key of keys) if (chosen[key]) query.set(key, chosen[key]);")
+        );
+        assert!(list.contains(
+            "for (const key of v.keys) if (v.chosen[key]) next.set(key, v.chosen[key]);"
+        ));
+        // The sidebar lists them, each opening the Songs page so narrowed.
+        let sidebar = module("music-sidebar.js");
+        assert!(sidebar.contains(r#"api("/music/collections").catch(() => ({ items: [] })),"#));
+        assert!(
+            sidebar.contains(r#"saved.length ? { name: "Collections", items: saved } : null,"#)
+        );
+        assert!(collections.contains("return `#/music/songs?${params}`;"));
     }
 
     #[test]

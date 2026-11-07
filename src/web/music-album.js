@@ -11,11 +11,8 @@ import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
-<<<<<<< HEAD
 import { codecName } from "/web/music-info.js";
-=======
 import { queueButtons } from "/web/music-album-menu.js";
->>>>>>> origin/virel/album-menu
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 
 // Play, Shuffle and Start radio for an artist: their songs (their albums', and the ones
