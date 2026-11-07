@@ -32,11 +32,13 @@ use crate::coverart;
 mod albums;
 mod artists;
 mod covers;
+mod shuffle;
 mod tracks;
 
 pub(super) use albums::*;
 pub(super) use artists::*;
 use covers::*;
+use shuffle::*;
 pub(super) use tracks::*;
 
 const DEFAULT_LIMIT: i64 = 100;
@@ -112,6 +114,38 @@ pub(super) fn ids(list: Option<&str>, name: &str) -> Result<Option<String>, ApiE
             "{name} is up to {MAX_IDS} ids separated by commas"
         ))),
     }
+}
+
+/// "Jazz;Soul" as a JSON array for `json_each`, or `None` when not given. Genres never hold a
+/// semicolon: tags are split on it.
+pub(super) fn genre_list(list: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(list) = list.filter(|l| !l.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let genres: Vec<&str> = list
+        .split(';')
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .collect();
+    if genres.len() > MAX_IDS {
+        return Err(bad_request(
+            "genres is up to 100 genres separated by semicolons",
+        ));
+    }
+    Ok(Some(json!(genres).to_string()))
+}
+
+/// A span of years, either end open; refused when it ends before it starts.
+pub(super) fn years(
+    from: Option<i64>,
+    to: Option<i64>,
+) -> Result<(Option<i64>, Option<i64>), ApiError> {
+    if let (Some(from), Some(to)) = (from, to)
+        && from > to
+    {
+        return Err(bad_request("year_from is at most year_to"));
+    }
+    Ok((from, to))
 }
 
 pub(super) fn pattern(q: Option<&str>) -> Option<String> {

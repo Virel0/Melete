@@ -14,6 +14,7 @@
 import { SignedOut, announce, api, append, failure, h, number, plural } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { titleCard } from "/web/cards.js";
+import { spotlit } from "/web/grid-spotlight.js";
 import { keepPlace } from "/web/watch-live.js";
 import { badgeOf } from "/web/watch-tiles.js";
 
@@ -85,7 +86,7 @@ export function everything(page, params, gen, { genres, libraries, ai, watching 
     ),
     ai.enabled ? describeIt(v.kind, v.noun, v.watching) : null,
     v.count,
-    v.grid,
+    spotlit(v.grid),
     v.more,
   );
   // Without a `follow`, the section keeps its in-place reload as `refresh`.
