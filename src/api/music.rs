@@ -32,11 +32,13 @@ use crate::coverart;
 mod albums;
 mod artists;
 mod covers;
+mod shuffle;
 mod tracks;
 
 pub(super) use albums::*;
 pub(super) use artists::*;
 use covers::*;
+use shuffle::*;
 pub(super) use tracks::*;
 
 const DEFAULT_LIMIT: i64 = 100;

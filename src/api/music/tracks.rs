@@ -197,8 +197,10 @@ pub(super) struct TrackQuery {
     /// Comma-separated artist ids: their albums' tracks, and the tracks crediting them.
     pub(super) artist_id: Option<String>,
     pub(super) genre: Option<String>,
-    /// `album` (default: by artist, album, disc and number), `title` or `recent`.
+    /// `album` (default: by artist, album, disc and number), `title`, `recent` or `random`.
     pub(super) sort: Option<String>,
+    /// For `random`: the shuffle to page through, as the first page answered.
+    pub(super) seed: Option<u32>,
     pub(super) limit: Option<i64>,
     pub(super) offset: Option<i64>,
 }
@@ -229,7 +231,8 @@ pub(super) async fn list_tracks(
         "album" => TRACK_ORDER,
         "title" => "coalesce(t.sort_key, t.title) COLLATE NOCASE, t.id",
         "recent" => "t.first_seen_generation DESC, t.id DESC",
-        _ => return Err(bad_request("sort is album, title or recent")),
+        "random" => "",
+        _ => return Err(bad_request("sort is album, title, recent or random")),
     };
     let from = format!(
         "FROM music_tracks t JOIN music_albums a ON a.id = t.album_id
@@ -246,6 +249,31 @@ pub(super) async fn list_tracks(
     );
     let q = pattern(query.q.as_deref());
     let folded = crate::search_keys::pattern(query.q.as_deref());
+    if order.is_empty() {
+        // Random: every track that fits but those the listener isn't interested in, shuffled.
+        let flagged = crate::aoide::listening::not_interested(&state.pool, current.user.id).await?;
+        let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT t.id {from}")))
+            .bind(&q)
+            .bind(&albums)
+            .bind(&artists)
+            .bind(&query.genre)
+            .bind(&folded)
+            .bind(&tracks)
+            .fetch_all(&state.pool)
+            .await?;
+        let ids = ids
+            .into_iter()
+            .filter(|id| !flagged.contains(&id.to_string()))
+            .collect();
+        let seed = seed_or_new(query.seed);
+        let (total, page) = shuffled_page(ids, seed, limit, offset);
+        let found = track_values(&state.pool, current.user.id, &page).await?;
+        return Ok(Json(json!({
+            "total": total,
+            "seed": seed,
+            "items": page.iter().filter_map(|id| found.get(id)).collect::<Vec<_>>(),
+        })));
+    }
     let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) {from}")))
         .bind(&q)
         .bind(&albums)

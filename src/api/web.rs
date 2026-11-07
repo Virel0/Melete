@@ -618,7 +618,7 @@ mod tests {
         assert!(
             ask.contains(r#"api("/ai/music/search", { method: "POST", body: { query: phrase } })"#)
         );
-        assert!(module("music-browse.js").contains("intro: askSection(ctx, params),"));
+        assert!(module("music-browse.js").contains("intro: [songActions(), askSection(ctx, params)],"));
         let palette = module("palette.js");
         assert!(palette.contains("if (pal.ai && typed.length >= 3) all.push("));
         assert!(palette.contains("musicAi().then((on) => (pal.ai = on));"));
@@ -1412,6 +1412,24 @@ mod tests {
         assert!(music.contains("location.replace(`#/music/albums?${params}`)"));
         assert!(module("sides.js").contains(r##"name: "Home", href: "#/music","##));
         assert!(module("sides.js").contains(r##"name: "Albums", href: "#/music/albums","##));
+    }
+
+    #[test]
+    fn the_library_shuffles_from_home_and_the_songs_page() {
+        // The server shuffles (leaving out Not interested songs); the page plays what it answers.
+        let play = module("music-play.js");
+        assert!(play.contains(
+            r#"new URLSearchParams({ ...filters, sort: "random", limit: String(SHUFFLE_SONGS) })"#
+        ));
+        assert!(play.contains("export const SHUFFLE_SONGS = 500;"));
+        let home = module("music-home.js");
+        assert!(home.contains(r#""Shuffle my library")"#));
+        assert!(home.contains(r#"show("Listen", title, shuffleAll(), root);"#));
+        // The Songs page plays or shuffles the songs its list shows, with its search and filters.
+        let songs = module("music-browse.js");
+        assert!(songs.contains("onclick: start(shuffleLibrary)"));
+        assert!(songs.contains("intro: [songActions(), askSection(ctx, params)],"));
+        assert!(songs.contains(r#"params.delete("shown");"#));
     }
 
     #[test]

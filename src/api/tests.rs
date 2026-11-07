@@ -1911,6 +1911,12 @@ mod openapi {
         let tracks = get("/api/v1/music/tracks").await;
         assert_shape(&spec, "MusicTrackPage", &tracks);
         assert_shape(&spec, "MusicTrack", &tracks["items"][0]);
+        let shuffled = get("/api/v1/music/tracks?sort=random").await;
+        assert_shape(&spec, "MusicTrackShufflePage", &shuffled);
+        assert_shape(&spec, "MusicTrack", &shuffled["items"][0]);
+        let shuffled = get("/api/v1/music/albums?sort=random").await;
+        assert_shape(&spec, "MusicAlbumShufflePage", &shuffled);
+        assert_shape(&spec, "MusicAlbum", &shuffled["items"][0]);
         assert_shape(&spec, "MusicGenre", &get("/api/v1/music/genres").await[0]);
     }
 
