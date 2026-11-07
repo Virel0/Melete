@@ -383,3 +383,47 @@ button.control svg { width: 1.5rem; height: 1.5rem; }
 
 /* The button sits among the title's actions as they are. */
 .trailer-box { display: contents; }
+
+/* ---------- A grid's spotlight ---------- */
+
+/* Beside All shows, All anime, All movies and My List on wide screens: a panel on the stage that
+   stays in view as the grid scrolls (grid-spotlight.js). Narrower, there's no room, so none. */
+.grid-spotlight { display: none; }
+@media (min-width: 75rem) {
+  .spotlit { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-5); align-items: start; }
+  .grid-spotlight {
+    --text: var(--stage-text);
+    --muted: var(--stage-muted);
+    color-scheme: dark;
+    display: block;
+    position: sticky;
+    top: 5rem;
+    overflow: hidden;
+    border-radius: var(--radius-m);
+    /* The page's line, so the panel keeps its edge on the dark theme's ground too. */
+    border: 1px solid var(--line);
+    background: var(--stage);
+    color: var(--text);
+  }
+}
+.spotlight-art { position: relative; aspect-ratio: 16 / 9; background: var(--stage-raised); }
+.grid-spotlight.no-art .spotlight-art { display: none; }
+.spotlight-picture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.spotlight-picture.shown { opacity: 1; }
+/* The words keep their contrast where the art meets them. */
+.spotlight-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--stage) 0%, transparent 45%); /* check-ui: ignore a scrim for the words under art, not decoration */
+}
+.spotlight-body { display: grid; gap: var(--space-2); padding: var(--space-4); }
+.spotlight-title { margin: 0; font-size: var(--step-2); line-height: 1.15; overflow-wrap: anywhere; }
+.spotlight-title:empty { display: none; }
+.spotlight-logo { max-width: 100%; max-height: 4.5rem; object-fit: contain; object-position: left bottom; }
+.spotlight-facts { margin: 0; color: var(--muted); font-size: var(--step--1); }
+.spotlight-logline { margin: 0; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.spotlight-hint { margin: 0; color: var(--muted); font-size: var(--step--1); }
+@media (prefers-reduced-motion: no-preference) {
+  .spotlight-picture { transition: opacity 0.3s ease; }
+}
