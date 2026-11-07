@@ -4,13 +4,16 @@
 // plain text. Translate (into the browser's language) and Pronunciation are offered when the
 // server has them set up: they're asked for only when pressed, since a translation sends the
 // song's lines to the translator the household set up, and a server without one says so and
-// the button goes. States: nothing playing, loading, no lyrics, failed with Try again.
+// the button goes. Synced lyrics can be nudged earlier or later (music-lyrics-timing.js): each
+// line then lights, and seeks, by its start plus that offset. States: nothing playing, loading,
+// no lyrics, failed with Try again.
 //
 // lyricsTab(audio, seek) makes the tab's body; show(track) draws it for a track (null when
 // nothing plays), and follow() lights the line for the audio's time.
 
 import { SignedOut, api, h } from "/web/lib.js";
 import { emptyState, failed, placeholders } from "/web/page-parts.js";
+import { lyricsTiming } from "/web/music-lyrics-timing.js";
 
 const SOURCES = { file: "a lyrics file beside the song", tags: "the song's own tags", lrclib: "LRCLIB" };
 
@@ -72,17 +75,21 @@ export function lyricsTab(audio, seek) {
   const pronounce = h("button", { type: "button", class: "quiet small", "aria-pressed": "false" }, "Pronunciation");
   const tools = h("div", { class: "lyrics-tools" }, translate, pronounce);
   const foot = h("p", { class: "note lyrics-source" });
-  const body = h("div", { class: "lyrics-body" }, tools, said, box, foot);
   let track = null;
   let lines = [];
   let asked = 0;
   let lit = -1;
+  // A changed offset lights the line for it at once.
+  const timing = lyricsTiming(() => ((lit = -2), follow()));
+  const body = h("div", { class: "lyrics-body" }, tools, timing.box, said, box, foot);
+  const seekLine = (start) => seek(Math.max(0, start + timing.seconds()));
 
   const draw = (answer) => {
     lit = -1;
     lines = answer.synced ? answer.lines : [];
     box.classList.toggle("synced", answer.synced);
-    box.replaceChildren(...answer.lines.map((line, i) => lyricLine(line, i, answer.synced, seek)));
+    timing.box.hidden = !answer.synced;
+    box.replaceChildren(...answer.lines.map((line, i) => lyricLine(line, i, answer.synced, seekLine)));
     foot.textContent = `Lyrics from ${SOURCES[answer.source] ?? answer.source}.`;
     follow();
   };
@@ -90,6 +97,7 @@ export function lyricsTab(audio, seek) {
   const load = async () => {
     const mine = ++asked;
     tools.hidden = !track;
+    timing.box.hidden = true;
     foot.textContent = "";
     if (!track) return box.replaceChildren(emptyState("Nothing is playing."));
     box.replaceChildren(placeholders("the lyrics", { kind: "lines", count: 6 }));
@@ -131,7 +139,7 @@ export function lyricsTab(audio, seek) {
 
   // Lights the line being sung, and keeps it in view while the tab shows.
   const follow = () => {
-    const at = lineAt(lines, audio.currentTime);
+    const at = lineAt(lines, audio.currentTime - timing.seconds());
     if (at === lit) return;
     lit = at;
     light(box, at, body.isConnected && !body.closest("[hidden]"));
