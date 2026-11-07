@@ -4,18 +4,26 @@
 // 20 seconds from the end when the episode has no credits marked), which starts the next one
 // when it reaches nothing, with Play now and Cancel. Cancelling keeps it away for this episode.
 // The user's playback preferences set the countdown's length, or turn it off: the card then
-// offers the next episode without starting it.
+// offers the next episode without starting it. With automatic skipping on, the recap, intro and
+// preview are passed over by themselves, once a play; the credits never are.
 
 import { announce, api, episodeLabel, h } from "/web/lib.js";
 import { episodeCode } from "/web/watch-play.js";
 
 // What the server's playback preferences say when they can't be read.
-const DEFAULT_PLAYBACK = { autoplay_next: true, countdown_seconds: 10 };
+const DEFAULT_PLAYBACK = { autoplay_next: true, countdown_seconds: 10, auto_skip: false };
 // Without credits marked, the card comes this long before the end.
 const NO_CREDITS_SECONDS = 20;
 
 // `where`: { seriesId, seasonNumber, episodeNumber, season, episode, title } for the episode
 // playing; season and title are what the server said about them, null for a movie.
+
+// The user's playback preferences, asked once for each video: Skip and Up next both follow them.
+const asked = new WeakMap();
+function preferences(video) {
+  if (!asked.has(video)) asked.set(video, api("/me/playback").catch(() => DEFAULT_PLAYBACK));
+  return asked.get(video);
+}
 
 // The episode with a file just after (or before) this one, crossing into the next (or
 // previous) season with one.
@@ -38,15 +46,20 @@ async function neighbour(where, later) {
 
 // A Skip button for the recap, the intro, the credits and the preview, each shown while its
 // part plays (over the picture, so in full screen too); null when the episode has none of them.
+// With automatic skipping on, the recap, intro and preview are passed over as they start, each
+// once a play: going back into one plays it, with its button.
 export function skipButtons(video, segments) {
   const skip = h("div", { class: "skip-parts" });
   const skippable = [
-    ["Skip recap", segments?.recap],
-    ["Skip intro", segments?.intro],
-    ["Skip credits", segments?.credits],
-    ["Skip preview", segments?.preview],
+    ["Skip recap", segments?.recap, "recap"],
+    ["Skip intro", segments?.intro, "intro"],
+    ["Skip credits", segments?.credits, null],
+    ["Skip preview", segments?.preview, "preview"],
   ].filter(([, part]) => part);
-  for (const [label, part] of skippable) {
+  let auto = false;
+  if (skippable.length) preferences(video).then((prefs) => (auto = Boolean(prefs.auto_skip)));
+  for (const [label, part, passedOver] of skippable) {
+    let skipped = !passedOver;
     const button = h("button", { type: "button", hidden: true }, label);
     button.addEventListener("click", () => {
       video.currentTime = part.end_seconds;
@@ -56,7 +69,14 @@ export function skipButtons(video, segments) {
     // Offered from the part's start until a second before its end.
     video.addEventListener("timeupdate", () => {
       const at = video.currentTime;
-      button.hidden = !(at >= part.start_seconds && at < part.end_seconds - 1);
+      const within = at >= part.start_seconds && at < part.end_seconds - 1;
+      if (within && auto && !skipped) {
+        skipped = true;
+        video.currentTime = part.end_seconds;
+        announce(`Skipped the ${passedOver}.`);
+        return;
+      }
+      button.hidden = !within;
     });
     skip.append(button);
   }
@@ -93,12 +113,10 @@ export function upNextPanel(video, where, after, { ctx, report, backHref, headin
   const card = h("div", { class: "up-next-card", hidden: true, role: "group", "aria-label": "Up next" });
   const panel = h("div", { class: "up-next" });
   const s = { next: null, href: null, timer: null, prefs: DEFAULT_PLAYBACK, left: DEFAULT_PLAYBACK.countdown_seconds, dismissed: false, ctx };
-  api("/me/playback")
-    .catch(() => DEFAULT_PLAYBACK)
-    .then((prefs) => {
-      s.prefs = prefs;
-      if (!s.timer) s.left = prefs.countdown_seconds;
-    });
+  preferences(video).then((prefs) => {
+    s.prefs = prefs;
+    if (!s.timer) s.left = prefs.countdown_seconds;
+  });
   after.then((next) => {
     s.next = next;
     s.href = next ? episodeHref(where.seriesId, next) : null;

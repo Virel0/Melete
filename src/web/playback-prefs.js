@@ -1,7 +1,8 @@
 // Your playback preferences, which every app follows: whether the next episode starts by itself,
-// how long the countdown before it lasts, and where the Watch home's hero plays trailers. And one
-// this browser keeps: whether those previews start with sound, and how far before where you
-// stopped the player picks up. A part of Your account.
+// how long the countdown before it lasts, whether recaps, intros and previews are skipped by
+// themselves, and where the Watch home's hero plays trailers. And two this browser keeps: whether
+// those previews start with sound, and how far before where you stopped the player picks up. A
+// part of Your account.
 
 import { field, form, group } from "/web/forms.js";
 import { api, h } from "/web/lib.js";
@@ -81,6 +82,12 @@ function checkField(id, label, checked, hint) {
 export async function playbackGroup() {
   const saved = await api("/me/playback");
   const autoplay = checkField("autoplay-next", "Start the next episode by itself", saved.autoplay_next);
+  const skipping = checkField(
+    "auto-skip",
+    "Skip recaps, intros and previews by themselves",
+    saved.auto_skip,
+    "Each once a play, as it starts. Never the credits: the next episode is offered then.",
+  );
   const countdown = field(
     "countdown-seconds",
     "Countdown before the next episode (seconds)",
@@ -114,7 +121,7 @@ export async function playbackGroup() {
     ),
     "Where a video you stopped starts again, so a sentence cut off isn't missed. Kept by this browser only.",
   );
-  const saving = form([autoplay, countdown, trailers, sound, resume], "Save playback", async () => {
+  const saving = form([autoplay, countdown, skipping, trailers, sound, resume], "Save playback", async () => {
     const seconds = Number(countdown.input.value);
     if (!Number.isInteger(seconds) || seconds < MIN || seconds > MAX) {
       countdown.fail(`Enter a whole number of seconds from ${MIN} to ${MAX}.`);
@@ -122,7 +129,7 @@ export async function playbackGroup() {
     }
     const kept = await api("/me/playback", {
       method: "PUT",
-      body: { autoplay_next: autoplay.input.checked, countdown_seconds: seconds, hero_trailers: trailers.input.value },
+      body: { autoplay_next: autoplay.input.checked, countdown_seconds: seconds, auto_skip: skipping.input.checked, hero_trailers: trailers.input.value },
     });
     countdown.input.value = kept.countdown_seconds;
     const said = kept.autoplay_next

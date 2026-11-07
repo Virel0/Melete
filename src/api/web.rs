@@ -681,6 +681,20 @@ mod tests {
     }
 
     #[test]
+    fn recaps_intros_and_previews_are_passed_over_once_a_play_when_the_user_asks() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let next = module("player-next.js");
+        // Credits are never passed over this way; the rest once each.
+        assert!(next.contains("[\"Skip credits\", segments?.credits, null],"));
+        assert!(next.contains("let skipped = !passedOver;"));
+        assert!(next.contains("if (within && auto && !skipped) {\n        skipped = true;"));
+        // Off until the user's preference says otherwise, asked once for Skip and Up next.
+        assert!(next.contains("auto_skip: false };"));
+        assert!(next.contains("(auto = Boolean(prefs.auto_skip))"));
+        assert!(module("playback-prefs.js").contains("auto_skip: skipping.input.checked"));
+    }
+
+    #[test]
     fn the_player_keeps_what_it_saw_and_sends_it_only_when_asked() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
         let player = module("player.js");
