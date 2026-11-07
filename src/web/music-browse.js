@@ -1,6 +1,6 @@
 // Songs and Genres: every song, searchable and sortable, each playing the list from there, and
 // Play and Shuffle for the songs the list shows; every genre with how much of it is here, and a
-// genre's page, which plays its songs and shows its albums.
+// genre's page, which plays its songs, starts radio from one of them, and shows its albums.
 
 import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
 import { genreFilter, pagedList } from "/web/music-list.js";
@@ -9,6 +9,7 @@ import { albumCard, countedItem, markPlaying, songRow } from "/web/music-parts.j
 import { trackActions } from "/web/music-actions.js";
 import { SHUFFLE_SONGS, looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.js";
 import { askSection } from "/web/music-ask.js";
+import { genreSeed, radioButton } from "/web/music-radio.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 
 const SONG_SORTS = [
@@ -120,7 +121,7 @@ export async function genreList(ctx) {
   );
 }
 
-// Play and Shuffle for a genre's songs, asked for when pressed.
+// Play and Shuffle for a genre's songs, asked for when pressed, and radio from one of them.
 function genreActions(name, total) {
   const said = h("span", { class: "note", role: "status" });
   const start = (how) => async (event) => {
@@ -144,6 +145,7 @@ function genreActions(name, total) {
     { class: "play-actions" },
     h("button", { type: "button", onclick: start((q) => play(q)) }, "Play", hidden.cloneNode(true)),
     h("button", { type: "button", class: "quiet", onclick: start(shufflePlay) }, "Shuffle", hidden),
+    radioButton(() => genreSeed(name), name),
     said,
   );
 }

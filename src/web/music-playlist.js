@@ -1,14 +1,14 @@
-// One playlist: its cover, name, owner and notes, Play, Shuffle and Pin, then its songs. The
-// caller's own hand-made playlist, or one shared with them to edit, is edited here, through the
-// same sync log the devices use: Rename (with its notes), Picture (choose one, or remove it),
-// and each song moved up, down or out; only the owner gets Delete (said plainly first), and
-// files it in a folder (Folder) and shares it (Share); songs are added from Add to playlist
-// beside any song or on an album. A playlist shared with the caller to listen to is read-only
-// here. A smart one's songs are worked out by the server from its rules and the listener's own
-// likes and listens (`/playlists/{id}/songs`), as on the devices, and play like any list; its
-// owner changes its rules here (Edit rules) or on the devices. A song gone from the library stays,
-// greyed, with what it was; one not in it yet shows greyed too, saying how its request stands,
-// until the server swaps its track in.
+// One playlist: its cover, name, owner and notes, Play, Shuffle, Start radio (from its first song,
+// as the Aoide apps start it) and Pin, then its songs. The caller's own hand-made playlist, or one
+// shared with them to edit, is edited here, through the same sync log the devices use: Rename
+// (with its notes), Picture (choose one, or remove it), and each song moved up, down or out; only
+// the owner gets Delete (said plainly first), and files it in a folder (Folder) and shares it
+// (Share); songs are added from Add to playlist beside any song or on an album. A playlist shared
+// with the caller to listen to is read-only here. A smart one's songs are worked out by the server
+// from its rules and the listener's own likes and listens (`/playlists/{id}/songs`), as on the
+// devices, and play like any list; its owner changes its rules here (Edit rules) or on the
+// devices. A song gone from the library stays, greyed, with what it was; one not in it yet shows
+// greyed too, saying how its request stands, until the server swaps its track in.
 
 import { SignedOut, api, clock, h, metaRow, plural, runtime, show } from "/web/lib.js";
 import { trackActions } from "/web/music-actions.js";
@@ -16,6 +16,7 @@ import { iconButton } from "/web/music-controls.js";
 import { goneRow } from "/web/music-liked.js";
 import { cover, markPlaying, pinControl, songRow } from "/web/music-parts.js";
 import { looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
+import { radioButton } from "/web/music-radio.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
 import { folderPicker } from "/web/music-playlist-folders.js";
 import { shareSection } from "/web/music-playlist-share.js";
@@ -235,6 +236,7 @@ function head(p, page, editable, open) {
         { class: "play-actions" },
         here.length ? h("button", { type: "button", onclick: () => (play(queue), remember("playlist", p.id)) }, "Play") : null,
         here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
+        here.length ? radioButton(async () => queue[0], p.name) : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), p.mine ? toggle("delete", "Delete") : null] : null,
         p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
         p.mine && p.smart ? toggle("rules", "Edit rules") : null,

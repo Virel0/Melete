@@ -4,11 +4,12 @@
 // (music-panel.js) lists, reorders and trims it. Every change is sent as a `melete:queue`
 // event, so whatever shows the queue can follow.
 //
-// Each entry is { track, added, order, key }: `added` for Next up, `order` its place before
-// shuffling, `key` a number unique to the entry (one track can be queued twice). Shuffle mixes
-// the rest after the playing track and puts it back in order when turned off; Next up keeps
-// its order either way. Repeat is "off", "all" (back to the start after the last track) or
-// "one" (the playing track again).
+// Each entry is { track, added, order, key, infinity }: `added` for Next up, `order` its place
+// before shuffling, `key` a number unique to the entry (one track can be queued twice), and
+// `infinity`, for a track Infinity added (music-infinity.js), why the server chose it (null
+// for any other). Shuffle mixes the rest after the playing track and puts it back in order when
+// turned off; Next up keeps its order either way. Repeat is "off", "all" (back to the start
+// after the last track) or "one" (the playing track again).
 
 let entries = [];
 let index = -1;
@@ -16,7 +17,7 @@ let shuffle = false;
 let repeat = "off";
 let keys = 0;
 
-const entry = (track, added, order) => ({ track, added, order, key: ++keys });
+const entry = (track, added, order, infinity = null) => ({ track, added, order, key: ++keys, infinity });
 
 function changed() {
   document.dispatchEvent(new CustomEvent("melete:queue"));
@@ -46,7 +47,7 @@ export function setQueue(tracks, start = 0) {
 // Puts back a queue as it was kept (music-saved.js): its entries ({ track, added, order }) in
 // their order, at entry `at`, with its shuffle and repeat.
 export function restore(kept, at, shuffling, repeating) {
-  entries = kept.map((e, i) => entry(e.track, Boolean(e.added), e.added ? Infinity : (e.order ?? i)));
+  entries = kept.map((e, i) => entry(e.track, Boolean(e.added), e.added ? Infinity : (e.order ?? i), typeof e.infinity === "string" ? e.infinity : null));
   index = Math.min(Math.max(at, 0), entries.length - 1);
   shuffle = Boolean(shuffling);
   repeat = REPEATS.includes(repeating) ? repeating : "off";
@@ -99,6 +100,15 @@ export function playLast(tracks) {
   let at = index + 1;
   while (at < entries.length && entries[at].added) at++;
   entries.splice(at, 0, ...tracks.map((t) => entry(t, true, Infinity)));
+  if (index < 0) index = 0;
+  changed();
+}
+
+// Puts `tracks` at the very end, after the rest, each with why it was chosen (`reasons[i]`):
+// Infinity's songs, which play once everything queued has.
+export function extend(tracks, reasons = []) {
+  const last = entries.reduce((most, e) => (Number.isFinite(e.order) ? Math.max(most, e.order) : most), -1);
+  entries.push(...tracks.map((t, i) => entry(t, false, last + 1 + i, reasons[i] ?? "")));
   if (index < 0) index = 0;
   changed();
 }

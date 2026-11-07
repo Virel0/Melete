@@ -38,7 +38,7 @@ function snapshot() {
   const from = Math.max(0, Math.min(index - MAX_PLAYED, all.length - MAX_ENTRIES));
   const entries = all.slice(from, from + MAX_ENTRIES);
   return {
-    entries: entries.map(({ track, added, order }) => ({ track, added, order: Number.isFinite(order) ? order : null })),
+    entries: entries.map(({ track, added, order, infinity }) => ({ track, added, order: Number.isFinite(order) ? order : null, infinity })),
     index: index - from,
     shuffle: queue.shuffled(),
     repeat: queue.repeating(),
