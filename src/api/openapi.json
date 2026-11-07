@@ -5501,8 +5501,15 @@
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first) or recent.",
-            "schema": {"enum": ["artist", "title", "year", "recent"], "default": "artist"}
+            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first), recent, or random (shuffled; page through it with `seed`).",
+            "schema": {"enum": ["artist", "title", "year", "recent", "random"], "default": "artist"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no album comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5521,8 +5528,8 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicAlbumPage"}}}
+            "description": "OK: a MusicAlbumPage, or with sort=random a MusicAlbumShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicAlbumPage"}, {"$ref": "#/components/schemas/MusicAlbumShufflePage"}]}}}
           },
           "400": {
             "description": "Bad ids, sort, limit or offset",
@@ -5667,8 +5674,15 @@
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "album (default: by artist, album, disc and number), title or recent.",
-            "schema": {"enum": ["album", "title", "recent"], "default": "album"}
+            "description": "album (default: by artist, album, disc and number), title, recent, or random: shuffled, leaving out the tracks you marked Not interested (page through it with `seed`).",
+            "schema": {"enum": ["album", "title", "recent", "random"], "default": "album"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no track comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5687,8 +5701,8 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackPage"}}}
+            "description": "OK: a MusicTrackPage, or with sort=random a MusicTrackShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicTrackPage"}, {"$ref": "#/components/schemas/MusicTrackShufflePage"}]}}}
           },
           "400": {
             "description": "Bad ids, sort, limit or offset",
@@ -15535,6 +15549,16 @@
         },
         "additionalProperties": false
       },
+      "MusicAlbumShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicAlbum"}}
+        },
+        "additionalProperties": false
+      },
       "MusicAlbumPage": {
         "type": "object",
         "required": ["total", "items"],
@@ -15638,6 +15662,16 @@
             "items": {"$ref": "#/components/schemas/MusicTrackArtist"},
             "description": "Its artists in credit order (a featured artist after the main one), each an artist of `/music/artists`: from MusicBrainz's credit on the matched release, else the artists its tags list apart (ARTISTS, several artist values) with one MusicBrainz id each, else its artist string whole. A name is never split on \"/\", \";\", \",\" or \"&\"; \"A feat. B\" is split only when its parts match its MusicBrainz artist ids or are artists known on their own. A track with no artist tag is its album artist's. Worked out after each scan and match, so empty for a moment after a track first appears."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
         },
         "additionalProperties": false
       },
