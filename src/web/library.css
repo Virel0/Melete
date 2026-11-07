@@ -233,9 +233,9 @@ section + section { margin-block-start: var(--space-7); }
 .album-tracks { margin-block-start: var(--space-6); max-width: 48rem; }
 /* Home: a row per kind, the mixes each with their tracks. */
 .home-row { margin-block-start: var(--space-6); }
-/* An artist's page: the albums they appear on, under their own. */
-.appears-on { margin-block-start: var(--space-6); }
-.appears-on h2 { margin-block-end: var(--space-3); }
+/* An artist's page: their albums by kind, and the albums they appear on, under their own. */
+.appears-on, .album-kind { margin-block-start: var(--space-6); }
+.appears-on h2, .album-kind h2 { margin-block-end: var(--space-3); }
 .home-row .tracks, .home-row .mix { max-width: 48rem; }
 .mix { margin-block-start: var(--space-5); }
 .mix h3 { margin-block-end: var(--space-1); }

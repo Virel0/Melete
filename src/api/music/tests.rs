@@ -760,3 +760,51 @@ async fn covers_come_at_the_size_asked_for_made_once_and_never_enlarged() {
         StatusCode::BAD_REQUEST
     );
 }
+
+#[tokio::test]
+async fn albums_carry_their_release_groups_types_from_the_match() {
+    let f = fixture(None).await;
+    sqlx::raw_sql(
+        "INSERT INTO mb_releases (id, release_group_id, title, artist_credit, fetched_at,
+             primary_type, secondary_types)
+             VALUES ('ep', 'group-ep', 'Kid A', '[]', 0, 'EP', '[\"Live\"]');
+         UPDATE music_albums SET match_release_id = 'ep' WHERE title = 'Kid A';
+         UPDATE mb_releases SET primary_type = 'Album' WHERE id = 'rel';",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, page) = json_of(&f, "/api/v1/music/albums?sort=title").await;
+    let types: Vec<(&str, &Value, &Value)> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (
+                a["title"].as_str().unwrap(),
+                &a["primary_type"],
+                &a["secondary_types"],
+            )
+        })
+        .collect();
+    assert_eq!(
+        types,
+        [
+            ("Dummy", &Value::Null, &json!([])),
+            ("Kid A", &json!("EP"), &json!(["Live"])),
+            ("OK Computer", &json!("Album"), &json!([])),
+        ],
+        "an album not matched has no type"
+    );
+    // On an artist's page too, and on the album's own.
+    let (_, artist) = json_of(&f, "/api/v1/music/artists/1").await;
+    let kid_a = artist["album_list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["title"] == "Kid A")
+        .unwrap();
+    assert_eq!(kid_a["primary_type"], "EP");
+    let (_, album) = json_of(&f, "/api/v1/music/albums/3").await;
+    assert_eq!(album["secondary_types"], json!(["Live"]));
+}
