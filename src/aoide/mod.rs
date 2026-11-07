@@ -16,4 +16,5 @@ pub mod playlist_edits;
 pub mod playlists;
 pub mod sync;
 pub mod taste;
+pub mod track_flags;
 pub mod writing;

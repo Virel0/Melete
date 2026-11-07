@@ -12,7 +12,7 @@ const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
 /// The styles that follow app.css, in the order the page links them: later rules win, so the
 /// order matters.
-const MORE_STYLES: [(&str, &str); 7] = [
+const MORE_STYLES: [(&str, &str); 8] = [
     ("library.css", include_str!("../web/library.css")),
     ("tools.css", include_str!("../web/tools.css")),
     ("shell.css", include_str!("../web/shell.css")),
@@ -20,11 +20,12 @@ const MORE_STYLES: [(&str, &str); 7] = [
     ("manage.css", include_str!("../web/manage.css")),
     ("listen.css", include_str!("../web/listen.css")),
     ("watch.css", include_str!("../web/watch.css")),
+    ("title.css", include_str!("../web/title.css")),
 ];
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 119] = [
+const MODULES: [(&str, &str); 128] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -55,6 +56,7 @@ const MODULES: [(&str, &str); 119] = [
     ("watch-tiles.js", include_str!("../web/watch-tiles.js")),
     ("watch-play.js", include_str!("../web/watch-play.js")),
     ("watch-kind.js", include_str!("../web/watch-kind.js")),
+    ("watch-live.js", include_str!("../web/watch-live.js")),
     ("browse.js", include_str!("../web/browse.js")),
     ("title-page.js", include_str!("../web/title-page.js")),
     ("title-colour.js", include_str!("../web/title-colour.js")),
@@ -64,6 +66,7 @@ const MODULES: [(&str, &str); 119] = [
     ),
     ("title-more.js", include_str!("../web/title-more.js")),
     ("title-trailer.js", include_str!("../web/title-trailer.js")),
+    ("title-preview.js", include_str!("../web/title-preview.js")),
     ("people.js", include_str!("../web/people.js")),
     ("lib.js", include_str!("../web/lib.js")),
     ("player.js", include_str!("../web/player.js")),
@@ -89,6 +92,11 @@ const MODULES: [(&str, &str); 119] = [
     (
         "player-subtitle-search.js",
         include_str!("../web/player-subtitle-search.js"),
+    ),
+    ("player-resume.js", include_str!("../web/player-resume.js")),
+    (
+        "player-subtitle-size.js",
+        include_str!("../web/player-subtitle-size.js"),
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
@@ -127,7 +135,10 @@ const MODULES: [(&str, &str); 119] = [
     ("music.js", include_str!("../web/music.js")),
     ("music-list.js", include_str!("../web/music-list.js")),
     ("music-browse.js", include_str!("../web/music-browse.js")),
+    ("music-flags.js", include_str!("../web/music-flags.js")),
+    ("music-hidden.js", include_str!("../web/music-hidden.js")),
     ("music-radio.js", include_str!("../web/music-radio.js")),
+    ("music-replay.js", include_str!("../web/music-replay.js")),
     ("music-actions.js", include_str!("../web/music-actions.js")),
     ("music-liked.js", include_str!("../web/music-liked.js")),
     (
@@ -180,6 +191,8 @@ const MODULES: [(&str, &str); 119] = [
         "requests-admin.js",
         include_str!("../web/requests-admin.js"),
     ),
+    ("search.js", include_str!("../web/search.js")),
+    ("trending.js", include_str!("../web/trending.js")),
     ("services.js", include_str!("../web/services.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
@@ -435,6 +448,41 @@ mod tests {
         }
     }
 
+    /// Your requests come in stages, each with its poster, who decided and when, and where an
+    /// approved one is coming from; Ask results have their posters too.
+    #[test]
+    fn requests_say_who_decided_where_they_come_from_and_their_stage() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let row = module("requests-row.js");
+        assert!(row.contains(r#"[verb, r.decided_by ? ` by ${r.decided_by}` : null"#));
+        assert!(row.contains(r#"["Approved at once""#));
+        assert!(row.contains(r#"torrent: "From a torrent", soulseek: "From Soulseek""#));
+        assert!(row.contains("[stepBar(r.progress), whence(r.progress)]"));
+        assert!(row.contains(r#"{ class: "pictured" },"#) && row.contains("picture(r),"));
+        let requests = module("requests.js");
+        for stage in [
+            "On the way",
+            "Waiting for approval",
+            "In the library",
+            "Declined",
+        ] {
+            assert!(requests.contains(stage), "{stage}");
+        }
+        assert!(requests.contains("rows.get(stage(r)).push(requestRow("));
+        assert!(requests.contains("picture(c),"));
+        // An admin's choice of where it goes sits under the words, not in the poster's frame.
+        assert!(
+            module("requests-admin.js")
+                .contains(r#"row.querySelector(":scope > .art + div").append(choose);"#)
+        );
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "tools.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(".rows > li.pictured"));
+    }
+
     #[test]
     fn the_page_has_no_inline_script_or_style() {
         // The policy would block them; this says so before a browser does.
@@ -546,6 +594,239 @@ mod tests {
         assert!(keys.contains("stage.requestFullscreen"));
     }
 
+    /// A collection's film that isn't in the library and that nobody asked for can be asked for
+    /// from the collection's page, by its TMDB id, as a movie.
+    #[test]
+    fn a_collections_missing_films_can_be_asked_for() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let people = module("people.js");
+        assert!(people.contains(r#"item.state === "requestable" ? askFor(item, state) : null"#));
+        assert!(people.contains(r#"body: { kind: "movie", tmdb_id: item.tmdb_id }"#));
+        assert!(people.contains("state.textContent = STATES.requested;"));
+    }
+
+    #[test]
+    fn subtitles_come_in_four_sizes_kept_by_the_browser_for_plain_and_styled_tracks() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        assert!(
+            module("player.js").contains("sizePicker(s.video, (scale) => scaleStyled(s, scale))")
+        );
+        let size = module("player-subtitle-size.js");
+        for label in ["\"Small\"", "\"Medium\"", "\"Large\"", "\"Extra large\""] {
+            assert!(size.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off still plays.
+        assert!(size.contains("try {\n    const kept = localStorage.getItem(KEY);"));
+        assert!(size.contains("try {\n    localStorage.setItem(KEY, size.size);"));
+        assert!(size.contains("announce(`Subtitle size: ${size.label}`)"));
+        // Text tracks through ::cue, styled ones by their styles' font sizes.
+        let css = MORE_STYLES
+            .iter()
+            .find(|(n, _)| *n == "watch.css")
+            .unwrap()
+            .1;
+        assert!(css.contains(r#".stage video[data-subtitle-size="extra-large"]::cue"#));
+        assert!(module("player-ass.js").contains("FontSize: style.FontSize * scale"));
+    }
+
+    #[test]
+    fn cast_and_crew_show_their_pictures_or_initials() {
+        let people = module("people.js");
+        // Each credit's picture, read as it nears the screen, said by the name beside it.
+        assert!(people.contains(r#"src, alt: "", loading: "lazy""#));
+        assert!(people.contains("personItem(c.name, c.person_id, c.job, c.profile)"));
+        assert!(people.contains("personItem(c.name, c.person_id, c.character, c.profile)"));
+        // Initials stand in when there's none, or it can't be read.
+        assert!(people.contains("if (!src) return letters();"));
+        assert!(people.contains(
+            r#"img.addEventListener("error", () => img.replaceWith(letters()), { once: true });"#
+        ));
+    }
+
+    #[test]
+    fn a_title_partway_through_can_be_played_from_the_start() {
+        let page = module("title-page.js");
+        // Beside a movie's Resume, and a series' Resume of the episode partway through.
+        assert!(page.contains("fromStart: playHref(file.id, { movie: m.id }, true)"));
+        assert!(page.contains(
+            "playHref(going.file_id, { series: s.id, season: going.season, episode: going.episode }, true)"
+        ));
+        // Hidden unless Play resumes, and labelled with the title.
+        assert!(page.contains("restart.hidden = !target?.fromStart;"));
+        assert!(page.contains("`From the start: ${title}`"));
+    }
+
+    #[test]
+    fn previews_start_with_sound_only_when_the_browser_asks_and_may() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let prefs = module("playback-prefs.js");
+        assert!(prefs.contains("\"Play previews with sound\""));
+        assert!(prefs.contains("Kept by this browser only."));
+        // Kept per browser, and off when storage is turned off.
+        assert!(
+            prefs.contains("try {\n    return localStorage.getItem(PREVIEW_SOUND_KEY) === \"on\";")
+        );
+        assert!(
+            prefs.contains("try {\n    if (on) localStorage.setItem(PREVIEW_SOUND_KEY, \"on\");")
+        );
+        // Sound only after the page has had a click or a key, and muted when refused anyway.
+        let hero = module("watch-hero-trailer.js");
+        assert!(
+            hero.contains(
+                "setMuted(!(previewSound() && navigator.userActivation?.hasBeenActive));"
+            )
+        );
+        assert!(hero.contains("setMuted(true);\n        video.play().catch(() => {});"));
+    }
+
+    #[test]
+    fn the_hero_wide_tiles_and_grid_cards_wear_a_tiles_badge() {
+        // Wide tiles as well as posters, by whether the series is being watched.
+        let tiles = module("watch-tiles.js");
+        assert!(tiles.contains("const badge = badgeOf(item, watching.has(item.id));"));
+        assert!(tiles.contains("wideTile(item, playsAt(item), badge)"));
+        // The hero, at the end of its facts.
+        let hero = module("watch-hero.js");
+        assert!(hero.contains("const badge = badgeOf(item, watching.has(item.id));"));
+        assert!(hero.contains(r#"h("li", { class: "hero-badge" }, badge)"#));
+        // The grids of all shows, anime and movies, which know the series being watched from
+        // their page's home; list items don't say their kind, so it's added.
+        let browse = module("browse.js");
+        assert!(browse.contains(
+            r#"badgeOf({ ...item, kind: kind === "movies" ? "movie" : "series" }, kind === "series" && watching.has(item.id))"#
+        ));
+        assert!(
+            module("watch-kind.js")
+                .contains("everything(page, params, gen, { genres, libraries, ai, watching })")
+        );
+        assert!(module("cards.js").contains("export function titleCard(kind, item, badge = null)"));
+    }
+
+    #[test]
+    fn a_title_pages_header_plays_its_preview_by_the_heros_rules() {
+        // The hero's own player, so its rules hold: the setting, the home network, reduced
+        // motion, muted with Unmute and Stop.
+        let preview = module("title-preview.js");
+        assert!(
+            preview.contains(r#"const trailer = heroTrailer(header.querySelector(".hero-art"));"#)
+        );
+        // The trailer only when it's sharp enough to stand in for the title.
+        assert!(
+            preview
+                .contains("const needed = Math.min(1080, own.length ? Math.max(...own) : 1080);")
+        );
+        assert!(preview.contains("return tall >= needed ? trailer.id : null;"));
+        // Only while the header is in view, and gone with the page.
+        assert!(preview.contains("else trailer.stop();"));
+        assert!(preview.contains("seen.disconnect();\n    trailer.close();"));
+        // Closing it, as leaving a page does, lets go of what it listened to.
+        let player = module("watch-hero-trailer.js");
+        assert!(player.contains(r#"removeEventListener("visibilitychange", hidden);"#));
+        assert!(module("watch-hero.js").contains("p.trailer.close();"));
+        let page = module("title-page.js");
+        assert_eq!(
+            page.matches("leaving.push(headerPreview(head.el, item, ")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn watch_pages_follow_the_library_and_my_list_live() {
+        // One stream, its kinds' first values only saying where things stand (unless first heard
+        // well after connecting), closed on leaving.
+        let live = module("watch-live.js");
+        assert!(live.contains(r#"source = new EventSource("/api/v1/events");"#));
+        assert!(live.contains(r#"for (const kind of ["library", "favourites"])"#));
+        assert!(live.contains(
+            "const changed = before === undefined ? Date.now() - opened > FIRST_MS : before !== version;"
+        ));
+        assert!(live.contains("source?.close();"));
+        // Redrawn in place: the focus and each row's sideways scroll stay.
+        assert!(live.contains("again?.focus({ preventScroll: true });"));
+        assert!(live.contains("if (left) shelf.scrollLeft = left;"));
+        for page in ["home.js", "watch-kind.js", "favourites.js"] {
+            assert!(module(page).contains("followWatch(gen, {"), "{page}");
+        }
+        assert!(module("browse.js").contains("follow?.(() => reload(v, { quietly: true })"));
+        // My List's own Remove and Undo aren't undone by their echo.
+        assert!(
+            module("favourites.js")
+                .contains("if (again && drawn && sameList(drawn, next)) return;")
+        );
+    }
+
+    #[test]
+    fn home_draws_its_saved_copy_first_and_forgets_it_with_the_session() {
+        let home = module("home.js");
+        // Kept under the user's id, read and written with storage allowed to fail.
+        assert!(home.contains(r#"const SAVED = "melete.home.";"#));
+        assert!(
+            home.contains("return JSON.parse(localStorage.getItem(SAVED + user) ?? \"null\");")
+        );
+        assert!(home.contains("localStorage.setItem(SAVED + user, JSON.stringify(answer));"));
+        assert_eq!(home.matches("  } catch {\n").count(), 3);
+        // Drawn first; a failed refresh leaves it up.
+        assert!(home.contains("if (saved) draw(page, saved);"));
+        assert!(home.contains("if (!saved) show(\"Home\", h(\"h1\", {}, \"Home\"), failed("));
+        // Every saved copy goes whenever the sign-in form comes back: signing out, an ended
+        // session, or opening the page signed out.
+        let app = module("app.js");
+        assert!(app.contains("  stopShell();\n  // The next to sign in here may be someone else.\n  forgetSavedHomes();"));
+        assert!(app.contains("if (!kind) return home(gen, me.id);"));
+    }
+
+    #[test]
+    fn picking_up_starts_as_many_seconds_early_as_the_browser_keeps() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        assert!(module("player.js").contains("const start = startAt(play, restart);"));
+        let resume = module("player-resume.js");
+        // Never before the start, and nothing taken off when starting over.
+        assert!(resume.contains("if (restart || !(play.resume_seconds > 0)) return 0;"));
+        assert!(resume.contains("Math.max(play.resume_seconds - resumeEarlier(), 0)"));
+        let prefs = module("playback-prefs.js");
+        for label in [
+            "\"Where I stopped\"",
+            "\"5 seconds earlier\"",
+            "\"30 seconds earlier\"",
+        ] {
+            assert!(prefs.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off picks up where it stopped.
+        assert!(
+            prefs.contains("try {\n    const kept = Number(localStorage.getItem(RESUME_KEY));")
+        );
+        assert!(prefs.contains("try {\n    localStorage.setItem(RESUME_KEY, String(seconds));"));
+        assert!(prefs.contains("Kept by this browser only."));
+    }
+
+    #[test]
+    fn a_quality_limit_kept_by_the_browser_converts_a_file_over_it() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let menus = module("player-menus.js");
+        for label in ["\"Original\"", "\"Up to 40 Mbps\"", "\"Up to 3 Mbps\""] {
+            assert!(menus.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off still plays.
+        assert!(
+            menus.contains("try {\n    const kept = Number(localStorage.getItem(QUALITY_KEY));")
+        );
+        assert!(
+            menus.contains("try {\n    if (bits) localStorage.setItem(QUALITY_KEY, String(bits));")
+        );
+        let player = module("player.js");
+        assert!(player.contains("quality: keptQuality()"));
+        assert!(player.contains("qualityPicker(s.choice.quality, requality)"));
+        // Over the viewer's limit the video is converted, held to it less the sound's share; the
+        // way in's own limit still counts.
+        let choice = module("player-choice.js");
+        assert!(choice.contains("...(held && codec !== \"copy\" ? { max_bitrate: held } : {}),"));
+        assert!(
+            choice.contains("overLimit(info, info.max_bitrate) || held) return request(\"h264\")")
+        );
+        assert!(choice.contains("Math.max(quality - AUDIO_ALLOWANCE, 100_000)"));
+    }
+
     #[test]
     fn each_jump_shows_how_far_it_went_and_adds_up() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -602,6 +883,45 @@ mod tests {
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, HLS_SHA256, "src/web/vendor/hls-1.7.3.mjs changed");
         assert!(!HLS.contains("eval(") && !HLS.contains("new Function"));
+    }
+
+    /// The search page asks TMDB for titles not in the library only once discovery says it's
+    /// on, and the palette's last result leads there.
+    #[test]
+    fn search_asks_tmdb_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let search = module("search.js");
+        let status = search.find("api(\"/discover/status\")").unwrap();
+        let gate = search
+            .find("v.discovery && q.length >= 2 ? findOutside")
+            .unwrap();
+        let tmdb = search.find("/discover/search?").unwrap();
+        assert!(status < gate && search.contains("discovery: false,"));
+        assert!(tmdb > search.find("async function findOutside").unwrap());
+        assert_eq!(search.matches("/discover/search").count(), 1);
+        assert!(search.contains("candidateRow(ctx, candidate(d))"));
+        assert!(module("requests.js").contains("export function candidateRow"));
+        assert!(module("palette.js").contains("#/search?${new URLSearchParams({ q: typed })}"));
+        assert!(module("app.js").contains("searchPage(params, gen)"));
+    }
+
+    /// Trending is asked for only once discovery says it's on (the page's own answer, or
+    /// /discover/status), on the search page before anything is typed and on the Ask page.
+    #[test]
+    fn trending_is_asked_for_only_while_discovery_is_on() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let trending = module("trending.js");
+        let status = trending
+            .find("known ?? (await api(\"/discover/status\")).on")
+            .unwrap();
+        let gate = trending.find("if (!on) return;").unwrap();
+        let chart = trending.find("/discover/trending?").unwrap();
+        assert!(status < gate && gate < chart);
+        assert!(trending.contains("body: { kind: item.kind, tmdb_id: item.tmdb_id }"));
+        let search = module("search.js");
+        assert!(search.contains("if (v.discovery) v.start.append(trendingSection("));
+        assert!(search.contains("v.start.hidden = Boolean(q);"));
+        assert!(module("requests.js").contains("trendingSection(ctx, { id: \"ask-trending\""));
     }
 
     #[tokio::test]
@@ -1070,6 +1390,15 @@ mod tests {
             assert!(body.contains("if (!hold("), "{name}");
             assert!(!body.contains("button.disabled = true;"), "{name}");
         }
+    }
+
+    #[test]
+    fn hidden_songs_are_closed_to_a_user_limited_to_some_music() {
+        assert!(module("music-hidden.js").contains(
+            r#"if (!seesAllMusic()) return show("Hidden songs", title, emptyState(SYNC_CLOSED));"#
+        ));
+        // The strip offers the flags only where likes are open too.
+        assert!(module("music-actions.js").contains("open ? flagButtons(track, said) : null,"));
     }
 
     #[test]
