@@ -22,10 +22,12 @@ use super::fractional_index;
 use super::playlists::{self, Playlist, Row};
 use super::writing::{self, Change, WriteError};
 
+mod folders;
 mod items;
 mod pending_items;
 mod smart_rules;
 
+pub use folders::*;
 pub use items::*;
 pub use pending_items::*;
 pub use smart_rules::*;
@@ -45,6 +47,8 @@ pub enum EditError {
     NoSuchTrack(i64),
     /// The neighbours' keys leave no room between them.
     NoGap,
+    /// No such folder of the user's.
+    NoSuchFolder,
     /// Writing it failed.
     Write(WriteError),
     /// It's a hand-made playlist, which has no rules.
@@ -92,6 +96,19 @@ async fn own<'a>(
     editor: &Editor<'a>,
     id: &str,
 ) -> Result<(Playlist, Editor<'a>), EditError> {
+    let (playlist, editor) = owned(pool, editor, id).await?;
+    if is_smart(&playlist.row) {
+        return Err(EditError::Smart);
+    }
+    Ok((playlist, editor))
+}
+
+/// [`own`], smart or not: filing a smart playlist in a folder changes no rule.
+async fn owned<'a>(
+    pool: &SqlitePool,
+    editor: &Editor<'a>,
+    id: &str,
+) -> Result<(Playlist, Editor<'a>), EditError> {
     let playlist = playlists::visible(pool, editor.user_id)
         .await?
         .into_iter()
@@ -100,12 +117,13 @@ async fn own<'a>(
     if playlist.owner_id != editor.user_id {
         return Err(EditError::NotOwner);
     }
-    if is_smart(&playlist.row) {
-        return Err(EditError::Smart);
-    }
-    let mut playlist = playlist;
-    // Fields every device's row has; an old log's row may lack them, and a row written
-    // without them would be refused by the devices.
+    Ok(prepared(playlist, editor))
+}
+
+/// A playlist ready to write again: with the fields every device's row has (an old log's row
+/// may lack them, and a row written without them would be refused by the devices), and the
+/// editor timed after its latest change.
+fn prepared<'a>(mut playlist: Playlist, editor: &Editor<'a>) -> (Playlist, Editor<'a>) {
     playlist.row.entry("isSmart").or_insert(false.into());
     if !playlist.row.contains_key("sortIndex") {
         let key = fractional_index::between(None, None);
@@ -120,7 +138,7 @@ async fn own<'a>(
         now: editor.now.max(latest.saturating_add(1)),
         ..*editor
     };
-    Ok((playlist, editor))
+    (playlist, editor)
 }
 
 /// Stamps as a payload carries them: whole milliseconds.

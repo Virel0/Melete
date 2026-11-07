@@ -49,16 +49,52 @@ pub(super) async fn quick_poll(
     State(state): State<QuickState>,
     Json(body): Json<QuickPoll>,
 ) -> Result<Response, ApiError> {
+    Ok(match collect(&state, &body.secret).await? {
+        None => waiting(),
+        Some((user, token)) => Json(json!({ "token": token, "user": user })).into_response(),
+    })
+}
+
+/// The web UI's poll: the same code, limits and single use as an app's, but once approved the
+/// session goes into the cookie a password sign-in sets (`web_session`), never into the body.
+/// Like the changes a cookie may make, it needs the web header, which another site's page
+/// can't send.
+pub(super) async fn quick_web_poll(
+    State(state): State<QuickState>,
+    headers: HeaderMap,
+    Json(body): Json<QuickPoll>,
+) -> Result<Response, ApiError> {
+    if !headers.contains_key(WEB_HEADER) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "only the web UI signs in to a cookie",
+        ));
+    }
+    Ok(match collect(&state, &body.secret).await? {
+        None => waiting(),
+        Some((user, token)) => web_session(&user, &token, &headers),
+    })
+}
+
+fn waiting() -> Response {
+    (StatusCode::ACCEPTED, Json(json!({ "status": "waiting" }))).into_response()
+}
+
+/// What asking with `secret` gives: None while nobody has approved its code, else the
+/// approver and a new session for the device, named as it asked, handed over this once.
+///
+/// # Errors
+///
+/// 404 for an unknown secret, a code that ran out, or an approver deleted since.
+async fn collect(state: &QuickState, secret: &str) -> Result<Option<(User, String)>, ApiError> {
     let gone = || {
         ApiError::new(
             StatusCode::NOT_FOUND,
             "no such code, or it ran out; start again",
         )
     };
-    match state.quick.poll(&body.secret) {
-        Poll::Waiting => {
-            Ok((StatusCode::ACCEPTED, Json(json!({ "status": "waiting" }))).into_response())
-        }
+    match state.quick.poll(secret) {
+        Poll::Waiting => Ok(None),
         Poll::Unknown => Err(gone()),
         Poll::Approved {
             user_id,
@@ -76,7 +112,7 @@ pub(super) async fn quick_poll(
             let (_, token) =
                 auth::issue_token(&state.auth.pool, user.id, TokenKind::Session, &device_name)
                     .await?;
-            Ok(Json(json!({ "token": token, "user": user })).into_response())
+            Ok(Some((user, token)))
         }
     }
 }
@@ -127,3 +163,6 @@ pub(super) async fn quick_approve(
     };
     Ok(Json(json!({ "device_name": device_name })).into_response())
 }
+
+#[cfg(test)]
+mod tests;

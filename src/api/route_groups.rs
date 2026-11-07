@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Music's library, home, pins, likes, mixes, playing, plays and transitions.
+/// Music's library, home, recent contexts, pins, collections, likes, mixes, playing, plays and transitions.
 pub(super) fn music_routes(
     router: Router,
     pool: &SqlitePool,
@@ -19,6 +19,8 @@ pub(super) fn music_routes(
         .merge(music_likes::routes(pool.clone(), coverart.is_some()))
         .merge(music_replay::routes(pool.clone(), coverart.is_some()))
         .merge(music_flags::routes(pool.clone()))
+        .merge(music_collections::routes(pool.clone()))
+        .merge(music_recent::routes(pool.clone(), coverart.is_some()))
         .merge(music::routes(
             pool.clone(),
             artwork_dir.join("music"),
@@ -27,6 +29,7 @@ pub(super) fn music_routes(
         ))
         .merge(music_play::routes(pool.clone(), converter))
         .merge(music_plays::routes(pool.clone()))
+        .merge(music_queue::routes(pool.clone()))
         .merge(music_transitions::routes(pool.clone()))
 }
 

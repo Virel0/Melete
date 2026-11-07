@@ -1,6 +1,6 @@
 // A track's actions, in a strip that opens under its row (Aoide's way: inline, not a floating
 // menu): Play next, Play last, Add to playlist, Like, Start radio, Not interested, Don't count
-// plays (music-flags.js), and Go to its artists (and
+// plays (music-flags.js), Get info (what its file is, music-info.js), and Go to its artists (and
 // its album, where the row isn't on the album's page). One strip is open at a time; Escape
 // closes it and focus goes back to the row's "More" button.
 //
@@ -20,6 +20,7 @@ import { hold, release } from "/web/page-parts.js";
 import { LIKES_CLOSED, SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 import { albumLikeChanged } from "/web/music-album-likes.js";
 import { flagButtons } from "/web/music-flags.js";
+import { songInfo } from "/web/music-info.js";
 
 export { LIKES_CLOSED };
 
@@ -104,6 +105,13 @@ function stripBody(track, entry, mark, onAlbum) {
     pick.setAttribute("aria-expanded", String(opening));
     pickArea.replaceChildren(opening ? playlistPicker([track.id], track.title) : "");
   });
+  const infoArea = h("div", { class: "info-area" });
+  const info = h("button", { type: "button", class: "quiet small", "aria-expanded": "false" }, "Get info");
+  info.addEventListener("click", () => {
+    const opening = info.getAttribute("aria-expanded") !== "true";
+    info.setAttribute("aria-expanded", String(opening));
+    infoArea.replaceChildren(opening ? songInfo(track) : "");
+  });
   const open = seesAllMusic();
   const [radio, radioSaid] = radioButton(async () => entry, track.title);
   radio?.classList.add("small");
@@ -116,10 +124,12 @@ function stripBody(track, entry, mark, onAlbum) {
       h("button", { type: "button", class: "quiet small", onclick: queued(playLast, `${track.title} is added to the end of Next up.`) }, "Play last"),
       open ? [pick, likeButton(track, mark, said), radio] : null,
       open ? flagButtons(track, said) : null,
+      info,
       artists.map((a) => h("a", { class: "button quiet small", href: `#/music/artists/${a.id}` }, `Go to ${a.name}`)),
       onAlbum ? null : h("a", { class: "button quiet small", href: `#/music/albums/${track.album_id}` }, "Go to the album"),
     ),
     pickArea,
+    infoArea,
     said,
     open ? radioSaid : h("p", { class: "note" }, SYNC_CLOSED),
   ];
