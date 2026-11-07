@@ -12,6 +12,21 @@
 .sign-in input { width: 100%; }
 .sign-in button { width: 100%; margin-block-start: var(--space-2); }
 .sign-in .other-way { margin-block-start: var(--space-5); text-align: center; }
+.sign-in .other-way + .other-way { margin-block-start: var(--space-2); }
+/* Signing in with a code: the code large enough to read across a room, in two halves. */
+.code-sign-in h2 { margin-block-end: var(--space-3); }
+.code-sign-in p { margin: 0 0 var(--space-3); }
+.quick-code {
+  font-family: ui-monospace, monospace;
+  font-size: var(--step-4);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
 
 /* Sections and title grids */
 section + section { margin-block-start: var(--space-7); }

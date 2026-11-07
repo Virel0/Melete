@@ -652,6 +652,39 @@
         }
       }
     },
+    "/api/v1/auth/quick-connect/web-poll": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Ask whether a Quick Connect code was approved, for the web UI",
+        "description": "As `/auth/quick-connect/poll`, for a code the web UI started at `/auth/quick-connect`: the same five minutes, approval by someone signed in who looked it up, one use, and limits on codes waiting and lookups. Once the code is approved, the session token goes into the `melete_session` cookie exactly as `/auth/web-login` sets it, and the body carries only the user; the code is gone after that. Needs `X-Melete-Web: 1`, as a change signed in by the cookie does, which a page on another site can't send.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectPoll"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Approved: the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "202": {
+            "description": "Not approved yet",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectWaiting"}}}
+          },
+          "403": {
+            "description": "Without the `X-Melete-Web` header",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such code, or it ran out: start again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/auth/quick-connect/lookup": {
       "post": {
         "tags": ["Accounts"],
@@ -5498,11 +5531,46 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only albums with a track of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only albums from this year on; albums without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only albums up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the albums you like and those with a song you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first) or recent.",
-            "schema": {"enum": ["artist", "title", "year", "recent"], "default": "artist"}
+            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first), recent, or random (shuffled; page through it with `seed`).",
+            "schema": {"enum": ["artist", "title", "year", "recent", "random"], "default": "artist"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no album comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5521,11 +5589,11 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicAlbumPage"}}}
+            "description": "OK: a MusicAlbumPage, or with sort=random a MusicAlbumShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicAlbumPage"}, {"$ref": "#/components/schemas/MusicAlbumShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5664,11 +5732,46 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks from this year on (the track's year, else its album's); tracks without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the tracks you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "album (default: by artist, album, disc and number), title or recent.",
-            "schema": {"enum": ["album", "title", "recent"], "default": "album"}
+            "description": "album (default: by artist, album, disc and number), title, recent, or random: shuffled, leaving out the tracks you marked Not interested (page through it with `seed`).",
+            "schema": {"enum": ["album", "title", "recent", "random"], "default": "album"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no track comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5687,11 +5790,11 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackPage"}}}
+            "description": "OK: a MusicTrackPage, or with sort=random a MusicTrackShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicTrackPage"}, {"$ref": "#/components/schemas/MusicTrackShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5786,6 +5889,81 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicHome"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/music/collections": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your collections",
+        "description": "Your saved song filters, by name: several genres, a span of years and only the songs you like, as `/music/tracks` takes them (`genres`, `year_from`, `year_to`, `liked`). Each user's are their own.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollections"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Save a collection",
+        "description": "Saves a song filter under a name of yours. Genres are trimmed, and empty ones and repeats (in any case) dropped. Up to 50 collections each.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                  "genres": {"type": "array", "maxItems": 50, "items": {"type": "string"}, "description": "Any of them; none for every genre. A genre has no semicolon."},
+                  "year_from": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "year_to": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "liked": {"type": "boolean", "default": false}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollection"}}}
+          },
+          "400": {
+            "description": "No name, nothing to filter by (no genre, year or liked), years out of order or range, or a genre with a semicolon",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "409": {
+            "description": "You have a collection of that name, or 50 already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/music/collections/{id}": {
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Delete a collection",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "204": {"description": "Deleted"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "None of yours with that id (someone else's is answered so too)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
         }
       }
     },
@@ -11470,7 +11648,7 @@
             "description": "Soulseek's songs, closest first",
             "content": {
               "application/json": {
-                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}}
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}}
               }
             }
           },
@@ -15539,6 +15717,16 @@
         },
         "additionalProperties": false
       },
+      "MusicAlbumShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicAlbum"}}
+        },
+        "additionalProperties": false
+      },
       "MusicAlbumPage": {
         "type": "object",
         "required": ["total", "items"],
@@ -15642,6 +15830,16 @@
             "items": {"$ref": "#/components/schemas/MusicTrackArtist"},
             "description": "Its artists in credit order (a featured artist after the main one), each an artist of `/music/artists`: from MusicBrainz's credit on the matched release, else the artists its tags list apart (ARTISTS, several artist values) with one MusicBrainz id each, else its artist string whole. A name is never split on \"/\", \";\", \",\" or \"&\"; \"A feat. B\" is split only when its parts match its MusicBrainz artist ids or are artists known on their own. A track with no artist tag is its album artist's. Worked out after each scan and match, so empty for a moment after a track first appears."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
         },
         "additionalProperties": false
       },
@@ -15788,6 +15986,28 @@
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "Up to 25, at most two from one album, in order."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicCollections": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicCollection"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicCollection": {
+        "type": "object",
+        "required": ["id", "name", "genres", "year_from", "year_to", "liked", "created_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string"},
+          "genres": {"type": "array", "items": {"type": "string"}},
+          "year_from": {"type": ["integer", "null"]},
+          "year_to": {"type": ["integer", "null"]},
+          "liked": {"type": "boolean"},
+          "created_at": {"type": "integer", "description": "Unix seconds."}
         },
         "additionalProperties": false
       },
@@ -17604,7 +17824,7 @@
         "type": "object",
         "required": ["songs", "albums"],
         "properties": {
-          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
+          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
           "albums": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekAlbum"}, "description": "The albums given that Soulseek's users share, in the order given."}
         },
         "additionalProperties": false
@@ -17622,6 +17842,71 @@
       },
       "RequestCandidate": {
         "type": "object",
+        "required": [
+          "kind",
+          "tmdb_id",
+          "mb_artist_id",
+          "mb_release_group_id",
+          "mb_recording_id",
+          "title",
+          "year",
+          "artist",
+          "detail",
+          "overview",
+          "in_library",
+          "wanted",
+          "requested",
+          "poster",
+          "closeness"
+        ],
+        "properties": {
+          "kind": {"type": "string", "enum": ["movie", "series", "artist", "album", "song"]},
+          "tmdb_id": {"type": ["integer", "null"], "description": "A movie's or series'; ask for it with this."},
+          "mb_artist_id": {
+            "type": ["string", "null"],
+            "description": "An artist's, and an album's or song's first artist."
+          },
+          "mb_release_group_id": {"type": ["string", "null"], "description": "An album's; ask for it with this."},
+          "mb_recording_id": {"type": ["string", "null"], "description": "A song's; ask for it with this."},
+          "title": {"type": "string", "description": "The title, or an artist's name."},
+          "year": {"type": ["integer", "null"]},
+          "artist": {"type": ["string", "null"], "description": "An album's or song's artists, as credited."},
+          "detail": {
+            "type": ["string", "null"],
+            "description": "What tells it from others of the name: an original title, an artist's kind and country, an album's type, the album a song is on and its length."
+          },
+          "overview": {
+            "type": ["string", "null"],
+            "description": "A movie's or series' summary, from the same TMDB search answer that found it, so nothing more is asked of TMDB; null for music, and when TMDB has none."
+          },
+          "in_library": {
+            "type": "boolean",
+            "description": "Already on disk, in a library you may see: an album, song or artist only in a music library hidden from you is false."
+          },
+          "wanted": {
+            "type": "boolean",
+            "description": "On the wanted list and looked out for (a whole artist only when followed for new releases)."
+          },
+          "requested": {
+            "type": ["integer", "null"],
+            "description": "Your request for it still open (asked for or approved): its id."
+          },
+          "poster": {
+            "type": ["string", "null"],
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+          },
+          "closeness": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How close its title and artist are to the words searched, 100 for what was typed whole. Each typed word counts in full when it's one of the title's or artist's words and half when it starts one, worth 60 together; the share of the title's words that were typed is worth 40. The same measure for MusicBrainz's songs and Soulseek's (`GET /api/v1/requests/soulseek/candidates`), so the two can be ranked in one list."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekCandidate": {
+        "type": "object",
+        "description": "A song on Soulseek as a search result: a `RequestCandidate` without `overview`, which only movies and series have.",
         "required": [
           "kind",
           "tmdb_id",

@@ -6,6 +6,8 @@
 // - play(queue, from) plays from an entry; shufflePlay(queue) turns shuffle on and starts
 //   anywhere in it, the rest mixed (Shuffle off in the bar puts it back in order).
 // - playAlbum(id) asks for an album and plays it from the start.
+// - shuffleLibrary(filters) plays the library, or the songs `filters` narrow it to, in a random
+//   order the server chose (Not interested songs stay out), as many as one page holds.
 
 import { api } from "/web/lib.js";
 import { playQueue } from "/web/music-player.js";
@@ -45,6 +47,16 @@ export function shufflePlay(queue) {
   if (!queue.length) return;
   if (!shuffled()) toggleShuffle();
   playQueue(queue, Math.floor(Math.random() * queue.length));
+}
+
+// The most songs one shuffle of the library plays: the API's largest page.
+export const SHUFFLE_SONGS = 500;
+
+export async function shuffleLibrary(filters = {}) {
+  const query = new URLSearchParams({ ...filters, sort: "random", limit: String(SHUFFLE_SONGS) });
+  const page = await api(`/music/tracks?${query}`);
+  play(looseQueue(page.items));
+  return page;
 }
 
 export async function playAlbum(id) {
