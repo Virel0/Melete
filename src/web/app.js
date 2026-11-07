@@ -6,7 +6,7 @@ import { avatar } from "/web/profile-picture.js";
 import { SignedOut, announce, api, failure, h, oidcOutcome, show } from "/web/lib.js";
 import { adminPage } from "/web/admin.js";
 import { kindPage, oldSeriesList } from "/web/watch-kind.js";
-import { home } from "/web/home.js";
+import { forgetSavedHomes, home } from "/web/home.js";
 import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { musicPage } from "/web/music.js";
@@ -68,6 +68,8 @@ function signIn(message) {
   // Its stream links stop working with the session anyway.
   stopPlayer();
   stopShell();
+  // The next to sign in here may be someone else.
+  forgetSavedHomes();
   me = null;
   // Pages still loading for the signed-out user must not replace the form.
   nextGeneration();
@@ -236,7 +238,7 @@ async function render() {
   placeShell({ parts, params });
   const page = () => {
     const [kind, id, under] = parts;
-    if (!kind) return home(gen);
+    if (!kind) return home(gen, me.id);
     if ((kind === "shows" || kind === "anime" || kind === "movies") && !id) return kindPage(kind, params, gen);
     if (kind === "series" && !id) return oldSeriesList(params);
     if ((kind === "movies" || kind === "series") && /^\d+$/.test(id) && (!under || under === "extras" || under === "cast")) {

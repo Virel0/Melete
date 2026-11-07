@@ -137,6 +137,13 @@ section + section { margin-block-start: var(--space-7); }
 .files .path { overflow-wrap: anywhere; }
 .files .size { color: var(--muted); display: flex; gap: var(--space-4); }
 .files .size a { color: var(--text); }
+/* Cast and crew: each name after a small round picture of them, or their initials. */
+.credits li { align-items: center; }
+.credits .credit { display: inline-flex; align-items: center; gap: var(--space-3); text-decoration: none; }
+/* The name is underlined as a link; the picture or initials before it aren't. */
+.credits .credit-name { text-decoration: underline; }
+.avatar-credit { width: 2.75rem; height: 2.75rem; }
+.avatar-credit.avatar-none { font-size: var(--step--1); }
 
 .seasons,
 .tabs {

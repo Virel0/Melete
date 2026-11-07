@@ -245,6 +245,21 @@ main:focus { outline: none; }
   overflow: hidden;
 }
 .stage video { display: block; width: 100%; max-height: calc(100vh - 18rem); aspect-ratio: 16 / 9; }
+/* How far a jump went, over the picture on the side it went: right for forward, left for back. */
+.jump-flash {
+  position: absolute;
+  inset: 50% 12% auto auto;
+  translate: 0 -50%;
+  padding: var(--space-2) var(--space-4);
+  color: var(--stage-text);
+  background: color-mix(in srgb, var(--stage) 70%, transparent);
+  border-radius: 999px;
+  font-size: var(--step-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.jump-flash.back { inset: 50% auto auto 12%; }
 /* Seek-bar previews: a bar under the video, its picture above the place pointed at. */
 .scrub-wrap { position: relative; margin-block: var(--space-2) 0; }
 .scrub { display: block; width: 100%; margin: 0; accent-color: var(--accent); }

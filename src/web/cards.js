@@ -7,7 +7,9 @@ export function art(src) {
   return h("div", { class: "art" }, src ? h("img", { src, alt: "", loading: "lazy" }) : null);
 }
 
-export function titleCard(kind, item) {
+// A title's card in a grid, wearing `badge` ("New", "3 unwatched", from watch-tiles.js
+// badgeOf) over the poster's corner when one is given; read after the title and year.
+export function titleCard(kind, item, badge = null) {
   return h(
     "li",
     {},
@@ -17,6 +19,7 @@ export function titleCard(kind, item) {
       art(item.poster),
       h("div", { class: "title" }, item.title),
       item.year ? h("div", { class: "meta" }, String(item.year)) : null,
+      badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null,
     ),
   );
 }
