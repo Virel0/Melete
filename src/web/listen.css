@@ -252,3 +252,18 @@
 .hidden-list li { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto; align-items: center; }
 .hidden-list ~ .row-actions { margin-block-start: var(--space-3); }
 .hidden-group + .hidden-group { margin-block-start: var(--space-6); }
+
+/* Songs: genres, years and likes folded under the toolbar, and saving them as a collection. */
+.collection-filter { margin-block: var(--space-3); max-width: 48rem; }
+.collection-filter > summary { cursor: pointer; font-weight: 600; padding-block: var(--space-1); }
+.collection-genres { margin: var(--space-3) 0 0; padding: 0; border: 0; }
+.collection-genres legend { padding: 0; margin-block-end: var(--space-2); font-weight: 600; }
+.collection-genres ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); max-height: 12rem; overflow-y: auto; }
+.collection-genres li.check { margin: 0; }
+.collection-years { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-block: var(--space-3); }
+.collection-years input { width: 7rem; }
+.collection-save { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin-block-start: var(--space-3); }
+.collection-save .note { flex-basis: 100%; margin: 0; }
+.collection-save .note:empty { display: none; }
+.collection-saved h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.collection-list li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }

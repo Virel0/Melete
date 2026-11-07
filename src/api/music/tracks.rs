@@ -17,6 +17,11 @@ impl Liked {
                 .collect(),
         ))
     }
+
+    /// The ids, as a JSON array for `json_each`.
+    pub(in super::super) fn ids_json(&self) -> String {
+        json!(self.0).to_string()
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -197,12 +202,43 @@ pub(super) struct TrackQuery {
     /// Comma-separated artist ids: their albums' tracks, and the tracks crediting them.
     pub(super) artist_id: Option<String>,
     pub(super) genre: Option<String>,
+    /// Genres separated by semicolons: tracks of any of them (case-insensitive).
+    pub(super) genres: Option<String>,
+    /// The first and last year (the track's, else its album's), either end open.
+    pub(super) year_from: Option<i64>,
+    pub(super) year_to: Option<i64>,
+    /// `true`: only the tracks the caller likes.
+    pub(super) liked: Option<bool>,
     /// `album` (default: by artist, album, disc and number), `title`, `recent` or `random`.
     pub(super) sort: Option<String>,
     /// For `random`: the shuffle to page through, as the first page answered.
     pub(super) seed: Option<u32>,
     pub(super) limit: Option<i64>,
     pub(super) offset: Option<i64>,
+}
+
+/// A page of the tracks `ids` in a random order by `seed` (a new one when none is given),
+/// leaving out those `me` isn't interested in.
+async fn random_tracks(
+    pool: &SqlitePool,
+    me: i64,
+    ids: Vec<i64>,
+    seed: Option<u32>,
+    (limit, offset): (i64, i64),
+) -> Result<Json<Value>, ApiError> {
+    let flagged = crate::aoide::listening::not_interested(pool, me).await?;
+    let ids = ids
+        .into_iter()
+        .filter(|id| !flagged.contains(&id.to_string()))
+        .collect();
+    let seed = seed_or_new(seed);
+    let (total, page) = shuffled_page(ids, seed, limit, offset);
+    let found = track_values(pool, me, &page).await?;
+    Ok(Json(json!({
+        "total": total,
+        "seed": seed,
+        "items": page.iter().filter_map(|id| found.get(id)).collect::<Vec<_>>(),
+    })))
 }
 
 pub(super) async fn list_tracks(
@@ -214,6 +250,10 @@ pub(super) async fn list_tracks(
     let tracks = ids(query.id.as_deref(), "id")?;
     let albums = ids(query.album_id.as_deref(), "album_id")?;
     let artists = ids(query.artist_id.as_deref(), "artist_id")?;
+    let genres = genre_list(query.genres.as_deref())?;
+    let (year_from, year_to) = years(query.year_from, query.year_to)?;
+    let liked = Liked::of(&state.pool, current.user.id).await?;
+    let only_liked = (query.liked == Some(true)).then(|| liked.ids_json());
     let text = match query.q_in.as_deref().unwrap_or("all") {
         "all" => {
             "t.title LIKE ?1 ESCAPE '\\' OR t.artist LIKE ?1 ESCAPE '\\'
@@ -244,59 +284,53 @@ pub(super) async fn list_tracks(
                     AND ta.artist_id IN (SELECT value FROM json_each(?3))))
            AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(t.genres) g
                WHERE g.value = ?4 COLLATE NOCASE))
-           AND (?6 IS NULL OR t.id IN (SELECT value FROM json_each(?6)))",
+           AND (?6 IS NULL OR t.id IN (SELECT value FROM json_each(?6)))
+           AND (?7 IS NULL OR EXISTS (SELECT 1 FROM json_each(t.genres) g, json_each(?7) w
+               WHERE g.value = w.value COLLATE NOCASE))
+           AND (?8 IS NULL OR coalesce(t.year, a.year) >= ?8)
+           AND (?9 IS NULL OR coalesce(t.year, a.year) <= ?9)
+           AND (?10 IS NULL OR t.id IN (SELECT value FROM json_each(?10)))",
         current.access.track_sql("t"),
     );
     let q = pattern(query.q.as_deref());
     let folded = crate::search_keys::pattern(query.q.as_deref());
-    if order.is_empty() {
-        // Random: every track that fits but those the listener isn't interested in, shuffled.
-        let flagged = crate::aoide::listening::not_interested(&state.pool, current.user.id).await?;
-        let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT t.id {from}")))
-            .bind(&q)
-            .bind(&albums)
-            .bind(&artists)
-            .bind(&query.genre)
-            .bind(&folded)
-            .bind(&tracks)
-            .fetch_all(&state.pool)
-            .await?;
-        let ids = ids
-            .into_iter()
-            .filter(|id| !flagged.contains(&id.to_string()))
-            .collect();
-        let seed = seed_or_new(query.seed);
-        let (total, page) = shuffled_page(ids, seed, limit, offset);
-        let found = track_values(&state.pool, current.user.id, &page).await?;
-        return Ok(Json(json!({
-            "total": total,
-            "seed": seed,
-            "items": page.iter().filter_map(|id| found.get(id)).collect::<Vec<_>>(),
-        })));
+    // The filters, bound to each query in turn.
+    macro_rules! filtered {
+        ($query:expr) => {
+            $query
+                .bind(&q)
+                .bind(&albums)
+                .bind(&artists)
+                .bind(&query.genre)
+                .bind(&folded)
+                .bind(&tracks)
+                .bind(&genres)
+                .bind(year_from)
+                .bind(year_to)
+                .bind(&only_liked)
+        };
     }
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) {from}")))
-        .bind(&q)
-        .bind(&albums)
-        .bind(&artists)
-        .bind(&query.genre)
-        .bind(&folded)
-        .bind(&tracks)
-        .fetch_one(&state.pool)
+    if order.is_empty() {
+        let ids: Vec<i64> = filtered!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT t.id {from}"
+        ))))
+        .fetch_all(&state.pool)
         .await?;
-    let rows: Vec<TrackRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {TRACK_COLUMNS} {from} ORDER BY {order} LIMIT ?7 OFFSET ?8"
-    )))
-    .bind(&q)
-    .bind(&albums)
-    .bind(&artists)
-    .bind(&query.genre)
-    .bind(&folded)
-    .bind(&tracks)
+        let me = current.user.id;
+        return random_tracks(&state.pool, me, ids, query.seed, (limit, offset)).await;
+    }
+    let total: i64 = filtered!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) {from}"
+    ))))
+    .fetch_one(&state.pool)
+    .await?;
+    let rows: Vec<TrackRow> = filtered!(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {TRACK_COLUMNS} {from} ORDER BY {order} LIMIT ?11 OFFSET ?12"
+    ))))
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
-    let liked = Liked::of(&state.pool, current.user.id).await?;
     Ok(Json(json!({
         "total": total,
         "items": rows.iter().map(|r| r.to_json(&liked)).collect::<Vec<_>>(),

@@ -4,6 +4,7 @@
 
 import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
 import { genreFilter, pagedList } from "/web/music-list.js";
+import { KEYS, collectionFilter } from "/web/music-collections.js";
 import { albumCard, countedItem, markPlaying, songRow } from "/web/music-parts.js";
 import { trackActions } from "/web/music-actions.js";
 import { SHUFFLE_SONGS, looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.js";
@@ -65,6 +66,8 @@ function songActions() {
 export async function songList(params, ctx) {
   const filters = await genreFilter(ctx, "tracks");
   if (!ctx.current()) return;
+  // The library's genres, for the panel's boxes: as the Genre filter has them.
+  const genres = (filters[0]?.options ?? []).slice(1).map(([name]) => ({ name }));
   // The songs shown so far, so a song plays the list as it stands from there.
   const known = new Map();
   const list = h("ul", { class: "tracks songs" });
@@ -89,6 +92,7 @@ export async function songList(params, ctx) {
       list,
       filters,
       intro: songActions(),
+      panel: { keys: KEYS, make: (p, change) => collectionFilter(genres, p, change) },
     },
   );
   if (ctx.current()) markPlaying(list, ctx);

@@ -5498,6 +5498,34 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only albums with a track of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only albums from this year on; albums without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only albums up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the albums you like and those with a song you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -5532,7 +5560,7 @@
             "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicAlbumPage"}, {"$ref": "#/components/schemas/MusicAlbumShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5671,6 +5699,34 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks from this year on (the track's year, else its album's); tracks without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the tracks you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -5705,7 +5761,7 @@
             "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicTrackPage"}, {"$ref": "#/components/schemas/MusicTrackShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5800,6 +5856,81 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicHome"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/music/collections": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your collections",
+        "description": "Your saved song filters, by name: several genres, a span of years and only the songs you like, as `/music/tracks` takes them (`genres`, `year_from`, `year_to`, `liked`). Each user's are their own.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollections"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Save a collection",
+        "description": "Saves a song filter under a name of yours. Genres are trimmed, and empty ones and repeats (in any case) dropped. Up to 50 collections each.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                  "genres": {"type": "array", "maxItems": 50, "items": {"type": "string"}, "description": "Any of them; none for every genre. A genre has no semicolon."},
+                  "year_from": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "year_to": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "liked": {"type": "boolean", "default": false}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollection"}}}
+          },
+          "400": {
+            "description": "No name, nothing to filter by (no genre, year or liked), years out of order or range, or a genre with a semicolon",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "409": {
+            "description": "You have a collection of that name, or 50 already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/music/collections/{id}": {
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Delete a collection",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "204": {"description": "Deleted"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "None of yours with that id (someone else's is answered so too)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
         }
       }
     },
@@ -15818,6 +15949,28 @@
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "Up to 25, at most two from one album, in order."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicCollections": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicCollection"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicCollection": {
+        "type": "object",
+        "required": ["id", "name", "genres", "year_from", "year_to", "liked", "created_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string"},
+          "genres": {"type": "array", "items": {"type": "string"}},
+          "year_from": {"type": ["integer", "null"]},
+          "year_to": {"type": ["integer", "null"]},
+          "liked": {"type": "boolean"},
+          "created_at": {"type": "integer", "description": "Unix seconds."}
         },
         "additionalProperties": false
       },
