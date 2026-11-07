@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 163] = [
+const MODULES: [(&str, &str); 164] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -184,6 +184,10 @@ const MODULES: [(&str, &str); 163] = [
     (
         "music-playlist-share.js",
         include_str!("../web/music-playlist-share.js"),
+    ),
+    (
+        "music-smart-editor.js",
+        include_str!("../web/music-smart-editor.js"),
     ),
     ("music-parts.js", include_str!("../web/music-parts.js")),
     (
@@ -2066,6 +2070,25 @@ mod tests {
         ] {
             assert!(one.contains(part), "{part}");
         }
+    }
+
+    /// Smart playlists are made and their rules changed on the web, in the apps' format, with
+    /// what the rules give shown as they're edited; only the owner gets Edit rules.
+    #[test]
+    fn smart_rules_are_edited_with_a_live_preview() {
+        let editor = module("music-smart-editor.js");
+        for part in [
+            r#"api("/smart-playlists/songs", { method: "POST", body: { rules: current(), offset_minutes: -new Date().getTimezoneOffset() }, signal: mine.signal })"#,
+            "const out = { match: match.value, rules: [...list.children].map((row) => row.read()) };",
+            r#"const sortable = FIELDS.filter(([f]) => f !== "genre");"#,
+        ] {
+            assert!(editor.contains(part), "{part}");
+        }
+        let one = module("music-playlist.js");
+        assert!(one.contains(r#"p.mine && p.smart ? toggle("rules", "Edit rules") : null"#));
+        assert!(one.contains("api(`${path(p)}/rules`, { method: \"PUT\", body: { rules } })"));
+        let list = module("music-playlists.js");
+        assert!(list.contains(r#"api("/playlists", { method: "POST", body: { name, rules } })"#));
     }
 
     #[test]
