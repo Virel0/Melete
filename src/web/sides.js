@@ -67,6 +67,7 @@ function yoursEntries() {
     { name: "Liked albums", href: "#/music/liked-albums", here: section("liked-albums") },
     { name: "Replay", href: "#/music/replay", here: section("replay") },
     { name: "Playlists", href: "#/music/playlists", here: section("playlists") },
+    { name: "Hidden songs", href: "#/music/hidden", here: section("hidden") },
   ];
 }
 

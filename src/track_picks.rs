@@ -139,7 +139,7 @@ pub fn subtitle_tracks(media: Option<&MediaInfo>, sidecars: &[Sidecar]) -> Vec<S
             track: format!("s{}", s.index),
             language: s.language.as_deref().and_then(Language::parse),
             default: s.default,
-            forced: s.forced,
+            forced: s.counts_as_forced(),
             hearing_impaired: false,
             text: s.text,
         });

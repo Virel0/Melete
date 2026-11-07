@@ -1,7 +1,8 @@
 // Your playback preferences, which every app follows: whether the next episode starts by itself,
 // how long the countdown before it lasts, whether recaps, intros and previews are skipped by
-// themselves, and where the Watch home's hero plays trailers. And one this browser keeps: whether
-// those previews start with sound. A part of Your account.
+// themselves, and where the Watch home's hero plays trailers. And two this browser keeps: whether
+// those previews start with sound, and how far before where you stopped the player picks up. A
+// part of Your account.
 
 import { field, form, group } from "/web/forms.js";
 import { api, h } from "/web/lib.js";
@@ -32,6 +33,36 @@ function keepPreviewSound(on) {
   try {
     if (on) localStorage.setItem(PREVIEW_SOUND_KEY, "on");
     else localStorage.removeItem(PREVIEW_SOUND_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// How many seconds before where you stopped the player picks up, kept by this browser.
+const RESUME_KEY = "melete.resume-earlier";
+const RESUME_EARLIER = [
+  [0, "Where I stopped"],
+  [5, "5 seconds earlier"],
+  [10, "10 seconds earlier"],
+  [15, "15 seconds earlier"],
+  [30, "30 seconds earlier"],
+];
+
+// The seconds this browser keeps; none when it keeps nothing, or storage is turned off.
+export function resumeEarlier() {
+  try {
+    const kept = Number(localStorage.getItem(RESUME_KEY));
+    return RESUME_EARLIER.some(([seconds]) => seconds === kept) ? kept : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Keeps `seconds` in this browser; false when its storage is turned off.
+function keepResumeEarlier(seconds) {
+  try {
+    localStorage.setItem(RESUME_KEY, String(seconds));
     return true;
   } catch {
     return false;
@@ -79,7 +110,18 @@ export async function playbackGroup() {
     previewSound(),
     "Kept by this browser only. A browser lets sound start only after you've clicked or pressed a key on the page; until then previews start muted.",
   );
-  const saving = form([autoplay, countdown, skipping, trailers, sound], "Save playback", async () => {
+  const earlier = resumeEarlier();
+  const resume = field(
+    "resume-earlier",
+    "Pick up",
+    h(
+      "select",
+      {},
+      RESUME_EARLIER.map(([seconds, label]) => h("option", { value: seconds, selected: seconds === earlier }, label)),
+    ),
+    "Where a video you stopped starts again, so a sentence cut off isn't missed. Kept by this browser only.",
+  );
+  const saving = form([autoplay, countdown, skipping, trailers, sound, resume], "Save playback", async () => {
     const seconds = Number(countdown.input.value);
     if (!Number.isInteger(seconds) || seconds < MIN || seconds > MAX) {
       countdown.fail(`Enter a whole number of seconds from ${MIN} to ${MAX}.`);
@@ -93,7 +135,10 @@ export async function playbackGroup() {
     const said = kept.autoplay_next
       ? `Saved. The next episode starts after ${kept.countdown_seconds} seconds.`
       : "Saved. The next episode waits for you.";
-    return keepPreviewSound(sound.input.checked) ? said : `${said} This browser can't keep the previews' sound: its storage is turned off.`;
+    const lost = [];
+    if (!keepPreviewSound(sound.input.checked)) lost.push("the previews' sound");
+    if (!keepResumeEarlier(Number(resume.input.value))) lost.push("where to pick up");
+    return lost.length ? `${said} This browser can't keep ${lost.join(" or ")}: its storage is turned off.` : said;
   });
   return group("Playback", h("p", { class: "note" }, "Every app follows these, apart from what's kept by this browser only."), saving);
 }

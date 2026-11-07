@@ -53,14 +53,24 @@ function wrongColours(v) {
   return v.dolby_vision && v.dolby_vision.fallback === null;
 }
 
-// Whether the file takes more than the way in to the server allows (its `max_bitrate`): then
-// it plays only converted, which the server holds to the limit.
-function overLimit(info) {
-  const limit = info.max_bitrate;
+// Room left for the sound beside a conversion's video, as the server leaves it under a way in's
+// limit: AAC's most, for surround sound.
+const AUDIO_ALLOWANCE = 384_000;
+
+// Whether the file takes more than `limit` bits a second: the way in to the server's limit (its
+// `max_bitrate`, which the server holds a conversion to) or the viewer's quality limit. Over
+// either, it plays only converted. One whose rate can't be told counts as over.
+function overLimit(info, limit) {
   if (!limit) return false;
   const media = info.media;
   const bits = media?.bit_rate ?? (media?.duration_seconds ? (info.size * 8) / media.duration_seconds : null);
   return bits == null || bits > limit;
+}
+
+// The video bits a second a conversion is held to under the viewer's quality limit `quality`,
+// leaving room for the sound; null when there's no limit or the file is within it.
+function heldTo(info, quality) {
+  return overLimit(info, quality) ? Math.max(quality - AUDIO_ALLOWANCE, 100_000) : null;
 }
 
 // How to play the file with these choices: { direct: true } or a transcode request.
@@ -71,6 +81,7 @@ export function choose(info, choice) {
   const v = media.video[0];
   const defaultAudio = media.audio.find((a) => a.default) ?? media.audio[0];
   const audio = media.audio.find((a) => a.index === choice.audio) ?? defaultAudio;
+  const held = heldTo(info, choice.quality);
   const request = (codec) => ({
     video_codec: codec,
     ...(audio ? { audio_stream: audio.index } : {}),
@@ -78,8 +89,9 @@ export function choose(info, choice) {
     // An ASS/SSA track this browser can't draw: the server draws it in when it's styled.
     ...(choice.serverDraws ? { subtitle: choice.serverDraws, renders_ass: false } : {}),
     ...(choice.sound ? { audio_mode: choice.sound } : {}),
+    ...(held && codec !== "copy" ? { max_bitrate: held } : {}),
   });
-  if (choice.burn || choice.serverDraws || choice.fallback || !v || wrongColours(v) || overLimit(info)) return request("h264");
+  if (choice.burn || choice.serverDraws || choice.fallback || !v || wrongColours(v) || overLimit(info, info.max_bitrate) || held) return request("h264");
   const vc = videoCodec(v);
   const ac = audio ? AUDIO_CODECS[audio.codec] : null;
   const type = container(info);
@@ -100,9 +112,12 @@ export function choose(info, choice) {
 export function describe(mode) {
   if (mode.direct) return "Playing the original file.";
   const sound = SOUNDS.find((s) => s.mode === mode.audio_mode && s.mode);
-  const said = sound ? ` Sound: ${sound.label.toLowerCase()}.` : "";
+  // The viewer's quality limit, as they chose it (the request leaves room for the sound).
+  const within = mode.max_bitrate ? `${Math.round((mode.max_bitrate + AUDIO_ALLOWANCE) / 1e6)} Mbps` : null;
+  const said = `${within ? ` Within ${within}.` : ""}${sound ? ` Sound: ${sound.label.toLowerCase()}.` : ""}`;
   if (mode.burn_subtitle) return `Converting for this browser, with the subtitles drawn in.${said}`;
   if (mode.renders_ass === false) return `Converting for this browser, so styled subtitles can be drawn in.${said}`;
+  if (within) return `Converting to stay within ${within}.${sound ? ` Sound: ${sound.label.toLowerCase()}.` : ""}`;
   if (mode.video_codec === "copy") return `Playing the original video; the server converts the container and audio.${said}`;
   return `Converting for this browser.${said}`;
 }

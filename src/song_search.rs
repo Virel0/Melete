@@ -17,6 +17,7 @@ use crate::db::unix_now;
 use crate::library::AUDIO_EXTENSIONS;
 use crate::music_profiles::{self, MusicProfile};
 use crate::music_release::{self, MusicRelease};
+use crate::progress::Step;
 use crate::search::Refused;
 use crate::slskd::{self, File, Response};
 use crate::soulseek::{self, Fetch, Outcome, Source};
@@ -224,6 +225,18 @@ pub fn decide_all(
             (name, decision)
         })
         .collect()
+}
+
+/// Whether a wanted song needs nothing: it's in the library, or a download of it (or of the
+/// album fetched for it) is on its way.
+pub async fn taken(pool: &SqlitePool, wanted_song_id: i64) -> anyhow::Result<bool> {
+    let progress = crate::progress::of(pool, "song", wanted_song_id).await?;
+    Ok(progress.is_some_and(|p| {
+        matches!(
+            p.step,
+            Step::Downloading | Step::Transferring | Step::Importing | Step::InLibrary
+        )
+    }))
 }
 
 /// Searches Soulseek for a wanted song and stores what it found, decided on; returns the

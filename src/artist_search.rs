@@ -17,7 +17,7 @@ use crate::rss::Grabbed;
 use crate::{slskd, soulseek_downloads, torznab};
 
 /// Accepted releases tried, best first, for one album.
-const GRAB_TRIES: i64 = 3;
+const GRAB_TRIES: usize = 3;
 
 /// Runs go one after another: the scheduled ones share slskd and the indexers.
 static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -257,6 +257,23 @@ async fn run(
     })
 }
 
+/// A search's accepted results that aren't blocklisted, best first, as they're grabbed: each
+/// one's id, title, and Soulseek user (none for a torrent).
+pub(crate) async fn best_first(
+    pool: &SqlitePool,
+    search_id: i64,
+) -> sqlx::Result<Vec<(i64, String, Option<String>)>> {
+    sqlx::query_as(
+        "SELECT id, title, json_extract(soulseek, '$.username') FROM release_decisions
+         WHERE search_id = ? AND accepted = 1
+           AND lower(title) NOT IN (SELECT lower(title) FROM blocklist)
+         ORDER BY json_extract(decision, '$.rank') DESC NULLS LAST, seeders DESC NULLS LAST, id",
+    )
+    .bind(search_id)
+    .fetch_all(pool)
+    .await
+}
+
 /// Grabs the best accepted result of an album's search, trying the next when one can't be
 /// fetched; a torrent needs Deluge, a Soulseek result slskd.
 pub(crate) async fn grab_best(
@@ -265,19 +282,9 @@ pub(crate) async fn grab_best(
     search_id: i64,
     grabbed: &mut Vec<Grabbed>,
 ) -> anyhow::Result<()> {
-    let best: Vec<(i64, String, bool)> = sqlx::query_as(
-        "SELECT id, title, soulseek IS NOT NULL FROM release_decisions
-         WHERE search_id = ? AND accepted = 1
-           AND lower(title) NOT IN (SELECT lower(title) FROM blocklist)
-         ORDER BY json_extract(decision, '$.rank') DESC NULLS LAST, seeders DESC NULLS LAST, id
-         LIMIT ?",
-    )
-    .bind(search_id)
-    .bind(GRAB_TRIES)
-    .fetch_all(pool)
-    .await?;
-    for (release_id, title, soulseek) in best {
-        let outcome = match (soulseek, &sources.slskd, &sources.pipeline) {
+    let best = best_first(pool, search_id).await?;
+    for (release_id, title, user) in best.into_iter().take(GRAB_TRIES) {
+        let outcome = match (user.is_some(), &sources.slskd, &sources.pipeline) {
             (true, Some(slskd), _) => soulseek_downloads::grab(pool, slskd, release_id).await?,
             (true, None, _) => Err(Refused::Soulseek),
             (false, _, Some(pipeline)) => {

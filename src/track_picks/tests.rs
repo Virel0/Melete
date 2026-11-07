@@ -248,3 +248,76 @@ fn a_file_without_tracks_says_so() {
         (None, "no_tracks", "no_tracks")
     );
 }
+
+/// An embedded subtitle stream, flagged forced or not, with a title.
+fn embedded(index: i64, title: &str, forced: bool) -> crate::probe::SubtitleStream {
+    crate::probe::SubtitleStream {
+        index,
+        text: true,
+        codec: "ass".into(),
+        language: Some("eng".into()),
+        title: Some(title.into()),
+        default: false,
+        forced,
+    }
+}
+
+#[test]
+fn a_signs_and_songs_track_counts_as_forced_by_its_title() {
+    for title in [
+        "Signs & Songs",
+        "English [Signs/Songs]",
+        "Signs",
+        "S&S",
+        "Songs & Signs",
+    ] {
+        assert!(crate::probe::names_signs(Some(title)), "{title}");
+    }
+    for title in [
+        "English",
+        "Full Subtitles",
+        "Full + Signs",
+        "Dialogue & Signs",
+        "Songs",
+    ] {
+        assert!(!crate::probe::names_signs(Some(title)), "{title}");
+    }
+    assert!(!crate::probe::names_signs(None));
+}
+
+#[test]
+fn english_audio_picks_the_signs_track_and_japanese_audio_the_full_one() {
+    // An anime release: the English dub and the Japanese audio, full English subtitles and the
+    // signs and songs, named but not flagged forced.
+    let mut m = media(vec![
+        audio(1, Some("eng"), true),
+        audio(2, Some("jpn"), false),
+    ]);
+    m.subtitles = vec![
+        embedded(3, "English", false),
+        embedded(4, "English [Signs & Songs]", false),
+    ];
+    let subs = subtitle_tracks(Some(&m), &[]);
+    let english_first = prefs(&["eng", "jpn"], &["eng"], SubtitleMode::Foreign);
+    assert_eq!(
+        picked(&english_first, &SeriesChoice::default(), &m, &subs),
+        (Some(1), "preferred_language", Some("s4".into()), "forced")
+    );
+    let japanese_first = prefs(&["jpn", "eng"], &["eng"], SubtitleMode::Foreign);
+    assert_eq!(
+        picked(&japanese_first, &SeriesChoice::default(), &m, &subs),
+        (
+            Some(2),
+            "preferred_language",
+            Some("s3".into()),
+            "foreign_audio"
+        )
+    );
+    // A track the file flags forced still counts, whatever its title.
+    m.subtitles = vec![embedded(3, "English", false), embedded(4, "Forced", true)];
+    let subs = subtitle_tracks(Some(&m), &[]);
+    assert_eq!(
+        picked(&english_first, &SeriesChoice::default(), &m, &subs).2,
+        Some("s4".into())
+    );
+}

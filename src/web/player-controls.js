@@ -3,10 +3,12 @@
 // Settings), picture in picture and full screen. They fade out after a few seconds of nothing
 // while the video plays, and come back on any movement, touch or key; they stay while paused,
 // while a panel is open or while focus is on them. A click on the picture plays or pauses; on a
-// touch screen the first tap only brings them back. Waiting for the video shows a spinner.
+// touch screen the first tap only brings them back. Waiting for the video shows a spinner, and
+// each jump back or forward shows how far it went (player-jump.js).
 
 import { clock, h } from "/web/lib.js";
 import { icon } from "/web/music-controls.js";
+import { jump, jumpFlash } from "/web/player-jump.js";
 
 // Seconds the back and forward buttons move.
 const STEP = 10;
@@ -21,8 +23,8 @@ export function controlBar(video, stage, { seek, panels, fullscreen }) {
     h("button", { type: "button", class: `icon control ${extra}`.trim(), "aria-label": label, title: label, onclick }, icon(name));
   const play = control("play", "Play", () => toggle(video));
   // Not on a phone's narrow screen, where the row has room for the rest only.
-  const back = control("back", `Back ${STEP} seconds`, () => step(video, -STEP), "control-wide");
-  const ahead = control("forward", `Forward ${STEP} seconds`, () => step(video, STEP), "control-wide");
+  const back = control("back", `Back ${STEP} seconds`, () => jump(video, -STEP), "control-wide");
+  const ahead = control("forward", `Forward ${STEP} seconds`, () => jump(video, STEP), "control-wide");
   const mute = control("volume", "Mute", () => (video.muted = !video.muted));
   const volume = h("input", { type: "range", class: "volume", min: "0", max: "1", step: "0.05", value: String(video.volume), "aria-label": "Volume" });
   volume.addEventListener("input", () => {
@@ -34,11 +36,13 @@ export function controlBar(video, stage, { seek, panels, fullscreen }) {
   const screen = control("fullscreen", "Full screen", () => fullscreen()?.catch?.(() => {}));
   const big = h("button", { type: "button", class: "stage-play", "aria-label": "Play", onclick: () => toggle(video) }, icon("play"));
   const spinner = h("div", { class: "stage-waiting", role: "status", "aria-label": "Loading" });
+  const flash = jumpFlash(video);
   const el = h(
     "div",
     { class: "player-chrome" },
     big,
     spinner,
+    flash.el,
     h(
       "div",
       { class: "control-bar" },
@@ -109,6 +113,7 @@ export function controlBar(video, stage, { seek, panels, fullscreen }) {
   wake();
   const stop = () => {
     clearTimeout(timer);
+    flash.stop();
     document.removeEventListener("fullscreenchange", drawScreen);
     document.removeEventListener("keydown", wake);
   };
@@ -118,11 +123,6 @@ export function controlBar(video, stage, { seek, panels, fullscreen }) {
 function toggle(video) {
   if (video.paused) video.play().catch(() => {});
   else video.pause();
-}
-
-function step(video, seconds) {
-  const end = Number.isFinite(video.duration) ? video.duration : Infinity;
-  video.currentTime = Math.min(Math.max(video.currentTime + seconds, 0), end);
 }
 
 function pictureInPicture(video) {
