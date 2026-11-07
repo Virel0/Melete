@@ -25,6 +25,9 @@ pub struct MovieResult {
     /// Its poster's path on TMDB's image server, when it has one.
     #[serde(default)]
     pub poster_path: Option<String>,
+    /// A short summary of the plot, as TMDB's search answers it; None or empty without one.
+    #[serde(default)]
+    pub overview: Option<String>,
 }
 
 /// A series in TMDB's search or find results.
@@ -41,6 +44,9 @@ pub struct SeriesResult {
     /// Its poster's path on TMDB's image server, when it has one.
     #[serde(default)]
     pub poster_path: Option<String>,
+    /// A short summary, as TMDB's search answers it; None or empty without one.
+    #[serde(default)]
+    pub overview: Option<String>,
 }
 
 /// A page of a chart or list.

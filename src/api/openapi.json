@@ -652,6 +652,39 @@
         }
       }
     },
+    "/api/v1/auth/quick-connect/web-poll": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Ask whether a Quick Connect code was approved, for the web UI",
+        "description": "As `/auth/quick-connect/poll`, for a code the web UI started at `/auth/quick-connect`: the same five minutes, approval by someone signed in who looked it up, one use, and limits on codes waiting and lookups. Once the code is approved, the session token goes into the `melete_session` cookie exactly as `/auth/web-login` sets it, and the body carries only the user; the code is gone after that. Needs `X-Melete-Web: 1`, as a change signed in by the cookie does, which a page on another site can't send.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectPoll"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Approved: the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "202": {
+            "description": "Not approved yet",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectWaiting"}}}
+          },
+          "403": {
+            "description": "Without the `X-Melete-Web` header",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such code, or it ran out: start again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/auth/quick-connect/lookup": {
       "post": {
         "tags": ["Accounts"],
@@ -5498,11 +5531,46 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only albums with a track of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only albums from this year on; albums without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only albums up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the albums you like and those with a song you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first) or recent.",
-            "schema": {"enum": ["artist", "title", "year", "recent"], "default": "artist"}
+            "description": "artist (default), title (both with a leading \"The\", \"A\" or \"An\" aside), year (newest first), recent, or random (shuffled; page through it with `seed`).",
+            "schema": {"enum": ["artist", "title", "year", "recent", "random"], "default": "artist"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no album comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5521,11 +5589,11 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicAlbumPage"}}}
+            "description": "OK: a MusicAlbumPage, or with sort=random a MusicAlbumShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicAlbumPage"}, {"$ref": "#/components/schemas/MusicAlbumShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5664,11 +5732,46 @@
             "schema": {"type": "string"}
           },
           {
+            "name": "genres",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks of any of these genres, separated by semicolons (case-insensitive), up to 100.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "year_from",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks from this year on (the track's year, else its album's); tracks without a year are left out.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "year_to",
+            "in": "query",
+            "required": false,
+            "description": "Only tracks up to this year; at least `year_from`.",
+            "schema": {"type": "integer"}
+          },
+          {
+            "name": "liked",
+            "in": "query",
+            "required": false,
+            "description": "true: only the tracks you like.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "album (default: by artist, album, disc and number), title or recent.",
-            "schema": {"enum": ["album", "title", "recent"], "default": "album"}
+            "description": "album (default: by artist, album, disc and number), title, recent, or random: shuffled, leaving out the tracks you marked Not interested (page through it with `seed`).",
+            "schema": {"enum": ["album", "title", "recent", "random"], "default": "album"}
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "description": "With sort=random: which shuffle to page through. The first page answers the seed it used (one is chosen when none is given); asking for later pages with it continues the same order, so no track comes twice. Ignored with other sorts.",
+            "schema": {"type": "integer", "minimum": 0, "maximum": 4294967295}
           },
           {
             "name": "limit",
@@ -5687,11 +5790,11 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicTrackPage"}}}
+            "description": "OK: a MusicTrackPage, or with sort=random a MusicTrackShufflePage.",
+            "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/MusicTrackPage"}, {"$ref": "#/components/schemas/MusicTrackShufflePage"}]}}}
           },
           "400": {
-            "description": "Bad ids, sort, limit or offset",
+            "description": "Bad ids, genres, years, sort, seed, limit or offset",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
@@ -5786,6 +5889,145 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicHome"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/music/collections": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your collections",
+        "description": "Your saved song filters, by name: several genres, a span of years and only the songs you like, as `/music/tracks` takes them (`genres`, `year_from`, `year_to`, `liked`). Each user's are their own.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollections"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Save a collection",
+        "description": "Saves a song filter under a name of yours. Genres are trimmed, and empty ones and repeats (in any case) dropped. Up to 50 collections each.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                  "genres": {"type": "array", "maxItems": 50, "items": {"type": "string"}, "description": "Any of them; none for every genre. A genre has no semicolon."},
+                  "year_from": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "year_to": {"type": ["integer", "null"], "minimum": 1, "maximum": 9999},
+                  "liked": {"type": "boolean", "default": false}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCollection"}}}
+          },
+          "400": {
+            "description": "No name, nothing to filter by (no genre, year or liked), years out of order or range, or a genre with a semicolon",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "409": {
+            "description": "You have a collection of that name, or 50 already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/music/collections/{id}": {
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Delete a collection",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}],
+        "responses": {
+          "204": {"description": "Deleted"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "None of yours with that id (someone else's is answered so too)",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/music/recent": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "What you started lately",
+        "description": "For Home's Jump back in: the albums, playlists and stations (radio from a song) you started, recorded with PUT, the latest first, up to 20; each user's own. One you removed is left out until you start it again, and so is anything you can't see now (a library closed to you, a playlist no longer shared). `removed_albums` are the albums you removed, for leaving them out of what Home finds in your play history too.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicRecent"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/music/recent/{kind}/{item}": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Record that you started something",
+        "parameters": [
+          {"name": "kind", "in": "path", "required": true, "schema": {"enum": ["album", "playlist", "station"]}},
+          {"name": "item", "in": "path", "required": true, "description": "The album's id, the Aoide playlist's id, or the station's seed song's id.", "schema": {"type": "string"}}
+        ],
+        "description": "Records that you started this album, playlist or station now, bringing it back if you'd removed it. Only something you can see is recorded. The latest 50 are kept.",
+        "responses": {
+          "204": {"description": "Recorded"},
+          "400": {
+            "description": "A kind that isn't album, playlist or station",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No album, playlist or song of that id that you can see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Remove from Jump back in",
+        "parameters": [
+          {"name": "kind", "in": "path", "required": true, "schema": {"enum": ["album", "playlist", "station"]}},
+          {"name": "item", "in": "path", "required": true, "description": "The album's id, the Aoide playlist's id, or the station's seed song's id.", "schema": {"type": "string"}}
+        ],
+        "description": "Keeps it out of Jump back in until you start it again. An album is remembered as removed even when it was never recorded, so Home leaves it out of what it finds in your play history.",
+        "responses": {
+          "204": {"description": "Removed"},
+          "400": {
+            "description": "A kind that isn't album, playlist or station, or an album id that isn't a number",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "A playlist or station that isn't in your Jump back in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
         }
       }
     },
@@ -6655,7 +6897,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A track's lyrics",
-        "description": "From an .lrc file beside the track, else the track's own tags, else LRCLIB when lyrics are turned on (its title, artist, album and length leave the server, once per track; the answer is kept, and a track LRCLIB has nothing for is asked about again after 30 days or when its file changes). Synced lyrics come with each line's start; plain ones without. With `translate`, each line comes with its translation through LibreTranslate, when it's set up: the song's lines (each once, without empty ones) and the language leave the server to the LibreTranslate set up, once per song and language; the translation is kept, and made afresh when the lyrics change. With `pronounce`, each line comes with its pronunciation in Latin letters, when the household has turned it on (MELETE_LYRICS_ROMANISATION): Japanese in Hepburn, kanji read in context with a built-in dictionary (Chinese characters only in lyrics that have kana, so a song in Chinese alone gets none), Korean hangul in the Revised Romanization syllable by syllable, Cyrillic letter by letter. Worked out on the server; nothing leaves it.",
+        "description": "From an .lrc file beside the track, else the track's own tags, else LRCLIB when lyrics are turned on (its title, artist, album and length leave the server, once per track; the answer is kept, and a track LRCLIB has nothing for is asked about again after 30 days or when its file changes). Synced lyrics come with each line's start; plain ones without. With `translate`, each line comes with its translation through LibreTranslate, when it's set up: the song's lines (each once, without empty ones) and the language leave the server to the LibreTranslate set up, once per song and language; the translation is kept, and made afresh when the lyrics change. With `pronounce`, each line comes with its pronunciation in Latin letters, when the household has turned it on (MELETE_LYRICS_ROMANISATION): Japanese in Hepburn, kanji read in context with a built-in dictionary (Chinese characters only in lyrics that have kana, so a song in Chinese alone gets none), Korean hangul in the Revised Romanization syllable by syllable, Cyrillic letter by letter; and, for a line with kanji in Japanese lyrics, the readings over them (`ruby`), from the same dictionary. Worked out on the server; nothing leaves it.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Track id.", "schema": {"type": "integer"}},
           {
@@ -7083,6 +7325,144 @@
         }
       }
     },
+    "/api/v1/playlists/folders": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your playlist folders",
+        "description": "Your folders as your Aoide devices hold them, in their order, each with its parent (null at the top) and how many of your playlists are filed directly in it. Folders are each user's own; a playlist names its folder in `folder_id`.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/PlaylistFolder"}}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Make a playlist folder",
+        "description": "A new folder, at the top or in `parent_id`, after every other. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {"type": "string", "description": "1 to 200 characters, trimmed."},
+                  "parent_id": {"type": ["string", "null"], "description": "The folder to make it in; the top when left out."}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The folder",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistFolder"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such parent folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/playlists/folders/{id}": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Rename a playlist folder",
+        "description": "Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The folder's id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "description": "1 to 200 characters, trimmed."}},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The folder",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistFolder"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Delete a playlist folder",
+        "description": "Deletes no playlist: the folders and your playlists in it move up to where it was, as a device deletes one. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices apply it on their next pull. Folders are each user's own: no one else sees yours.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The folder's id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "204": {"description": "Deleted"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such folder of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/playlists/{id}": {
       "get": {
         "tags": ["Music"],
@@ -7115,8 +7495,8 @@
         "tags": ["Music"],
         "x-melete-access": "user",
         "x-melete-scope": "full",
-        "summary": "Rename a playlist, or change its notes",
-        "description": "Changes only what's given: `name`, and `notes` (null or empty clears them). Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "summary": "Rename a playlist, change its notes, or file it in a folder",
+        "description": "Changes only what's given: `name`, `notes` (null or empty clears them), and `folder_id`. Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7137,6 +7517,10 @@
                   "notes": {
                     "type": ["string", "null"],
                     "description": "Up to 2000 characters; null or empty clears them."
+                  },
+                  "folder_id": {
+                    "type": ["string", "null"],
+                    "description": "Files it in one of your folders, or at the top with null, at the end there. Your own playlists only; a smart one is filed here too, though not renamed."
                   }
                 },
                 "additionalProperties": false
@@ -7338,6 +7722,110 @@
           },
           "404": {
             "description": "No such playlist, or a track that isn't in the library",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "A smart playlist, or one whose order leaves no room there",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
+    "/api/v1/playlists/{id}/songs": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "A smart playlist's songs",
+        "description": "Its rules (the `smartRules` its row carries, in the Aoide apps' format) worked out now for you, the listener: against the library's present songs and your own likes, Not interested flags and listens (`music_plays`, from every device and the web), as the Aoide apps work them out, so every app gets the same songs. A song you marked Not interested is never one of them. Fields: title, artist (the credited artists joined with \", \", else the album's artist), album, album_artist, genre (any one of them), year, duration_ms, play_count, skip_count, last_played, first_played, liked. A play is a listen that reached the end, or ended unskipped after half the track or four minutes, whichever is less; a skip one that didn't reach the end and was skipped, or ended inside the first fifth. Ties in the order go by track id, so a limit always takes the same songs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "offset_minutes",
+            "in": "query",
+            "required": false,
+            "description": "Your offset from UTC in minutes (-840 to 840), so spans of months and years count on your calendar, as the apps count them in the device's own zone. UTC when left out.",
+            "schema": {"type": "integer", "minimum": -840, "maximum": 840}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Its songs, in its order",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SmartPlaylistSongs"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, a deleted one, or one that's neither yours nor shared with you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Not a smart playlist (a hand-made one's songs are its items), or rules that can't be worked out, saying why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/playlists/{id}/waiting": {
+      "post": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Add a song the library doesn't have yet",
+        "description": "Adds a song by your own song request for it, at `index` or at the end: it waits in the playlist as an item with `pending` set, on that request, until its song is in the library, when Melete swaps its track in, as for an imported playlist. A song the library has by now goes in as its track at once. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull. Only the playlist's owner adds one here, and a smart playlist is edited on the devices.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["request_id"],
+                "properties": {
+                  "request_id": {"type": "integer", "description": "A song request of yours (POST /api/v1/requests)."},
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Where it goes; the end when left out or past it."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The playlist as it is now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PlaylistDetail"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Not your playlist (shared with you, to edit or to listen); or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, or no such song request of yours",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
@@ -11508,7 +11996,7 @@
             "description": "Soulseek's songs, closest first",
             "content": {
               "application/json": {
-                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}}
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}}
               }
             }
           },
@@ -15533,7 +16021,9 @@
           "mb_release_id",
           "mb_release_group_id",
           "mb_artist_id",
-          "match_status"
+          "match_status",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -15569,7 +16059,19 @@
             "type": ["string", "null"],
             "enum": ["matched", "unmatched", "ambiguous", null],
             "description": "How MusicBrainz matching went; null until tried, or with matching off."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
+        },
+        "additionalProperties": false
+      },
+      "MusicAlbumShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicAlbum"}}
         },
         "additionalProperties": false
       },
@@ -15676,6 +16178,16 @@
             "items": {"$ref": "#/components/schemas/MusicTrackArtist"},
             "description": "Its artists in credit order (a featured artist after the main one), each an artist of `/music/artists`: from MusicBrainz's credit on the matched release, else the artists its tags list apart (ARTISTS, several artist values) with one MusicBrainz id each, else its artist string whole. A name is never split on \"/\", \";\", \",\" or \"&\"; \"A feat. B\" is split only when its parts match its MusicBrainz artist ids or are artists known on their own. A track with no artist tag is its album artist's. Worked out after each scan and match, so empty for a moment after a track first appears."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicTrackShufflePage": {
+        "type": "object",
+        "required": ["total", "seed", "items"],
+        "properties": {
+          "total": {"type": "integer"},
+          "seed": {"type": "integer", "description": "The shuffle's seed, to ask for the next page with."},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
         },
         "additionalProperties": false
       },
@@ -15822,6 +16334,50 @@
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "Up to 25, at most two from one album, in order."
           }
+        },
+        "additionalProperties": false
+      },
+      "MusicCollections": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicCollection"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicCollection": {
+        "type": "object",
+        "required": ["id", "name", "genres", "year_from", "year_to", "liked", "created_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string"},
+          "genres": {"type": "array", "items": {"type": "string"}},
+          "year_from": {"type": ["integer", "null"]},
+          "year_to": {"type": ["integer", "null"]},
+          "liked": {"type": "boolean"},
+          "created_at": {"type": "integer", "description": "Unix seconds."}
+        },
+        "additionalProperties": false
+      },
+      "MusicRecent": {
+        "type": "object",
+        "required": ["items", "removed_albums"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicRecentEntry"}},
+          "removed_albums": {"type": "array", "items": {"type": "integer"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicRecentEntry": {
+        "type": "object",
+        "required": ["kind", "id", "played_at", "album", "playlist", "track"],
+        "properties": {
+          "kind": {"enum": ["album", "playlist", "station"]},
+          "id": {"type": "string"},
+          "played_at": {"type": "integer", "description": "Unix seconds."},
+          "album": {"anyOf": [{"$ref": "#/components/schemas/MusicAlbum"}, {"type": "null"}], "description": "For an album."},
+          "playlist": {"anyOf": [{"$ref": "#/components/schemas/Playlist"}, {"type": "null"}], "description": "For a playlist."},
+          "track": {"anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}], "description": "For a station: the song it's radio from."}
         },
         "additionalProperties": false
       },
@@ -15974,7 +16530,9 @@
           "genres",
           "release",
           "track_list",
-          "liked"
+          "liked",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -16022,7 +16580,9 @@
             "type": "array",
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "By disc and number."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
         },
         "additionalProperties": false
       },
@@ -16636,13 +17196,30 @@
       },
       "MusicPronouncedLyricLine": {
         "type": "object",
-        "required": ["start_seconds", "text", "pronunciation"],
+        "required": ["start_seconds", "text", "pronunciation", "ruby"],
         "properties": {
           "start_seconds": {"type": ["number", "null"], "description": "When the line starts; null for plain lyrics."},
           "text": {"type": "string"},
           "pronunciation": {
             "type": ["string", "null"],
             "description": "The line in Latin letters; null when it has nothing to romanise (already Latin, or Chinese alone)."
+          },
+          "ruby": {
+            "type": ["array", "null"],
+            "items": {"$ref": "#/components/schemas/MusicRubyPiece"},
+            "description": "The line in pieces that join up into its text, each run of kanji with its reading in hiragana (furigana), for drawing with ruby; the kana written in a word stay as they are. Null when the line has no kanji, or the lyrics aren't Japanese (no kana anywhere in them)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MusicRubyPiece": {
+        "type": "object",
+        "required": ["text", "reading"],
+        "properties": {
+          "text": {"type": "string", "description": "Part of the line as written."},
+          "reading": {
+            "type": ["string", "null"],
+            "description": "How the kanji in `text` are read, in hiragana; null for anything else (kana, Latin letters, spaces), and for kanji the dictionary doesn't know."
           }
         },
         "additionalProperties": false
@@ -16664,7 +17241,7 @@
       },
       "MusicTranslatedPronouncedLyricLine": {
         "type": "object",
-        "required": ["start_seconds", "text", "translation", "pronunciation"],
+        "required": ["start_seconds", "text", "translation", "pronunciation", "ruby"],
         "properties": {
           "start_seconds": {"type": ["number", "null"], "description": "When the line starts; null for plain lyrics."},
           "text": {"type": "string"},
@@ -16675,6 +17252,11 @@
           "pronunciation": {
             "type": ["string", "null"],
             "description": "The line in Latin letters; null when it has nothing to romanise (already Latin, or Chinese alone)."
+          },
+          "ruby": {
+            "type": ["array", "null"],
+            "items": {"$ref": "#/components/schemas/MusicRubyPiece"},
+            "description": "The line in pieces that join up into its text, each run of kanji with its reading in hiragana (furigana), for drawing with ruby; the kana written in a word stay as they are. Null when the line has no kanji, or the lyrics aren't Japanese (no kana anywhere in them)."
           }
         },
         "additionalProperties": false
@@ -17634,7 +18216,7 @@
         "type": "object",
         "required": ["songs", "albums"],
         "properties": {
-          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
+          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
           "albums": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekAlbum"}, "description": "The albums given that Soulseek's users share, in the order given."}
         },
         "additionalProperties": false
@@ -17652,6 +18234,71 @@
       },
       "RequestCandidate": {
         "type": "object",
+        "required": [
+          "kind",
+          "tmdb_id",
+          "mb_artist_id",
+          "mb_release_group_id",
+          "mb_recording_id",
+          "title",
+          "year",
+          "artist",
+          "detail",
+          "overview",
+          "in_library",
+          "wanted",
+          "requested",
+          "poster",
+          "closeness"
+        ],
+        "properties": {
+          "kind": {"type": "string", "enum": ["movie", "series", "artist", "album", "song"]},
+          "tmdb_id": {"type": ["integer", "null"], "description": "A movie's or series'; ask for it with this."},
+          "mb_artist_id": {
+            "type": ["string", "null"],
+            "description": "An artist's, and an album's or song's first artist."
+          },
+          "mb_release_group_id": {"type": ["string", "null"], "description": "An album's; ask for it with this."},
+          "mb_recording_id": {"type": ["string", "null"], "description": "A song's; ask for it with this."},
+          "title": {"type": "string", "description": "The title, or an artist's name."},
+          "year": {"type": ["integer", "null"]},
+          "artist": {"type": ["string", "null"], "description": "An album's or song's artists, as credited."},
+          "detail": {
+            "type": ["string", "null"],
+            "description": "What tells it from others of the name: an original title, an artist's kind and country, an album's type, the album a song is on and its length."
+          },
+          "overview": {
+            "type": ["string", "null"],
+            "description": "A movie's or series' summary, from the same TMDB search answer that found it, so nothing more is asked of TMDB; null for music, and when TMDB has none."
+          },
+          "in_library": {
+            "type": "boolean",
+            "description": "Already on disk, in a library you may see: an album, song or artist only in a music library hidden from you is false."
+          },
+          "wanted": {
+            "type": "boolean",
+            "description": "On the wanted list and looked out for (a whole artist only when followed for new releases)."
+          },
+          "requested": {
+            "type": ["integer", "null"],
+            "description": "Your request for it still open (asked for or approved): its id."
+          },
+          "poster": {
+            "type": ["string", "null"],
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+          },
+          "closeness": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How close its title and artist are to the words searched, 100 for what was typed whole. Each typed word counts in full when it's one of the title's or artist's words and half when it starts one, worth 60 together; the share of the title's words that were typed is worth 40. The same measure for MusicBrainz's songs and Soulseek's (`GET /api/v1/requests/soulseek/candidates`), so the two can be ranked in one list."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekCandidate": {
+        "type": "object",
+        "description": "A song on Soulseek as a search result: a `RequestCandidate` without `overview`, which only movies and series have.",
         "required": [
           "kind",
           "tmdb_id",
@@ -17994,6 +18641,30 @@
         },
         "additionalProperties": false
       },
+      "SmartPlaylistSongs": {
+        "type": "object",
+        "required": ["id", "rules", "tracks"],
+        "properties": {
+          "id": {"type": "string", "description": "Aoide's playlist id."},
+          "rules": {
+            "type": "object",
+            "description": "The rules as worked out, as the apps write them: `match` (all or any), `rules` ([{field, op, value}]), and `sort` ({field, dir}) and `limit` when it has them. Operators written as symbols (>=, <=…) come back by name."
+          },
+          "tracks": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
+        },
+        "additionalProperties": false
+      },
+      "PlaylistFolder": {
+        "type": "object",
+        "required": ["id", "name", "parent_id", "playlists"],
+        "properties": {
+          "id": {"type": "string", "description": "Aoide's folder id."},
+          "name": {"type": "string"},
+          "parent_id": {"type": ["string", "null"], "description": "The folder it's in; null at the top."},
+          "playlists": {"type": "integer", "description": "How many of your playlists are filed directly in it."}
+        },
+        "additionalProperties": false
+      },
       "Playlist": {
         "type": "object",
         "required": [
@@ -18001,6 +18672,7 @@
           "name",
           "notes",
           "folder",
+          "folder_id",
           "smart",
           "image_url",
           "owner",
@@ -18017,9 +18689,13 @@
             "type": ["string", "null"],
             "description": "The folder it's in, for its owner only (folders are each user's own)."
           },
+          "folder_id": {
+            "type": ["string", "null"],
+            "description": "That folder's id (GET /api/v1/playlists/folders), for its owner only."
+          },
           "smart": {
             "type": "boolean",
-            "description": "A smart playlist: its tracks are worked out on the devices from its rules, so it lists none here."
+            "description": "A smart playlist: its songs are worked out from its rules, so it lists no items; GET /api/v1/playlists/{id}/songs gives them."
           },
           "image_url": {
             "type": ["string", "null"],
@@ -18091,6 +18767,7 @@
           "name",
           "notes",
           "folder",
+          "folder_id",
           "smart",
           "image_url",
           "owner",
@@ -18108,9 +18785,13 @@
             "type": ["string", "null"],
             "description": "The folder it's in, for its owner only (folders are each user's own)."
           },
+          "folder_id": {
+            "type": ["string", "null"],
+            "description": "That folder's id (GET /api/v1/playlists/folders), for its owner only."
+          },
           "smart": {
             "type": "boolean",
-            "description": "A smart playlist: its tracks are worked out on the devices from its rules, so it lists none here."
+            "description": "A smart playlist: its songs are worked out from its rules, so it lists no items; GET /api/v1/playlists/{id}/songs gives them."
           },
           "image_url": {
             "type": ["string", "null"],

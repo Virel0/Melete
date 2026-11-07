@@ -12,8 +12,12 @@ import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.
 import { forgetExtras } from "/web/music-extras.js";
 import { forgetSaved, startSaved } from "/web/music-saved.js";
 import { musicPage } from "/web/music.js";
+import "/web/tab-title.js";
+import "/web/music-keys.js";
 import { setMusicAccess } from "/web/music-access.js";
+import { startTogether } from "/web/music-together.js";
 import { codeStep } from "/web/two-factor.js";
+import { codeSignIn } from "/web/sign-in-code.js";
 import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
@@ -66,7 +70,12 @@ function deviceName() {
 // The pages come back here through page-state.js's signIn.
 setSignIn(signIn);
 
+// Signing in with a code (sign-in-code.js), while its code waits to be approved.
+let codeWaiting = null;
+
 function signIn(message) {
+  codeWaiting?.stop();
+  codeWaiting = null;
   // Its stream links stop working with the session anyway.
   stopPlayer();
   // No private listening, sleep timer or kept queue carries over to whoever signs in next.
@@ -120,7 +129,7 @@ function signIn(message) {
         form.replaceWith(step.form);
         // What the password form said ("Signed out.") is past; so is the provider's button.
         said?.remove();
-        otherWay.hidden = true;
+        otherWay.hidden = codeWay.hidden = true;
         return step.focus();
       }
       error.textContent = err.status === 401 ? "Wrong username or password." : err.message;
@@ -133,17 +142,16 @@ function signIn(message) {
   });
   const otherWay = h("div", { class: "other-way" });
   const said = message ? h("p", { class: "status", role: "status" }, message) : null;
-  show(
-    "Sign in",
-    h(
-      "div",
-      { class: "sign-in" },
-      h("h1", {}, "Melete"),
-      said,
-      form,
-      otherWay,
-    ),
-  );
+  // A code approved on another device, for a browser without a keyboard to speak of (a TV's).
+  const withCode = h("button", { type: "button", class: "quiet" }, "Sign in with a code");
+  const codeWay = h("div", { class: "other-way" }, withCode);
+  const box = h("div", { class: "sign-in" }, h("h1", {}, "Melete"), said, form, otherWay, codeWay);
+  withCode.addEventListener("click", () => {
+    codeWaiting = codeSignIn({ deviceName: deviceName(), signedIn: startSession, back: () => signIn(null) });
+    box.replaceChildren(h("h1", {}, "Melete"), codeWaiting.el);
+    codeWaiting.focus();
+  });
+  show("Sign in", box);
   username.focus();
   providerButton(otherWay, error);
 }
@@ -196,6 +204,7 @@ function startSession(user) {
   startPlayer({ onSignedOut: () => signIn("Your session ended. Sign in again.") });
   startSaved(user);
   startBar();
+  startTogether(user);
   render();
 }
 

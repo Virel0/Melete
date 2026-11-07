@@ -27,19 +27,25 @@ export function playlistTrouble(err) {
 }
 
 // The picker for `trackIds`; `what` names them ("Harbour Lights", "this album") in what it says.
-export function playlistPicker(trackIds, what) {
+// With `waiting`, a song request of the caller's in place of tracks: the song goes in to wait
+// until it's in the library.
+export function playlistPicker(trackIds, what, { waiting } = {}) {
   const id = `pick-${++made}`;
   const said = h("p", { class: "note", role: "status" });
   const body = h("div", { class: "picker-body" }, placeholders("your playlists", { kind: "lines", count: 3 }));
   const box = h("div", { class: "playlist-picker", role: "group", "aria-label": `Add ${what} to a playlist` }, body, said);
-  const songs = plural(trackIds.length, "song", "songs");
+  const songs = waiting ? what : plural(trackIds.length, "song", "songs");
+  const addTo = (playlist) =>
+    waiting
+      ? api(`/playlists/${encodeURIComponent(playlist.id)}/waiting`, { method: "POST", body: { request_id: waiting } })
+      : api(`/playlists/${encodeURIComponent(playlist.id)}/items`, { method: "POST", body: { track_ids: trackIds } });
 
   const add = async (button, playlist) => {
     if (!hold(button)) return;
     said.textContent = "";
     try {
-      await api(`/playlists/${encodeURIComponent(playlist.id)}/items`, { method: "POST", body: { track_ids: trackIds } });
-      said.textContent = `Added ${what} to ${playlist.name}.`;
+      await addTo(playlist);
+      said.textContent = waiting ? `Added ${what} to ${playlist.name}; it waits there until it's in the library.` : `Added ${what} to ${playlist.name}.`;
       playlistsChanged();
     } catch (err) {
       if (err instanceof SignedOut) throw err;
@@ -61,7 +67,7 @@ export function playlistPicker(trackIds, what) {
     said.textContent = "";
     try {
       const playlist = await api("/playlists", { method: "POST", body: { name } });
-      await api(`/playlists/${encodeURIComponent(playlist.id)}/items`, { method: "POST", body: { track_ids: trackIds } });
+      await addTo(playlist);
       said.textContent = `Made ${playlist.name} and added ${what} to it.`;
       input.value = "";
       playlistsChanged();

@@ -65,6 +65,25 @@ mod tests {
     use crate::db;
     use crate::musicbrainz::testing::{self, PARANOID_ANDROID, PARANOID_ISRC};
 
+    /// The web reads a file before importing it, to show what the library has of it: by the
+    /// same column names, in the same order, and to the same length.
+    #[test]
+    fn the_web_reads_a_file_by_the_same_columns() {
+        let web = include_str!("web/requests-import-preview.js");
+        for (name, names) in [
+            ("TITLE", reading::TITLE),
+            ("ARTIST", reading::ARTIST),
+            ("ALBUM", reading::ALBUM),
+            ("LENGTH", reading::LENGTH),
+            ("ISRC", reading::ISRC),
+        ] {
+            let quoted: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
+            let line = format!("const {name} = [{}];", quoted.join(", "));
+            assert!(web.contains(&line), "{line}");
+        }
+        assert!(web.contains(&format!("const MAX_TRACKS = {MAX_TRACKS};")));
+    }
+
     #[test]
     fn reads_exportify_and_other_exporters_files() {
         let csv = "\u{feff}\"Track URI\",\"Track Name\",\"Artist Name(s)\",\"Album Name\",\"Track Duration (ms)\",\"ISRC\"\r\n\
