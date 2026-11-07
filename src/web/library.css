@@ -12,6 +12,21 @@
 .sign-in input { width: 100%; }
 .sign-in button { width: 100%; margin-block-start: var(--space-2); }
 .sign-in .other-way { margin-block-start: var(--space-5); text-align: center; }
+.sign-in .other-way + .other-way { margin-block-start: var(--space-2); }
+/* Signing in with a code: the code large enough to read across a room, in two halves. */
+.code-sign-in h2 { margin-block-end: var(--space-3); }
+.code-sign-in p { margin: 0 0 var(--space-3); }
+.quick-code {
+  font-family: ui-monospace, monospace;
+  font-size: var(--step-4);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
 
 /* Sections and title grids */
 section + section { margin-block-start: var(--space-7); }
@@ -233,9 +248,9 @@ section + section { margin-block-start: var(--space-7); }
 .album-tracks { margin-block-start: var(--space-6); max-width: 48rem; }
 /* Home: a row per kind, the mixes each with their tracks. */
 .home-row { margin-block-start: var(--space-6); }
-/* An artist's page: the albums they appear on, under their own. */
-.appears-on { margin-block-start: var(--space-6); }
-.appears-on h2 { margin-block-end: var(--space-3); }
+/* An artist's page: their albums by kind, and the albums they appear on, under their own. */
+.appears-on, .album-kind { margin-block-start: var(--space-6); }
+.appears-on h2, .album-kind h2 { margin-block-end: var(--space-3); }
 .home-row .tracks, .home-row .mix { max-width: 48rem; }
 .mix { margin-block-start: var(--space-5); }
 .mix h3 { margin-block-end: var(--space-1); }

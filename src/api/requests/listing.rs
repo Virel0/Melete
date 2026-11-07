@@ -66,12 +66,12 @@ pub(super) async fn soulseek_found(
 }
 
 /// Movies and series on TMDB, music on MusicBrainz, each marked in the library, wanted, or
-/// asked for already.
+/// asked for already; a movie or series with its summary from the same TMDB answer.
 pub(super) async fn search(
     State(state): State<RequestState>,
     Extension(current): Extension<CurrentUser>,
     Query(query): Query<SearchQuery>,
-) -> Result<Json<Vec<Candidate>>, ApiError> {
+) -> Result<Json<Vec<request_search::Found>>, ApiError> {
     let found = request_search::search(
         &state.pool,
         state.sources.tmdb.as_deref(),
@@ -109,7 +109,8 @@ pub(super) async fn search(
             candidate.poster = url.as_str().map(str::to_owned);
         }
         if keep {
-            shown.push(request_search::as_seen_by(&state.pool, &current.access, candidate).await?);
+            let seen = request_search::as_seen_by(&state.pool, &current.access, candidate).await?;
+            shown.push(seen.into());
         }
     }
     Ok(Json(shown))

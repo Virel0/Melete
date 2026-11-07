@@ -8,7 +8,7 @@
 import { SignedOut, api, h, show } from "/web/lib.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import * as queue from "/web/music-queue.js";
-import { albumQueue, looseQueue, play } from "/web/music-play.js";
+import { albumQueue, looseQueue, play, remember } from "/web/music-play.js";
 import { cover } from "/web/music-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
 
@@ -32,6 +32,7 @@ function recentlyPlayed() {
 export async function startRadio(seed) {
   const next = await api("/aoide/next", { method: "POST", body: { seed: String(seed.id), recent: recentlyPlayed(), limit: SONGS } });
   const ids = next.candidates.map((c) => c.id);
+  remember("station", seed.id);
   if (!ids.length) {
     play([seed]);
     return 0;
