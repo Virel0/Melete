@@ -569,6 +569,14 @@ mod openapi {
     }
 
     #[tokio::test]
+    async fn discovery_status_carries_exactly_the_documented_fields() {
+        let (pool, app, _artwork) = full_server().await;
+        let get = user_get(&pool, &app).await;
+        let status = get("/api/v1/discover/status".into()).await;
+        assert_shape(&spec(), "DiscoveryStatus", &status);
+    }
+
+    #[tokio::test]
     async fn next_up_carries_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
         let get = user_get(&pool, &app).await;
