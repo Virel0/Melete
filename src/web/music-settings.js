@@ -1,0 +1,95 @@
+// How this browser plays music, kept by the browser only (as each Aoide device keeps its own):
+// Crossfade, off by default, Keep albums whole, Level volume and Trim silence, on, the apps'
+// defaults. A part of Your account; the player reads the first two at each hand-over, so a
+// change counts from the next song, and Level volume at once. Then the sound's extras
+// (music-sound-fields.js): the equaliser, the compressor and the output device, off or the
+// system's unless chosen, and the visualizer, on; each counts at once.
+//
+// listening(name) is a choice as kept; choose(name, value) keeps one and says so with a
+// `melete:listening` event.
+
+import { group } from "/web/forms.js";
+import { h } from "/web/lib.js";
+import { soundFields } from "/web/music-sound-fields.js";
+
+const KEY = "melete.listening";
+// The hand-over's choices, and the sound's.
+const DEFAULTS = { crossfade: false, keepAlbums: true };
+const SOUND = { levelVolume: true, trimSilence: true };
+const EXTRAS = { eq: "Off", eqGains: [], compressor: false, visualizer: true, output: "" };
+
+function read() {
+  try {
+    const kept = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    return { ...DEFAULTS, ...SOUND, ...(kept && typeof kept === "object" ? kept : {}) };
+  } catch {
+    return { ...DEFAULTS, ...SOUND };
+  }
+}
+
+let choices = read();
+
+export const listening = (name) => choices[name] ?? EXTRAS[name];
+
+// Keeps a choice; false when this browser's storage is turned off (it holds until a reload).
+export function choose(name, value) {
+  choices = { ...choices, [name]: value };
+  document.dispatchEvent(new CustomEvent("melete:listening", { detail: { name, value } }));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(choices));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A box that keeps its choice the moment it changes, and says so in `said`.
+function checkbox(name, label, hint, said) {
+  const id = `listening-${name}`;
+  const input = h("input", { type: "checkbox", id, checked: listening(name), "aria-describedby": `${id}-hint` });
+  input.addEventListener("change", () => {
+    const kept = choose(name, input.checked);
+    said.textContent = kept ? `${label}: ${input.checked ? "on" : "off"}.` : "This browser can't keep it: its storage is turned off. It holds until the page is reloaded.";
+  });
+  return h(
+    "div",
+    {},
+    h("div", { class: "check" }, input, h("label", { for: id }, label)),
+    h("p", { class: "note check-hint", id: `${id}-hint` }, hint),
+  );
+}
+
+export function listeningGroup() {
+  const said = h("p", { class: "form-result", role: "status" });
+  return group(
+    "Listening",
+    h("p", { class: "note" }, "Kept by this browser only, as each Aoide device keeps its own. A change counts from the next song, Level volume's at once."),
+    checkbox(
+      "crossfade",
+      "Crossfade",
+      "Fade each song into the next: 8 seconds when their tempos match, 4 otherwise, never more than a quarter of a short song. Off, the next song starts the moment one ends.",
+      said,
+    ),
+    checkbox(
+      "keepAlbums",
+      "Keep albums whole",
+      "Songs of one album played in order run into each other without a fade or a gap, as the record was made, even with Crossfade on.",
+      said,
+    ),
+    checkbox(
+      "levelVolume",
+      "Level volume",
+      "Turn loud songs down to one level, by Melete's measurement, so an old record after a loud remaster doesn't jump. Quiet songs are left as they are. A song not measured yet plays as it is.",
+      said,
+    ),
+    checkbox(
+      "trimSilence",
+      "Trim silence",
+      "Skip the silence Melete measured at a song's start and end, so the next one comes sooner. A song not measured yet plays whole.",
+      said,
+    ),
+    h("h3", {}, "Sound"),
+    soundFields(checkbox, said),
+    said,
+  );
+}

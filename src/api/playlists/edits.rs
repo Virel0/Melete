@@ -31,6 +31,7 @@ pub(super) fn failed(err: EditError) -> ApiError {
             "a smart playlist is edited on the devices, where its rules are worked out".into(),
         ),
         EditError::NoSuchItem => (StatusCode::NOT_FOUND, "no such item".into()),
+        EditError::NoSuchFolder => (StatusCode::NOT_FOUND, "no such folder".into()),
         EditError::NoSuchTrack(id) => (StatusCode::NOT_FOUND, format!("no such track: {id}")),
         EditError::NoGap => (
             StatusCode::CONFLICT,
@@ -54,7 +55,7 @@ fn editor<'a>(current: &CurrentUser, device: &'a str) -> Editor<'a> {
 }
 
 /// A name or notes, trimmed and checked.
-fn text(value: &str, max: usize, what: &str, empty: bool) -> Result<String, ApiError> {
+pub(super) fn text(value: &str, max: usize, what: &str, empty: bool) -> Result<String, ApiError> {
     let value = value.trim();
     if (!empty && value.is_empty()) || value.chars().count() > max {
         let least = if empty { 0 } else { 1 };
@@ -117,6 +118,9 @@ pub(super) struct Change {
     name: Option<String>,
     #[serde(default, deserialize_with = "present")]
     notes: Option<Option<String>>,
+    /// The folder to file it in, or null for none.
+    #[serde(default, deserialize_with = "present")]
+    folder_id: Option<Option<String>>,
 }
 
 pub(super) async fn update(
@@ -138,15 +142,25 @@ pub(super) async fn update(
     let notes = notes.map(|n| n.filter(|n| !n.is_empty()));
     let device = session_device(current.token_id);
     let editor = editor(&current, &device);
-    playlist_edits::rename(
-        &pool,
-        &editor,
-        &id,
-        name.as_deref(),
-        notes.as_ref().map(Option::as_deref),
-    )
-    .await
-    .map_err(failed)?;
+    // Renamed first, which refuses a smart playlist before anything is written; filing one
+    // changes no rule, so a smart playlist is filed here.
+    if name.is_some() || notes.is_some() || body.folder_id.is_none() {
+        playlist_edits::rename(
+            &pool,
+            &editor,
+            &id,
+            name.as_deref(),
+            notes.as_ref().map(Option::as_deref),
+        )
+        .await
+        .map_err(failed)?;
+    }
+    if let Some(folder) = &body.folder_id {
+        let editor = self::editor(&current, &device);
+        playlist_edits::file_playlist(&pool, &editor, &id, folder.as_deref())
+            .await
+            .map_err(failed)?;
+    }
     Ok(Json(
         detail(&pool, &current.access, current.user.id, &id).await?,
     ))
@@ -275,6 +289,58 @@ pub(super) async fn move_item(
 ) -> Result<Json<Value>, ApiError> {
     let device = session_device(current.token_id);
     playlist_edits::reorder(&pool, &editor(&current, &device), &id, &item, body.index)
+        .await
+        .map_err(failed)?;
+    Ok(Json(
+        detail(&pool, &current.access, current.user.id, &id).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NewWaiting {
+    request_id: i64,
+    index: Option<usize>,
+}
+
+/// Adds a song the library doesn't have yet, by the caller's own request for it: it waits in
+/// the playlist, pending on that request, until Melete swaps its track in. A song the library
+/// has by now goes in as its track at once.
+pub(super) async fn add_waiting(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<NewWaiting>,
+) -> Result<Json<Value>, ApiError> {
+    let asked: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT title, artist FROM requests WHERE id = ? AND user_id = ? AND kind = 'song'",
+    )
+    .bind(body.request_id)
+    .bind(current.user.id)
+    .fetch_optional(&pool)
+    .await?;
+    // Someone else's request is as good as none.
+    let Some((title, artist)) = asked else {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no such song request of yours",
+        ));
+    };
+    let device = session_device(current.token_id);
+    let editor = editor(&current, &device);
+    let item = playlist_edits::NewItem {
+        id: crate::aoide::writing::new_id().map_err(|err| failed(EditError::Write(err)))?,
+        holds: playlist_edits::Holds::Pending(crate::aoide::pending::Pending {
+            request_id: Some(body.request_id),
+            title,
+            artist,
+            ..Default::default()
+        }),
+    };
+    playlist_edits::add_items(&pool, &editor, &id, vec![item], body.index)
+        .await
+        .map_err(failed)?;
+    crate::aoide::pending::resolve(&pool, Some(&id))
         .await
         .map_err(failed)?;
     Ok(Json(
