@@ -652,6 +652,39 @@
         }
       }
     },
+    "/api/v1/auth/quick-connect/web-poll": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Ask whether a Quick Connect code was approved, for the web UI",
+        "description": "As `/auth/quick-connect/poll`, for a code the web UI started at `/auth/quick-connect`: the same five minutes, approval by someone signed in who looked it up, one use, and limits on codes waiting and lookups. Once the code is approved, the session token goes into the `melete_session` cookie exactly as `/auth/web-login` sets it, and the body carries only the user; the code is gone after that. Needs `X-Melete-Web: 1`, as a change signed in by the cookie does, which a page on another site can't send.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectPoll"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Approved: the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "202": {
+            "description": "Not approved yet",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectWaiting"}}}
+          },
+          "403": {
+            "description": "Without the `X-Melete-Web` header",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such code, or it ran out: start again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/auth/quick-connect/lookup": {
       "post": {
         "tags": ["Accounts"],
@@ -11679,7 +11712,7 @@
             "description": "Soulseek's songs, closest first",
             "content": {
               "application/json": {
-                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}}
+                "schema": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}}
               }
             }
           },
@@ -15704,7 +15737,9 @@
           "mb_release_id",
           "mb_release_group_id",
           "mb_artist_id",
-          "match_status"
+          "match_status",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -15740,7 +15775,9 @@
             "type": ["string", "null"],
             "enum": ["matched", "unmatched", "ambiguous", null],
             "description": "How MusicBrainz matching went; null until tried, or with matching off."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
         },
         "additionalProperties": false
       },
@@ -16209,7 +16246,9 @@
           "genres",
           "release",
           "track_list",
-          "liked"
+          "liked",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -16257,7 +16296,9 @@
             "type": "array",
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "By disc and number."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
         },
         "additionalProperties": false
       },
@@ -17869,7 +17910,7 @@
         "type": "object",
         "required": ["songs", "albums"],
         "properties": {
-          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/RequestCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
+          "songs": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekCandidate"}, "description": "Soulseek's songs, as `GET /api/v1/requests/soulseek/candidates` gives them."},
           "albums": {"type": "array", "items": {"$ref": "#/components/schemas/SoulseekAlbum"}, "description": "The albums given that Soulseek's users share, in the order given."}
         },
         "additionalProperties": false
@@ -17887,6 +17928,71 @@
       },
       "RequestCandidate": {
         "type": "object",
+        "required": [
+          "kind",
+          "tmdb_id",
+          "mb_artist_id",
+          "mb_release_group_id",
+          "mb_recording_id",
+          "title",
+          "year",
+          "artist",
+          "detail",
+          "overview",
+          "in_library",
+          "wanted",
+          "requested",
+          "poster",
+          "closeness"
+        ],
+        "properties": {
+          "kind": {"type": "string", "enum": ["movie", "series", "artist", "album", "song"]},
+          "tmdb_id": {"type": ["integer", "null"], "description": "A movie's or series'; ask for it with this."},
+          "mb_artist_id": {
+            "type": ["string", "null"],
+            "description": "An artist's, and an album's or song's first artist."
+          },
+          "mb_release_group_id": {"type": ["string", "null"], "description": "An album's; ask for it with this."},
+          "mb_recording_id": {"type": ["string", "null"], "description": "A song's; ask for it with this."},
+          "title": {"type": "string", "description": "The title, or an artist's name."},
+          "year": {"type": ["integer", "null"]},
+          "artist": {"type": ["string", "null"], "description": "An album's or song's artists, as credited."},
+          "detail": {
+            "type": ["string", "null"],
+            "description": "What tells it from others of the name: an original title, an artist's kind and country, an album's type, the album a song is on and its length."
+          },
+          "overview": {
+            "type": ["string", "null"],
+            "description": "A movie's or series' summary, from the same TMDB search answer that found it, so nothing more is asked of TMDB; null for music, and when TMDB has none."
+          },
+          "in_library": {
+            "type": "boolean",
+            "description": "Already on disk, in a library you may see: an album, song or artist only in a music library hidden from you is false."
+          },
+          "wanted": {
+            "type": "boolean",
+            "description": "On the wanted list and looked out for (a whole artist only when followed for new releases)."
+          },
+          "requested": {
+            "type": ["integer", "null"],
+            "description": "Your request for it still open (asked for or approved): its id."
+          },
+          "poster": {
+            "type": ["string", "null"],
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+          },
+          "closeness": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "How close its title and artist are to the words searched, 100 for what was typed whole. Each typed word counts in full when it's one of the title's or artist's words and half when it starts one, worth 60 together; the share of the title's words that were typed is worth 40. The same measure for MusicBrainz's songs and Soulseek's (`GET /api/v1/requests/soulseek/candidates`), so the two can be ranked in one list."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SoulseekCandidate": {
+        "type": "object",
+        "description": "A song on Soulseek as a search result: a `RequestCandidate` without `overview`, which only movies and series have.",
         "required": [
           "kind",
           "tmdb_id",
