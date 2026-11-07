@@ -27,7 +27,7 @@ fn keys_between(
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, a track isn't in the library, or a write
+/// When it isn't a hand-made playlist the user owns or may edit, a track isn't in the library, or a write
 /// error.
 pub async fn add(
     pool: &SqlitePool,
@@ -77,7 +77,7 @@ pub(super) async fn place(
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist or has no such item, or a write error.
+/// When it isn't a hand-made playlist the user owns or may edit or has no such item, or a write error.
 pub async fn remove(
     pool: &SqlitePool,
     editor: &Editor<'_>,
@@ -104,7 +104,7 @@ pub async fn remove(
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist or has no such item, when its neighbours
+/// When it isn't a hand-made playlist the user owns or may edit or has no such item, when its neighbours
 /// there leave no room, or a write error.
 pub async fn reorder(
     pool: &SqlitePool,

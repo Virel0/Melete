@@ -1,12 +1,12 @@
 // One playlist: its cover, name, owner and notes, Play, Shuffle and Pin, then its songs. The
-// caller's own hand-made playlist is edited here, through the same sync log the devices use:
-// Rename (with its notes), Picture (choose one, or remove it), Delete (said plainly first), and
-// each song moved up, down or out; any of the caller's own is filed in a folder (Folder) and
-// shared (Share);
-// songs are added from Add to playlist beside any song or on an album. A playlist shared with
-// the caller is read-only here. A smart one's songs are worked out by the server from its rules
-// and the listener's own likes and listens (`/playlists/{id}/songs`), as on the devices, and
-// play like any list; its rules are changed on the devices. A song gone from the library stays,
+// caller's own hand-made playlist, or one shared with them to edit, is edited here, through the
+// same sync log the devices use: Rename (with its notes), Picture (choose one, or remove it),
+// and each song moved up, down or out; only the owner gets Delete (said plainly first), and
+// files it in a folder (Folder) and shares it (Share); songs are added from Add to playlist
+// beside any song or on an album. A playlist shared with the caller to listen to is read-only
+// here. A smart one's songs are worked out by the server from its rules and the listener's own
+// likes and listens (`/playlists/{id}/songs`), as on the devices, and play like any list; its
+// owner changes its rules here (Edit rules) or on the devices. A song gone from the library stays,
 // greyed, with what it was; one not in it yet shows greyed too, saying how its request stands,
 // until the server swaps its track in.
 
@@ -33,7 +33,7 @@ function whoEdits(p) {
     return `Its songs are worked out from its rules on your Aoide devices and here, from your own likes and listens; ${own}.`;
   }
   if (p.mine) return null;
-  return p.can_edit ? `${p.owner} shares it with you to change on your Aoide devices; only they change it here.` : `Only ${p.owner} changes it.`;
+  return p.can_edit ? `${p.owner} shares it with you to change, here and on your Aoide devices; only they delete it or share it.` : `Only ${p.owner} changes it.`;
 }
 
 // Rename: its name and notes, saved together.
@@ -235,7 +235,7 @@ function head(p, page, editable, open) {
         { class: "play-actions" },
         here.length ? h("button", { type: "button", onclick: () => (play(queue), remember("playlist", p.id)) }, "Play") : null,
         here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
-        editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), toggle("delete", "Delete")] : null,
+        editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), p.mine ? toggle("delete", "Delete") : null] : null,
         p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
         p.mine && p.smart ? toggle("rules", "Edit rules") : null,
         pinControl("playlist", p.id, p.name),
@@ -279,8 +279,10 @@ export async function playlistPage(id, ctx) {
     // button that opened that form), so an edit doesn't lose its place.
     draw(now, open = null, words = "", focus = null) {
       const editable = now.mine && !now.smart;
-      const list = now.smart ? smartList(page) : now.items.length ? itemList(now, page, editable) : emptyState(editable ? "Nothing in it yet. Add songs with Add to playlist, beside any song or on an album." : "Nothing in it yet.", { href: "#/music/songs", label: "Go to Songs" });
-      show(now.name, h("p", {}, h("a", { href: "#/music/playlists" }, "All playlists")), head(now, page, editable, open), said, list);
+      // Shared with them to edit, they change it as the owner does, but for Delete.
+      const changing = editable || (now.can_edit && !now.smart);
+      const list = now.smart ? smartList(page) : now.items.length ? itemList(now, page, changing) : emptyState(changing ? "Nothing in it yet. Add songs with Add to playlist, beside any song or on an album." : "Nothing in it yet.", { href: "#/music/songs", label: "Go to Songs" });
+      show(now.name, h("p", {}, h("a", { href: "#/music/playlists" }, "All playlists")), head(now, page, changing, open), said, list);
       said.textContent = words;
       if (list?.matches("ul")) markPlaying(list, ctx);
       if (typeof focus === "string") document.querySelector(`[data-opens="${focus}"]`)?.focus();

@@ -48,7 +48,7 @@ impl NewItem {
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, or a write error.
+/// When it isn't a hand-made playlist the user owns or may edit, or a write error.
 pub async fn add_items(
     pool: &SqlitePool,
     editor: &Editor<'_>,
@@ -85,7 +85,7 @@ pub async fn add_items(
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, or a write error.
+/// When it isn't a hand-made playlist the user owns or may edit, or a write error.
 pub async fn swap_in(
     pool: &SqlitePool,
     editor: &Editor<'_>,

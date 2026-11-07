@@ -384,7 +384,7 @@ async fn ask(f: &Fixture, user: i64, kind: &str, recording: &str, title: &str) -
 async fn a_song_asked_for_waits_in_the_playlist_and_only_the_owner_adds_one() {
     let f = fixture().await;
     let (alice, alice_id) = session(&f, "alice").await;
-    let (bob, bob_id) = session(&f, "bob").await;
+    let (_, bob_id) = session(&f, "bob").await;
     let (carol, carol_id) = session(&f, "carol").await;
     let (dave, dave_id) = session(&f, "dave").await;
     let (_, mix) = call(
@@ -431,8 +431,9 @@ async fn a_song_asked_for_waits_in_the_playlist_and_only_the_owner_adds_one() {
     assert_eq!(body["items"][0]["track"]["id"], 7);
     assert_eq!(body["items"].as_array().unwrap().len(), 2);
 
-    // Refused: someone else's request, a request that isn't a song, a playlist that isn't
-    // theirs (shared to edit or to listen) or that they can't see.
+    // Refused: someone else's request, a request that isn't a song, a playlist shared to listen
+    // to, or one they can't see. (Someone it's shared with to edit may add one: see
+    // `an_editor_edits_a_shared_playlist_but_doesnt_delete_or_file_it`.)
     for (user, can_edit) in [(bob_id, true), (carol_id, false)] {
         crate::aoide::library::share(&f.pool, &mix_id, user, can_edit, 1)
             .await
@@ -447,11 +448,6 @@ async fn a_song_asked_for_waits_in_the_playlist_and_only_the_owner_adds_one() {
             StatusCode::NOT_FOUND,
         ),
         (&alice, album, StatusCode::NOT_FOUND),
-        (
-            &bob,
-            ask(&f, bob_id, "song", "rec-b2", "Bob's").await,
-            StatusCode::FORBIDDEN,
-        ),
         (
             &carol,
             ask(&f, carol_id, "song", "rec-c", "Carol's").await,

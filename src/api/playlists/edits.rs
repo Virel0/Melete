@@ -24,7 +24,11 @@ pub(super) fn failed(err: EditError) -> ApiError {
         EditError::NoSuchPlaylist => (StatusCode::NOT_FOUND, "no such playlist".into()),
         EditError::NotOwner => (
             StatusCode::FORBIDDEN,
-            "only its owner edits a playlist here".into(),
+            "only its owner deletes a playlist or files it in a folder".into(),
+        ),
+        EditError::ListenOnly => (
+            StatusCode::FORBIDDEN,
+            "it's shared with you to listen to, not to change".into(),
         ),
         EditError::Smart => (
             StatusCode::CONFLICT,

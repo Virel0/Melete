@@ -9,8 +9,11 @@
 //! another field elsewhere survives. Items have no such stamps; each is a row of its own, its
 //! place a fractional key.
 //!
-//! Only a playlist's owner edits it here. A smart playlist's rules are set here
-//! (`smart_rules`), but nothing else of it: its songs are worked out from them. Melete itself writes as the owner too, when it fills
+//! A playlist's owner edits it here, and so does someone it's shared with to edit, as the sync
+//! log lets them from a device: the same writes, into their own log, which reach the owner and
+//! everyone else it's shared with. Only the owner deletes it or files it in a folder (folders are
+//! each user's own). A smart playlist's rules are set here by its owner (`smart_rules`), but
+//! nothing else of it: its songs are worked out from them. Melete itself writes as the owner too, when it fills
 //! an imported playlist and when it swaps an arrived song in for a pending item.
 
 use std::collections::{BTreeMap, HashMap};
@@ -37,8 +40,10 @@ pub use smart_rules::*;
 pub enum EditError {
     /// No such playlist the user can see.
     NoSuchPlaylist,
-    /// The playlist is someone else's.
+    /// The playlist is someone else's, and only its owner does that.
     NotOwner,
+    /// The playlist is shared with the user to listen to, not to change.
+    ListenOnly,
     /// It's a smart playlist, edited on the devices.
     Smart,
     /// No such item in the playlist.
@@ -88,26 +93,40 @@ pub fn is_smart(row: &Row) -> bool {
     }
 }
 
-/// The user's own hand-made playlist `id`, as their devices hold it, and the editor with a
-/// time after every change it holds: two edits within one millisecond would otherwise tie,
-/// and a tie from one device is the same write, so the second would be lost.
+/// Who may make a change: the owner alone, or anyone the playlist is shared with to edit too.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Who {
+    Owner,
+    Editors,
+}
+
+/// A hand-made playlist `id` the user owns or may edit, as their devices hold it, and the
+/// editor with a time after every change it holds: two edits within one millisecond would
+/// otherwise tie, and a tie from one device is the same write, so the second would be lost.
 async fn own<'a>(
     pool: &SqlitePool,
     editor: &Editor<'a>,
     id: &str,
 ) -> Result<(Playlist, Editor<'a>), EditError> {
-    let (playlist, editor) = owned(pool, editor, id).await?;
-    if is_smart(&playlist.row) {
-        return Err(EditError::Smart);
-    }
-    Ok((playlist, editor))
+    checked(pool, editor, id, Who::Editors, false).await
 }
 
-/// [`own`], smart or not: filing a smart playlist in a folder changes no rule.
+/// The user's own playlist, smart or not: filing a smart playlist in a folder changes no rule.
 async fn owned<'a>(
     pool: &SqlitePool,
     editor: &Editor<'a>,
     id: &str,
+) -> Result<(Playlist, Editor<'a>), EditError> {
+    checked(pool, editor, id, Who::Owner, true).await
+}
+
+/// Playlist `id` when `who` may change it (and it's hand-made, unless `smart_too`).
+async fn checked<'a>(
+    pool: &SqlitePool,
+    editor: &Editor<'a>,
+    id: &str,
+    who: Who,
+    smart_too: bool,
 ) -> Result<(Playlist, Editor<'a>), EditError> {
     let playlist = playlists::visible(pool, editor.user_id)
         .await?
@@ -115,7 +134,16 @@ async fn owned<'a>(
         .find(|p| p.id == id)
         .ok_or(EditError::NoSuchPlaylist)?;
     if playlist.owner_id != editor.user_id {
-        return Err(EditError::NotOwner);
+        // `can_edit`: shared with them to edit, as the sync log lets them push to it.
+        if who == Who::Owner {
+            return Err(EditError::NotOwner);
+        }
+        if !playlist.can_edit {
+            return Err(EditError::ListenOnly);
+        }
+    }
+    if !smart_too && is_smart(&playlist.row) {
+        return Err(EditError::Smart);
     }
     Ok(prepared(playlist, editor))
 }
@@ -210,7 +238,7 @@ pub async fn create(
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, or a write error.
+/// When it isn't a hand-made playlist the user owns or may edit, or a write error.
 pub async fn rename(
     pool: &SqlitePool,
     editor: &Editor<'_>,
@@ -237,11 +265,12 @@ pub async fn rename(
     save_row(pool, editor, &playlist, row).await
 }
 
-/// Checks the playlist is the user's own hand-made one, before anything is stored for it.
+/// Checks the playlist is a hand-made one the user owns or may edit, before anything is stored
+/// for it.
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, or a read error.
+/// When it isn't a hand-made playlist the user owns or may edit, or a read error.
 pub async fn editable(pool: &SqlitePool, editor: &Editor<'_>, id: &str) -> Result<(), EditError> {
     own(pool, editor, id).await.map(|_| ())
 }
@@ -250,7 +279,7 @@ pub async fn editable(pool: &SqlitePool, editor: &Editor<'_>, id: &str) -> Resul
 ///
 /// # Errors
 ///
-/// When it isn't the user's own hand-made playlist, or a write error.
+/// When it isn't a hand-made playlist the user owns or may edit, or a write error.
 pub async fn set_image(
     pool: &SqlitePool,
     editor: &Editor<'_>,
@@ -293,12 +322,13 @@ async fn save_row(
 }
 
 /// Deletes the playlist and its items: the items first, then the playlist, as a device does.
+/// Only its owner deletes it.
 ///
 /// # Errors
 ///
 /// When it isn't the user's own hand-made playlist, or a write error.
 pub async fn delete(pool: &SqlitePool, editor: &Editor<'_>, id: &str) -> Result<(), EditError> {
-    let (playlist, editor) = own(pool, editor, id).await?;
+    let (playlist, editor) = checked(pool, editor, id, Who::Owner, false).await?;
     let editor = &editor;
     let mut changes: Vec<Change> = playlist
         .items
