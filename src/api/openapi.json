@@ -652,6 +652,39 @@
         }
       }
     },
+    "/api/v1/auth/quick-connect/web-poll": {
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "public",
+        "summary": "Ask whether a Quick Connect code was approved, for the web UI",
+        "description": "As `/auth/quick-connect/poll`, for a code the web UI started at `/auth/quick-connect`: the same five minutes, approval by someone signed in who looked it up, one use, and limits on codes waiting and lookups. Once the code is approved, the session token goes into the `melete_session` cookie exactly as `/auth/web-login` sets it, and the body carries only the user; the code is gone after that. Needs `X-Melete-Web: 1`, as a change signed in by the cookie does, which a page on another site can't send.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectPoll"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Approved: the cookie is set",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebLoginResponse"}}}
+          },
+          "202": {
+            "description": "Not approved yet",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuickConnectWaiting"}}}
+          },
+          "403": {
+            "description": "Without the `X-Melete-Web` header",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such code, or it ran out: start again",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      }
+    },
     "/api/v1/auth/quick-connect/lookup": {
       "post": {
         "tags": ["Accounts"],
