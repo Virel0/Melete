@@ -16,6 +16,7 @@ import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
 import { requestsPage } from "/web/requests.js";
+import { searchPage } from "/web/search.js";
 import { calendarPage } from "/web/calendar.js";
 import { generation, leaving, nextGeneration, setSignIn } from "/web/page-state.js";
 import { settingsPage } from "/web/settings.js";
@@ -242,6 +243,7 @@ async function render() {
       return titlePage(kind, id, under, params, gen, me.is_admin);
     }
     if (kind === "favourites" && !id) return favouritesPage(params, gen);
+    if (kind === "search" && !id) return searchPage(params, gen);
     if (kind === "people" && /^\d+$/.test(id)) return personPage(id, gen);
     if (kind === "collections" && /^\d+$/.test(id)) return collectionPage(id, gen);
     if (kind === "settings" || kind === "wanted" || kind === "requests") {
