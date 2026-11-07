@@ -5967,6 +5967,70 @@
         }
       }
     },
+    "/api/v1/music/recent": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "What you started lately",
+        "description": "For Home's Jump back in: the albums, playlists and stations (radio from a song) you started, recorded with PUT, the latest first, up to 20; each user's own. One you removed is left out until you start it again, and so is anything you can't see now (a library closed to you, a playlist no longer shared). `removed_albums` are the albums you removed, for leaving them out of what Home finds in your play history too.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicRecent"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
+    "/api/v1/music/recent/{kind}/{item}": {
+      "put": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Record that you started something",
+        "parameters": [
+          {"name": "kind", "in": "path", "required": true, "schema": {"enum": ["album", "playlist", "station"]}},
+          {"name": "item", "in": "path", "required": true, "description": "The album's id, the Aoide playlist's id, or the station's seed song's id.", "schema": {"type": "string"}}
+        ],
+        "description": "Records that you started this album, playlist or station now, bringing it back if you'd removed it. Only something you can see is recorded. The latest 50 are kept.",
+        "responses": {
+          "204": {"description": "Recorded"},
+          "400": {
+            "description": "A kind that isn't album, playlist or station",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No album, playlist or song of that id that you can see",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Remove from Jump back in",
+        "parameters": [
+          {"name": "kind", "in": "path", "required": true, "schema": {"enum": ["album", "playlist", "station"]}},
+          {"name": "item", "in": "path", "required": true, "description": "The album's id, the Aoide playlist's id, or the station's seed song's id.", "schema": {"type": "string"}}
+        ],
+        "description": "Keeps it out of Jump back in until you start it again. An album is remembered as removed even when it was never recorded, so Home leaves it out of what it finds in your play history.",
+        "responses": {
+          "204": {"description": "Removed"},
+          "400": {
+            "description": "A kind that isn't album, playlist or station, or an album id that isn't a number",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "A playlist or station that isn't in your Jump back in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/pins": {
       "get": {
         "tags": ["Music"],
@@ -16008,6 +16072,28 @@
           "year_to": {"type": ["integer", "null"]},
           "liked": {"type": "boolean"},
           "created_at": {"type": "integer", "description": "Unix seconds."}
+        },
+        "additionalProperties": false
+      },
+      "MusicRecent": {
+        "type": "object",
+        "required": ["items", "removed_albums"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/MusicRecentEntry"}},
+          "removed_albums": {"type": "array", "items": {"type": "integer"}}
+        },
+        "additionalProperties": false
+      },
+      "MusicRecentEntry": {
+        "type": "object",
+        "required": ["kind", "id", "played_at", "album", "playlist", "track"],
+        "properties": {
+          "kind": {"enum": ["album", "playlist", "station"]},
+          "id": {"type": "string"},
+          "played_at": {"type": "integer", "description": "Unix seconds."},
+          "album": {"anyOf": [{"$ref": "#/components/schemas/MusicAlbum"}, {"type": "null"}], "description": "For an album."},
+          "playlist": {"anyOf": [{"$ref": "#/components/schemas/Playlist"}, {"type": "null"}], "description": "For a playlist."},
+          "track": {"anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}], "description": "For a station: the song it's radio from."}
         },
         "additionalProperties": false
       },
