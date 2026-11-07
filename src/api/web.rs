@@ -1469,6 +1469,30 @@ mod tests {
     }
 
     #[test]
+    fn an_artists_albums_are_grouped_by_release_type() {
+        let album = module("music-album.js");
+        // In this order, each kind under its own heading when there's more than one kind.
+        let kinds = [
+            r#"["albums", "Albums"]"#,
+            r#"["singles", "Singles & EPs"]"#,
+            r#"["live", "Live"]"#,
+            r#"["compilations", "Compilations"]"#,
+        ];
+        let at: Vec<usize> = kinds.iter().map(|k| album.find(k).expect(k)).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{kinds:?}");
+        // Live and Compilation (secondary types) come before Single and EP; an album without a
+        // known type is under Albums.
+        assert!(album.contains(r#"if (secondary.includes("Live")) return "live";"#));
+        assert!(
+            album.contains(
+                r#"if (["Single", "EP"].includes(album.primary_type)) return "singles";"#
+            )
+        );
+        assert!(album.contains(r#"  return "albums";"#));
+        assert!(album.contains("? albumGroups(artist.album_list)"));
+    }
+
+    #[test]
     fn listen_lists_songs_and_genres_and_starts_radio() {
         let music = module("music.js");
         for route in [

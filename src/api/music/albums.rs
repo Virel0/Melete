@@ -20,7 +20,7 @@ pub(in super::super) const ALBUM_COLUMNS: &str =
         (SELECT json_extract(c.artist_credit, '$[0].id') FROM mb_releases c
          WHERE c.id = a.match_release_id AND json_array_length(c.artist_credit) = 1))
         AS mb_artist_id,
-    a.match_status";
+    a.match_status, r.primary_type, coalesce(r.secondary_types, '[]') AS secondary_types";
 
 #[derive(sqlx::FromRow)]
 pub(in super::super) struct AlbumRow {
@@ -43,6 +43,9 @@ pub(in super::super) struct AlbumRow {
     /// credited.
     pub(super) mb_artist_id: Option<String>,
     pub(super) match_status: Option<String>,
+    /// The matched release group's type (Album, Single, EP…), and its secondary types as JSON.
+    pub(super) primary_type: Option<String>,
+    pub(super) secondary_types: String,
 }
 
 /// What a caller sees of an album: the Cover Art Archive's covers (with MusicBrainz matching
@@ -79,6 +82,9 @@ impl AlbumRow {
             "mb_release_group_id": self.mb_release_group_id,
             "mb_artist_id": self.mb_artist_id,
             "match_status": self.match_status,
+            "primary_type": self.primary_type,
+            "secondary_types": serde_json::from_str::<Value>(&self.secondary_types)
+                .unwrap_or_else(|_| json!([])),
         })
     }
 }
