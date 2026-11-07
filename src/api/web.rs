@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 130] = [
+const MODULES: [(&str, &str); 131] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -165,6 +165,7 @@ const MODULES: [(&str, &str); 130] = [
         "music-playlist-pick.js",
         include_str!("../web/music-playlist-pick.js"),
     ),
+    ("music-mixes.js", include_str!("../web/music-mixes.js")),
     (
         "music-smart-editor.js",
         include_str!("../web/music-smart-editor.js"),
@@ -1420,6 +1421,52 @@ mod tests {
         assert!(one.contains("api(`${path(p)}/rules`, { method: \"PUT\", body: { rules } })"));
         let list = module("music-playlists.js");
         assert!(list.contains(r#"api("/playlists", { method: "POST", body: { name, rules } })"#));
+    }
+
+    /// Mixes: the apps' two built-in smart playlists, with the rules every client makes them
+    /// with (and the parity fixture checks), and a mix from a mood only while AI is on.
+    #[test]
+    fn mixes_are_the_built_ins_and_a_mood_only_while_ai_is_on() {
+        let mixes = module("music-mixes.js");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/aoide/smart-playlists.json"
+        ))
+        .unwrap();
+        for (name, case) in [
+            ("Rediscover Mix", "built-in Rediscover Mix, now"),
+            ("Heavy Rotation", "built-in Heavy Rotation"),
+        ] {
+            assert!(mixes.contains(&format!(r#"name: "{name}","#)), "{name}");
+            let rules = &fixture["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["name"] == case)
+                .unwrap()["rules"];
+            for rule in rules["rules"].as_array().unwrap() {
+                let written = format!(
+                    r#"{{ field: {}, op: {}, value: {} }}"#,
+                    rule["field"], rule["op"], rule["value"]
+                );
+                assert!(mixes.contains(&written), "{name}: {written}");
+            }
+            assert!(
+                mixes.contains(&format!("limit: {},", rules["limit"])),
+                "{name}"
+            );
+        }
+        assert!(mixes.contains(r#"sort: { field: "play_count", dir: "desc" },"#));
+        assert!(mixes.contains("ai.enabled ? fromMood() : null"));
+        assert!(
+            mixes.contains(
+                r#"api("/ai/music/mix", { method: "POST", body: { description: mood } })"#
+            )
+        );
+        assert!(mixes.contains(r#"api("/playlists", { method: "POST", body: { name: mood.slice(0, 200), rules: found.rules } })"#));
+        assert!(
+            module("music.js")
+                .contains(r#"if (section === "mixes" && !id) return mixesPage(ctx);"#)
+        );
     }
 
     #[test]

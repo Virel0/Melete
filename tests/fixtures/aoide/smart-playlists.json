@@ -106,6 +106,9 @@
     {"name": "SQL in a value is text: is", "library": "injection", "rules": {"match": "all", "rules": [{"field": "artist", "op": "is", "value": "'; DROP TABLE playlist; --"}]}, "expect": ["bobby"]},
     {"name": "SQL in a value is text: contains", "library": "injection", "rules": {"match": "all", "rules": [{"field": "title", "op": "contains", "value": "DROP TABLE"}]}, "expect": ["bobby"]},
     {"name": "SQL in a value is text: genre", "library": "injection", "rules": {"match": "all", "rules": [{"field": "genre", "op": "is", "value": "'; DROP TABLE playlist; --"}]}, "expect": []},
-    {"name": "SQL in a value is text: begins with", "library": "injection", "rules": {"match": "all", "rules": [{"field": "album", "op": "beginsWith", "value": "' OR 1=1 --"}]}, "expect": []}
+    {"name": "SQL in a value is text: begins with", "library": "injection", "rules": {"match": "all", "rules": [{"field": "album", "op": "beginsWith", "value": "' OR 1=1 --"}]}, "expect": []},
+    {"name": "built-in Rediscover Mix, now", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "-6m"}, {"field": "play_count", "op": "greaterThan", "value": 2}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 40}, "expect": []},
+    {"name": "built-in Rediscover Mix, after half a year", "library": "four", "at_days": 200, "rules": {"match": "all", "rules": [{"field": "last_played", "op": "notInTheLast", "value": "-6m"}, {"field": "play_count", "op": "greaterThan", "value": 2}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 40}, "expect": ["so-what"]},
+    {"name": "built-in Heavy Rotation", "library": "four", "rules": {"match": "all", "rules": [{"field": "last_played", "op": "inTheLast", "value": "-1m"}, {"field": "play_count", "op": "greaterThan", "value": 1}], "sort": {"field": "play_count", "dir": "desc"}, "limit": 25}, "expect": ["so-what"]}
   ]
 }
