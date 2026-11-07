@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 148] = [
+const MODULES: [(&str, &str); 150] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -176,6 +176,14 @@ const MODULES: [(&str, &str); 148] = [
     (
         "music-playlist-pick.js",
         include_str!("../web/music-playlist-pick.js"),
+    ),
+    (
+        "music-playlist-folders.js",
+        include_str!("../web/music-playlist-folders.js"),
+    ),
+    (
+        "music-playlist-share.js",
+        include_str!("../web/music-playlist-share.js"),
     ),
     ("music-parts.js", include_str!("../web/music-parts.js")),
     (
@@ -1814,6 +1822,46 @@ mod tests {
         // Deleting is said plainly first, with keeping it the choice that has focus.
         assert!(one.contains("setTimeout(() => keep.focus());"));
         assert!(one.contains("Its songs are worked out from its rules on your Aoide devices"));
+    }
+
+    /// Folders are kept, playlists filed and shared, and a song asked for put in a playlist to
+    /// wait, through the routes the devices' sync log stands behind.
+    #[test]
+    fn playlists_are_filed_shared_and_given_songs_to_wait_for() {
+        let folders = module("music-playlist-folders.js");
+        for call in [
+            r#"api("/playlists/folders", { method: "POST", body: { name, parent_id: parentId } })"#,
+            r#"api(`/playlists/folders/${encodeURIComponent(folder.id)}`, { method: "PUT", body: { name } })"#,
+            r#"api(`/playlists/folders/${encodeURIComponent(folder.id)}`, { method: "DELETE" })"#,
+            r#"{ method: "PUT", body: { folder_id: select.value || null } }"#,
+        ] {
+            assert!(folders.contains(call), "{call}");
+        }
+        // Deleting a folder is asked first, saying no playlist goes.
+        assert!(folders.contains("No playlist is deleted: what's in it moves to"));
+        let share = module("music-playlist-share.js");
+        for call in [
+            r#"api("/aoide/shares"), api("/users/directory")"#,
+            r#"body: { playlistId: p.id, granteeUserId: grantee, canEdit }"#,
+            r#"{ method: "DELETE" }], `Stopped sharing with ${s.granteeName}.`"#,
+        ] {
+            assert!(share.contains(call), "{call}");
+        }
+        // Only the owner's own shares are listed, and only the owner gets Share and Folder.
+        assert!(share.contains("s.playlistId === p.id && s.isOwner"));
+        let one = module("music-playlist.js");
+        assert!(
+            one.contains(
+                r#"p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null"#
+            )
+        );
+        let pick = module("music-playlist-pick.js");
+        assert!(pick.contains(r#"/waiting`, { method: "POST", body: { request_id: waiting } }"#));
+        let row = module("requests-row.js");
+        assert!(row.contains(
+            r#"r.kind === "song" && r.state !== "declined" && !deciding && seesAllMusic()"#
+        ));
+        assert!(row.contains("playlistPicker([], r.title, { waiting: r.id })"));
     }
 
     #[test]
