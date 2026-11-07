@@ -13,7 +13,7 @@ import { trackActions } from "/web/music-actions.js";
 import { iconButton } from "/web/music-controls.js";
 import { goneRow } from "/web/music-liked.js";
 import { cover, markPlaying, pinControl, songRow } from "/web/music-parts.js";
-import { looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
 import { folderPicker } from "/web/music-playlist-folders.js";
 import { shareSection } from "/web/music-playlist-share.js";
@@ -224,8 +224,8 @@ function head(p, page, editable, open) {
       h(
         "div",
         { class: "play-actions" },
-        here.length ? h("button", { type: "button", onclick: () => play(queue) }, "Play") : null,
-        here.length ? h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle") : null,
+        here.length ? h("button", { type: "button", onclick: () => (play(queue), remember("playlist", p.id)) }, "Play") : null,
+        here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), toggle("delete", "Delete")] : null,
         p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
         pinControl("playlist", p.id, p.name),
