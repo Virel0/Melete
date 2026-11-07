@@ -1,6 +1,9 @@
 // The Queue | Lyrics panel, opened from the music bar: beside the page at 1100 px and wider (the
 // page makes room for it), over the page when narrower, with focus kept in it until it closes.
 // On a phone it also carries the player's controls and Stop, which the bar leaves out there.
+// Full screen fills the window with Now playing: the cover large (its motion cover looping muted
+// over it), the controls under it, the tabs beside it on a wide screen and under it on a phone,
+// all in the album's cover colours (music-now.js). Escape leaves full screen; Close closes.
 //
 // - Queue: Played (the last few, the rest on request), Now playing, Next up (added with Play
 //   next or Play last), then the rest. A row plays when chosen; Move up, Move down and Remove
@@ -14,8 +17,9 @@ import { clock, h } from "/web/lib.js";
 import { audio, jumpTo, seekTo, stopPlayer } from "/web/music-player.js";
 import * as queue from "/web/music-queue.js";
 import { clip, emptyState } from "/web/page-parts.js";
-import { iconButton, transport } from "/web/music-controls.js";
+import { icon, iconButton, transport } from "/web/music-controls.js";
 import { lyricsTab } from "/web/music-lyrics.js";
+import { nowLook } from "/web/music-now.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
@@ -31,8 +35,11 @@ const bodies = {
   lyrics: h("div", { role: "tabpanel", id: "panel-lyrics", "aria-labelledby": "panel-tab-lyrics", tabindex: "0" }, lyrics.body),
 };
 const cover = h("img", { alt: "" });
+const coverBox = h("div", { class: "cover" }, cover);
 const title = h("p", { class: "now-title" });
 const artist = h("p", { class: "now-artist" });
+const fullButton = iconButton("fullscreen", "Full screen", () => setFull(!full));
+fullButton.setAttribute("aria-pressed", "false");
 const panel = h(
   "dialog",
   { class: "music-panel", "aria-labelledby": "panel-heading" },
@@ -40,10 +47,14 @@ const panel = h(
     "div",
     { class: "panel-head" },
     h("h2", { id: "panel-heading" }, "Now playing"),
-    h("button", { type: "button", class: "quiet", onclick: () => closePanel() }, "Close"),
+    h("div", { class: "panel-head-tools" }, fullButton, h("button", { type: "button", class: "quiet", onclick: () => closePanel() }, "Close")),
   ),
-  h("div", { class: "panel-now" }, h("div", { class: "cover" }, cover), h("div", { class: "words" }, title, artist)),
-  h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
+  h(
+    "div",
+    { class: "panel-side" },
+    h("div", { class: "panel-now" }, coverBox, h("div", { class: "words" }, title, artist)),
+    h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
+  ),
   h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue and lyrics" }, tabs.queue, tabs.lyrics),
   bodies.queue,
   bodies.lyrics,
@@ -52,6 +63,8 @@ const panel = h(
 let tab = "queue";
 let showAllPlayed = false;
 let returnTo = null;
+let full = false;
+const look = nowLook(coverBox, cover, panel);
 
 function said() {
   document.dispatchEvent(new CustomEvent("melete:panel", { detail: { open: panel.open, tab } }));
@@ -74,13 +87,30 @@ function openIn(mode) {
   else panel.showModal();
 }
 
+// Beside the page on a wide screen, over it otherwise or in full screen.
+const mode = () => (!full && wide.matches ? "beside" : "over");
+
+// Full screen on or off: the panel opens again in its new place, focus staying on the switch
+// (unless the panel is closing).
+function setFull(on, keepFocus = true) {
+  full = on;
+  panel.classList.toggle("full", on);
+  fullButton.replaceChildren(icon(on ? "exit-fullscreen" : "fullscreen"));
+  fullButton.setAttribute("aria-pressed", String(on));
+  if (panel.open) {
+    panel.close();
+    openIn(mode());
+  }
+  if (keepFocus) fullButton.focus();
+}
+
 export function openPanel(next = tab) {
   if (!panel.isConnected) document.body.append(panel);
   choose(next);
   draw();
   if (!panel.open) {
     returnTo = document.activeElement;
-    openIn(wide.matches ? "beside" : "over");
+    openIn(mode());
   }
   tabs[tab].focus();
   said();
@@ -97,12 +127,22 @@ export function togglePanel(next) {
 }
 
 panel.addEventListener("close", () => {
+  // Closed only to open again elsewhere (full screen, a wider window): nothing more to do.
+  if (panel.open) return;
+  look.pause();
+  if (full) setFull(false, false);
   document.body.classList.remove("with-panel");
   if (returnTo?.isConnected && (panel.contains(document.activeElement) || document.activeElement === document.body)) returnTo.focus();
   said();
 });
 // Escape closes the panel beside the page too, unless something opened since (the palette, a
 // page's menu) is what it's meant for.
+// In full screen, Escape leaves full screen rather than closing the panel.
+panel.addEventListener("cancel", (event) => {
+  if (!full) return;
+  event.preventDefault();
+  setFull(false);
+});
 document.addEventListener("keydown", (event) => {
   const other = document.querySelector("dialog:modal, #fold-menu[open]");
   if (event.key === "Escape" && panel.open && !panel.matches(":modal") && !other) closePanel();
@@ -120,9 +160,9 @@ panel.querySelector('[role="tablist"]').addEventListener("keydown", (event) => {
 for (const [key, button] of Object.entries(tabs)) button.addEventListener("click", () => choose(key));
 // Crossing 1100 px while open moves the panel beside the page or over it.
 wide.addEventListener("change", () => {
-  if (!panel.open) return;
+  if (!panel.open || full) return;
   panel.close();
-  openIn(wide.matches ? "beside" : "over");
+  openIn(mode());
 });
 
 // ---------- Queue ----------
@@ -174,8 +214,7 @@ function act(key, what, change) {
 
 function draw() {
   const track = queue.current();
-  cover.hidden = !track?.cover;
-  if (track?.cover) cover.src = track.cover;
+  look.show(track);
   title.textContent = track?.title ?? "Nothing is playing";
   artist.textContent = track?.artist ?? "";
   const entries = queue.all();

@@ -204,3 +204,69 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 /* The words run on as text (the panel lays out its other .words as a column). */
 .lyrics .line .words { display: block; }
 .lyrics-source { margin-block-start: var(--space-4); }
+
+/* Full screen: Now playing fills the window, the cover large with the controls under it and the
+   tabs beside it (under it on a phone or a narrow window). */
+.panel-head-tools { display: flex; align-items: center; gap: var(--space-2); }
+.music-panel.full:modal {
+  inset: 0;
+  width: 100%;
+  border: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "head head" "side tabs" "side body";
+  column-gap: var(--space-7);
+  padding: 0 var(--space-6) max(var(--space-4), env(safe-area-inset-bottom));
+}
+.music-panel.full .panel-head { grid-area: head; padding-inline: 0; }
+.music-panel.full .panel-side { grid-area: side; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: var(--space-4); min-height: 0; }
+.music-panel.full .panel-tabs { grid-area: tabs; padding-inline: 0; }
+.music-panel.full [role="tabpanel"] { grid-area: body; padding-inline: 0; }
+.music-panel.full .panel-now { flex-direction: column; align-items: center; gap: var(--space-4); padding: 0; text-align: center; width: 100%; }
+.music-panel.full .panel-now .cover { width: min(100%, 30rem, 55vh); border-radius: var(--radius-m); box-shadow: var(--shadow); }
+.music-panel.full .panel-now .words { align-items: center; }
+.music-panel.full .now-title { font-size: var(--step-2); }
+.music-panel.full .now-artist { font-size: var(--step-0); }
+.music-panel.full .panel-controls { display: flex; width: min(100%, 30rem); padding: 0; }
+.music-panel.full .lyrics .line { font-size: var(--step-2); }
+@media (max-width: 48rem) {
+  .music-panel.full:modal {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "head" "side" "tabs" "body";
+    padding-inline: var(--space-4);
+  }
+  .music-panel.full .panel-side { gap: var(--space-2); }
+  .music-panel.full .panel-now { flex-direction: row; text-align: start; }
+  .music-panel.full .panel-now .words { align-items: flex-start; }
+  .music-panel.full .panel-now .cover { width: min(40vw, 22vh); }
+  .music-panel.full .now-title { font-size: var(--step-1); }
+  .music-panel.full .lyrics .line { font-size: var(--step-1); }
+}
+/* In the cover's colours: its background, text1 for words (4.5:1 or more on it) and text2 for
+   the lines not being sung (large and bold, 3:1 or more). */
+.music-panel.full.coloured {
+  --surface: var(--np-bg);
+  --surface-raised: color-mix(in srgb, var(--np-ink) 14%, var(--np-bg));
+  --text: var(--np-ink);
+  --muted: var(--np-ink);
+  --line: color-mix(in srgb, var(--np-ink) 30%, var(--np-bg));
+  --line-strong: var(--np-soft);
+  background: var(--np-bg);
+  color: var(--np-ink);
+}
+.music-panel.full.coloured .lyrics .line { color: var(--np-soft); }
+.music-panel.full.coloured .lyrics .line.now,
+.music-panel.full.coloured .queue-row.now .queue-play { color: var(--np-ink); }
+.music-panel.full.coloured button.icon.play { background: var(--np-ink); color: var(--np-bg); }
+.music-panel.full.coloured button.icon[aria-pressed="true"],
+.music-panel.full.coloured .lyrics-tools button[aria-pressed="true"] { color: var(--np-ink); border-color: var(--np-ink); }
+.music-panel.full.coloured .panel-tabs [role="tab"][aria-selected="true"] { border-block-end-color: var(--np-ink); }
+.music-panel.full.coloured :focus-visible { outline-color: var(--np-ink); }
+.music-panel.full.coloured input[type="range"] { accent-color: var(--np-ink); }
+
+/* A motion cover over the still one, once it plays. */
+.music-panel .cover, .album-cover { position: relative; }
+video.motion-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+video.motion-cover.shown { opacity: 1; }
