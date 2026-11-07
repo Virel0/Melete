@@ -4,6 +4,7 @@
 import { SignedOut, announce, api, h, plural, show } from "/web/lib.js";
 import { generation, signIn } from "/web/page-state.js";
 import { art } from "/web/cards.js";
+import { spotlit } from "/web/grid-spotlight.js";
 import { icon } from "/web/music-controls.js";
 import { emptyState, failed, placeholders } from "/web/page-parts.js";
 import { animeIds, titleHref } from "/web/watch-play.js";
@@ -117,7 +118,7 @@ function listParts(list, anime, kind) {
   const parts = [
     list.items.length ? tabs : null,
     items.length
-      ? [status, grid]
+      ? [status, spotlit(grid)]
       : emptyState(
           list.items.length ? "Nothing of this kind on My List." : "Nothing on My List yet. Use My List on a title to keep it here, on every device.",
           { href: "#/", label: "Find something to watch" },
