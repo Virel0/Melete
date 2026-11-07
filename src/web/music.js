@@ -9,6 +9,7 @@ import { genreList, genrePage, songList } from "/web/music-browse.js";
 import { homePage } from "/web/music-home.js";
 import { hiddenPage } from "/web/music-hidden.js";
 import { likedAlbumsPage, likedPage } from "/web/music-liked.js";
+import { mixesPage } from "/web/music-mixes.js";
 import { replayPage } from "/web/music-replay.js";
 import { playlistPage } from "/web/music-playlist.js";
 import { playlistsPage } from "/web/music-playlists.js";
@@ -49,6 +50,7 @@ export function musicPage(parts, params, ctx) {
   if (section === "liked" && !id) return likedPage(ctx);
   if (section === "liked-albums" && !id) return likedAlbumsPage(ctx);
   if (section === "replay" && !id) return replayPage(params, ctx);
+  if (section === "mixes" && !id) return mixesPage(ctx);
   if (section === "hidden" && !id) return hiddenPage(ctx);
   if (section === "playlists") return id ? playlistPage(decodeURIComponent(id), ctx) : playlistsPage(params, ctx);
   if (section === "composers") return id ? one && composerPage(id, ctx) : composerList(params, ctx);
