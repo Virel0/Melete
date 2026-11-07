@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 
 mod jassub;
+mod licences;
 
 const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
@@ -25,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 129] = [
+const MODULES: [(&str, &str); 130] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -101,6 +102,7 @@ const MODULES: [(&str, &str); 129] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("licences.js", include_str!("../web/licences.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),
     ("languages.js", include_str!("../web/languages.js")),
     (
@@ -300,7 +302,7 @@ pub fn routes() -> Router {
             get(move || async move { file("text/css; charset=utf-8", ALWAYS_ASK, body) }),
         );
     }
-    router.merge(jassub::routes())
+    router.merge(jassub::routes()).merge(licences::routes())
 }
 
 fn file(content_type: &'static str, cache: &'static str, body: &'static str) -> impl IntoResponse {
