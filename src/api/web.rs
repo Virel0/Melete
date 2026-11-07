@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 150] = [
+const MODULES: [(&str, &str); 155] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -198,6 +198,20 @@ const MODULES: [(&str, &str); 150] = [
     ("music-works.js", include_str!("../web/music-works.js")),
     ("music-player.js", include_str!("../web/music-player.js")),
     ("music-queue.js", include_str!("../web/music-queue.js")),
+    ("music-decks.js", include_str!("../web/music-decks.js")),
+    (
+        "music-handover.js",
+        include_str!("../web/music-handover.js"),
+    ),
+    ("music-mix.js", include_str!("../web/music-mix.js")),
+    (
+        "music-measures.js",
+        include_str!("../web/music-measures.js"),
+    ),
+    (
+        "music-settings.js",
+        include_str!("../web/music-settings.js"),
+    ),
     (
         "music-controls.js",
         include_str!("../web/music-controls.js"),
@@ -1524,6 +1538,53 @@ mod tests {
 
     fn module(name: &str) -> &'static str {
         MODULES.iter().find(|(n, _)| *n == name).unwrap().1
+    }
+
+    #[test]
+    fn a_hand_over_keeps_one_listen_per_play() {
+        let player = module("music-player.js");
+        // The song handed over from ends its listen, heard to the end, before the next one's
+        // deck takes over; the next one's starts once, whichever way it began.
+        let handed = &player[player.find("function handedOver(").unwrap()..];
+        let ended = handed.find("endListen({ completed: true });").unwrap();
+        assert!(ended < handed.find("swap();").unwrap());
+        assert!(handed.contains("if (sounding) beginListen();"));
+        assert!(player.contains("if (!track || listen) return;"));
+        assert!(player.contains(r#"audio.addEventListener("playing", beginListen);"#));
+        // A song's end taken by a hand-over isn't also ended and loaded the plain way.
+        assert!(player.contains("if (finish()) return;\n  endListen({ completed: true });"));
+        // The pages, and the player, hear only the deck playing.
+        assert!(
+            module("music-decks.js")
+                .contains("deck === active() && audio.dispatchEvent(new Event(type))")
+        );
+    }
+
+    #[test]
+    fn crossfade_follows_the_apps_rules_and_is_kept_by_the_browser() {
+        let mix = module("music-mix.js");
+        for rule in [
+            "MATCHED_BLEND = 8;",
+            "UNMATCHED_BLEND = 4;",
+            "SHARE = 0.25;",
+            "SHORTEST = 2;",
+            "TOLERANCE = 0.06;",
+            "STEADY = 0.5;",
+            r#"if (keepAlbums && albumRun(from, to)) return { kind: "gapless", overlap: 0 };"#,
+            r#"if (!crossfade) return { kind: "cut", overlap: 0 };"#,
+        ] {
+            assert!(mix.contains(rule), "{rule}");
+        }
+        let settings = module("music-settings.js");
+        assert!(settings.contains("const DEFAULTS = { crossfade: false, keepAlbums: true };"));
+        // A browser with its storage turned off still plays, with the defaults.
+        for read in [
+            "try {\n    const kept = JSON.parse(localStorage.getItem(KEY)",
+            "try {\n    localStorage.setItem(KEY, JSON.stringify(choices));",
+        ] {
+            assert!(settings.contains(read), "{read}");
+        }
+        assert!(module("account.js").contains("listeningGroup(),"));
     }
 
     #[test]

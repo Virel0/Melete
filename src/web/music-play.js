@@ -1,5 +1,6 @@
 // What the Listen pages play: an album, tracks from anywhere, in order or shuffled, as the
-// player's queue entries ({ id, title, artist, album, album_id, cover, codec, duration_seconds }).
+// player's queue entries ({ id, title, artist, album, album_id, cover, codec, duration_seconds,
+// disc_number, track_number }; the numbers tell the player an album run from a mix).
 //
 // - albumQueue(album): an album's tracks, in its track-list order, each with its cover.
 // - looseQueue(tracks): tracks from anywhere in the library; they carry no cover of their own.
@@ -25,6 +26,8 @@ export function albumQueue(album) {
     cover: album.cover,
     codec: t.codec,
     duration_seconds: t.duration_seconds,
+    disc_number: t.disc_number,
+    track_number: t.track_number,
   }));
 }
 
@@ -38,6 +41,8 @@ export function looseQueue(tracks) {
     cover: null,
     codec: t.codec,
     duration_seconds: t.duration_seconds,
+    disc_number: t.disc_number,
+    track_number: t.track_number,
   }));
 }
 
