@@ -1,9 +1,16 @@
 // The command palette: Ctrl+K (⌘K on a Mac) or / opens it anywhere, and typing finds a
 // page, a setting, or a title, artist or song in the library (what the user may see of it);
-// last, "See all results" opens the search page for what's typed (search.js). It's a modal dialog: focus goes into it and stays there, Escape closes it, and focus goes
-// back to where it was. Arrow keys move through the results, Enter opens one.
+// last, "See all results" opens the search page for what's typed (search.js). While the box is
+// empty it offers this browser's recent searches (palette-recent.js), with Clear. It also drives
+// the music player (Pause, Next track, Shuffle… while something is queued; music-keys.js) and
+// opens playlists by name. It's a modal dialog: focus goes into it and stays there, Escape
+// closes it, and focus goes back to where it was. Arrow keys move through the results, Enter
+// opens one.
 
 import { SignedOut, api, h } from "/web/lib.js";
+import { clearSearches, recentSearches, rememberSearch } from "/web/palette-recent.js";
+import { musicCommands } from "/web/music-keys.js";
+import { musicAi, musicAskHref } from "/web/music-ask.js";
 
 // Where everyone can go. `words` are other names people may type for the same place.
 const PAGES = [
@@ -156,8 +163,28 @@ function paletteParts(me) {
   return { input, results, said, keys };
 }
 
-// Closes the palette and goes to the place or title chosen.
-function go(item) {
+// Closes the palette and goes to the place or title chosen; for a title, or all the results,
+// what was typed is kept as a recent search. A recent search chosen is typed again instead;
+// Clear forgets them.
+function go(item, pal) {
+  if (item.recent) {
+    pal.input.value = item.recent;
+    pal.input.dispatchEvent(new Event("input"));
+    return;
+  }
+  if (item.clear) {
+    clearSearches();
+    pal.said.textContent = "Recent searches cleared";
+    draw(pal);
+    return;
+  }
+  // A player command does its thing where you are.
+  if (item.run) {
+    dialog.close();
+    item.run();
+    return;
+  }
+  if (pal.titles.includes(item) || item.kind === "Search") rememberSearch(pal.input.value);
   dialog.close();
   if (location.hash === item.href) dispatchEvent(new HashChangeEvent("hashchange"));
   else location.hash = item.href;
@@ -178,7 +205,8 @@ function mark(pal) {
 function draw(pal) {
   const { input, results, said } = pal;
   const q = input.value.trim().toLowerCase();
-  const scored = pal.places
+  // The player's commands, as things stand now (Pause while playing, Play while paused).
+  const scored = [...pal.places, ...musicCommands()]
     .map((p) => {
       const name = p.name.toLowerCase();
       // Other names count when one of their words starts with what's typed ("ind" isn't "find").
@@ -193,13 +221,17 @@ function draw(pal) {
   // those it hasn't to ask for.
   const typed = input.value.trim();
   const all = typed ? [{ name: `See all results for “${typed}”`, href: `#/search?${new URLSearchParams({ q: typed })}`, kind: "Search" }] : [];
-  pal.shown = [...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
+  // And, while AI features are on, songs from the library for what's typed as a description.
+  if (pal.ai && typed.length >= 3) all.push({ name: `Ask for music like “${typed}”`, href: musicAskHref(typed), kind: "Listen" });
+  const recent = q ? [] : recentSearches().map((r) => ({ name: r, kind: "Recent search", recent: r }));
+  if (recent.length) recent.push({ name: "Clear recent searches", kind: "Recent", clear: true });
+  pal.shown = [...recent, ...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
   pal.active = Math.min(pal.active, Math.max(0, pal.shown.length - 1));
   results.replaceChildren(
     ...pal.shown.map((item, i) =>
       h(
         "li",
-        { id: `palette-option-${i}`, role: "option", onclick: () => go(item), onmousemove: () => { if (pal.active !== i) { pal.active = i; mark(pal); } } },
+        { id: `palette-option-${i}`, role: "option", onclick: () => go(item, pal), onmousemove: () => { if (pal.active !== i) { pal.active = i; mark(pal); } } },
         h("span", { class: "palette-name" }, item.name),
         h("span", { class: "palette-kind" }, item.kind),
       ),
@@ -225,12 +257,14 @@ function findTitles(pal) {
       return { items: [] };
     });
     try {
-      const [movies, series, artists, albums, songs] = await Promise.all([
+      const [movies, series, artists, albums, songs, playlists] = await Promise.all([
         api(`/movies?${query}`),
         api(`/series?${query}`),
         music(`/music/artists?${query}`),
         music(`/music/albums?${query}`),
         music(`/music/tracks?${query}&q_in=track&sort=title`),
+        // Playlists are few: asked for once while the palette is open, matched here.
+        (pal.playlists ??= music("/playlists").then((all) => (Array.isArray(all) ? all : []))),
       ]);
       if (mine !== pal.asking || !dialog.open) return;
       pal.titles = [
@@ -240,6 +274,10 @@ function findTitles(pal) {
         ...(albums.items ?? []).map((a) => ({ name: `${a.title} by ${a.artist}`, href: `#/music/albums/${a.id}`, kind: "Album" })),
         // A song opens its album with the song picked out, ready to play.
         ...(songs.items ?? []).map((t) => ({ name: `${t.title} by ${t.artist}, from ${t.album}`, href: `#/music/albums/${t.album_id}?track=${t.id}`, kind: "Song" })),
+        ...playlists
+          .filter((p) => p.name.toLowerCase().includes(q.toLowerCase()))
+          .slice(0, 4)
+          .map((p) => ({ name: p.name, href: `#/music/playlists/${encodeURIComponent(p.id)}`, kind: "Playlist" })),
       ];
       draw(pal);
     } catch (err) {
@@ -266,7 +304,7 @@ function listen(pal) {
       mark(pal);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (shown[pal.active]) go(shown[pal.active]);
+      if (shown[pal.active]) go(shown[pal.active], pal);
     }
   });
   // A click on the backdrop (outside the box) closes it, as Escape does.
@@ -282,6 +320,8 @@ function openPalette(pal) {
   pal.returnTo = document.activeElement;
   pal.input.value = "";
   pal.titles = [];
+  pal.playlists = null;
+  musicAi().then((on) => (pal.ai = on));
   pal.active = 0;
   draw(pal);
   dialog.showModal();

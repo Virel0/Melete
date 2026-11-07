@@ -6,6 +6,8 @@
 //!
 //! Chinese characters are read as Japanese only in lyrics that have kana somewhere: a song in
 //! Chinese alone gets no pronunciation, since Japanese readings would be wrong for it.
+//!
+//! The same readings, in kana over each word's kanji, are [`furigana`].
 
 use std::borrow::Cow;
 use std::sync::OnceLock;
@@ -13,6 +15,8 @@ use std::sync::OnceLock;
 use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::segmenter::Segmenter;
+
+pub mod furigana;
 
 fn is_kana(c: char) -> bool {
     matches!(c, '\u{3041}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}' | '\u{FF66}'..='\u{FF9F}')

@@ -276,6 +276,17 @@ impl QuickConnect {
     }
 }
 
+#[cfg(test)]
+impl QuickConnect {
+    /// Runs every code waiting out now, as five minutes would, for a test of what comes after.
+    pub fn run_out_all(&self) {
+        let now = Instant::now();
+        for p in self.pending.lock().expect("no holder panics").values_mut() {
+            p.expires = now;
+        }
+    }
+}
+
 fn random_code() -> anyhow::Result<String> {
     let mut bytes = [0u8; CODE_LENGTH];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("no randomness available: {e}"))?;

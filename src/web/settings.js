@@ -1,11 +1,13 @@
-// Settings: your account for everyone (account.js); for admins, users (users.js), libraries,
-// matching titles by hand, and where releases and wanted titles come from (sources.js).
+// Settings: your account and the licences for everyone (account.js, licences.js); for admins,
+// users (users.js), libraries, matching titles by hand, and where releases and wanted titles
+// come from (sources.js).
 // Sections sit in a side list, each one a group of small forms, so nothing is more than one
 // click from the list.
 
 import { confirmInline, group, sectioned, when } from "/web/forms.js";
 import { SignedOut, announce, api, append, h, loading, number, plural } from "/web/lib.js";
 import { account } from "/web/account.js";
+import { licences } from "/web/licences.js";
 import { diagnostics } from "/web/diagnostics.js";
 import { services } from "/web/services.js";
 import { arrs, indexers, lists, profiles } from "/web/sources.js";
@@ -23,6 +25,7 @@ const SECTIONS = [
   { key: "lists", name: "Import lists", admin: true, page: lists },
   { key: "arrs", name: "Sonarr and Radarr", admin: true, page: arrs },
   { key: "diagnostics", name: "Diagnostics", admin: true, page: diagnostics },
+  { key: "licences", name: "Licences", admin: false, page: licences },
 ];
 
 // ---------- Libraries ----------

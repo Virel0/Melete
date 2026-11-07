@@ -1,7 +1,8 @@
 // Playlists: Aoide's playlists as the devices show them (`GET /playlists`), the caller's own and
 // those shared with them. Folders first, then the playlists in none; a folder opens on its own
-// with a way back up (`?folder=`). Folders are each person's own and are arranged on the
-// devices. New playlist makes an empty one of the caller's and opens it.
+// (`?folder=` its name) with the folders and playlists in it, a way back up, and Rename and
+// Delete. Folders are each person's own, made here or on the devices; a playlist is filed from
+// its page. New playlist makes an empty one of the caller's and opens it.
 //
 // Playlists live in Aoide's sync log, which is closed to someone who may see only some music
 // libraries: that refusal (403) is the page's one sentence.
@@ -11,9 +12,9 @@ import { cover } from "/web/music-parts.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
 import { clip, emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
+import { folderHref, folderTools, newFolder } from "/web/music-playlist-folders.js";
 
 export const playlistHref = (id) => `#/music/playlists/${encodeURIComponent(id)}`;
-const folderHref = (name) => `#/music/playlists?${new URLSearchParams({ folder: name })}`;
 
 // What a playlist is, under its name: smart, shared, or how many songs.
 export function playlistKind(p) {
@@ -36,12 +37,11 @@ function playlistCard(p) {
   );
 }
 
-function folderItem(name, count) {
-  return h(
-    "li",
-    {},
-    h("a", { href: folderHref(name) }, h("span", { class: "name" }, clip(name)), h("span", { class: "count" }, plural(count, "playlist", "playlists"))),
-  );
+// A folder, with how many playlists and folders are directly in it.
+function folderItem(f, folders) {
+  const nested = folders.filter((g) => g.parent_id === f.id).length;
+  const count = [plural(f.playlists, "playlist", "playlists"), nested ? plural(nested, "folder", "folders") : null].filter(Boolean).join(", ");
+  return h("li", {}, h("a", { href: folderHref(f.name) }, h("span", { class: "name" }, clip(f.name)), h("span", { class: "count" }, count)));
 }
 
 // New playlist: a name, then its page.
@@ -75,51 +75,62 @@ function newPlaylist() {
 export async function playlistsPage(params, ctx) {
   const folder = params.get("folder");
   const title = h("h1", {}, folder ?? "Playlists");
-  const back = folder ? h("p", {}, h("a", { href: "#/music/playlists" }, "All playlists")) : null;
   if (!seesAllMusic()) return show("Playlists", h("h1", {}, "Playlists"), emptyState(PLAYLISTS_CLOSED));
-  show(folder ?? "Playlists", back, title, placeholders("playlists", { kind: "cards", count: 6 }));
+  show(folder ?? "Playlists", title, placeholders("playlists", { kind: "cards", count: 6 }));
   let all;
+  let folders;
   try {
-    all = await api("/playlists");
+    [all, folders] = await Promise.all([api("/playlists"), api("/playlists/folders")]);
   } catch (err) {
     if (err.status !== 403) throw err;
     if (ctx.current()) show("Playlists", title, emptyState(PLAYLISTS_CLOSED));
     return;
   }
   if (!ctx.current()) return;
-  if (folder) {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  // A folder opens by its name, as the playlists name theirs.
+  const record = folder === null ? null : folders.find((f) => f.name === folder);
+  const up = record ? byId.get(record.parent_id) : null;
+  const subfolders = folders
+    .filter((f) => (record ? f.parent_id === record.id : folder === null && !byId.has(f.parent_id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const folderList = h(
+    "section",
+    { class: "listen-row", "aria-labelledby": "playlist-folders" },
+    h("h2", { id: "playlist-folders" }, folder === null ? "Folders" : "Folders in it"),
+    subfolders.length ? h("ul", { class: "artist-list" }, subfolders.map((f) => folderItem(f, folders))) : null,
+    folder === null || record ? newFolder(record?.id ?? null) : null,
+  );
+  if (folder !== null) {
     const inside = all.filter((p) => p.folder === folder);
     show(
       folder,
-      back,
+      h("p", {}, h("a", { href: up ? folderHref(up.name) : "#/music/playlists" }, up ? up.name : "All playlists")),
       title,
+      record ? folderTools(record, up) : null,
+      inside.length || subfolders.length
+        ? null
+        : emptyState(record ? "Nothing is in this folder now. Move a playlist here from its page." : "There's no such folder now.", { href: "#/music/playlists", label: "See every playlist" }),
+      record ? folderList : null,
       inside.length
-        ? h("ul", { class: "grid" }, inside.map(playlistCard))
-        : emptyState("Nothing is in this folder now.", { href: "#/music/playlists", label: "See every playlist" }),
+        ? h("section", { class: "listen-row", "aria-labelledby": "playlist-loose" }, h("h2", { id: "playlist-loose" }, "Playlists"), h("ul", { class: "grid" }, inside.map(playlistCard)))
+        : null,
     );
     return;
   }
-  const folders = new Map();
-  for (const p of all) if (p.folder) folders.set(p.folder, (folders.get(p.folder) ?? 0) + 1);
+  // Playlists filed in no folder of the caller's, shared ones included.
   const loose = all.filter((p) => !p.folder);
   show(
     "Playlists",
     title,
     newPlaylist(),
-    all.length ? null : emptyState("No playlists yet. Make one here, or on any of your Aoide devices."),
-    folders.size
-      ? h(
-          "section",
-          { class: "listen-row", "aria-labelledby": "playlist-folders" },
-          h("h2", { id: "playlist-folders" }, "Folders"),
-          h("ul", { class: "artist-list" }, [...folders].sort(([a], [b]) => a.localeCompare(b)).map(([name, count]) => folderItem(name, count))),
-        )
-      : null,
+    all.length || folders.length ? null : emptyState("No playlists yet. Make one here, or on any of your Aoide devices."),
+    folderList,
     loose.length
       ? h(
           "section",
           { class: "listen-row", "aria-labelledby": "playlist-loose" },
-          folders.size ? h("h2", { id: "playlist-loose" }, "Not in a folder") : h("h2", { id: "playlist-loose", class: "visually-hidden" }, "Your playlists"),
+          h("h2", { id: "playlist-loose" }, "Not in a folder"),
           h("ul", { class: "grid" }, loose.map(playlistCard)),
         )
       : null,
