@@ -7,6 +7,7 @@ import { genreFilter, pagedList } from "/web/music-list.js";
 import { albumCard, countedItem, markPlaying, songRow } from "/web/music-parts.js";
 import { trackActions } from "/web/music-actions.js";
 import { SHUFFLE_SONGS, looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.js";
+import { askSection } from "/web/music-ask.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 
 const SONG_SORTS = [
@@ -88,7 +89,7 @@ export async function songList(params, ctx) {
       },
       list,
       filters,
-      intro: songActions(),
+      intro: [songActions(), askSection(ctx, params)],
     },
   );
   if (ctx.current()) markPlaying(list, ctx);
