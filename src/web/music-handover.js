@@ -15,6 +15,7 @@
 // and levelled are for the player's own loads.
 
 import { active, audio, empty, fade, hold, setLevel, spare, start } from "/web/music-decks.js";
+import { sleepsAfter } from "/web/music-extras.js";
 import { analysis, bounds, level, measure } from "/web/music-measures.js";
 import { fadingIn, fadingOut, plan } from "/web/music-mix.js";
 import { listening } from "/web/music-settings.js";
@@ -110,12 +111,13 @@ async function arm(at, entry) {
   }
 }
 
-// The entry a hand-over would bring in, and where: none at the end of the queue, nor for the
-// same entry again (repeat one, or a queue of one).
+// The entry a hand-over would bring in, and where: none at the end of the queue, for the same
+// entry again (repeat one, or a queue of one), or when the sleep timer stops the music here.
 function upcoming() {
   const at = queue.nextIndex();
   const entry = queue.all()[at];
   if (!entry || at === queue.position() || queue.repeating() === "one") return null;
+  if (sleepsAfter(queue.current(), entry.track)) return null;
   return { at, entry };
 }
 
