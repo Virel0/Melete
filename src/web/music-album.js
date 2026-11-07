@@ -11,6 +11,7 @@ import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-rad
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
+import { motionCover } from "/web/music-motion.js";
 
 // Play, Shuffle and Start radio for an artist: their songs (their albums', and the ones
 // crediting them elsewhere), asked for when pressed.
@@ -200,7 +201,7 @@ function albumHead(album, queue) {
   const head = h(
     "div",
     { class: "album-head" },
-    h("div", { class: "album-cover" }, album.cover ? h("img", { src: album.cover, alt: "" }) : null),
+    h("div", { class: "album-cover" }, album.cover ? h("img", { src: album.cover, alt: "" }) : null, motionCover(album.motion_cover)),
     h(
       "div",
       { class: "facts" },
