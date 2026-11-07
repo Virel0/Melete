@@ -216,6 +216,17 @@
 .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto auto auto; }
 .playlist-items .item-tools button.icon { width: 2.25rem; height: 2.25rem; }
 .new-playlist { margin-block: var(--space-3) var(--space-2); }
+.playlist-edit select { width: 100%; }
+/* Share, on one's own playlist: who it's shared with and how, and sharing it with someone. */
+.playlist-share { margin-block: var(--space-4); max-width: 36rem; }
+.playlist-share h2 { font-size: var(--step-1); margin-block: 0 var(--space-2); }
+.share-list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.share-add { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-4); margin-block-start: var(--space-3); }
+.share-add .field, .share-add .check { margin: 0; }
+.share-add .check { min-height: 2.75rem; }
+/* A folder's page: Rename and Delete, and New folder under its folders. */
+.folder-tools { margin-block: var(--space-2) var(--space-3); }
+.folder-form { margin-block-start: var(--space-3); }
 @media (max-width: 40rem) {
   .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
   .playlist-items .item-tools { grid-column: 1 / -1; justify-self: end; }
