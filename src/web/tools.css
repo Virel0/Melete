@@ -53,6 +53,15 @@
 .rows details { margin-block-start: var(--space-2); }
 .rows summary { cursor: pointer; color: var(--muted); }
 .rows summary:hover { color: var(--text); }
+/* A request or an Ask result with its poster or cover beside its words; on a phone its actions
+   go under the words. */
+.rows > li.pictured { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: start; }
+.pictured > .art { aspect-ratio: 2 / 3; border-radius: var(--radius-s); overflow: hidden; background: var(--surface-raised); }
+.pictured > .art.square { aspect-ratio: 1 / 1; }
+.pictured > .art img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 40rem) { .rows > li.pictured > .row-actions { grid-column: 2 / -1; } }
+/* Your requests by where they stand: a heading over each stage's list. */
+.request-stage h3 { font-size: var(--step-0); margin-block: var(--space-4) 0; }
 /* A series request's seasons: one line each, name, where it stands, how much is here. */
 .request-seasons { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
 .request-seasons > li {

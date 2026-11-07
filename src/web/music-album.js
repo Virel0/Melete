@@ -8,6 +8,7 @@ import { SPATIAL, albumCard, artistCounts, markPlaying, pinControl, trackRow } f
 import { albumQueue, looseQueue, play, shufflePlay } from "/web/music-play.js";
 import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
+import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 
@@ -57,6 +58,7 @@ export async function artistPage(id, ctx) {
     h("p", { class: "status" }, artistCounts(artist)),
     artistActions(artist),
     pinControl("artist", artist.id, artist.name),
+    yourListening(`artist_id=${artist.id}`, "their songs"),
     artist.album_list.length
       ? h("ul", { class: "grid" }, artist.album_list.map((album) => albumCard(album, { showArtist: false })))
       : guest.length
@@ -70,6 +72,7 @@ export async function artistPage(id, ctx) {
           h("ul", { class: "grid" }, guest.map((album) => albumCard(album))),
         )
       : null,
+    artistTopSongs(artist.id, ctx),
   );
 }
 
@@ -227,7 +230,7 @@ export async function albumPage(id, ctx, found = null) {
     h("h2", { class: "visually-hidden" }, "Tracks"),
     album.track_list.length ? trackList(album.track_list, album.artist, queue) : h("p", { class: "status" }, "No tracks in the library right now."),
   );
-  show(album.title, albumHead(album, queue), tracks);
+  show(album.title, albumHead(album, queue), yourListening(`album_id=${album.id}`, "this album's songs"), tracks);
   markPlaying(tracks, ctx);
   const row = found && tracks.querySelector(`[data-track="${CSS.escape(found)}"]`);
   if (row) {

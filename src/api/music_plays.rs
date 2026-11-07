@@ -1,7 +1,10 @@
 //! Play history for the apps: each user's own listens, newest first, and a listen sent
-//! by an app that doesn't sync (the web UI's player, say). Aoide's devices needn't send
-//! anything here: their play events reach the history through sync. Each user can delete their
-//! own listens, one or a time range at a time.
+//! by an app that doesn't sync (the web UI's player, say), which is also written into the
+//! listener's sync log as a play event, so it counts on their Aoide devices too. Aoide's
+//! devices needn't send anything here: their play events reach the history through sync. A
+//! track flagged "don't count plays" has no new listens kept. Each user can delete their own
+//! listens, one or a time range at a time; play events are append-only on the devices, so a
+//! listen already on them stays there.
 
 use std::sync::Arc;
 
@@ -10,12 +13,14 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Extension, Json, Router, middleware};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_playback, require_user};
 use super::music::{bad_request, paging, tracks_by_id};
+use crate::aoide::listening;
+use crate::aoide::writing::{self, Change, session_device};
 use crate::db::now_ms;
 use crate::plays::{self, Forget, Listen, Source};
 
@@ -199,6 +204,15 @@ async fn add(
     if !known {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such track"));
     }
+    if listening::dont_count(&pool, current.user.id)
+        .await?
+        .contains(&body.track_id.to_string())
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "you chose not to count plays of this song, so the listen isn't kept",
+        ));
+    }
     let device = match body.device.map(|d| d.trim().to_owned()) {
         Some(d) if !d.is_empty() => d.chars().take(MAX_ID).collect(),
         _ => sqlx::query_scalar("SELECT name FROM tokens WHERE id = ?")
@@ -219,6 +233,7 @@ async fn add(
         activity: plays::activity(body.activity.as_deref()),
     };
     let id = plays::record(&pool, current.user.id, Source::Api, &listen).await?;
+    to_log(&pool, &current, body.track_id, &listen).await;
     let row: PlayRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {PLAY_COLUMNS} FROM music_plays WHERE id = ?"
     )))
@@ -233,6 +248,49 @@ async fn add(
     )
     .await?;
     Ok(Json(shown.remove(0)))
+}
+
+/// Writes a kept listen into the listener's sync log as the play event an Aoide device would
+/// push (every field the apps require), so it counts on their devices too: their Replay,
+/// finish rates and play-count rules. The history has it already, and reading the log passes
+/// over it. Sent again, it's the same event, more finished. The listen is kept either way, so
+/// a failure is only logged.
+async fn to_log(pool: &SqlitePool, current: &CurrentUser, track_id: i64, listen: &Listen) {
+    let link = match writing::track_link(pool, track_id).await {
+        Ok(Some(link)) => link,
+        // A track gone from the library has no content key for the apps to find it by.
+        Ok(None) => return,
+        Err(err) => {
+            tracing::warn!(error = %err, "couldn't look up a listened track for the sync log");
+            return;
+        }
+    };
+    let mut row = Map::new();
+    row.insert("id".into(), listen.event_id.clone().into());
+    row.insert("jellyfinId".into(), link.jellyfin_id.into());
+    row.insert("contentKey".into(), link.content_key.into());
+    row.insert("startedAt".into(), listen.started_at.into());
+    if let Some(ended) = listen.ended_at {
+        row.insert("endedAt".into(), ended.into());
+    }
+    row.insert("msPlayed".into(), listen.position_ms.unwrap_or(0).into());
+    row.insert("completed".into(), listen.completed.into());
+    row.insert("skipped".into(), listen.skipped.into());
+    row.insert("source".into(), "unknown".into());
+    if let Some(activity) = &listen.activity {
+        row.insert("activity".into(), activity.clone().into());
+    }
+    row.insert("originDevice".into(), listen.device.clone().into());
+    let change = Change {
+        entity: "play_events",
+        delete: false,
+        row,
+    };
+    let device = session_device(current.token_id);
+    if let Err(err) = writing::append(pool, current.user.id, &device, vec![change], now_ms()).await
+    {
+        tracing::error!(error = ?err, "couldn't write a listen into the sync log");
+    }
 }
 
 #[derive(Deserialize)]
@@ -443,6 +501,143 @@ mod tests {
         assert_eq!(focus["items"][0]["track_id"], 7);
         let (_, theirs) = call(&app, &bob_token, "GET", "/api/v1/music/plays", None).await;
         assert_eq!(theirs["total"], 0, "each user sees only their own");
+    }
+
+    /// The play events in a user's log: device, entity id, payload.
+    async fn logged(pool: &SqlitePool, user: i64) -> Vec<(String, String, Value)> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT device_id, entity_id, payload FROM aoide_ops
+             WHERE user_id = ? AND entity = 'play_events' ORDER BY seq",
+        )
+        .bind(user)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        rows.into_iter()
+            .map(|(d, e, p)| (d, e, serde_json::from_str(&p).unwrap()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_web_listen_goes_into_the_sync_log_as_the_apps_write_one() {
+        let pool = crate::db::open_in_memory().await;
+        library(&pool).await;
+        let (alice, token) = user(&pool, "alice", "Living room iPad").await;
+        let app = routes(pool.clone());
+
+        let started = json!({ "id": "web-1", "track_id": 7, "started_at": 4000 });
+        let (status, _) = call(&app, &token, "POST", "/api/v1/music/plays", Some(started)).await;
+        assert_eq!(status, StatusCode::OK);
+        let ended = json!({ "id": "web-1", "track_id": 7, "started_at": 4000, "ended_at": 4200,
+                            "position_seconds": 200, "completed": true, "activity": "Focus" });
+        let (status, _) = call(&app, &token, "POST", "/api/v1/music/plays", Some(ended)).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let ops = logged(&pool, alice).await;
+        assert_eq!(ops.len(), 2, "started, then finished: {ops:?}");
+        let token_id: i64 = sqlx::query_scalar("SELECT id FROM tokens WHERE user_id = ?")
+            .bind(alice)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (device, entity, payload) = &ops[1];
+        assert_eq!(device, &format!("token-{token_id}"));
+        assert_eq!(entity, "web-1");
+        // Every field the apps decode a play event by, and nothing they'd quarantine it for.
+        assert_eq!(
+            payload,
+            &json!({
+                "id": "web-1", "jellyfinId": "7", "contentKey": payload["contentKey"].clone(),
+                "startedAt": 4_000_000, "endedAt": 4_200_000, "msPlayed": 200_000,
+                "completed": true, "skipped": false, "source": "unknown", "activity": "Focus",
+                "originDevice": "Living room iPad"
+            })
+        );
+        assert!(
+            payload["contentKey"]
+                .as_str()
+                .is_some_and(|k| k.starts_with("alice|album|first")),
+            "{payload}"
+        );
+        assert!(ops[0].2.get("endedAt").is_none());
+
+        // Reading the log keeps it once: the history has it from the API already.
+        crate::plays::catch_up(&pool).await.unwrap();
+        let kept: Vec<(String, String)> =
+            sqlx::query_as("SELECT source, event_id FROM music_plays WHERE user_id = ?")
+                .bind(alice)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(kept, [("api".to_owned(), "web-1".to_owned())]);
+
+        // Deleted from the history, it isn't brought back by its copy in the log.
+        let id: i64 = sqlx::query_scalar("SELECT id FROM music_plays")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (status, _) = call(
+            &app,
+            &token,
+            "DELETE",
+            &format!("/api/v1/music/plays/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        sqlx::query("UPDATE music_plays_read SET seq = 0")
+            .execute(&pool)
+            .await
+            .unwrap();
+        crate::plays::catch_up(&pool).await.unwrap();
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM music_plays")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[tokio::test]
+    async fn a_song_flagged_dont_count_has_no_listen_kept() {
+        let pool = crate::db::open_in_memory().await;
+        library(&pool).await;
+        let (alice, token) = user(&pool, "alice", "Laptop").await;
+        sqlx::query(
+            "INSERT INTO aoide_ops (op_id, user_id, device_id, entity, entity_id, operation,
+                 payload, created_at, received_at)
+             VALUES ('f1', ?, 'phone', 'track_flags', 'flag-7', 'upsert',
+                 '{\"jellyfinId\":\"7\",\"dontCount\":true,\"notInterested\":false}', 1, 1)",
+        )
+        .bind(alice)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let app = routes(pool.clone());
+
+        let (status, said) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/v1/music/plays",
+            Some(json!({ "track_id": 7, "started_at": 4000 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{said}");
+        let (status, _) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/v1/music/plays",
+            Some(json!({ "track_id": 8, "started_at": 4000 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "another song still counts");
+        let kept: Vec<i64> = sqlx::query_scalar("SELECT track_id FROM music_plays")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(kept, [8]);
+        assert_eq!(logged(&pool, alice).await.len(), 1);
     }
 
     #[tokio::test]

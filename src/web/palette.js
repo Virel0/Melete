@@ -1,6 +1,6 @@
 // The command palette: Ctrl+K (⌘K on a Mac) or / opens it anywhere, and typing finds a
-// page, a setting, or a title, artist or song in the library (what the user may see of it).
-// It's a modal dialog: focus goes into it and stays there, Escape closes it, and focus goes
+// page, a setting, or a title, artist or song in the library (what the user may see of it);
+// last, "See all results" opens the search page for what's typed (search.js). It's a modal dialog: focus goes into it and stays there, Escape closes it, and focus goes
 // back to where it was. Arrow keys move through the results, Enter opens one.
 
 import { SignedOut, api, h } from "/web/lib.js";
@@ -12,6 +12,7 @@ const PAGES = [
   { name: "Shows", href: "#/shows", kind: "Page", words: "series tv" },
   { name: "Anime", href: "#/anime", kind: "Page", words: "series japanese animation" },
   { name: "My List", href: "#/favourites", kind: "Page", words: "favourites watchlist" },
+  { name: "Search", href: "#/search", kind: "Page", words: "find titles movies shows not in the library" },
   { name: "Listen", href: "#/music", kind: "Page", words: "music home" },
   { name: "Albums", href: "#/music/albums", kind: "Listen", words: "music records" },
   { name: "Artists", href: "#/music/artists", kind: "Listen", words: "music bands" },
@@ -188,7 +189,11 @@ function draw(pal) {
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.p);
-  pal.shown = [...scored.slice(0, q ? 12 : 8), ...pal.titles];
+  // Last, the search page for what's typed: every title the library has called that, and
+  // those it hasn't to ask for.
+  const typed = input.value.trim();
+  const all = typed ? [{ name: `See all results for “${typed}”`, href: `#/search?${new URLSearchParams({ q: typed })}`, kind: "Search" }] : [];
+  pal.shown = [...scored.slice(0, q ? 12 : 8), ...pal.titles, ...all];
   pal.active = Math.min(pal.active, Math.max(0, pal.shown.length - 1));
   results.replaceChildren(
     ...pal.shown.map((item, i) =>
