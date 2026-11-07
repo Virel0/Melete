@@ -176,6 +176,12 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .lyrics-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2); }
 .lyrics-tools button { margin: 0; }
 .lyrics-tools button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+/* Timing: its name, Earlier, how far off the file it is now, Later. */
+.lyrics-timing { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-block-end: var(--space-2); }
+.lyrics-timing button { margin: 0; }
+.lyrics-timing button[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.timing-name { font-size: var(--step--1); font-weight: 600; }
+.timing-now { min-width: 10ch; text-align: center; color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
 .lyrics { display: grid; gap: var(--space-1); }
 .lyrics .line {
   display: block;
@@ -193,6 +199,10 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .lyrics button.line:hover { color: var(--text); background: var(--surface-raised); }
 .lyrics .line.now { color: var(--accent); }
 .lyrics .extra { display: block; font-size: var(--step--1); font-weight: 400; }
+/* Furigana: the readings small over their kanji, in the line's colour. */
+.lyrics rt { font-size: 0.55em; font-weight: 400; }
+/* The words run on as text (the panel lays out its other .words as a column). */
+.lyrics .line .words { display: block; }
 .lyrics-source { margin-block-start: var(--space-4); }
 
 /* Full screen: Now playing fills the window, the cover large with the controls under it and the
