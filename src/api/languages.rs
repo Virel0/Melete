@@ -1,5 +1,6 @@
-//! A user's audio and subtitle languages, the tracks they choose by hand in a series, and the
-//! tracks Melete picks to play a file with, so every app picks the same.
+//! A user's audio and subtitle languages (and, for movies, shows or anime, their own when they
+//! set them), the tracks they choose by hand in a series, and the tracks Melete picks to play a
+//! file with, so every app picks the same.
 
 use std::sync::Arc;
 
@@ -16,7 +17,9 @@ use super::playback::resolve;
 use super::{ApiError, bad_request};
 use crate::languages::Language;
 use crate::probe::MediaInfo;
-use crate::track_picks::{self, Pick, Preferences, SeriesChoice, SubtitleChoice, SubtitleMode};
+use crate::track_picks::{
+    self, Kind, Pick, Preferences, SeriesChoice, SubtitleChoice, SubtitleMode,
+};
 
 /// Most languages kept in each list.
 const MAX_LANGUAGES: usize = 10;
@@ -36,6 +39,10 @@ pub fn routes(pool: SqlitePool) -> Router {
         ));
     Router::new()
         .route("/api/v1/me/languages", get(show).put(replace))
+        .route(
+            "/api/v1/me/languages/{kind}",
+            get(show_kind).put(replace_kind).delete(clear_kind),
+        )
         .route_layer(middleware::from_fn_with_state(auth, require_user))
         .merge(playing)
         .with_state(pool)
@@ -87,24 +94,83 @@ fn language_list(codes: &[String], what: &str) -> Result<Vec<Language>, ApiError
     Ok(list)
 }
 
-async fn replace(
-    State(pool): State<SqlitePool>,
-    Extension(current): Extension<CurrentUser>,
-    Json(body): Json<LanguagesBody>,
-) -> Result<Json<Value>, ApiError> {
+/// A body's languages, checked: a 400 naming what's wrong.
+fn body_preferences(body: &LanguagesBody) -> Result<Preferences, ApiError> {
     let mode = SubtitleMode::parse(&body.subtitle_mode).ok_or_else(|| {
         bad_request(&format!(
             "subtitle_mode is one of {}",
             SubtitleMode::NAMES.join(", ")
         ))
     })?;
-    let preferences = Preferences {
+    Ok(Preferences {
         audio: language_list(&body.audio_languages, "audio")?,
         subtitles: language_list(&body.subtitle_languages, "subtitle")?,
         mode,
-    };
+    })
+}
+
+async fn replace(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Json(body): Json<LanguagesBody>,
+) -> Result<Json<Value>, ApiError> {
+    let preferences = body_preferences(&body)?;
     track_picks::set_preferences(&pool, current.user.id, &preferences).await?;
     Ok(Json(preferences_json(&preferences)))
+}
+
+/// The kind a path names: movies, shows or anime; a 404 for anything else.
+fn kind(name: &str) -> Result<Kind, ApiError> {
+    Kind::parse(name).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            &format!("the kinds are {}", Kind::NAMES.join(", ")),
+        )
+    })
+}
+
+/// A kind's languages: its own (`own` true), else the user's, which it follows.
+async fn kind_json(pool: &SqlitePool, user_id: i64, kind: Kind) -> Result<Value, ApiError> {
+    let (own, preferences) = match track_picks::kind_preferences(pool, user_id, kind).await? {
+        Some(own) => (true, own),
+        None => (false, track_picks::preferences(pool, user_id).await?),
+    };
+    let mut answer = preferences_json(&preferences);
+    answer["kind"] = kind.name().into();
+    answer["own"] = own.into();
+    Ok(answer)
+}
+
+async fn show_kind(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let kind = kind(&name)?;
+    Ok(Json(kind_json(&pool, current.user.id, kind).await?))
+}
+
+async fn replace_kind(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(name): Path<String>,
+    Json(body): Json<LanguagesBody>,
+) -> Result<Json<Value>, ApiError> {
+    let kind = kind(&name)?;
+    let preferences = body_preferences(&body)?;
+    track_picks::set_kind_preferences(&pool, current.user.id, kind, &preferences).await?;
+    Ok(Json(kind_json(&pool, current.user.id, kind).await?))
+}
+
+/// Lets a kind follow the user's languages again.
+async fn clear_kind(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let kind = kind(&name)?;
+    track_picks::clear_kind_preferences(&pool, current.user.id, kind).await?;
+    Ok(Json(kind_json(&pool, current.user.id, kind).await?))
 }
 
 #[derive(Deserialize)]

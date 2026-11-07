@@ -11013,6 +11013,93 @@
         }
       }
     },
+    "/api/v1/me/languages/{kind}": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your languages for movies, shows or anime",
+        "description": "The languages a kind of title plays with: its own when you set them (`own` true), else your languages (`/me/languages`), which it follows. Picking tracks uses them for that kind's files.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "`movies`, `shows` or `anime` (a series wanted as anime, or in a library with the anime category).",
+            "schema": {"type": "string", "enum": ["movies", "shows", "anime"]}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KindLanguages"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such kind",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      },
+      "put": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Set languages of their own for movies, shows or anime",
+        "description": "Gives the kind languages of its own, replacing any it had, as `/me/languages` takes them; its files then play with these rather than your languages. A choice made by hand in a series still comes first.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "`movies`, `shows` or `anime` (a series wanted as anime, or in a library with the anime category).",
+            "schema": {"type": "string", "enum": ["movies", "shows", "anime"]}
+          }
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Languages"}}}},
+        "responses": {
+          "200": {
+            "description": "As kept",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KindLanguages"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such kind",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"}
+        }
+      },
+      "delete": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Let movies, shows or anime follow your languages again",
+        "description": "Drops the kind's own languages, if it had any; it then follows `/me/languages`. Answers what it plays with now.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "description": "`movies`, `shows` or `anime` (a series wanted as anime, or in a library with the anime category).",
+            "schema": {"type": "string", "enum": ["movies", "shows", "anime"]}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the kind follows now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KindLanguages"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such kind",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/me/playback": {
       "get": {
         "tags": ["Accounts"],
@@ -19261,6 +19348,18 @@
             ],
             "description": "`series_choice`: like the subtitles last chosen by hand in this series, or off because they were turned off there. `always`: full subtitles in your first subtitle language the file has. `foreign_audio`: the same, because the audio isn't in one of your subtitle languages (or isn't tagged). `forced`: forced subtitles (the parts in another language) in one of your subtitle languages, else the audio's. `off`: your subtitle mode is off. `audio_understood`: the audio is in one of your subtitle languages and there are no forced ones. `no_match`: nothing in your languages."
           }
+        },
+        "additionalProperties": false
+      },
+      "KindLanguages": {
+        "type": "object",
+        "required": ["kind", "own", "audio_languages", "subtitle_languages", "subtitle_mode"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["movies", "shows", "anime"]},
+          "own": {"type": "boolean", "description": "Whether these are the kind's own; false when it follows your languages, which these then are."},
+          "audio_languages": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "Most wanted first."},
+          "subtitle_languages": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "Most wanted first. Audio in one of these is taken as understood."},
+          "subtitle_mode": {"type": "string", "enum": ["off", "forced", "foreign", "always"], "description": "As in `Languages`."}
         },
         "additionalProperties": false
       },
