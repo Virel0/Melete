@@ -9,6 +9,7 @@ import { kindPage, oldSeriesList } from "/web/watch-kind.js";
 import { forgetSavedHomes, home } from "/web/home.js";
 import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
+import { forgetExtras } from "/web/music-extras.js";
 import { musicPage } from "/web/music.js";
 import "/web/tab-title.js";
 import "/web/music-keys.js";
@@ -76,6 +77,8 @@ function signIn(message) {
   codeWaiting = null;
   // Its stream links stop working with the session anyway.
   stopPlayer();
+  // No private listening or sleep timer carries over to whoever signs in next.
+  forgetExtras();
   stopShell();
   // The next to sign in here may be someone else.
   forgetSavedHomes();

@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 159] = [
+const MODULES: [(&str, &str); 161] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -221,6 +221,11 @@ const MODULES: [(&str, &str); 159] = [
     (
         "music-visualizer.js",
         include_str!("../web/music-visualizer.js"),
+    ),
+    ("music-extras.js", include_str!("../web/music-extras.js")),
+    (
+        "music-extras-menu.js",
+        include_str!("../web/music-extras-menu.js"),
     ),
     (
         "music-controls.js",
@@ -1595,6 +1600,30 @@ mod tests {
             assert!(settings.contains(read), "{read}");
         }
         assert!(module("account.js").contains("listeningGroup(),"));
+    }
+
+    #[test]
+    fn private_listening_sends_no_listen_and_shows_while_on() {
+        let player = module("music-player.js");
+        // No listen begins while it's on, nor for the song half heard in private once it's off;
+        // switching it on ends the one under way, as stopped.
+        assert!(player.contains(
+            "if (!track || listen) return;\n  // None while listening privately, nor for the song half heard in private.\n  if (privately() || queue.all()[queue.position()] === heldBack) return;"
+        ));
+        assert!(player.contains("if (wasPrivate) endListen();"));
+        // Every listen is sent from these two places only, and both go through `listen`.
+        assert_eq!(player.matches(r#"api("/music/plays""#).count(), 2);
+        // Kept for the tab, forgotten on signing out, and shown in the bar while on.
+        assert!(module("music-extras.js").contains(r#"sessionStorage.setItem(PRIVATE_KEY, "on")"#));
+        assert!(module("app.js").contains("forgetExtras();"));
+        assert!(module("music-bar.js").contains("privateBadge()"));
+        assert!(module("music-panel.js").contains("extrasMenu({ below: true })"));
+        // The activity goes on each listen; the sleep timer holds back the next song's hand-over.
+        assert!(player.contains("...(tag ? { activity: tag } : {})"));
+        assert!(
+            module("music-handover.js")
+                .contains("if (sleepsAfter(queue.current(), entry.track)) return null;")
+        );
     }
 
     #[test]
