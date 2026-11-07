@@ -2,7 +2,7 @@
 // compares and with what, the order and how many songs at most, in the Aoide apps' rule format.
 // What the rules give is shown as they're changed, worked out by the server for the listener
 // (`POST /smart-playlists/songs`). Used for a new smart playlist on the playlists page and for
-// Edit rules on one's own smart playlist.
+// Edit rules on one's own smart playlist, or one shared with them to edit.
 
 import { SignedOut, api, h, plural } from "/web/lib.js";
 import { playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";

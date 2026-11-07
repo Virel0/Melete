@@ -360,7 +360,9 @@ async fn only_the_owner_sets_rules_and_bad_rules_are_refused() {
     let fine = json!({"rules": {"match": "all", "rules": []}});
     let smart_rules = "/api/v1/playlists/SMART/rules";
     for (token, uri, body, want) in [
-        (&bob_token, smart_rules, fine.clone(), StatusCode::FORBIDDEN),
+        // Bob may edit it, as the sync log lets an editor change a playlist's row (to the
+        // rules it has, so nothing is written).
+        (&bob_token, smart_rules, fine.clone(), StatusCode::OK),
         (
             &carol_token,
             smart_rules,
@@ -413,4 +415,48 @@ async fn only_the_owner_sets_rules_and_bad_rules_are_refused() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{said}");
     }
     assert_eq!(ops(&pool).await.len(), before, "nothing written");
+}
+
+#[tokio::test]
+async fn an_editor_changes_a_shared_smart_playlists_rules_into_their_own_log() {
+    let (pool, app) = fixture().await;
+    let (alice, _) = user(&pool, "alice").await;
+    let (bob, bob_token) = user(&pool, "bob").await;
+    let (carol, carol_token) = user(&pool, "carol").await;
+    smart(&pool, alice, "SMART", Some(r#"{"match":"all","rules":[]}"#)).await;
+    for (user, can_edit) in [(bob, true), (carol, false)] {
+        crate::aoide::library::share(&pool, "SMART", user, can_edit, 1)
+            .await
+            .unwrap();
+    }
+    let before = ops(&pool).await.len();
+    let jazz = json!({"match": "all", "rules": [{"field": "genre", "op": "is", "value": "Jazz"}]});
+    let uri = "/api/v1/playlists/SMART/rules";
+    let (status, said) = send(&app, &bob_token, "PUT", uri, json!({ "rules": jazz })).await;
+    assert_eq!(status, StatusCode::OK, "{said}");
+    // Written into Bob's own log, as his device would push it, and the playlist stays Alice's.
+    let (writer, payload): (i64, String) = sqlx::query_as(
+        "SELECT user_id, payload FROM aoide_ops WHERE entity = 'playlists' ORDER BY seq DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(writer, bob);
+    let row: Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(
+        row["smartRules"],
+        r#"{"match":"all","rules":[{"field":"genre","op":"is","value":"Jazz"}]}"#
+    );
+    assert_eq!(row["id"], "SMART");
+    // Shared with Carol to listen to: refused, and nothing more written.
+    let (status, said) = send(&app, &carol_token, "PUT", uri, json!({ "rules": jazz })).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{said}");
+    assert!(
+        said["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("listen"),
+        "{said}"
+    );
+    assert_eq!(ops(&pool).await.len(), before + 1);
 }

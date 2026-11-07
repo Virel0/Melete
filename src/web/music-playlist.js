@@ -6,9 +6,10 @@
 // (Share); songs are added from Add to playlist beside any song or on an album. A playlist shared
 // with the caller to listen to is read-only here. A smart one's songs are worked out by the server
 // from its rules and the listener's own likes and listens (`/playlists/{id}/songs`), as on the
-// devices, and play like any list; its owner changes its rules here (Edit rules) or on the
-// devices. A song gone from the library stays, greyed, with what it was; one not in it yet shows
-// greyed too, saying how its request stands, until the server swaps its track in.
+// devices, and play like any list; its owner, and anyone it's shared with to edit, changes its
+// rules here (Edit rules) or on the devices. A song gone from the library stays, greyed, with what
+// it was; one not in it yet shows greyed too, saying how its request stands, until the server
+// swaps its track in.
 
 import { SignedOut, api, clock, h, metaRow, plural, runtime, show } from "/web/lib.js";
 import { trackActions } from "/web/music-actions.js";
@@ -239,7 +240,7 @@ function head(p, page, editable, open) {
         here.length ? radioButton(async () => queue[0], p.name) : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), p.mine ? toggle("delete", "Delete") : null] : null,
         p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
-        p.mine && p.smart ? toggle("rules", "Edit rules") : null,
+        (p.mine || p.can_edit) && p.smart ? toggle("rules", "Edit rules") : null,
         pinControl("playlist", p.id, p.name),
       ),
       open === "rename" ? renameForm(p, page) : null,
@@ -295,8 +296,8 @@ export async function playlistPage(id, ctx) {
   page.draw(p);
 }
 
-// Edit rules, on one's own smart playlist: the editor with its rules, and once they're saved,
-// its songs worked out again.
+// Edit rules, on one's own smart playlist or one shared to edit: the editor with its rules, and
+// once they're saved, its songs worked out again.
 function rulesEditor(p, page) {
   return smartEditor({
     rules: page.rules,
