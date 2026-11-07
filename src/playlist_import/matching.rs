@@ -1,4 +1,6 @@
 //! The MusicBrainz recording a track is: by its ISRC first, then by title, artist and length.
+//! A track with an artist may also be a recording whose title is close to its own, by the same
+//! artist, when none has its title; one without an artist needs its title.
 
 use super::*;
 
@@ -22,6 +24,33 @@ pub(super) fn core_title(title: &str) -> String {
         }
     }
     plain(&core)
+}
+
+/// A title as it's compared loosely: its core, without bracketed parts or a leading "the",
+/// "a" or "an".
+fn loose_title(title: &str) -> String {
+    let mut kept = String::with_capacity(title.len());
+    let mut depth = 0usize;
+    for c in title.chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => kept.push(c),
+            _ => {}
+        }
+    }
+    let core = core_title(&kept);
+    ["the ", "a ", "an "]
+        .iter()
+        .find_map(|article| core.strip_prefix(article))
+        .map_or_else(|| core.clone(), str::to_owned)
+}
+
+/// Whether a recording's title is close to the track's: the same loosely, or alike by the
+/// share of the library matcher's title words.
+fn close_title(track: &str, recording: &str) -> bool {
+    let (a, b) = (loose_title(track), loose_title(recording));
+    (!a.is_empty() && a == b) || crate::aoide::matcher::titles_share_words(track, recording)
 }
 
 pub(super) fn artist_fits(track: &Track, recording: &RecordingDetail) -> bool {
@@ -59,6 +88,26 @@ pub(super) fn best(track: &Track, found: &[RecordingDetail], titled: bool) -> Op
         .map(|(_, r)| r.id.clone())
 }
 
+/// Of `found`, the recording by the track's artist with a title close to its own, within the
+/// length slack, the nearest in length; never for a track without an artist.
+pub(super) fn near(track: &Track, found: &[RecordingDetail]) -> Option<String> {
+    if track.artists.is_empty() {
+        return None;
+    }
+    found
+        .iter()
+        .filter(|r| artist_fits(track, r))
+        .filter(|r| close_title(&track.title, &r.title))
+        .filter_map(|r| length_gap(track, r).map(|gap| (gap, r)))
+        .min_by_key(|(gap, _)| *gap)
+        .map(|(_, r)| r.id.clone())
+}
+
+/// The recording of the same title, else of a close one (see [`near`]).
+pub(super) fn fitting(track: &Track, found: &[RecordingDetail]) -> Option<String> {
+    best(track, found, true).or_else(|| near(track, found))
+}
+
 /// The MusicBrainz recording a track is, or why none could be told.
 pub async fn recording_for(
     mb: &musicbrainz::Client,
@@ -72,13 +121,17 @@ pub async fn recording_for(
         }
     }
     let artist = track.artists.first().map(String::as_str);
-    let found = mb
-        .search_songs(
-            track.title.split(" - ").next().unwrap_or(&track.title),
-            artist,
-        )
-        .await?;
-    Ok(best(track, &found, true).ok_or_else(|| {
+    let title = track.title.split(" - ").next().unwrap_or(&track.title);
+    let found = mb.search_songs(title, artist).await?;
+    let mut fits = fitting(track, &found);
+    // The title as a phrase found nothing that fits: its words once more, by the same artist.
+    // A track without an artist isn't looked for more loosely.
+    if fits.is_none()
+        && let Some(artist) = artist
+    {
+        fits = fitting(track, &mb.search_song_words(title, artist).await?);
+    }
+    Ok(fits.ok_or_else(|| {
         if track.artists.is_empty() {
             "the playlist doesn't say who it's by, and its title alone found nothing that fits"
                 .to_owned()

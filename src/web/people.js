@@ -1,8 +1,9 @@
 // Who's in a title and who made it, a person's titles in the library, and a franchise's films.
 
-import { api, h, loading, metaRow, plural, show } from "/web/lib.js";
+import { SignedOut, api, h, loading, metaRow, plural, show } from "/web/lib.js";
 import { art, titleCard } from "/web/cards.js";
-import { generation } from "/web/page-state.js";
+import { generation, signIn } from "/web/page-state.js";
+import { hold, release } from "/web/page-parts.js";
 
 // "Erin Van Der Test" → "ET", "Dee" → "D": the letters standing in for a missing picture.
 function initials(name) {
@@ -86,17 +87,44 @@ export async function personPage(id, gen) {
 
 const STATES = { requested: "Requested", requestable: "Not in the library" };
 
-// A collection's page: its films in release order, those in the library linking to them.
+// A collection's page: its films in release order, those in the library linking to them, and
+// Ask for it under those it hasn't that nobody has asked for.
 export async function collectionPage(id, gen) {
   show("Collection", loading("the collection"));
   const c = await api(`/collections/${id}`);
   if (gen !== generation) return;
+  // The outcome is said in place, the film's state follows, and focus goes to the link that
+  // takes the button's place.
+  const askFor = (item, state) => {
+    const said = h("p", { class: "meta", role: "status" });
+    const button = h("button", { type: "button", class: "quiet", "aria-label": `Ask for ${item.title}` }, "Ask for it");
+    button.addEventListener("click", async () => {
+      if (!hold(button)) return;
+      said.textContent = "Asking…";
+      try {
+        const asked = await api("/requests", { method: "POST", body: { kind: "movie", tmdb_id: item.tmdb_id } });
+        said.textContent =
+          asked.state === "approved" ? `Approved: ${asked.title} is on its way.` : `Asked for ${asked.title}. An admin will decide.`;
+        state.textContent = STATES.requested;
+        const mine = h("a", { href: "#/requests/mine" }, "See your requests");
+        button.replaceWith(mine);
+        mine.focus();
+      } catch (err) {
+        if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
+        said.textContent = err.message;
+        release(button);
+      }
+    });
+    return h("div", { class: "card-ask" }, button, said);
+  };
   const film = (item) => {
     const facts = [h("div", { class: "title" }, item.title), item.year ? h("div", { class: "meta" }, String(item.year)) : null];
     if (item.state === "playable") {
       return h("li", {}, h("a", { class: "card", href: `#/movies/${item.library_id}` }, art(item.poster), ...facts));
     }
-    return h("li", {}, h("div", { class: "card" }, art(item.poster), ...facts, h("div", { class: "meta" }, STATES[item.state] ?? "")));
+    const state = h("div", { class: "meta" }, STATES[item.state] ?? "");
+    const card = h("div", { class: "card" }, art(item.poster), ...facts, state);
+    return h("li", {}, card, item.state === "requestable" ? askFor(item, state) : null);
   };
   show(
     c.name,

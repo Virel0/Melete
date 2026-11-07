@@ -78,8 +78,16 @@ section + section { margin-block-start: var(--space-7); }
   overflow-wrap: anywhere;
 }
 .card .meta { color: var(--muted); font-size: var(--step--1); }
+/* Ask for it under a card (a collection's films), with what asking said. */
+.card-ask { margin-block-start: var(--space-2); }
+.card-ask .meta { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--step--1); }
 
 .more { margin-block-start: var(--space-6); text-align: center; }
+
+/* Trending (trending.js): a shelf per kind, Ask for it under each title not in the library. */
+.trending h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.trending-ask { margin-block-start: var(--space-2); }
+.trending-ask .meta { margin: var(--space-1) 0 0; }
 
 /* Title pages */
 .backdrop {

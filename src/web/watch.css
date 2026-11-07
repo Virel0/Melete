@@ -308,6 +308,11 @@ button.season[aria-pressed="true"] { background: var(--surface); border-inline-s
 .stage video { display: block; }
 .stage:fullscreen { display: grid; place-items: center; border-radius: 0; }
 .stage:fullscreen video { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; }
+/* Text subtitles at the size chosen in the Subtitles panel, against the browser's own (Medium);
+   styled ones are scaled as they're drawn. */
+.stage video[data-subtitle-size="small"]::cue { font-size: 75%; }
+.stage video[data-subtitle-size="large"]::cue { font-size: 130%; }
+.stage video[data-subtitle-size="extra-large"]::cue { font-size: 160%; }
 .stage-over {
   position: absolute;
   inset: auto var(--space-4) 7rem auto;
@@ -416,6 +421,8 @@ button.control svg { width: 1.5rem; height: 1.5rem; }
   --muted: var(--stage-muted);
   --line-strong: var(--stage-line);
   --surface-raised: var(--stage-raised);
+  /* Its pickers on the stage's raised grey, so their light text reads. */
+  --surface: var(--stage-raised);
   --accent: var(--stage-accent);
   --accent-ink: var(--stage-accent-ink);
   width: min(20rem, calc(100vw - 2 * var(--space-4)));
@@ -430,6 +437,11 @@ button.control svg { width: 1.5rem; height: 1.5rem; }
   border-radius: var(--radius-m);
   box-shadow: var(--shadow);
 }
+/* Never past the top of the picture, which would cut it off: the stage is its video's 16:9 (or
+   less on a short window), and the panel starts 7.5rem above its foot. Past that it scrolls. */
+.stage { container-type: inline-size; }
+.control-panel { max-height: min(60vh, 24rem, calc(min(56.25cqi, 100vh - 18rem) - 8rem)); }
+.stage:fullscreen .control-panel { max-height: min(60vh, 24rem); }
 .control-panel-title { margin: 0; font-size: var(--step--1); color: var(--muted); font-weight: 600; }
 .control-panel label { display: block; margin-block-end: var(--space-1); }
 .control-panel select { width: 100%; }
