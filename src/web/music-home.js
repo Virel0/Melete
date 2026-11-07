@@ -3,7 +3,8 @@
 // Recently released, Most played lately, Made for you, Moods, Albums to try (at random), Genres
 // (a random dozen) and In the house, in that order. A row with nothing in it is left out; a
 // library with nothing in it says so in one sentence. Everything but the Home answer is an
-// extra: one that fails leaves its row out rather than the page.
+// extra: one that fails leaves its row out rather than the page. Above them all, "Pick up from
+// …" when another device was playing (music-pickup.js).
 
 import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
 import { emptyState, hold, placeholders, release, unlessEmpty } from "/web/page-parts.js";
@@ -13,6 +14,7 @@ import { looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.j
 import { jumpBackIn } from "/web/music-jump.js";
 import { genreHref } from "/web/music-browse.js";
 import { pinnedRow } from "/web/music-pins.js";
+import { pickUpCard } from "/web/music-pickup.js";
 import { seesAllMusic } from "/web/music-access.js";
 
 const GENRES_SHOWN = 12;
@@ -243,5 +245,6 @@ export async function homePage(ctx) {
   }
   const root = h("div", { class: "listen-home" }, rows(home, pins, mixList, house, genres, { recent, favourites, released, random }));
   show("Listen", title, shuffleAll(), root);
+  pickUpCard(ctx).then((card) => card && ctx.current() && root.prepend(card));
   markPlaying(root, ctx);
 }

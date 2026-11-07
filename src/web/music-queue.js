@@ -43,6 +43,16 @@ export function setQueue(tracks, start = 0) {
   changed();
 }
 
+// Puts back a queue as it was kept (music-saved.js): its entries ({ track, added, order }) in
+// their order, at entry `at`, with its shuffle and repeat.
+export function restore(kept, at, shuffling, repeating) {
+  entries = kept.map((e, i) => entry(e.track, Boolean(e.added), e.added ? Infinity : (e.order ?? i)));
+  index = Math.min(Math.max(at, 0), entries.length - 1);
+  shuffle = Boolean(shuffling);
+  repeat = REPEATS.includes(repeating) ? repeating : "off";
+  changed();
+}
+
 export function clear() {
   entries = [];
   index = -1;
