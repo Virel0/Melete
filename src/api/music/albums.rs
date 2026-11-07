@@ -110,8 +110,10 @@ pub(super) struct AlbumQuery {
     /// Comma-separated artist ids.
     pub(super) artist_id: Option<String>,
     pub(super) genre: Option<String>,
-    /// `artist` (default), `title`, `year` (newest first) or `recent`.
+    /// `artist` (default), `title`, `year` (newest first), `recent` or `random`.
     pub(super) sort: Option<String>,
+    /// For `random`: the shuffle to page through, as the first page answered.
+    pub(super) seed: Option<u32>,
     pub(super) limit: Option<i64>,
     pub(super) offset: Option<i64>,
 }
@@ -131,7 +133,8 @@ pub(super) async fn list_albums(
         "title" => "coalesce(a.sort_key, a.title) COLLATE NOCASE, a.id",
         "year" => "a.year IS NULL, a.year DESC, coalesce(a.sort_key, a.title) COLLATE NOCASE, a.id",
         "recent" => "a.id DESC",
-        _ => return Err(bad_request("sort is artist, title, year or recent")),
+        "random" => "",
+        _ => return Err(bad_request("sort is artist, title, year, recent or random")),
     };
     let from = format!(
         "FROM music_albums a LEFT JOIN mb_releases r ON r.id = a.match_release_id
@@ -145,6 +148,27 @@ pub(super) async fn list_albums(
     );
     let q = pattern(query.q.as_deref());
     let folded = crate::search_keys::pattern(query.q.as_deref());
+    let shown = Shown {
+        archive: state.coverart.is_some(),
+    };
+    if order.is_empty() {
+        // Random: every album that fits, shuffled.
+        let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT a.id {from}")))
+            .bind(&q)
+            .bind(&artists)
+            .bind(&query.genre)
+            .bind(&folded)
+            .fetch_all(&state.pool)
+            .await?;
+        let seed = seed_or_new(query.seed);
+        let (total, page) = shuffled_page(ids, seed, limit, offset);
+        let found = albums_by_id(&state.pool, &current.access, shown, &page).await?;
+        return Ok(Json(json!({
+            "total": total,
+            "seed": seed,
+            "items": page.iter().filter_map(|id| found.get(id)).collect::<Vec<_>>(),
+        })));
+    }
     let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) {from}")))
         .bind(&q)
         .bind(&artists)
@@ -163,9 +187,6 @@ pub(super) async fn list_albums(
     .bind(offset)
     .fetch_all(&state.pool)
     .await?;
-    let shown = Shown {
-        archive: state.coverart.is_some(),
-    };
     Ok(Json(json!({
         "total": total,
         "items": rows.iter().map(|r| r.to_json(shown)).collect::<Vec<_>>(),

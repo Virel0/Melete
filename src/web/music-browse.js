@@ -1,12 +1,12 @@
-// Songs and Genres: every song, searchable and sortable, each playing the list from there; every
-// genre with how much of it is here, and a genre's page, which plays its songs and shows its
-// albums.
+// Songs and Genres: every song, searchable and sortable, each playing the list from there, and
+// Play and Shuffle for the songs the list shows; every genre with how much of it is here, and a
+// genre's page, which plays its songs and shows its albums.
 
 import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
 import { genreFilter, pagedList } from "/web/music-list.js";
 import { albumCard, countedItem, markPlaying, songRow } from "/web/music-parts.js";
 import { trackActions } from "/web/music-actions.js";
-import { looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { SHUFFLE_SONGS, looseQueue, play, shuffleLibrary, shufflePlay } from "/web/music-play.js";
 import { askSection } from "/web/music-ask.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 
@@ -20,6 +20,48 @@ const GENRE_ALBUMS = 60;
 const GENRE_SONGS = 500;
 
 export const genreHref = (name) => `#/music/genres/${encodeURIComponent(name)}`;
+
+// What the Songs list is narrowed to now, as its address keeps it: the search and filters.
+function listFilters() {
+  const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
+  params.delete("sort");
+  params.delete("shown");
+  return Object.fromEntries(params);
+}
+
+// Play (in the list's order) and Shuffle (a random order of them all, the server's) for the
+// songs the list shows, as many as one page of the API holds.
+function songActions() {
+  const said = h("span", { class: "note", role: "status" });
+  const start = (how) => async (event) => {
+    const button = event.currentTarget;
+    if (!hold(button)) return;
+    said.textContent = "";
+    try {
+      const page = await how(listFilters());
+      if (!page.items.length) said.textContent = "There are no songs to play here.";
+      else if (page.total > page.items.length) said.textContent = `Playing ${number.format(page.items.length)} of ${plural(page.total, "song", "songs")}.`;
+    } catch (err) {
+      if (err instanceof SignedOut) throw err;
+      said.textContent = `Couldn't play them: ${err.message}`;
+    } finally {
+      release(button);
+    }
+  };
+  const inOrder = async (filters) => {
+    const sort = new URLSearchParams(location.hash.split("?")[1] ?? "").get("sort") ?? "title";
+    const page = await api(`/music/tracks?${new URLSearchParams({ ...filters, sort, limit: String(SHUFFLE_SONGS) })}`);
+    play(looseQueue(page.items));
+    return page;
+  };
+  return h(
+    "div",
+    { class: "play-actions" },
+    h("button", { type: "button", onclick: start(inOrder) }, "Play", h("span", { class: "visually-hidden" }, " these songs")),
+    h("button", { type: "button", class: "quiet", onclick: start(shuffleLibrary) }, "Shuffle", h("span", { class: "visually-hidden" }, " these songs")),
+    said,
+  );
+}
 
 export async function songList(params, ctx) {
   const filters = await genreFilter(ctx, "tracks");
@@ -47,7 +89,7 @@ export async function songList(params, ctx) {
       },
       list,
       filters,
-      intro: askSection(ctx, params),
+      intro: [songActions(), askSection(ctx, params)],
     },
   );
   if (ctx.current()) markPlaying(list, ctx);

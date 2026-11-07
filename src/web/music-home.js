@@ -8,7 +8,7 @@ import { SignedOut, api, h, number, plural, show } from "/web/lib.js";
 import { clip, emptyState, hold, placeholders, release, unlessEmpty } from "/web/page-parts.js";
 import { albumCard, cover, markPlaying, trackRow } from "/web/music-parts.js";
 import { trackActions } from "/web/music-actions.js";
-import { looseQueue, play, playAlbum, shufflePlay } from "/web/music-play.js";
+import { looseQueue, play, playAlbum, shuffleLibrary, shufflePlay } from "/web/music-play.js";
 import { genreHref } from "/web/music-browse.js";
 import { pinnedRow } from "/web/music-pins.js";
 import { seesAllMusic } from "/web/music-access.js";
@@ -186,6 +186,20 @@ function household(house) {
   ];
 }
 
+// Shuffle my library: every song the listener may see, in a random order, Not interested ones
+// left out.
+function shuffleAll() {
+  const said = statusLine();
+  const button = h("button", { type: "button", class: "quiet" }, "Shuffle my library");
+  button.addEventListener("click", () =>
+    busy(button, said, async () => {
+      const page = await shuffleLibrary();
+      if (!page.items.length) said.textContent = "There are no songs to shuffle.";
+    }),
+  );
+  return h("div", { class: "play-actions" }, button, said);
+}
+
 // The rows, in order, each left out when it has nothing.
 function rows(home, pins, mixList, house, genres) {
   const discover = home.mixes.find((m) => m.key === "discover");
@@ -223,6 +237,6 @@ export async function homePage(ctx) {
     return;
   }
   const root = h("div", { class: "listen-home" }, rows(home, pins, mixList, house, genres));
-  show("Listen", title, root);
+  show("Listen", title, shuffleAll(), root);
   markPlaying(root, ctx);
 }
