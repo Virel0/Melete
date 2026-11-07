@@ -15673,7 +15673,9 @@
           "mb_release_id",
           "mb_release_group_id",
           "mb_artist_id",
-          "match_status"
+          "match_status",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -15709,7 +15711,9 @@
             "type": ["string", "null"],
             "enum": ["matched", "unmatched", "ambiguous", null],
             "description": "How MusicBrainz matching went; null until tried, or with matching off."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
         },
         "additionalProperties": false
       },
@@ -16156,7 +16160,9 @@
           "genres",
           "release",
           "track_list",
-          "liked"
+          "liked",
+          "primary_type",
+          "secondary_types"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -16204,7 +16210,9 @@
             "type": "array",
             "items": {"$ref": "#/components/schemas/MusicTrack"},
             "description": "By disc and number."
-          }
+          },
+          "primary_type": {"type": ["string", "null"], "description": "The type of the MusicBrainz release group the album is matched to: Album, Single, EP, Broadcast or Other; null when it isn't matched (with MusicBrainz matching off, or not found)."},
+          "secondary_types": {"type": "array", "items": {"type": "string"}, "description": "That release group's secondary types, such as Live, Compilation, Soundtrack or Remix; empty when it has none or isn't matched."}
         },
         "additionalProperties": false
       },
