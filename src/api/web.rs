@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 
 mod jassub;
+mod licences;
 
 const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
@@ -25,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 130] = [
+const MODULES: [(&str, &str); 132] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -105,7 +106,9 @@ const MODULES: [(&str, &str); 130] = [
     ),
     ("settings.js", include_str!("../web/settings.js")),
     ("account.js", include_str!("../web/account.js")),
+    ("licences.js", include_str!("../web/licences.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),
+    ("sign-in-code.js", include_str!("../web/sign-in-code.js")),
     ("languages.js", include_str!("../web/languages.js")),
     (
         "playback-prefs.js",
@@ -304,7 +307,7 @@ pub fn routes() -> Router {
             get(move || async move { file("text/css; charset=utf-8", ALWAYS_ASK, body) }),
         );
     }
-    router.merge(jassub::routes())
+    router.merge(jassub::routes()).merge(licences::routes())
 }
 
 fn file(content_type: &'static str, cache: &'static str, body: &'static str) -> impl IntoResponse {
@@ -508,6 +511,21 @@ mod tests {
             .1;
         assert!(css.contains(".grid-spotlight { display: none; }"));
         assert!(css.contains("@media (min-width: 75rem) {\n  .spotlit {"));
+    }
+
+    /// Signing in with a code: offered on the sign-in page, and the secret the page polls with
+    /// goes in a request's body to the cookie-issuing poll, never into an address.
+    #[test]
+    fn the_sign_in_page_offers_a_code_and_polls_with_the_secret_in_the_body() {
+        let app = module("app.js");
+        assert!(app.contains("\"Sign in with a code\""));
+        assert!(app.contains("codeWaiting?.stop();"));
+        let code = module("sign-in-code.js");
+        assert!(code.contains(
+            r#"api("/auth/quick-connect/web-poll", { method: "POST", body: { secret: s.secret } })"#
+        ));
+        assert!(!code.contains("secret=") && !code.contains("localStorage"));
+        assert!(!code.contains("/auth/quick-connect/poll"));
     }
 
     #[test]
