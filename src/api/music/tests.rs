@@ -760,3 +760,291 @@ async fn covers_come_at_the_size_asked_for_made_once_and_never_enlarged() {
         StatusCode::BAD_REQUEST
     );
 }
+
+/// A signed-in user `name`'s token; `libraries`: the only libraries they may see, or `None`
+/// for every one.
+async fn listener(f: &Fixture, name: &str, libraries: Option<&[i64]>) -> String {
+    let user = crate::auth::testing::user(&f.pool, name, false).await;
+    if let Some(libraries) = libraries {
+        sqlx::query(
+            "INSERT INTO user_access (user_id, all_libraries, max_age, updated_at)
+             VALUES (?, 0, NULL, 0)",
+        )
+        .bind(user.id)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+        for library in libraries {
+            sqlx::query("INSERT INTO user_libraries (user_id, library_id) VALUES (?, ?)")
+                .bind(user.id)
+                .bind(library)
+                .execute(&f.pool)
+                .await
+                .unwrap();
+        }
+    }
+    crate::auth::issue_token(&f.pool, user.id, crate::auth::TokenKind::Session, "t")
+        .await
+        .unwrap()
+        .1
+}
+
+async fn json_as(f: &Fixture, token: &str, uri: &str) -> (StatusCode, Value) {
+    let request = Request::get(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = f.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// A second music library with one album of one track, Selected (Aphex Twin).
+async fn second_library(f: &Fixture) {
+    sqlx::raw_sql(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (2, 'more', 'music', '/nowhere');
+         INSERT INTO music_albums (id, library_id, key, title, artist_name, year, folder,
+             seen_generation) VALUES (5, 2, 'k5', 'Selected', 'Aphex Twin', 1992, 's', 1);
+         INSERT INTO music_tracks (library_id, rel_path, size, modified_at,
+             first_seen_generation, seen_generation, album_id, tagged, title, genres,
+             has_picture) VALUES (2, 's/01.flac', 1, 1, 1, 1, 5, 1, 'Xtal', '[\"Ambient\"]', 0);",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_random_order_pages_through_one_shuffle_by_its_seed() {
+    let f = fixture(None).await;
+    second_library(&f).await;
+    // Without a seed, one is chosen and answered, to page on with.
+    let (status, first) = json_of(&f, "/api/v1/music/tracks?sort=random&limit=2").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(first["total"], 5);
+    let seed = first["seed"].as_u64().unwrap();
+    let page = |offset: u32| {
+        format!("/api/v1/music/tracks?sort=random&seed={seed}&limit=2&offset={offset}")
+    };
+    let (_, again) = json_of(&f, &page(0)).await;
+    assert_eq!(
+        titles(&again),
+        titles(&first),
+        "the same seed, the same order"
+    );
+    let mut all: Vec<String> = Vec::new();
+    for offset in [0, 2, 4] {
+        let (_, next) = json_of(&f, &page(offset)).await;
+        assert_eq!(next["seed"], seed);
+        all.extend(titles(&next).iter().map(|t| (*t).to_owned()));
+    }
+    let mut sorted = all.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        [
+            "Airbag",
+            "Everything",
+            "Mysterons",
+            "Paranoid Android",
+            "Xtal"
+        ],
+        "every track once, none repeated"
+    );
+    // Other filters still narrow it; other sorts answer no seed.
+    let (_, rock) = json_of(&f, "/api/v1/music/tracks?sort=random&genre=rock").await;
+    assert_eq!(rock["total"], 3);
+    let (_, titled) = json_of(&f, "/api/v1/music/tracks?sort=title").await;
+    assert!(titled.get("seed").is_none());
+    let bad = "/api/v1/music/tracks?sort=random&seed=-1";
+    assert_eq!(json_of(&f, bad).await.0, StatusCode::BAD_REQUEST);
+
+    // Albums shuffle the same way.
+    let (_, albums) = json_of(&f, "/api/v1/music/albums?sort=random&limit=10").await;
+    assert_eq!(albums["total"], 4, "the missing album stays out");
+    let seed = albums["seed"].as_u64().unwrap();
+    let (_, two) = json_of(
+        &f,
+        &format!("/api/v1/music/albums?sort=random&seed={seed}&limit=2"),
+    )
+    .await;
+    let (_, rest) = json_of(
+        &f,
+        &format!("/api/v1/music/albums?sort=random&seed={seed}&limit=2&offset=2"),
+    )
+    .await;
+    let paged: Vec<&str> = titles(&two).into_iter().chain(titles(&rest)).collect();
+    assert_eq!(paged, titles(&albums));
+}
+
+#[tokio::test]
+async fn a_random_order_keeps_to_what_the_listener_sees_and_wants() {
+    let f = fixture(None).await;
+    second_library(&f).await;
+    // Not interested in Mysterons: it stays out of a shuffle, though the list still shows it.
+    sqlx::query(
+        "INSERT INTO aoide_ops (op_id, user_id, device_id, entity, entity_id, operation,
+             payload, created_at, received_at)
+         SELECT 'f1', u.id, 'phone', 'track_flags', 'flag', 'upsert',
+             json_object('jellyfinId', CAST(t.id AS TEXT), 'notInterested', json('true')), 1, 1
+         FROM users u, music_tracks t WHERE u.username = 'u' AND t.title = 'Mysterons'",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, shuffled) = json_of(&f, "/api/v1/music/tracks?sort=random").await;
+    assert_eq!(shuffled["total"], 4);
+    assert!(!titles(&shuffled).contains(&"Mysterons"));
+    let (_, listed) = json_of(&f, "/api/v1/music/tracks?sort=title").await;
+    assert!(titles(&listed).contains(&"Mysterons"));
+
+    // Someone else's flag is theirs alone; and someone who may see only the second library
+    // shuffles only what's in it.
+    let other = listener(&f, "v", Some(&[2])).await;
+    let (_, theirs) = json_as(&f, &other, "/api/v1/music/tracks?sort=random").await;
+    assert_eq!(titles(&theirs), ["Xtal"]);
+    let (_, albums) = json_as(&f, &other, "/api/v1/music/albums?sort=random").await;
+    assert_eq!(titles(&albums), ["Selected"]);
+    let everyone = listener(&f, "w", None).await;
+    let (_, all) = json_as(&f, &everyone, "/api/v1/music/tracks?sort=random").await;
+    assert_eq!(all["total"], 5, "u's Not interested isn't w's");
+    let nobody = listener(&f, "x", Some(&[])).await;
+    let (_, none) = json_as(&f, &nobody, "/api/v1/music/tracks?sort=random").await;
+    assert_eq!(none["total"], 0);
+    let (_, none) = json_as(&f, &nobody, "/api/v1/music/albums?sort=random").await;
+    assert_eq!(none["total"], 0);
+}
+
+#[tokio::test]
+async fn songs_and_albums_narrow_to_several_genres_a_span_of_years_and_likes() {
+    let f = fixture(None).await;
+    second_library(&f).await;
+    // Any of several genres, in any case.
+    let (_, two) = json_of(
+        &f,
+        "/api/v1/music/tracks?genres=ART%20ROCK;Trip%20Hop&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&two), ["Mysterons", "Paranoid Android"]);
+    let (_, albums) = json_of(
+        &f,
+        "/api/v1/music/albums?genres=trip%20hop;ambient&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&albums), ["Dummy", "Selected"]);
+    // A span of years, either end open: Dummy (1994), OK Computer (1997), Kid A (2000),
+    // Selected (1992).
+    let (_, nineties) = json_of(
+        &f,
+        "/api/v1/music/albums?year_from=1993&year_to=1999&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&nineties), ["Dummy", "OK Computer"]);
+    let (_, late) = json_of(&f, "/api/v1/music/tracks?year_from=1997&sort=title").await;
+    assert_eq!(titles(&late), ["Airbag", "Everything", "Paranoid Android"]);
+    let (_, early) = json_of(
+        &f,
+        "/api/v1/music/tracks?year_to=1994&genres=rock;trip%20hop",
+    )
+    .await;
+    assert_eq!(titles(&early), ["Mysterons"], "filters combine");
+    let bad = "/api/v1/music/tracks?year_from=2000&year_to=1990";
+    assert_eq!(json_of(&f, bad).await.0, StatusCode::BAD_REQUEST);
+
+    // Only the songs the listener likes, theirs alone.
+    let me: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let airbag: i64 = sqlx::query_scalar("SELECT id FROM music_tracks WHERE title = 'Airbag'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let kind = crate::aoide::likes::Kind::Track;
+    assert!(
+        crate::aoide::likes::set(&f.pool, kind, me, "web", airbag, true, 1)
+            .await
+            .unwrap()
+    );
+    let (_, liked) = json_of(&f, "/api/v1/music/tracks?liked=true").await;
+    assert_eq!(titles(&liked), ["Airbag"]);
+    let (_, all) = json_of(&f, "/api/v1/music/tracks?liked=false").await;
+    assert_eq!(all["total"], 5);
+    let other = listener(&f, "v", None).await;
+    let (_, none) = json_as(&f, &other, "/api/v1/music/tracks?liked=true").await;
+    assert_eq!(none["total"], 0, "u's likes aren't v's");
+
+    // As with every list, a song marked Not interested is still listed.
+    sqlx::query(
+        "INSERT INTO aoide_ops (op_id, user_id, device_id, entity, entity_id, operation,
+             payload, created_at, received_at)
+         VALUES ('f1', ?, 'phone', 'track_flags', 'flag', 'upsert',
+             json_object('jellyfinId', ?, 'notInterested', json('true')), 1, 1)",
+    )
+    .bind(me)
+    .bind(airbag.to_string())
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, still) = json_of(&f, "/api/v1/music/tracks?liked=true&genres=rock").await;
+    assert_eq!(titles(&still), ["Airbag"]);
+
+    // Someone who may see only the second library finds only what's in it.
+    let limited = listener(&f, "w", Some(&[2])).await;
+    let (_, theirs) = json_as(&f, &limited, "/api/v1/music/tracks?genres=ambient;rock").await;
+    assert_eq!(titles(&theirs), ["Xtal"]);
+    let (_, theirs) = json_as(&f, &limited, "/api/v1/music/albums?year_to=1999").await;
+    assert_eq!(titles(&theirs), ["Selected"]);
+}
+
+#[tokio::test]
+async fn albums_carry_their_release_groups_types_from_the_match() {
+    let f = fixture(None).await;
+    sqlx::raw_sql(
+        "INSERT INTO mb_releases (id, release_group_id, title, artist_credit, fetched_at,
+             primary_type, secondary_types)
+             VALUES ('ep', 'group-ep', 'Kid A', '[]', 0, 'EP', '[\"Live\"]');
+         UPDATE music_albums SET match_release_id = 'ep' WHERE title = 'Kid A';
+         UPDATE mb_releases SET primary_type = 'Album' WHERE id = 'rel';",
+    )
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, page) = json_of(&f, "/api/v1/music/albums?sort=title").await;
+    let types: Vec<(&str, &Value, &Value)> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (
+                a["title"].as_str().unwrap(),
+                &a["primary_type"],
+                &a["secondary_types"],
+            )
+        })
+        .collect();
+    assert_eq!(
+        types,
+        [
+            ("Dummy", &Value::Null, &json!([])),
+            ("Kid A", &json!("EP"), &json!(["Live"])),
+            ("OK Computer", &json!("Album"), &json!([])),
+        ],
+        "an album not matched has no type"
+    );
+    // On an artist's page too, and on the album's own.
+    let (_, artist) = json_of(&f, "/api/v1/music/artists/1").await;
+    let kid_a = artist["album_list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["title"] == "Kid A")
+        .unwrap();
+    assert_eq!(kid_a["primary_type"], "EP");
+    let (_, album) = json_of(&f, "/api/v1/music/albums/3").await;
+    assert_eq!(album["secondary_types"], json!(["Live"]));
+}

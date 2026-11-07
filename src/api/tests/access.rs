@@ -85,6 +85,11 @@ const PUBLIC: &[Public] = &[
         "that device waits for a signed-in user to approve its code",
     ),
     open(
+        "POST",
+        "/api/v1/auth/quick-connect/web-poll",
+        "the web UI waits the same way, to be signed in to its cookie",
+    ),
+    open(
         "GET",
         "/api/v1/auth/oidc",
         "whether signing in through a provider is on, for the sign-in screen",

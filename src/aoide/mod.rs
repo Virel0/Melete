@@ -14,6 +14,7 @@ pub mod pending;
 pub mod planner;
 pub mod playlist_edits;
 pub mod playlists;
+pub mod smart;
 pub mod sync;
 pub mod taste;
 pub mod track_flags;

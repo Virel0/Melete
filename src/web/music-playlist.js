@@ -1,19 +1,24 @@
 // One playlist: its cover, name, owner and notes, Play, Shuffle and Pin, then its songs. The
 // caller's own hand-made playlist is edited here, through the same sync log the devices use:
 // Rename (with its notes), Picture (choose one, or remove it), Delete (said plainly first), and
-// each song moved up, down or out;
+// each song moved up, down or out; any of the caller's own is filed in a folder (Folder) and
+// shared (Share);
 // songs are added from Add to playlist beside any song or on an album. A playlist shared with
-// the caller is read-only here, and a smart one lists no songs, as its rules are worked out on
-// the devices. A song gone from the library stays, greyed, with what it was; one not in it yet
-// shows greyed too, saying how its request stands, until the server swaps its track in.
+// the caller is read-only here. A smart one's songs are worked out by the server from its rules
+// and the listener's own likes and listens (`/playlists/{id}/songs`), as on the devices, and
+// play like any list; its rules are changed on the devices. A song gone from the library stays,
+// greyed, with what it was; one not in it yet shows greyed too, saying how its request stands,
+// until the server swaps its track in.
 
 import { SignedOut, api, clock, h, metaRow, plural, runtime, show } from "/web/lib.js";
 import { trackActions } from "/web/music-actions.js";
 import { iconButton } from "/web/music-controls.js";
 import { goneRow } from "/web/music-liked.js";
 import { cover, markPlaying, pinControl, songRow } from "/web/music-parts.js";
-import { looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
+import { folderPicker } from "/web/music-playlist-folders.js";
+import { shareSection } from "/web/music-playlist-share.js";
 import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
@@ -22,7 +27,7 @@ const path = (p) => `/playlists/${encodeURIComponent(p.id)}`;
 
 // Who can change it, when it isn't the caller's own hand-made playlist.
 function whoEdits(p) {
-  if (p.smart) return "Its songs are worked out from its rules on your Aoide devices, so they're listed there, not here.";
+  if (p.smart) return "Its songs are worked out from its rules on your Aoide devices and here, from your own likes and listens; its rules are changed on the devices.";
   if (p.mine) return null;
   return p.can_edit ? `${p.owner} shares it with you to change on your Aoide devices; only they change it here.` : `Only ${p.owner} changes it.`;
 }
@@ -196,8 +201,11 @@ function itemList(p, page, editable) {
   );
 }
 
+// The songs it plays: a smart playlist's as worked out, else its items' tracks.
+const songsOf = (p, page) => (p.smart ? (page.songs ?? []) : p.items.filter((i) => i.track).map((i) => i.track));
+
 function head(p, page, editable, open) {
-  const here = p.items.filter((i) => i.track).map((i) => i.track);
+  const here = songsOf(p, page);
   const queue = looseQueue(here);
   const seconds = here.reduce((sum, t) => sum + (t.duration_seconds ?? 0), 0);
   const toggle = (what, label) =>
@@ -217,18 +225,21 @@ function head(p, page, editable, open) {
       h("h1", {}, p.name),
       p.mine ? null : h("p", { class: "by-line" }, `Shared by ${p.owner}`),
       p.notes ? h("p", { class: "playlist-notes" }, p.notes) : null,
-      p.smart ? null : metaRow([plural(p.items.length, "song", "songs"), runtime(Math.round(seconds / 60)) ?? (seconds ? clock(seconds) : null)]),
+      p.smart && !page.songs ? null : metaRow([plural(p.smart ? here.length : p.items.length, "song", "songs"), runtime(Math.round(seconds / 60)) ?? (seconds ? clock(seconds) : null)]),
       h(
         "div",
         { class: "play-actions" },
-        here.length ? h("button", { type: "button", onclick: () => play(queue) }, "Play") : null,
-        here.length ? h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle") : null,
+        here.length ? h("button", { type: "button", onclick: () => (play(queue), remember("playlist", p.id)) }, "Play") : null,
+        here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), toggle("delete", "Delete")] : null,
+        p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
         pinControl("playlist", p.id, p.name),
       ),
       open === "rename" ? renameForm(p, page) : null,
       open === "picture" ? pictureForm(p, page) : null,
       open === "delete" ? deleteCheck(p, page) : null,
+      open === "folder" ? folderPicker(p, page) : null,
+      open === "share" ? shareSection(p) : null,
       whoEdits(p) ? h("p", { class: "note" }, whoEdits(p)) : null,
     ),
   );
@@ -250,23 +261,52 @@ export async function playlistPage(id, ctx) {
   }
   if (!ctx.current()) return;
   const said = h("p", { class: "note", role: "status" });
+  const worked = p.smart ? await smartSongs(p) : null;
+  if (!ctx.current()) return;
   const page = {
+    songs: worked?.tracks,
+    songsTrouble: worked?.trouble,
     say: (text) => (said.textContent = text),
     // Draws the playlist as it is now: `open` the form shown, `words` said, and `focus` where
     // the keyboard was (a song's { item, what, at }, or "rename", "picture" or "delete" for the
     // button that opened that form), so an edit doesn't lose its place.
     draw(now, open = null, words = "", focus = null) {
       const editable = now.mine && !now.smart;
-      const list = now.smart ? null : now.items.length ? itemList(now, page, editable) : emptyState(editable ? "Nothing in it yet. Add songs with Add to playlist, beside any song or on an album." : "Nothing in it yet.", { href: "#/music/songs", label: "Go to Songs" });
+      const list = now.smart ? smartList(page) : now.items.length ? itemList(now, page, editable) : emptyState(editable ? "Nothing in it yet. Add songs with Add to playlist, beside any song or on an album." : "Nothing in it yet.", { href: "#/music/songs", label: "Go to Songs" });
       show(now.name, h("p", {}, h("a", { href: "#/music/playlists" }, "All playlists")), head(now, page, editable, open), said, list);
       said.textContent = words;
-      if (list && !now.smart && now.items.length) markPlaying(list, ctx);
+      if (list?.matches("ul")) markPlaying(list, ctx);
       if (typeof focus === "string") document.querySelector(`[data-opens="${focus}"]`)?.focus();
       else if (focus) refocus(focus);
-      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture" }[open] ?? ".playlist-delete button")?.focus();
+      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture", folder: ".playlist-edit select", delete: ".playlist-delete button" }[open] ?? null)?.focus();
     },
   };
   page.draw(p);
+}
+
+// A smart playlist's songs for the listener now, on their own calendar: { tracks }, or
+// { trouble } saying why its rules can't be worked out.
+async function smartSongs(p) {
+  try {
+    const worked = await api(`${path(p)}/songs?offset_minutes=${-new Date().getTimezoneOffset()}`);
+    return { tracks: worked.tracks };
+  } catch (err) {
+    if (err instanceof SignedOut) throw err;
+    return { trouble: err.message };
+  }
+}
+
+// A smart playlist's songs, each played with the rest after it; or why there are none.
+function smartList(page) {
+  // The server says why in a sentence of its own ("its rules can't be worked out: …").
+  if (page.songsTrouble) return h("p", { class: "error" }, `${page.songsTrouble[0].toUpperCase()}${page.songsTrouble.slice(1)}.`);
+  if (!page.songs.length) return emptyState("No songs fit its rules now. They change as you listen, like and add music.");
+  const queue = looseQueue(page.songs);
+  return h(
+    "ul",
+    { class: "tracks songs playlist-items" },
+    page.songs.map((t, i) => songRow(t, () => play(queue, i), trackActions(t, queue[i]))),
+  );
 }
 
 // After a move or a removal: the same button on the same song, or the song now in its place.
