@@ -18,6 +18,7 @@ import { myListToggle } from "/web/favourites.js";
 import { icon } from "/web/music-controls.js";
 import { heroTrailer } from "/web/watch-hero-trailer.js";
 import { partway, playTarget, titleHref } from "/web/watch-play.js";
+import { badgeOf } from "/web/watch-tiles.js";
 
 const STEP_MS = 16_000;
 // Mneme's timings: follow a tile after 160 ms, so sweeping along a row doesn't change the hero
@@ -27,14 +28,19 @@ const RETURN_MS = 300;
 
 const stillness = matchMedia("(prefers-reduced-motion: reduce)");
 
-// What the hero says about a title under its name: kind, year, two genres, a movie's length.
-function facts(item) {
-  return [
+// What the hero says about a title under its name: kind, year, two genres, a movie's length,
+// then the badge its tile would wear ("New", "3 unwatched") as a chip.
+function facts(item, watching) {
+  const words = [
     item.kind === "movie" ? "Movie" : "Series",
     item.year ? String(item.year) : null,
     item.genres?.slice(0, 2).join(", ") || null,
     item.kind === "movie" ? runtime(item.runtime_minutes) : null,
   ].filter(Boolean);
+  const badge = badgeOf(item, watching.has(item.id));
+  const items = words.map((f) => h("li", {}, f));
+  if (badge) items.push(h("li", { class: "hero-badge" }, badge));
+  return items;
 }
 
 export function hero(picks, { watching = new Map() } = {}) {
@@ -43,6 +49,7 @@ export function hero(picks, { watching = new Map() } = {}) {
     return w ? { ...item, episode: w.episode, progress: w.progress ?? item.progress } : item;
   };
   const p = {
+    watching,
     picks: picks.map(enrich),
     at: 0,
     shown: null,
@@ -145,7 +152,7 @@ function draw(p, item) {
   }
   p.kicker.textContent = partway(item.progress) ? "Continue watching" : "";
   p.title.replaceChildren(item.logo ? h("img", { src: item.logo, alt: item.title, class: "hero-logo" }) : item.title);
-  p.facts.replaceChildren(...facts(item).map((f) => h("li", {}, f)));
+  p.facts.replaceChildren(...facts(item, p.watching));
   p.logline.textContent = item.overview ?? "";
   p.info.href = titleHref(item);
   p.info.setAttribute("aria-label", `More info: ${item.title}`);
