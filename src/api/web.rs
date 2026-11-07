@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 155] = [
+const MODULES: [(&str, &str); 159] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -211,6 +211,16 @@ const MODULES: [(&str, &str); 155] = [
     (
         "music-settings.js",
         include_str!("../web/music-settings.js"),
+    ),
+    ("music-chain.js", include_str!("../web/music-chain.js")),
+    ("music-sound.js", include_str!("../web/music-sound.js")),
+    (
+        "music-sound-fields.js",
+        include_str!("../web/music-sound-fields.js"),
+    ),
+    (
+        "music-visualizer.js",
+        include_str!("../web/music-visualizer.js"),
     ),
     (
         "music-controls.js",
@@ -1587,6 +1597,37 @@ mod tests {
             assert!(settings.contains(read), "{read}");
         }
         assert!(module("account.js").contains("listeningGroup(),"));
+    }
+
+    #[test]
+    fn the_sound_extras_are_off_until_chosen_and_follow_the_browser() {
+        let settings = module("music-settings.js");
+        assert!(settings.contains(
+            r#"const EXTRAS = { eq: "Off", eqGains: [], compressor: false, visualizer: true, output: "" };"#
+        ));
+        let sound = module("music-sound.js");
+        assert!(
+            sound.contains("FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];")
+        );
+        assert_eq!(
+            sound.matches("\n  [\"").count(),
+            14,
+            "the apps' fourteen presets"
+        );
+        // The output device only where the browser lets a page choose it, and never by asking
+        // for the microphone to learn the devices' names.
+        assert!(sound.contains("typeof AudioContext.prototype.setSinkId === \"function\""));
+        assert!(!sound.contains("getUserMedia"));
+        // Pauses fade out and resumes fade in; the visualizer rests under reduced motion and
+        // says nothing to screen readers.
+        let chain = module("music-chain.js");
+        assert!(chain.contains("export const PAUSE_FADE = 0.15;"));
+        let decks = module("music-decks.js");
+        assert!(decks.contains("fadeTo(0);\n    pausing = setTimeout("));
+        let bars = module("music-visualizer.js");
+        assert!(bars.contains(r#"matchMedia("(prefers-reduced-motion: reduce)")"#));
+        assert!(bars.contains(r#""aria-hidden": "true""#));
+        assert!(module("music-panel.js").contains("visualizer()"));
     }
 
     #[test]

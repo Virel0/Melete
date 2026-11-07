@@ -5,7 +5,13 @@
 // when they swap. The other deck is the spare, loaded with what comes next.
 //
 // Both decks go through Web Audio once anything plays: each its own gain (its fades and level),
-// then the shared volume. Where Web Audio can't be had, each deck's own volume does it all.
+// then the chain they share (music-chain.js: the pause fade, the equaliser, the compressor, the
+// visualizer's tap), then the volume. A pause fades out first, and playing again fades in.
+// Where Web Audio can't be had, each deck's own volume does it all, and pauses are sudden.
+
+import { PAUSE_FADE, buildChain, chained, fadeTo } from "/web/music-chain.js";
+
+export { analyser } from "/web/music-chain.js";
 
 const EVENTS = ["play", "playing", "pause", "ended", "timeupdate", "durationchange", "loadedmetadata", "seeking", "seeked", "waiting", "emptied", "error", "ratechange", "canplay", "progress", "stalled"];
 // A fade is a curve of this many steps.
@@ -25,6 +31,8 @@ let context = null;
 let master = null;
 let volume = 1;
 let muted = false;
+// The timer of a pause fading out.
+let pausing = 0;
 
 export const active = () => decks[on];
 export const spare = () => decks[1 - on];
@@ -40,7 +48,7 @@ class Output extends EventTarget {
     return active().el.duration;
   }
   get paused() {
-    return active().el.paused;
+    return active().el.paused || pausing !== 0;
   }
   get ended() {
     return active().el.ended;
@@ -63,10 +71,21 @@ class Output extends EventTarget {
     loudness();
   }
   play() {
-    return start(active());
+    clearTimeout(pausing);
+    pausing = 0;
+    const started = start(active());
+    fadeTo(1);
+    return started;
   }
   pause() {
-    active().el.pause();
+    const el = active().el;
+    if (el.paused || pausing) return;
+    if (!chained()) return el.pause();
+    fadeTo(0);
+    pausing = setTimeout(() => {
+      pausing = 0;
+      active().el.pause();
+    }, PAUSE_FADE * 1000);
   }
 }
 
@@ -80,7 +99,7 @@ for (const deck of decks) {
 }
 
 // The Web Audio graph, made the first time something plays (a browser lets it start only then):
-// each deck → its gain → the volume → the speakers. False where it can't be had.
+// each deck → its gain → the chain → the volume → the speakers. False where it can't be had.
 function graph() {
   if (context !== null) return context;
   try {
@@ -88,10 +107,12 @@ function graph() {
     const made = new Context();
     master = made.createGain();
     master.connect(made.destination);
+    const chain = buildChain(made);
+    chain.output.connect(master);
     for (const deck of decks) {
       deck.gain = made.createGain();
       made.createMediaElementSource(deck.el).connect(deck.gain);
-      deck.gain.connect(master);
+      deck.gain.connect(chain.input);
     }
     context = made;
   } catch {

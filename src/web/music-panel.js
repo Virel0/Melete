@@ -22,6 +22,7 @@ import { icon, iconButton, transport } from "/web/music-controls.js";
 import { lyricsTab } from "/web/music-lyrics.js";
 import { nowLook } from "/web/music-now.js";
 import { togetherTab } from "/web/music-together-tab.js";
+import { visualizer } from "/web/music-visualizer.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
@@ -57,7 +58,7 @@ const panel = h(
   h(
     "div",
     { class: "panel-side" },
-    h("div", { class: "panel-now" }, coverBox, h("div", { class: "words" }, title, artist)),
+    h("div", { class: "panel-now" }, coverBox, h("div", { class: "words" }, title, artist), visualizer()),
     h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
   ),
   h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue, lyrics and listening together" }, tabs.queue, tabs.lyrics, tabs.together),
