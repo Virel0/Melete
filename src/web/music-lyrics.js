@@ -5,8 +5,9 @@
 // server has them set up: they're asked for only when pressed, since a translation sends the
 // song's lines to the translator the household set up, and a server without one says so and
 // the button goes. Synced lyrics can be nudged earlier or later (music-lyrics-timing.js): each
-// line then lights, and seeks, by its start plus that offset. States: nothing playing, loading,
-// no lyrics, failed with Try again.
+// line then lights, and seeks, by its start plus that offset. Japanese lyrics with kanji also
+// offer Furigana: the readings the server works out with Pronunciation, drawn over the kanji
+// with ruby. States: nothing playing, loading, no lyrics, failed with Try again.
 //
 // lyricsTab(audio, seek) makes the tab's body; show(track) draws it for a track (null when
 // nothing plays), and follow() lights the line for the audio's time.
@@ -35,9 +36,21 @@ function pause() {
   return [h("span", { "aria-hidden": "true" }, "♪"), h("span", { class: "visually-hidden" }, "A pause")]; // check-ui: ignore a music note marks an instrumental pause, as lyrics apps show it; not an icon
 }
 
+// A line with readings over its kanji. The readings are for the eye: a screen reader reads the
+// line as written (Pronunciation spells it out).
+function withReadings(pieces) {
+  return pieces.map((p) => (p.reading ? h("ruby", {}, p.text, h("rt", { "aria-hidden": "true" }, p.reading)) : p.text));
+}
+
+// Lyrics in Japanese with kanji somewhere: kana and kanji both.
+function japaneseWithKanji(lines) {
+  const all = lines.map((l) => l.text).join("");
+  return /[\u3041-\u30ff]/.test(all) && /[\u3400-\u9fff]/.test(all);
+}
+
 function lyricLine(line, i, synced, seek) {
   const words = [
-    h("span", { class: "words" }, line.text || pause()),
+    h("span", { class: "words" }, line.ruby ? withReadings(line.ruby) : line.text || pause()),
     line.translation && line.translation !== line.text ? h("span", { class: "extra" }, line.translation) : null,
     line.pronunciation ? h("span", { class: "extra" }, line.pronunciation) : null,
   ];
@@ -73,7 +86,10 @@ export function lyricsTab(audio, seek) {
   const options = { translate: false, pronounce: false };
   const translate = h("button", { type: "button", class: "quiet small", "aria-pressed": "false" }, "Translate");
   const pronounce = h("button", { type: "button", class: "quiet small", "aria-pressed": "false" }, "Pronunciation");
-  const tools = h("div", { class: "lyrics-tools" }, translate, pronounce);
+  // Readings come with the pronunciation, so they're offered only where it is.
+  let furigana = false;
+  const readings = h("button", { type: "button", class: "quiet small", "aria-pressed": "false", hidden: true }, "Furigana");
+  const tools = h("div", { class: "lyrics-tools" }, translate, pronounce, readings);
   const foot = h("p", { class: "note lyrics-source" });
   let track = null;
   let lines = [];
@@ -103,10 +119,10 @@ export function lyricsTab(audio, seek) {
     box.replaceChildren(placeholders("the lyrics", { kind: "lines", count: 6 }));
     const query = new URLSearchParams();
     if (options.translate) query.set("translate", language());
-    if (options.pronounce) query.set("pronounce", "true");
+    if (options.pronounce || furigana) query.set("pronounce", "true");
     try {
       const answer = await api(`/music/tracks/${track.id}/lyrics${query.size ? `?${query}` : ""}`);
-      if (mine === asked) draw(answer);
+      if (mine === asked) draw(chosen(answer));
     } catch (err) {
       if (mine !== asked || err instanceof SignedOut) return;
       if (err.status === 404) {
@@ -118,14 +134,38 @@ export function lyricsTab(audio, seek) {
     }
   };
 
+  // The answer with what's asked for: Furigana offered for Japanese with kanji, and readings and
+  // pronunciation shown only when chosen (asking for either brings both).
+  const chosen = (answer) => {
+    readings.hidden = missing.pronounce || !japaneseWithKanji(answer.lines);
+    const lines = answer.lines.map((line) => ({
+      ...line,
+      pronunciation: options.pronounce ? line.pronunciation : null,
+      ruby: furigana && !readings.hidden ? line.ruby : null,
+    }));
+    return { ...answer, lines };
+  };
+
   // The server doesn't offer this: say so, take the button away, and show the lyrics without it.
   const turnedOff = (what) => {
     missing[what] = true;
     options[what] = false;
+    if (what === "pronounce") {
+      furigana = false;
+      readings.hidden = true;
+      readings.setAttribute("aria-pressed", "false");
+    }
     (what === "translate" ? translate : pronounce).hidden = true;
-    said.textContent = what === "translate" ? "Translating lyrics isn't set up on this server." : "Pronunciation isn't turned on on this server.";
+    said.textContent = what === "translate" ? "Translating lyrics isn't set up on this server." : "Pronunciation and furigana aren't turned on on this server.";
     load();
   };
+
+  readings.addEventListener("click", () => {
+    furigana = !furigana;
+    readings.setAttribute("aria-pressed", String(furigana));
+    said.textContent = "";
+    load();
+  });
 
   for (const [what, button] of [["translate", translate], ["pronounce", pronounce]]) {
     button.hidden = missing[what];
