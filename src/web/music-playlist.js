@@ -19,6 +19,7 @@ import { looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
 import { folderPicker } from "/web/music-playlist-folders.js";
 import { shareSection } from "/web/music-playlist-share.js";
+import { smartEditor } from "/web/music-smart-editor.js";
 import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
@@ -27,7 +28,10 @@ const path = (p) => `/playlists/${encodeURIComponent(p.id)}`;
 
 // Who can change it, when it isn't the caller's own hand-made playlist.
 function whoEdits(p) {
-  if (p.smart) return "Its songs are worked out from its rules on your Aoide devices and here, from your own likes and listens; its rules are changed on the devices.";
+  if (p.smart) {
+    const own = p.mine ? "change them with Edit rules" : `only ${p.owner} changes them`;
+    return `Its songs are worked out from its rules on your Aoide devices and here, from your own likes and listens; ${own}.`;
+  }
   if (p.mine) return null;
   return p.can_edit ? `${p.owner} shares it with you to change on your Aoide devices; only they change it here.` : `Only ${p.owner} changes it.`;
 }
@@ -233,6 +237,7 @@ function head(p, page, editable, open) {
         here.length ? h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("playlist", p.id)) }, "Shuffle") : null,
         editable ? [toggle("rename", "Rename"), toggle("picture", "Picture"), toggle("delete", "Delete")] : null,
         p.mine ? [toggle("folder", "Folder"), toggle("share", "Share")] : null,
+        p.mine && p.smart ? toggle("rules", "Edit rules") : null,
         pinControl("playlist", p.id, p.name),
       ),
       open === "rename" ? renameForm(p, page) : null,
@@ -240,6 +245,7 @@ function head(p, page, editable, open) {
       open === "delete" ? deleteCheck(p, page) : null,
       open === "folder" ? folderPicker(p, page) : null,
       open === "share" ? shareSection(p) : null,
+      open === "rules" ? rulesEditor(p, page) : null,
       whoEdits(p) ? h("p", { class: "note" }, whoEdits(p)) : null,
     ),
   );
@@ -266,6 +272,7 @@ export async function playlistPage(id, ctx) {
   const page = {
     songs: worked?.tracks,
     songsTrouble: worked?.trouble,
+    rules: worked?.rules,
     say: (text) => (said.textContent = text),
     // Draws the playlist as it is now: `open` the form shown, `words` said, and `focus` where
     // the keyboard was (a song's { item, what, at }, or "rename", "picture" or "delete" for the
@@ -278,10 +285,27 @@ export async function playlistPage(id, ctx) {
       if (list?.matches("ul")) markPlaying(list, ctx);
       if (typeof focus === "string") document.querySelector(`[data-opens="${focus}"]`)?.focus();
       else if (focus) refocus(focus);
-      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture", folder: ".playlist-edit select", delete: ".playlist-delete button" }[open] ?? null)?.focus();
+      else if (open) document.querySelector({ rename: "#playlist-name", picture: "#playlist-picture", folder: ".playlist-edit select", rules: ".smart-editor select", delete: ".playlist-delete button" }[open] ?? null)?.focus();
     },
   };
   page.draw(p);
+}
+
+// Edit rules, on one's own smart playlist: the editor with its rules, and once they're saved,
+// its songs worked out again.
+function rulesEditor(p, page) {
+  return smartEditor({
+    rules: page.rules,
+    save: async (rules) => {
+      const saved = await api(`${path(p)}/rules`, { method: "PUT", body: { rules } });
+      const worked = await smartSongs(saved);
+      Object.assign(page, { songs: worked.tracks, songsTrouble: worked.trouble, rules: worked.rules });
+      playlistsChanged();
+      page.draw(saved, null, "Rules saved.", "rules");
+      return null;
+    },
+    cancel: () => page.draw(p, null, "", "rules"),
+  });
 }
 
 // A smart playlist's songs for the listener now, on their own calendar: { tracks }, or
@@ -289,7 +313,7 @@ export async function playlistPage(id, ctx) {
 async function smartSongs(p) {
   try {
     const worked = await api(`${path(p)}/songs?offset_minutes=${-new Date().getTimezoneOffset()}`);
-    return { tracks: worked.tracks };
+    return { tracks: worked.tracks, rules: worked.rules };
   } catch (err) {
     if (err instanceof SignedOut) throw err;
     return { trouble: err.message };

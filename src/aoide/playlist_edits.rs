@@ -9,8 +9,8 @@
 //! another field elsewhere survives. Items have no such stamps; each is a row of its own, its
 //! place a fractional key.
 //!
-//! Only a playlist's owner edits it here. Smart playlists aren't edited here at all: their
-//! rules are worked out on the devices. Melete itself writes as the owner too, when it fills
+//! Only a playlist's owner edits it here. A smart playlist's rules are set here
+//! (`smart_rules`), but nothing else of it: its songs are worked out from them. Melete itself writes as the owner too, when it fills
 //! an imported playlist and when it swaps an arrived song in for a pending item.
 
 use std::collections::{BTreeMap, HashMap};
@@ -25,10 +25,12 @@ use super::writing::{self, Change, WriteError};
 mod folders;
 mod items;
 mod pending_items;
+mod smart_rules;
 
 pub use folders::*;
 pub use items::*;
 pub use pending_items::*;
+pub use smart_rules::*;
 
 /// Why an edit wasn't made.
 #[derive(Debug)]
@@ -49,6 +51,8 @@ pub enum EditError {
     NoSuchFolder,
     /// Writing it failed.
     Write(WriteError),
+    /// It's a hand-made playlist, which has no rules.
+    HandMade,
 }
 
 impl From<WriteError> for EditError {

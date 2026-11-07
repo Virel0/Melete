@@ -364,7 +364,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 374);
+        assert_eq!(checked, 376);
     }
 
     /// The response's fields are exactly the schema's.
@@ -3194,6 +3194,38 @@ mod openapi {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         let spec = spec();
         assert_shape(&spec, "SmartPlaylistSongs", &body);
+        assert_shape(&spec, "MusicTrack", &body["tracks"][0]);
+    }
+
+    #[tokio::test]
+    async fn smart_playlist_previews_carry_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+             INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+                 VALUES (1, 1, 'k', 'Post', 'Björk', 'a', 1);
+             INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at,
+                 first_seen_generation, seen_generation, album_id, tagged, title, genres)
+                 VALUES (1, 1, 'a/1', 1, 1, 1, 1, 1, 1, 'Army of Me', '[]');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let user = crate::auth::testing::user(&pool, "alice", false).await;
+        let (_, token) =
+            crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        let request = Request::post("/api/v1/smart-playlists/songs")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"rules":{"match":"all","rules":[]}}"#))
+            .unwrap();
+        let response = playlists::routes(pool).oneshot(request).await.unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let spec = spec();
+        assert_shape(&spec, "SmartPlaylistPreview", &body);
         assert_shape(&spec, "MusicTrack", &body["tracks"][0]);
     }
 

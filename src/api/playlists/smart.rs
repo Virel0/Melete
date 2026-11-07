@@ -98,5 +98,76 @@ pub(super) async fn songs(
     })))
 }
 
+/// Rules as a request gives them, checked as the apps check them; a sort on genre, which
+/// can't be run, is refused here too.
+pub(super) fn rules_given(given: &Value) -> Result<Rules, ApiError> {
+    let rules = Rules::from_json(given)
+        .map_err(|err| super::super::bad_request(&format!("rules: {err}")))?;
+    if rules.sort.is_some_and(|s| s.field == smart::Field::Genre) {
+        return Err(super::super::bad_request(
+            "rules: genre has no single value to sort by",
+        ));
+    }
+    Ok(rules)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Trial {
+    rules: Value,
+    offset_minutes: Option<i64>,
+}
+
+/// How many songs a preview lists; its count is of them all.
+const PREVIEW: usize = 100;
+
+/// `POST /smart-playlists/songs`: what rules give the listener now, before they're kept: how
+/// many songs, and the first of them in order.
+pub(super) async fn preview(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Json(body): Json<Trial>,
+) -> Result<Json<Value>, ApiError> {
+    let offset = offset(body.offset_minutes)?;
+    let rules = rules_given(&body.rules)?;
+    let mut tracks = songs_for(&pool, &current, &rules, offset).await?;
+    let count = tracks.len();
+    tracks.truncate(PREVIEW);
+    Ok(Json(json!({
+        "rules": rules.to_json(),
+        "count": count,
+        "tracks": tracks,
+    })))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NewRules {
+    rules: Value,
+}
+
+/// `PUT /playlists/{id}/rules`: new rules for one's own smart playlist, written into the sync
+/// log as a device of the owner's writes them.
+pub(super) async fn set_rules(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<NewRules>,
+) -> Result<Json<Value>, ApiError> {
+    let rules = rules_given(&body.rules)?;
+    let device = crate::aoide::writing::session_device(current.token_id);
+    let editor = crate::aoide::playlist_edits::Editor {
+        user_id: current.user.id,
+        device: &device,
+        now: now_ms(),
+    };
+    crate::aoide::playlist_edits::set_rules(&pool, &editor, &id, &rules)
+        .await
+        .map_err(super::edits::failed)?;
+    Ok(Json(
+        detail(&pool, &current.access, current.user.id, &id).await?,
+    ))
+}
+
 #[cfg(test)]
 mod tests;
