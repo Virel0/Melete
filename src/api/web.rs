@@ -1239,6 +1239,30 @@ mod tests {
         assert!(lyrics.contains("const options = { translate: false, pronounce: false };"));
     }
 
+    #[test]
+    fn furigana_is_drawn_over_kanji_when_chosen() {
+        let lyrics = module("music-lyrics.js");
+        // Asked for with the pronunciation, which brings the readings, and shown only when chosen.
+        assert!(
+            lyrics
+                .contains(r#"if (options.pronounce || furigana) query.set("pronounce", "true");"#)
+        );
+        assert!(lyrics.contains("ruby: furigana && !readings.hidden ? line.ruby : null,"));
+        assert!(lyrics.contains("pronunciation: options.pronounce ? line.pronunciation : null,"));
+        // Offered only for Japanese with kanji, and gone where pronunciation is turned off.
+        assert!(
+            lyrics.contains(
+                "readings.hidden = missing.pronounce || !japaneseWithKanji(answer.lines);"
+            )
+        );
+        // Ruby for the eye; a screen reader reads the line as written.
+        assert!(
+            lyrics.contains(
+                r#"h("ruby", {}, p.text, h("rt", { "aria-hidden": "true" }, p.reading))"#
+            )
+        );
+    }
+
     fn module(name: &str) -> &'static str {
         MODULES.iter().find(|(n, _)| *n == name).unwrap().1
     }

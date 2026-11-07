@@ -6617,7 +6617,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A track's lyrics",
-        "description": "From an .lrc file beside the track, else the track's own tags, else LRCLIB when lyrics are turned on (its title, artist, album and length leave the server, once per track; the answer is kept, and a track LRCLIB has nothing for is asked about again after 30 days or when its file changes). Synced lyrics come with each line's start; plain ones without. With `translate`, each line comes with its translation through LibreTranslate, when it's set up: the song's lines (each once, without empty ones) and the language leave the server to the LibreTranslate set up, once per song and language; the translation is kept, and made afresh when the lyrics change. With `pronounce`, each line comes with its pronunciation in Latin letters, when the household has turned it on (MELETE_LYRICS_ROMANISATION): Japanese in Hepburn, kanji read in context with a built-in dictionary (Chinese characters only in lyrics that have kana, so a song in Chinese alone gets none), Korean hangul in the Revised Romanization syllable by syllable, Cyrillic letter by letter. Worked out on the server; nothing leaves it.",
+        "description": "From an .lrc file beside the track, else the track's own tags, else LRCLIB when lyrics are turned on (its title, artist, album and length leave the server, once per track; the answer is kept, and a track LRCLIB has nothing for is asked about again after 30 days or when its file changes). Synced lyrics come with each line's start; plain ones without. With `translate`, each line comes with its translation through LibreTranslate, when it's set up: the song's lines (each once, without empty ones) and the language leave the server to the LibreTranslate set up, once per song and language; the translation is kept, and made afresh when the lyrics change. With `pronounce`, each line comes with its pronunciation in Latin letters, when the household has turned it on (MELETE_LYRICS_ROMANISATION): Japanese in Hepburn, kanji read in context with a built-in dictionary (Chinese characters only in lyrics that have kana, so a song in Chinese alone gets none), Korean hangul in the Revised Romanization syllable by syllable, Cyrillic letter by letter; and, for a line with kanji in Japanese lyrics, the readings over them (`ruby`), from the same dictionary. Worked out on the server; nothing leaves it.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Track id.", "schema": {"type": "integer"}},
           {
@@ -16598,13 +16598,30 @@
       },
       "MusicPronouncedLyricLine": {
         "type": "object",
-        "required": ["start_seconds", "text", "pronunciation"],
+        "required": ["start_seconds", "text", "pronunciation", "ruby"],
         "properties": {
           "start_seconds": {"type": ["number", "null"], "description": "When the line starts; null for plain lyrics."},
           "text": {"type": "string"},
           "pronunciation": {
             "type": ["string", "null"],
             "description": "The line in Latin letters; null when it has nothing to romanise (already Latin, or Chinese alone)."
+          },
+          "ruby": {
+            "type": ["array", "null"],
+            "items": {"$ref": "#/components/schemas/MusicRubyPiece"},
+            "description": "The line in pieces that join up into its text, each run of kanji with its reading in hiragana (furigana), for drawing with ruby; the kana written in a word stay as they are. Null when the line has no kanji, or the lyrics aren't Japanese (no kana anywhere in them)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MusicRubyPiece": {
+        "type": "object",
+        "required": ["text", "reading"],
+        "properties": {
+          "text": {"type": "string", "description": "Part of the line as written."},
+          "reading": {
+            "type": ["string", "null"],
+            "description": "How the kanji in `text` are read, in hiragana; null for anything else (kana, Latin letters, spaces), and for kanji the dictionary doesn't know."
           }
         },
         "additionalProperties": false
@@ -16626,7 +16643,7 @@
       },
       "MusicTranslatedPronouncedLyricLine": {
         "type": "object",
-        "required": ["start_seconds", "text", "translation", "pronunciation"],
+        "required": ["start_seconds", "text", "translation", "pronunciation", "ruby"],
         "properties": {
           "start_seconds": {"type": ["number", "null"], "description": "When the line starts; null for plain lyrics."},
           "text": {"type": "string"},
@@ -16637,6 +16654,11 @@
           "pronunciation": {
             "type": ["string", "null"],
             "description": "The line in Latin letters; null when it has nothing to romanise (already Latin, or Chinese alone)."
+          },
+          "ruby": {
+            "type": ["array", "null"],
+            "items": {"$ref": "#/components/schemas/MusicRubyPiece"},
+            "description": "The line in pieces that join up into its text, each run of kanji with its reading in hiragana (furigana), for drawing with ruby; the kana written in a word stay as they are. Null when the line has no kanji, or the lyrics aren't Japanese (no kana anywhere in them)."
           }
         },
         "additionalProperties": false

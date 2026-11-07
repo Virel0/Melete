@@ -193,4 +193,8 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .lyrics button.line:hover { color: var(--text); background: var(--surface-raised); }
 .lyrics .line.now { color: var(--accent); }
 .lyrics .extra { display: block; font-size: var(--step--1); font-weight: 400; }
+/* Furigana: the readings small over their kanji, in the line's colour. */
+.lyrics rt { font-size: 0.55em; font-weight: 400; }
+/* The words run on as text (the panel lays out its other .words as a column). */
+.lyrics .line .words { display: block; }
 .lyrics-source { margin-block-start: var(--space-4); }
