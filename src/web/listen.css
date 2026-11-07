@@ -252,3 +252,10 @@
 .hidden-list li { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto; align-items: center; }
 .hidden-list ~ .row-actions { margin-block-start: var(--space-3); }
 .hidden-group + .hidden-group { margin-block-start: var(--space-6); }
+
+/* Music's keyboard shortcuts (music-keys.js), in a dialog: each key beside what it does. */
+.music-keys h2 { margin: 0; font-size: var(--step-1); }
+.music-keys .note { margin: 0; }
+.music-keys-list { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-2) 0; }
+.music-keys-list > div { display: contents; }
+.music-keys-list dd { margin: 0; }
