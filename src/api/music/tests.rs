@@ -918,3 +918,85 @@ async fn a_random_order_keeps_to_what_the_listener_sees_and_wants() {
     let (_, none) = json_as(&f, &nobody, "/api/v1/music/albums?sort=random").await;
     assert_eq!(none["total"], 0);
 }
+
+#[tokio::test]
+async fn songs_and_albums_narrow_to_several_genres_a_span_of_years_and_likes() {
+    let f = fixture(None).await;
+    second_library(&f).await;
+    // Any of several genres, in any case.
+    let (_, two) = json_of(
+        &f,
+        "/api/v1/music/tracks?genres=ART%20ROCK;Trip%20Hop&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&two), ["Mysterons", "Paranoid Android"]);
+    let (_, albums) = json_of(
+        &f,
+        "/api/v1/music/albums?genres=trip%20hop;ambient&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&albums), ["Dummy", "Selected"]);
+    // A span of years, either end open: Dummy (1994), OK Computer (1997), Kid A (2000),
+    // Selected (1992).
+    let (_, nineties) = json_of(
+        &f,
+        "/api/v1/music/albums?year_from=1993&year_to=1999&sort=title",
+    )
+    .await;
+    assert_eq!(titles(&nineties), ["Dummy", "OK Computer"]);
+    let (_, late) = json_of(&f, "/api/v1/music/tracks?year_from=1997&sort=title").await;
+    assert_eq!(titles(&late), ["Airbag", "Everything", "Paranoid Android"]);
+    let (_, early) = json_of(
+        &f,
+        "/api/v1/music/tracks?year_to=1994&genres=rock;trip%20hop",
+    )
+    .await;
+    assert_eq!(titles(&early), ["Mysterons"], "filters combine");
+    let bad = "/api/v1/music/tracks?year_from=2000&year_to=1990";
+    assert_eq!(json_of(&f, bad).await.0, StatusCode::BAD_REQUEST);
+
+    // Only the songs the listener likes, theirs alone.
+    let me: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let airbag: i64 = sqlx::query_scalar("SELECT id FROM music_tracks WHERE title = 'Airbag'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let kind = crate::aoide::likes::Kind::Track;
+    assert!(
+        crate::aoide::likes::set(&f.pool, kind, me, "web", airbag, true, 1)
+            .await
+            .unwrap()
+    );
+    let (_, liked) = json_of(&f, "/api/v1/music/tracks?liked=true").await;
+    assert_eq!(titles(&liked), ["Airbag"]);
+    let (_, all) = json_of(&f, "/api/v1/music/tracks?liked=false").await;
+    assert_eq!(all["total"], 5);
+    let other = listener(&f, "v", None).await;
+    let (_, none) = json_as(&f, &other, "/api/v1/music/tracks?liked=true").await;
+    assert_eq!(none["total"], 0, "u's likes aren't v's");
+
+    // As with every list, a song marked Not interested is still listed.
+    sqlx::query(
+        "INSERT INTO aoide_ops (op_id, user_id, device_id, entity, entity_id, operation,
+             payload, created_at, received_at)
+         VALUES ('f1', ?, 'phone', 'track_flags', 'flag', 'upsert',
+             json_object('jellyfinId', ?, 'notInterested', json('true')), 1, 1)",
+    )
+    .bind(me)
+    .bind(airbag.to_string())
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let (_, still) = json_of(&f, "/api/v1/music/tracks?liked=true&genres=rock").await;
+    assert_eq!(titles(&still), ["Airbag"]);
+
+    // Someone who may see only the second library finds only what's in it.
+    let limited = listener(&f, "w", Some(&[2])).await;
+    let (_, theirs) = json_as(&f, &limited, "/api/v1/music/tracks?genres=ambient;rock").await;
+    assert_eq!(titles(&theirs), ["Xtal"]);
+    let (_, theirs) = json_as(&f, &limited, "/api/v1/music/albums?year_to=1999").await;
+    assert_eq!(titles(&theirs), ["Selected"]);
+}
