@@ -7311,6 +7311,51 @@
         }
       }
     },
+    "/api/v1/playlists/{id}/songs": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "A smart playlist's songs",
+        "description": "Its rules (the `smartRules` its row carries, in the Aoide apps' format) worked out now for you, the listener: against the library's present songs and your own likes, Not interested flags and listens (`music_plays`, from every device and the web), as the Aoide apps work them out, so every app gets the same songs. A song you marked Not interested is never one of them. Fields: title, artist (the credited artists joined with \", \", else the album's artist), album, album_artist, genre (any one of them), year, duration_ms, play_count, skip_count, last_played, first_played, liked. A play is a listen that reached the end, or ended unskipped after half the track or four minutes, whichever is less; a skip one that didn't reach the end and was skipped, or ended inside the first fifth. Ties in the order go by track id, so a limit always takes the same songs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Aoide's playlist id.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "offset_minutes",
+            "in": "query",
+            "required": false,
+            "description": "Your offset from UTC in minutes (-840 to 840), so spans of months and years count on your calendar, as the apps count them in the device's own zone. UTC when left out.",
+            "schema": {"type": "integer", "minimum": -840, "maximum": 840}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Its songs, in its order",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SmartPlaylistSongs"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "You may see only some music libraries, to whom Aoide's sync log is closed",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "No such playlist, a deleted one, or one that's neither yours nor shared with you",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Not a smart playlist (a hand-made one's songs are its items), or rules that can't be worked out, saying why",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/playlists/{id}/items/{item}": {
       "put": {
         "tags": ["Music"],
@@ -17956,6 +18001,19 @@
         },
         "additionalProperties": false
       },
+      "SmartPlaylistSongs": {
+        "type": "object",
+        "required": ["id", "rules", "tracks"],
+        "properties": {
+          "id": {"type": "string", "description": "Aoide's playlist id."},
+          "rules": {
+            "type": "object",
+            "description": "The rules as worked out, as the apps write them: `match` (all or any), `rules` ([{field, op, value}]), and `sort` ({field, dir}) and `limit` when it has them. Operators written as symbols (>=, <=…) come back by name."
+          },
+          "tracks": {"type": "array", "items": {"$ref": "#/components/schemas/MusicTrack"}}
+        },
+        "additionalProperties": false
+      },
       "Playlist": {
         "type": "object",
         "required": [
@@ -17981,7 +18039,7 @@
           },
           "smart": {
             "type": "boolean",
-            "description": "A smart playlist: its tracks are worked out on the devices from its rules, so it lists none here."
+            "description": "A smart playlist: its songs are worked out from its rules, so it lists no items; GET /api/v1/playlists/{id}/songs gives them."
           },
           "image_url": {
             "type": ["string", "null"],
@@ -18072,7 +18130,7 @@
           },
           "smart": {
             "type": "boolean",
-            "description": "A smart playlist: its tracks are worked out on the devices from its rules, so it lists none here."
+            "description": "A smart playlist: its songs are worked out from its rules, so it lists no items; GET /api/v1/playlists/{id}/songs gives them."
           },
           "image_url": {
             "type": ["string", "null"],
