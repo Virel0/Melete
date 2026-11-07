@@ -17,6 +17,7 @@ pub(super) fn music_routes(
         .merge(music_mixes::routes(pool.clone()))
         .merge(music_household::routes(pool.clone()))
         .merge(music_likes::routes(pool.clone(), coverart.is_some()))
+        .merge(music_replay::routes(pool.clone(), coverart.is_some()))
         .merge(music_flags::routes(pool.clone()))
         .merge(music::routes(
             pool.clone(),
