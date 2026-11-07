@@ -1,6 +1,7 @@
 //! What a listener has heard and flagged, read out of their sync log the way
 //! a client would, after the fact: `play_events` (`jellyfinId`, `startedAt`, `endedAt`,
-//! `completed`, `skipped`) and `track_flags` (`jellyfinId`, `notInterested`, `deleted`), in
+//! `completed`, `skipped`) and `track_flags` (`jellyfinId`, `notInterested`, `dontCount`,
+//! `deleted`), in
 //! either naming convention. The sync path itself stays opaque; an op that can't be read here
 //! is skipped, not an error. Listens are read into the play history, and read from
 //! there.
@@ -77,6 +78,23 @@ pub async fn play_events(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Vec<Pl
 /// The tracks a user has flagged not interested: the latest op per track decides, so a flag
 /// set and later cleared is no flag.
 pub async fn not_interested(pool: &SqlitePool, user_id: i64) -> sqlx::Result<HashSet<String>> {
+    flagged(pool, user_id, "notInterested", "not_interested").await
+}
+
+/// The tracks a user has flagged "don't count plays", whose new listens aren't kept: the
+/// latest op per track decides.
+pub async fn dont_count(pool: &SqlitePool, user_id: i64) -> sqlx::Result<HashSet<String>> {
+    flagged(pool, user_id, "dontCount", "dont_count").await
+}
+
+/// The tracks whose latest `track_flags` op sets the flag spelled `camel` (or `snake`) and
+/// isn't a delete.
+async fn flagged(
+    pool: &SqlitePool,
+    user_id: i64,
+    camel: &str,
+    snake: &str,
+) -> sqlx::Result<HashSet<String>> {
     let payloads: Vec<String> = sqlx::query_scalar(
         "SELECT payload FROM aoide_ops WHERE user_id = ? AND entity = 'track_flags' ORDER BY seq",
     )
@@ -92,8 +110,7 @@ pub async fn not_interested(pool: &SqlitePool, user_id: i64) -> sqlx::Result<Has
         else {
             continue;
         };
-        let flagged =
-            flag(&row, "notInterested", "not_interested") && !flag(&row, "deleted", "deleted");
+        let flagged = flag(&row, camel, snake) && !flag(&row, "deleted", "deleted");
         latest.insert(normalise(&track), flagged);
     }
     Ok(latest
