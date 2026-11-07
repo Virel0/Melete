@@ -19,7 +19,7 @@ const MAX_NOTES: usize = 2000;
 /// Most tracks added at once.
 const MAX_ADD: usize = 500;
 
-fn failed(err: EditError) -> ApiError {
+pub(super) fn failed(err: EditError) -> ApiError {
     let (status, message) = match err {
         EditError::NoSuchPlaylist => (StatusCode::NOT_FOUND, "no such playlist".into()),
         EditError::NotOwner => (
@@ -35,6 +35,10 @@ fn failed(err: EditError) -> ApiError {
         EditError::NoGap => (
             StatusCode::CONFLICT,
             "the playlist's order leaves no room there; move a neighbour on a device first".into(),
+        ),
+        EditError::HandMade => (
+            StatusCode::CONFLICT,
+            "a hand-made playlist has no rules; its songs are its items".into(),
         ),
         EditError::Write(err) => return super::super::music_likes::write_failed(err),
     };
@@ -71,6 +75,8 @@ fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D:
 pub(super) struct NewPlaylist {
     name: String,
     notes: Option<String>,
+    /// Rules in the Aoide apps' format, for a smart playlist.
+    rules: Option<Value>,
 }
 
 pub(super) async fn create(
@@ -85,9 +91,20 @@ pub(super) async fn create(
     };
     let device = session_device(current.token_id);
     let editor = editor(&current, &device);
-    let id = playlist_edits::create(&pool, &editor, &name, notes.as_deref())
-        .await
-        .map_err(failed)?;
+    let id = match &body.rules {
+        // A smart playlist has rules, not notes, as the apps make one.
+        Some(rules) if notes.is_none() => {
+            let rules = super::smart::rules_given(rules)?;
+            playlist_edits::create_smart(&pool, &editor, &name, &rules).await
+        }
+        Some(_) => {
+            return Err(super::super::bad_request(
+                "a smart playlist is made with rules and no notes",
+            ));
+        }
+        None => playlist_edits::create(&pool, &editor, &name, notes.as_deref()).await,
+    }
+    .map_err(failed)?;
     Ok((
         StatusCode::CREATED,
         Json(detail(&pool, &current.access, current.user.id, &id).await?),

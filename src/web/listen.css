@@ -216,6 +216,20 @@
 .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto auto auto; }
 .playlist-items .item-tools button.icon { width: 2.25rem; height: 2.25rem; }
 .new-playlist { margin-block: var(--space-3) var(--space-2); }
+/* The smart playlist rule editor: a row a rule, the order, and what the rules give. */
+.new-smart { margin-block-end: var(--space-4); }
+.smart-editor { margin-block: var(--space-3); max-width: 44rem; }
+.rule-list { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: grid; gap: var(--space-2); }
+.rule-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.rule-row input:not(.year) { width: min(14rem, 100%); }
+.rule-row input[type="number"], .smart-order input[type="number"] { width: 7rem; }
+.smart-order { margin-block-start: var(--space-3); }
+.rule-value { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+.smart-order { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.smart-order .field select + select { margin-inline-start: var(--space-2); }
+.smart-editor h3 { font-size: var(--step-0); margin-block: var(--space-4) var(--space-2); }
+.smart-preview { padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-s); min-height: 3rem; }
+.smart-preview p { margin-block: 0; }
 @media (max-width: 40rem) {
   .playlist-items.editable li.with-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
   .playlist-items .item-tools { grid-column: 1 / -1; justify-self: end; }

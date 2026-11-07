@@ -11,6 +11,7 @@ import { cover } from "/web/music-parts.js";
 import { PLAYLISTS_CLOSED, playlistTrouble, playlistsChanged } from "/web/music-playlist-pick.js";
 import { clip, emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
+import { smartEditor } from "/web/music-smart-editor.js";
 
 export const playlistHref = (id) => `#/music/playlists/${encodeURIComponent(id)}`;
 const folderHref = (name) => `#/music/playlists?${new URLSearchParams({ folder: name })}`;
@@ -69,7 +70,35 @@ function newPlaylist() {
       release(button);
     }
   });
-  return [form, said];
+  return [form, said, newSmartPlaylist()];
+}
+
+// New smart playlist: a name and its rules, with what they give, then its page.
+function newSmartPlaylist() {
+  const toggle = h("button", { type: "button", class: "quiet", "aria-expanded": "false" }, "New smart playlist");
+  const area = h("div", {});
+  const close = () => {
+    toggle.setAttribute("aria-expanded", "false");
+    area.replaceChildren();
+    toggle.focus();
+  };
+  toggle.addEventListener("click", () => {
+    if (toggle.getAttribute("aria-expanded") === "true") return close();
+    toggle.setAttribute("aria-expanded", "true");
+    area.replaceChildren(
+      smartEditor({
+        named: true,
+        save: async (rules, name) => {
+          const made = await api("/playlists", { method: "POST", body: { name, rules } });
+          location.hash = playlistHref(made.id);
+          return null;
+        },
+        cancel: close,
+      }),
+    );
+    area.querySelector("input")?.focus();
+  });
+  return h("div", { class: "new-smart" }, toggle, area);
 }
 
 export async function playlistsPage(params, ctx) {
