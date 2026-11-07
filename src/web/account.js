@@ -1,8 +1,9 @@
-// Your account: your profile picture, password, two-factor sign-in, languages, playback and a
-// report of the last play in this tab, signing in through an identity provider, sessions and API
-// keys, Quick Connect for signing in another device, and Melete's version. Every user has this
-// page.
+// Your account: your profile picture, password, two-factor sign-in, languages, playback, how the
+// web UI looks in this browser (appearance.js), a report of the last play in this tab, signing
+// in through an identity provider, sessions and API keys, Quick Connect for signing in another
+// device, and Melete's version. Every user has this page.
 
+import { appearanceGroup } from "/web/appearance.js";
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
 import { playbackGroup } from "/web/playback-prefs.js";
@@ -37,6 +38,7 @@ export async function account(ctx) {
     twoFactorGroup(twoFactor, ctx),
     languages,
     playback,
+    appearanceGroup(),
     reportGroup(ctx),
     linking,
     group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list, signInChanges(twoFactor.changes)),

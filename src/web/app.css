@@ -1,6 +1,7 @@
 /* Melete's web UI. Tokens first; components below, and in library.css and tools.css (loaded
    after this file, in that order), use only these. Dark first, since it's mostly used to pick
-   something to watch in a dim room; light follows the system setting. System fonts: the page
+   something to watch in a dim room; light when chosen, or by the system's setting (theme.js
+   sets `data-theme` before the page is drawn, from Your account's choice). System fonts: the page
    makes no outside requests and ships no font files. */
 :root {
   --bg: #121417;
@@ -89,31 +90,29 @@
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f6f5f2;
-    --surface: #ffffff;
-    --surface-raised: #ebe9e4;
-    --line: #dcd9d2;
-    --line-strong: #7d7a72;
-    --text: #1b1d21;
-    --muted: #5d5b55;
-    --accent: #8a5a12;
-    --accent-ink: #ffffff;
-    --danger: #a8321f;
-    --danger-ink: #ffffff;
-    --state-have: #2c6a44;
-    --state-coming: #275d92;
-    --state-waiting: #8a5a12;
-    --state-missing: #a8321f;
-    --state-off: #5d5b55;
-    --state-notyet: #4f5577;
-    --shadow: 0 1px 3px rgb(0 0 0 / 0.15);
-    --scrim: rgb(27 29 33 / 0.45);
-    --tint-amount: 10%;
-    --fade-amount: 14%;
-    color-scheme: light;
-  }
+:root[data-theme="light"] {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-raised: #ebe9e4;
+  --line: #dcd9d2;
+  --line-strong: #7d7a72;
+  --text: #1b1d21;
+  --muted: #5d5b55;
+  --accent: #8a5a12;
+  --accent-ink: #ffffff;
+  --danger: #a8321f;
+  --danger-ink: #ffffff;
+  --state-have: #2c6a44;
+  --state-coming: #275d92;
+  --state-waiting: #8a5a12;
+  --state-missing: #a8321f;
+  --state-off: #5d5b55;
+  --state-notyet: #4f5577;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  --scrim: rgb(27 29 33 / 0.45);
+  --tint-amount: 10%;
+  --fade-amount: 14%;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
