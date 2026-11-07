@@ -1864,6 +1864,22 @@ mod tests {
         assert!(row.contains("playlistPicker([], r.title, { waiting: r.id })"));
     }
 
+    /// A smart playlist's songs are worked out by the server for the listener, on their own
+    /// calendar, and play like any list; why they can't be is said.
+    #[test]
+    fn smart_playlists_play_the_songs_worked_out_for_the_listener() {
+        let one = module("music-playlist.js");
+        for part in [
+            "/songs?offset_minutes=${-new Date().getTimezoneOffset()}",
+            "const worked = p.smart ? await smartSongs(p) : null;",
+            "page.songs.map((t, i) => songRow(t, () => play(queue, i), trackActions(t, queue[i])))",
+            "${page.songsTrouble[0].toUpperCase()}${page.songsTrouble.slice(1)}.",
+            "const list = now.smart ? smartList(page)",
+        ] {
+            assert!(one.contains(part), "{part}");
+        }
+    }
+
     #[test]
     fn album_cards_have_a_heart_that_follows_the_albums_like() {
         assert!(module("music-parts.js").contains("    cardLike(album),\n"));
