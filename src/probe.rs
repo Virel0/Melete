@@ -140,6 +140,27 @@ pub struct AudioStream {
     pub default: bool,
 }
 
+/// Whether a subtitle track's title names it the signs and/or songs track: only the on-screen
+/// text and the songs, as anime releases label it ("Signs & Songs", "Signs/Songs", "S&S",
+/// "Signs") rather than flagging it forced; never one that also says it's full or dialogue.
+pub fn names_signs(title: Option<&str>) -> bool {
+    let Some(title) = title else {
+        return false;
+    };
+    let lower = title.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '&')
+        .filter(|w| !w.is_empty())
+        .collect();
+    let signs = words.iter().any(|w| matches!(*w, "signs" | "sign" | "s&s"))
+        || lower.contains("songs & signs")
+        || lower.contains("songs/signs");
+    let full = words
+        .iter()
+        .any(|w| matches!(*w, "full" | "dialogue" | "dialog"));
+    signs && !full
+}
+
 /// A subtitle stream inside the file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubtitleStream {
@@ -157,6 +178,14 @@ pub struct SubtitleStream {
     pub forced: bool,
     /// Text (SRT, ASS, WebVTT…) rather than pictures (PGS, VobSub).
     pub text: bool,
+}
+
+impl SubtitleStream {
+    /// Whether it shows only the parts in another language: flagged forced, or named the signs
+    /// and songs track ([`names_signs`]).
+    pub fn counts_as_forced(&self) -> bool {
+        self.forced || names_signs(self.title.as_deref())
+    }
 }
 
 /// Why a file has no probe result; only `Failed` is stored.

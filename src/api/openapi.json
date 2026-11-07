@@ -12715,7 +12715,7 @@
           "language": {"type": ["string", "null"]},
           "title": {"type": ["string", "null"]},
           "default": {"type": "boolean"},
-          "forced": {"type": "boolean"},
+          "forced": {"type": "boolean", "description": "Only the parts in another language: flagged forced in the file, or titled as the signs and songs track (\"Signs & Songs\", \"S&S\", \"Signs\"), as anime releases mark it."},
           "text": {"type": "boolean", "description": "Text (SRT, ASS, WebVTT…) rather than pictures (PGS, VobSub)."}
         },
         "additionalProperties": false
@@ -12830,7 +12830,7 @@
           "language": {"type": ["string", "null"]},
           "title": {"type": ["string", "null"]},
           "default": {"type": "boolean"},
-          "forced": {"type": "boolean"},
+          "forced": {"type": "boolean", "description": "Only the parts in another language: flagged forced in the file or in the subtitle file's name (`.forced.`, `.signs.`), or titled as the signs and songs track (\"Signs & Songs\", \"S&S\", \"Signs\")."},
           "hearing_impaired": {"type": "boolean", "description": "From an sdh/cc/hi tag in an external file's name."},
           "text": {
             "type": "boolean",
