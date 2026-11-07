@@ -1305,6 +1305,33 @@ mod tests {
     }
 
     #[test]
+    fn level_volume_and_trim_silence_follow_the_apps() {
+        let measures = module("music-measures.js");
+        // Turned down to -18 LUFS, never up, a master over full scale down until it isn't, and
+        // rounded to a hundredth as every app rounds it.
+        for rule in [
+            "const REFERENCE_LUFS = -18;",
+            "if (gain >= 0) return null;",
+            "if (Number.isFinite(peak) && peak + gain > 0) gain = -peak;",
+            "Math.round(gain * 100) / 100",
+            r#"if (!listening("levelVolume")) return 1;"#,
+            r#"if (!listening("trimSilence")) return null;"#,
+            r#"ask("/aoide/sound-bounds", "bounds", known.bounds)"#,
+        ] {
+            assert!(measures.contains(rule), "{rule}");
+        }
+        let settings = module("music-settings.js");
+        assert!(settings.contains("const SOUND = { levelVolume: true, trimSilence: true };"));
+        assert!(settings.contains("return { ...DEFAULTS, ...SOUND, ...(kept"));
+        // A trimmed song starts where its sound does, and ends where it stops: by a hand-over,
+        // or as a song's end, its listen ended once like any other.
+        let player = module("music-player.js");
+        assert!(player.contains("deck.el.currentTime = startOf(track);"));
+        assert!(player.contains("startHandOver({ link, handedOver, ended: songEnded });"));
+        assert!(player.contains(r#"audio.addEventListener("ended", songEnded);"#));
+    }
+
+    #[test]
     fn listen_opens_on_home_with_its_rows_in_order() {
         let home = module("music-home.js");
         let rows = [
