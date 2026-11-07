@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 133] = [
+const MODULES: [(&str, &str); 134] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -242,6 +242,7 @@ const MODULES: [(&str, &str); 133] = [
     ("health.js", include_str!("../web/health.js")),
     ("calendar.js", include_str!("../web/calendar.js")),
     ("palette.js", include_str!("../web/palette.js")),
+    ("music-keys.js", include_str!("../web/music-keys.js")),
     (
         "palette-recent.js",
         include_str!("../web/palette-recent.js"),
@@ -528,6 +529,31 @@ mod tests {
         assert!(tab.contains(r#"document.addEventListener("melete:track""#));
         assert!(tab.contains(r#"[track.title, track.artist].filter(Boolean).join(" – ")"#));
         assert!(module("app.js").contains(r#"import "/web/tab-title.js";"#));
+    }
+
+    /// Music's shortcuts work only while Listen has the focus and nothing is being typed or
+    /// pressed, the palette offers the player's commands and playlists, and ? lists the keys.
+    #[test]
+    fn music_keys_work_on_listen_and_the_palette_drives_the_player() {
+        let keys = module("music-keys.js");
+        assert!(keys.contains(
+            r#"target.closest?.("input, select, textarea, button, a, summary, dialog, [contenteditable]")"#
+        ));
+        assert!(keys.contains(r##"location.hash.startsWith("#/music")"##));
+        assert!(keys.contains(r#"if (!found || (!current() && key !== "?")) return;"#));
+        for said in [
+            "Play or pause",
+            "Next track",
+            "Shuffle on or off",
+            "Like or unlike the track playing",
+        ] {
+            assert!(keys.contains(said), "{said}");
+        }
+        assert!(module("app.js").contains(r#"import "/web/music-keys.js";"#));
+        let palette = module("palette.js");
+        assert!(palette.contains("[...pal.places, ...musicCommands()]"));
+        assert!(palette.contains("if (item.run) {"));
+        assert!(palette.contains(r#"music("/playlists")"#));
     }
 
     #[test]

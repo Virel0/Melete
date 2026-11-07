@@ -11,6 +11,7 @@ import { startBar } from "/web/music-bar.js";
 import { pause as pauseMusic, startPlayer, stopPlayer } from "/web/music-player.js";
 import { musicPage } from "/web/music.js";
 import "/web/tab-title.js";
+import "/web/music-keys.js";
 import { setMusicAccess } from "/web/music-access.js";
 import { codeStep } from "/web/two-factor.js";
 import { installPalette, paletteKeys } from "/web/palette.js";

@@ -1,12 +1,15 @@
 // The command palette: Ctrl+K (⌘K on a Mac) or / opens it anywhere, and typing finds a
 // page, a setting, or a title, artist or song in the library (what the user may see of it);
 // last, "See all results" opens the search page for what's typed (search.js). While the box is
-// empty it offers this browser's recent searches (palette-recent.js), with Clear. It's a modal
-// dialog: focus goes into it and stays there, Escape closes it, and focus goes back to where it
-// was. Arrow keys move through the results, Enter opens one.
+// empty it offers this browser's recent searches (palette-recent.js), with Clear. It also drives
+// the music player (Pause, Next track, Shuffle… while something is queued; music-keys.js) and
+// opens playlists by name. It's a modal dialog: focus goes into it and stays there, Escape
+// closes it, and focus goes back to where it was. Arrow keys move through the results, Enter
+// opens one.
 
 import { SignedOut, api, h } from "/web/lib.js";
 import { clearSearches, recentSearches, rememberSearch } from "/web/palette-recent.js";
+import { musicCommands } from "/web/music-keys.js";
 
 // Where everyone can go. `words` are other names people may type for the same place.
 const PAGES = [
@@ -174,6 +177,12 @@ function go(item, pal) {
     draw(pal);
     return;
   }
+  // A player command does its thing where you are.
+  if (item.run) {
+    dialog.close();
+    item.run();
+    return;
+  }
   if (pal.titles.includes(item) || item.kind === "Search") rememberSearch(pal.input.value);
   dialog.close();
   if (location.hash === item.href) dispatchEvent(new HashChangeEvent("hashchange"));
@@ -195,7 +204,8 @@ function mark(pal) {
 function draw(pal) {
   const { input, results, said } = pal;
   const q = input.value.trim().toLowerCase();
-  const scored = pal.places
+  // The player's commands, as things stand now (Pause while playing, Play while paused).
+  const scored = [...pal.places, ...musicCommands()]
     .map((p) => {
       const name = p.name.toLowerCase();
       // Other names count when one of their words starts with what's typed ("ind" isn't "find").
@@ -244,12 +254,14 @@ function findTitles(pal) {
       return { items: [] };
     });
     try {
-      const [movies, series, artists, albums, songs] = await Promise.all([
+      const [movies, series, artists, albums, songs, playlists] = await Promise.all([
         api(`/movies?${query}`),
         api(`/series?${query}`),
         music(`/music/artists?${query}`),
         music(`/music/albums?${query}`),
         music(`/music/tracks?${query}&q_in=track&sort=title`),
+        // Playlists are few: asked for once while the palette is open, matched here.
+        (pal.playlists ??= music("/playlists").then((all) => (Array.isArray(all) ? all : []))),
       ]);
       if (mine !== pal.asking || !dialog.open) return;
       pal.titles = [
@@ -259,6 +271,10 @@ function findTitles(pal) {
         ...(albums.items ?? []).map((a) => ({ name: `${a.title} by ${a.artist}`, href: `#/music/albums/${a.id}`, kind: "Album" })),
         // A song opens its album with the song picked out, ready to play.
         ...(songs.items ?? []).map((t) => ({ name: `${t.title} by ${t.artist}, from ${t.album}`, href: `#/music/albums/${t.album_id}?track=${t.id}`, kind: "Song" })),
+        ...playlists
+          .filter((p) => p.name.toLowerCase().includes(q.toLowerCase()))
+          .slice(0, 4)
+          .map((p) => ({ name: p.name, href: `#/music/playlists/${encodeURIComponent(p.id)}`, kind: "Playlist" })),
       ];
       draw(pal);
     } catch (err) {
@@ -301,6 +317,7 @@ function openPalette(pal) {
   pal.returnTo = document.activeElement;
   pal.input.value = "";
   pal.titles = [];
+  pal.playlists = null;
   pal.active = 0;
   draw(pal);
   dialog.showModal();
