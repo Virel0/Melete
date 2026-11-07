@@ -5,7 +5,7 @@
 import { SignedOut, api, h, loading, metaRow, number, plural, runtime, show } from "/web/lib.js";
 import { albumLike, trackActions } from "/web/music-actions.js";
 import { SPATIAL, albumCard, artistCounts, markPlaying, pinControl, trackRow } from "/web/music-parts.js";
-import { albumQueue, looseQueue, play, shufflePlay } from "/web/music-play.js";
+import { albumQueue, looseQueue, play, remember, shufflePlay } from "/web/music-play.js";
 import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
@@ -183,8 +183,8 @@ function albumActions(album, queue) {
     h(
       "div",
       { class: "play-actions" },
-      h("button", { type: "button", onclick: () => play(queue) }, "Play"),
-      h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle"),
+      h("button", { type: "button", onclick: () => (play(queue), remember("album", album.id)) }, "Play"),
+      h("button", { type: "button", class: "quiet", onclick: () => (shufflePlay(queue), remember("album", album.id)) }, "Shuffle"),
       radioButton(() => albumSeed(album.id), album.title),
       seesAllMusic() ? albumLike(album) : null,
       seesAllMusic() ? pick : null,
