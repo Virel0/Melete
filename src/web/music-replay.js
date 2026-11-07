@@ -5,6 +5,10 @@
 // Deleting is from Melete's history only: Aoide devices keep a listen they already have.
 //
 // The period is in the address (`?period=year`), so Back returns to it.
+//
+// For album and artist pages: yourListening(query) gives a line saying how often this listener
+// played them and how often they finish them, and artistTopSongs(id, ctx) their top songs by
+// that artist; both fill in once Replay answers, and say nothing when there's nothing to say.
 
 import { confirmInline, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, number, plural, show } from "/web/lib.js";
@@ -246,4 +250,48 @@ function listenRow(listen) {
     actions,
   );
   return row;
+}
+
+// The apps show a finish rate from this many decided listens.
+const FINISH_SAMPLE = 3;
+
+// "You've played it 12 times and finish 80% of it", or less, or nothing; filled in later.
+export function yourListening(query, what) {
+  const line = h("p", { class: "status your-listening" });
+  api(`/music/replay?${query}&limit=1`)
+    .then((replay) => {
+      const { decided, finished } = replay.finish;
+      const rate = decided >= FINISH_SAMPLE ? `${Math.round((100 * finished) / decided)}%` : null;
+      const played = replay.plays ? `You've played ${what} ${plural(replay.plays, "time", "times")}` : null;
+      if (played && rate) line.textContent = `${played}, and you finish ${rate} of what you start.`;
+      else if (played) line.textContent = `${played}.`;
+      else if (rate) line.textContent = `You finish ${rate} of what you start of ${what}.`;
+    })
+    .catch(() => {});
+  return line;
+}
+
+// This listener's five most played songs by an artist, which play; nothing until they have some.
+export function artistTopSongs(artistId, ctx) {
+  const section = h("section", { class: "artist-top-songs", "aria-labelledby": "artist-top-songs", hidden: true });
+  api(`/music/replay?artist_id=${artistId}&limit=5`)
+    .then((replay) => {
+      if (!ctx.current() || !replay.top_songs.length) return;
+      const tracks = replay.top_songs.map((t) => t.track);
+      const queue = looseQueue(tracks);
+      const list = h(
+        "ol",
+        { class: "tracks songs replay-songs" },
+        replay.top_songs.map((t, i) => {
+          const row = songRow(t.track, () => play(queue, i), trackActions(t.track, queue[i]));
+          row.querySelector(".length")?.replaceChildren(plural(t.plays, "play", "plays"));
+          return row;
+        }),
+      );
+      section.append(h("h2", { id: "artist-top-songs" }, "Your top songs"), list);
+      section.hidden = false;
+      markPlaying(list, ctx);
+    })
+    .catch(() => {});
+  return section;
 }

@@ -162,6 +162,8 @@
 .strip-buttons .like { gap: var(--space-1); }
 .strip-buttons .like svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; }
 .strip-buttons .like[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+/* A flag that's set (Not interested, Don't count plays) shows pressed as Like does. */
+.strip-buttons button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .strip-buttons .like[aria-pressed="true"] svg { fill: currentColor; }
 /* Like on an album's page: its heart, filled while the album is liked, in the head's own ink. */
 .play-actions .like { gap: var(--space-1); }
@@ -226,6 +228,7 @@
 .replay-figures dt { color: var(--muted); font-size: var(--step--1); }
 .replay-figures dd { margin: 0; font-size: var(--step-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 .replay-songs .length, .replay-list .count { font-variant-numeric: tabular-nums; }
+.artist-top-songs { margin-block-start: var(--space-6); }
 .replay-history { list-style: none; margin: 0; padding: 0; }
 .replay-history li {
   display: grid;
@@ -244,3 +247,8 @@
   .replay-history .outcome { grid-column: 1; }
   .replay-history .row-actions { grid-column: 2; grid-row: 1 / span 3; }
 }
+
+/* Hidden songs: a list per flag. */
+.hidden-list li { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto; align-items: center; }
+.hidden-list ~ .row-actions { margin-block-start: var(--space-3); }
+.hidden-group + .hidden-group { margin-block-start: var(--space-6); }

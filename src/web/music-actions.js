@@ -1,5 +1,6 @@
 // A track's actions, in a strip that opens under its row (Aoide's way: inline, not a floating
-// menu): Play next, Play last, Add to playlist, Like, Start radio, and Go to its artists (and
+// menu): Play next, Play last, Add to playlist, Like, Start radio, Not interested, Don't count
+// plays (music-flags.js), and Go to its artists (and
 // its album, where the row isn't on the album's page). One strip is open at a time; Escape
 // closes it and focus goes back to the row's "More" button.
 //
@@ -18,6 +19,7 @@ import { radioButton } from "/web/music-radio.js";
 import { hold, release } from "/web/page-parts.js";
 import { LIKES_CLOSED, SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 import { albumLikeChanged } from "/web/music-album-likes.js";
+import { flagButtons } from "/web/music-flags.js";
 
 export { LIKES_CLOSED };
 
@@ -113,6 +115,7 @@ function stripBody(track, entry, mark, onAlbum) {
       h("button", { type: "button", class: "quiet small", onclick: queued(playNext, `${track.title} plays next.`) }, "Play next"),
       h("button", { type: "button", class: "quiet small", onclick: queued(playLast, `${track.title} is added to the end of Next up.`) }, "Play last"),
       open ? [pick, likeButton(track, mark, said), radio] : null,
+      open ? flagButtons(track, said) : null,
       artists.map((a) => h("a", { class: "button quiet small", href: `#/music/artists/${a.id}` }, `Go to ${a.name}`)),
       onAlbum ? null : h("a", { class: "button quiet small", href: `#/music/albums/${track.album_id}` }, "Go to the album"),
     ),

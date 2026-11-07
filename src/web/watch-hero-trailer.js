@@ -1,6 +1,8 @@
-// The hero's preview: after a few seconds on a pick, a muted preview plays behind the words,
-// with Unmute and Stop beside the pick's buttons. The backdrop comes back when the preview
-// ends, when it's stopped, or when the hero moves on.
+// The hero's preview: after a few seconds on a pick, a preview plays behind the words, with
+// Unmute (or Mute) and Stop beside the pick's buttons. It starts muted, or with sound when this
+// browser asks for it (Your account → Playback) and the page has had a click or a key, as
+// browsers allow sound only then; one that refuses all the same gets it muted. The backdrop comes
+// back when the preview ends, when it's stopped, or when the hero moves on.
 //
 // The preview is the pick's trailer (`/home`'s `trailer`: its folder's, else one downloaded), played as it
 // is when this browser can play it, else converted. Without one, it's 40 seconds of the title
@@ -15,14 +17,16 @@
 // Never when the device asks for less motion. On a phone-sized screen only when the user's
 // playback preferences say every screen; "Never" there turns previews off.
 //
-// heroTrailer(art) → { el, show(item), stop(), playing() }: `art` is where the picture goes,
-// `el` holds the buttons, `show` starts the wait for an item's preview, and `playing` says
-// whether one is playing now, so the hero holds still meanwhile.
+// heroTrailer(art) → { el, show(item), stop(), playing(), close() }: `art` is where the picture
+// goes, `el` holds the buttons, `show` starts the wait for an item's preview, `stop` ends it,
+// `playing` says whether one is playing now, so the hero holds still meanwhile, and `close`
+// ends it for good, for leaving the page.
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
 import { HLS_MODULE, choose, mse } from "/web/player-choice.js";
 import { icon } from "/web/music-controls.js";
 import { playTarget } from "/web/watch-play.js";
+import { previewSound } from "/web/playback-prefs.js";
 
 const WAIT_MS = 4000;
 const CLIP_MS = 40_000;
@@ -125,11 +129,12 @@ export function heroTrailer(art) {
     el.hidden = true;
   };
 
-  unmute.addEventListener("click", () => {
-    t.muted = !t.muted;
-    if (t.picture) t.picture.muted = t.muted;
-    unmute.replaceChildren(icon(t.muted ? "volume" : "muted"), t.muted ? "Unmute" : "Mute");
-  });
+  const setMuted = (muted) => {
+    t.muted = muted;
+    if (t.picture) t.picture.muted = muted;
+    unmute.replaceChildren(icon(muted ? "volume" : "muted"), muted ? "Unmute" : "Mute");
+  };
+  unmute.addEventListener("click", () => setMuted(!t.muted));
   stopButton.addEventListener("click", () => {
     if (t.item) t.stopped.add(`${t.item.kind}:${t.item.id}`);
     const focus = el.contains(document.activeElement);
@@ -140,14 +145,12 @@ export function heroTrailer(art) {
 
   const begin = async (item, found) => {
     if (t.item !== item) return;
-    t.muted = true;
-    unmute.replaceChildren(icon("volume"), "Unmute");
     stopButton.replaceChildren(icon("stop"), found.trailer ? "Stop trailer" : "Stop clip");
-    const video = h("video", { class: "hero-trailer-picture", muted: true, autoplay: true, playsinline: true, "aria-hidden": "true" });
-    video.muted = true;
+    const video = h("video", { class: "hero-trailer-picture", autoplay: true, playsinline: true, "aria-hidden": "true" });
+    t.picture = video;
+    setMuted(!(previewSound() && navigator.userActivation?.hasBeenActive));
     video.addEventListener("ended", end);
     video.addEventListener("error", end);
-    t.picture = video;
     if (found.hls) {
       const hls = await attach(video, found.url, found.at);
       if (hls === false || t.picture !== video) {
@@ -162,6 +165,14 @@ export function heroTrailer(art) {
     }
     t.length = setTimeout(end, found.ms);
     art.append(video);
+    // Sound refused after all: muted, as it would have been.
+    if (!t.muted) {
+      video.play().catch(() => {
+        if (t.picture !== video) return;
+        setMuted(true);
+        video.play().catch(() => {});
+      });
+    }
     art.classList.add("trailer-playing");
     el.hidden = false;
   };
@@ -181,6 +192,11 @@ export function heroTrailer(art) {
       }
     }, WAIT_MS);
   };
-  addEventListener("visibilitychange", () => document.hidden && end());
-  return { el, show, stop: end, playing: () => Boolean(t.picture) };
+  const hidden = () => document.hidden && end();
+  addEventListener("visibilitychange", hidden);
+  const close = () => {
+    end();
+    removeEventListener("visibilitychange", hidden);
+  };
+  return { el, show, stop: end, playing: () => Boolean(t.picture), close };
 }
