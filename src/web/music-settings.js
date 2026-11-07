@@ -1,6 +1,7 @@
 // How this browser plays music, kept by the browser only (as each Aoide device keeps its own):
-// Crossfade, off by default, and Keep albums whole, on, the apps' defaults. A part of Your
-// account; the player reads them at each hand-over, so a change counts from the next song.
+// Crossfade, off by default, Keep albums whole, Level volume and Trim silence, on, the apps'
+// defaults. A part of Your account; the player reads the first two at each hand-over, so a
+// change counts from the next song, and Level volume at once.
 //
 // listening(name) is a choice as kept; choose(name, value) keeps one and says so with a
 // `melete:listening` event.
@@ -9,14 +10,16 @@ import { group } from "/web/forms.js";
 import { h } from "/web/lib.js";
 
 const KEY = "melete.listening";
+// The hand-over's choices, and the sound's.
 const DEFAULTS = { crossfade: false, keepAlbums: true };
+const SOUND = { levelVolume: true, trimSilence: true };
 
 function read() {
   try {
     const kept = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    return { ...DEFAULTS, ...(kept && typeof kept === "object" ? kept : {}) };
+    return { ...DEFAULTS, ...SOUND, ...(kept && typeof kept === "object" ? kept : {}) };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, ...SOUND };
   }
 }
 
@@ -56,7 +59,7 @@ export function listeningGroup() {
   const said = h("p", { class: "form-result", role: "status" });
   return group(
     "Listening",
-    h("p", { class: "note" }, "Kept by this browser only, as each Aoide device keeps its own. A change counts from the next song."),
+    h("p", { class: "note" }, "Kept by this browser only, as each Aoide device keeps its own. A change counts from the next song, Level volume's at once."),
     checkbox(
       "crossfade",
       "Crossfade",
@@ -67,6 +70,18 @@ export function listeningGroup() {
       "keepAlbums",
       "Keep albums whole",
       "Songs of one album played in order run into each other without a fade or a gap, as the record was made, even with Crossfade on.",
+      said,
+    ),
+    checkbox(
+      "levelVolume",
+      "Level volume",
+      "Turn loud songs down to one level, by Melete's measurement, so an old record after a loud remaster doesn't jump. Quiet songs are left as they are. A song not measured yet plays as it is.",
+      said,
+    ),
+    checkbox(
+      "trimSilence",
+      "Trim silence",
+      "Skip the silence Melete measured at a song's start and end, so the next one comes sooner. A song not measured yet plays whole.",
       said,
     ),
     said,

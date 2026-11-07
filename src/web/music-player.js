@@ -16,7 +16,8 @@
 
 import { SignedOut, announce, api } from "/web/lib.js";
 import { active, audio, empty, refreshed, spare, swap } from "/web/music-decks.js";
-import { cancelHandOver, finish, startHandOver } from "/web/music-handover.js";
+import { cancelHandOver, finish, levelled, startHandOver, startOf } from "/web/music-handover.js";
+import { measure } from "/web/music-measures.js";
 import * as queue from "/web/music-queue.js";
 
 export { audio };
@@ -74,7 +75,7 @@ function playing(track, loading = false) {
 // Starts the player once signed in; `onSignedOut` sends the user to sign in again.
 export function startPlayer({ onSignedOut }) {
   signedOut = onSignedOut;
-  startHandOver({ link, handedOver });
+  startHandOver({ link, handedOver, ended: songEnded });
 }
 
 export function playQueue(tracks, start = 0) {
@@ -155,10 +156,15 @@ async function load(at, { convert = false } = {}) {
   say(convert ? "Converting…" : "Loading…");
   mediaSession(track);
   try {
-    const got = await link(track, convert);
+    // Its measurements too, for where its sound starts and the level it plays at.
+    const [got] = await Promise.all([link(track, convert), measure([track])]);
     if (queue.current() !== track) return; // Moved on meanwhile.
-    active().converted = got.format !== "original";
-    active().el.src = got.url;
+    const deck = active();
+    deck.track = track;
+    deck.converted = got.format !== "original";
+    deck.el.src = got.url;
+    deck.el.currentTime = startOf(track);
+    levelled(deck);
     await audio.play();
     say("");
     announce(`Playing ${track.title} by ${track.artist}`);
@@ -201,7 +207,7 @@ export function goNext() {
 
 export function goPrevious() {
   const at = queue.previousIndex();
-  if (audio.currentTime > RESTART_AFTER || at < 0) audio.currentTime = 0;
+  if (audio.currentTime > RESTART_AFTER || at < 0) audio.currentTime = queue.current() ? startOf(queue.current()) : 0;
   else load(at);
 }
 
@@ -247,20 +253,22 @@ audio.addEventListener("play", () => {
 audio.addEventListener("pause", () => {
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
 });
-audio.addEventListener("ended", () => {
+// A song's end: its file's, or where its sound ends with Trim silence.
+function songEnded() {
   // The next track was ready on the spare deck and took over.
   if (finish()) return;
   endListen({ completed: true });
   // Repeating one track plays it again, as a new listen.
   if (queue.repeating() === "one") {
-    audio.currentTime = 0;
+    audio.currentTime = startOf(queue.current());
     audio.play().catch(() => {});
     return;
   }
   const at = queue.nextIndex();
   if (at >= 0) return load(at);
   say("End of the queue");
-});
+}
+audio.addEventListener("ended", songEnded);
 // A file the browser can't decode after all shows here, not as a rejected play().
 audio.addEventListener("error", () => {
   if (!queue.current() || !active().el.getAttribute("src")) return;

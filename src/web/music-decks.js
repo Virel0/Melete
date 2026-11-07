@@ -14,9 +14,9 @@ const STEPS = 64;
 function makeDeck() {
   const el = new Audio();
   el.preload = "auto";
-  // `level` is the track's own (level volume), `fade` where a fade has it; `converted` whether
-  // its file came converted.
-  return { el, gain: null, level: 1, fade: 1, stepping: 0, converted: false };
+  // `level` is the track's own (level volume), `fade` where a fade has it; `track` the queue's
+  // track it holds, and `converted` whether its file came converted.
+  return { el, gain: null, level: 1, fade: 1, stepping: 0, track: null, converted: false };
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -145,10 +145,16 @@ export function hold(deck, value) {
   apply(deck);
 }
 
-// A track's own level (level volume), as a factor of at most 1.
+// A track's own level (level volume), as a factor of at most 1: glided to over a moment when
+// the deck is sounding, so it never clicks.
 export function setLevel(deck, value) {
-  deck.level = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 1));
-  apply(deck);
+  const level = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 1));
+  if (level === deck.level) return;
+  deck.level = level;
+  if (!deck.gain || deck.el.paused) return apply(deck);
+  const now = context.currentTime;
+  deck.gain.gain.cancelScheduledValues(now);
+  deck.gain.gain.setTargetAtTime(deck.level * deck.fade, now, 0.05);
 }
 
 // Fades a deck along `curve` (progress 0 to 1 → level 0 to 1) over `seconds`.
@@ -176,6 +182,7 @@ export function empty(deck) {
   deck.el.removeAttribute("src");
   deck.el.load();
   deck.converted = false;
+  deck.track = null;
   deck.level = 1;
   hold(deck, 1);
 }
