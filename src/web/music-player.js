@@ -2,18 +2,24 @@
 // while the pages above change. Each file plays as it is when the browser says it can play it,
 // else converted (FLAC where the browser plays FLAC, so lossless stays lossless, else Opus, AAC,
 // then MP3). If the browser turns a file down after all, the track is converted instead, once.
-// The next track's link is asked for as soon as one starts, so moving on doesn't wait. Media
-// keys and the phone's lock screen work through the Media Session API. Every listen is kept in
-// the play history when it ends.
+// The next track's link is asked for as soon as one starts, and the track itself goes on the
+// spare deck before this one ends (music-handover.js), so moving on doesn't wait: gapless, or
+// crossfaded when that's chosen. Media keys and the phone's lock screen work through the Media
+// Session API. Every listen is kept in the play history when it ends.
 //
 // For pages: playQueue(tracks, start) plays a list from a track; playNext(tracks) and
 // playLast(tracks) add to Next up; nowPlaying() is the track playing (pages mark it, and follow
 // the `melete:now-playing` event). A track is { id, title, artist, album, album_id, cover, codec,
-// duration_seconds }. The bar (music-bar.js) and the panel (music-panel.js) show it; they follow
-// `melete:track` ({ track, loading }) and `melete:status` (a line of words, or "").
+// duration_seconds, disc_number, track_number }. The bar (music-bar.js) and the panel
+// (music-panel.js) show it; they follow `melete:track` ({ track, loading }) and `melete:status`
+// (a line of words, or ""). `audio` is what plays (music-decks.js), for its time and events.
 
 import { SignedOut, announce, api } from "/web/lib.js";
+import { active, audio, empty, refreshed, spare, swap } from "/web/music-decks.js";
+import { cancelHandOver, finish, startHandOver } from "/web/music-handover.js";
 import * as queue from "/web/music-queue.js";
+
+export { audio };
 
 // What each codec is, for asking the browser whether it plays it.
 const TYPES = {
@@ -34,9 +40,6 @@ const CONVERSIONS = [
 ];
 // Seconds into a track that make "previous" restart it rather than go back.
 const RESTART_AFTER = 3;
-
-export const audio = new Audio();
-audio.preload = "auto";
 
 // The link for each queued track once asked for: { url, format }.
 const links = new Map();
@@ -71,6 +74,7 @@ function playing(track, loading = false) {
 // Starts the player once signed in; `onSignedOut` sends the user to sign in again.
 export function startPlayer({ onSignedOut }) {
   signedOut = onSignedOut;
+  startHandOver({ link, handedOver });
 }
 
 export function playQueue(tracks, start = 0) {
@@ -99,9 +103,9 @@ export function pause() {
 // Stops and empties the player: on signing out, its links stop working anyway.
 export function stopPlayer() {
   endListen();
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.load();
+  cancelHandOver();
+  empty(active());
+  empty(spare());
   queue.clear();
   links.clear();
   if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
@@ -114,11 +118,11 @@ export function nowPlaying() {
 
 function playable(codec) {
   const type = TYPES[codec];
-  return Boolean(type && audio.canPlayType(type));
+  return Boolean(type && active().el.canPlayType(type));
 }
 
 function conversion() {
-  return (CONVERSIONS.find(([, type]) => audio.canPlayType(type)) ?? CONVERSIONS[3])[0];
+  return (CONVERSIONS.find(([, type]) => active().el.canPlayType(type)) ?? CONVERSIONS[3])[0];
 }
 
 // Asks for a track's stream link, converted when `convert` or when the browser can't play it.
@@ -145,6 +149,7 @@ async function load(at, { convert = false } = {}) {
   if (!entry) return;
   // Moving on to another entry before this one ended is a skip.
   if (listen && (listen.track_id !== entry.track.id || at !== queue.position())) endListen({ skipped: true });
+  cancelHandOver();
   const track = queue.jump(at);
   playing(track, true);
   say(convert ? "Converting…" : "Loading…");
@@ -152,8 +157,8 @@ async function load(at, { convert = false } = {}) {
   try {
     const got = await link(track, convert);
     if (queue.current() !== track) return; // Moved on meanwhile.
-    audio.dataset.converted = got.format === "original" ? "" : "yes";
-    audio.src = got.url;
+    active().converted = got.format !== "original";
+    active().el.src = got.url;
     await audio.play();
     say("");
     announce(`Playing ${track.title} by ${track.artist}`);
@@ -209,16 +214,32 @@ export function seekTo(seconds) {
   if (queue.current() && Number.isFinite(seconds)) audio.currentTime = seconds;
 }
 
+// The next track took over from its deck, without a gap or after a fade: the listen of the
+// one before ends heard to the end, and the next one's starts as it plays (at once, when it
+// was already playing under the fade).
+function handedOver(at, { sounding }) {
+  endListen({ completed: true });
+  swap();
+  const track = queue.jump(at);
+  playing(track);
+  mediaSession(track);
+  refreshed();
+  if (sounding) beginListen();
+  announce(`Playing ${track.title} by ${track.artist}`);
+  prefetch();
+}
+
 // A listen starts when the track first plays, not when it's chosen. It's sent then too, so
 // the household sees it playing when sharing is on; sent again with the same id, it
 // ends.
-audio.addEventListener("playing", () => {
+function beginListen() {
   const track = queue.current();
   if (!track || listen) return;
   const id = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   listen = { id, track_id: track.id, started_at: Math.floor(Date.now() / 1000) };
   api("/music/plays", { method: "POST", body: listen }).catch(() => {});
-});
+}
+audio.addEventListener("playing", beginListen);
 window.addEventListener("pagehide", () => endListen());
 audio.addEventListener("play", () => {
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
@@ -227,6 +248,8 @@ audio.addEventListener("pause", () => {
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
 });
 audio.addEventListener("ended", () => {
+  // The next track was ready on the spare deck and took over.
+  if (finish()) return;
   endListen({ completed: true });
   // Repeating one track plays it again, as a new listen.
   if (queue.repeating() === "one") {
@@ -240,8 +263,8 @@ audio.addEventListener("ended", () => {
 });
 // A file the browser can't decode after all shows here, not as a rejected play().
 audio.addEventListener("error", () => {
-  if (!queue.current() || !audio.getAttribute("src")) return;
-  if (audio.dataset.converted !== "yes") {
+  if (!queue.current() || !active().el.getAttribute("src")) return;
+  if (!active().converted) {
     links.delete(queue.current().id);
     load(queue.position(), { convert: true });
   } else {
