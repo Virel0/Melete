@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 129] = [
+const MODULES: [(&str, &str); 130] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -180,6 +180,10 @@ const MODULES: [(&str, &str); 129] = [
     ("music-bar.js", include_str!("../web/music-bar.js")),
     ("music-panel.js", include_str!("../web/music-panel.js")),
     ("music-lyrics.js", include_str!("../web/music-lyrics.js")),
+    (
+        "music-lyrics-timing.js",
+        include_str!("../web/music-lyrics-timing.js"),
+    ),
     ("wanted-music.js", include_str!("../web/wanted-music.js")),
     ("progress.js", include_str!("../web/progress.js")),
     ("requests.js", include_str!("../web/requests.js")),
@@ -1237,6 +1241,31 @@ mod tests {
             .unwrap()
             .1;
         assert!(lyrics.contains("const options = { translate: false, pronounce: false };"));
+    }
+
+    #[test]
+    fn lyrics_timing_moves_both_the_lit_line_and_where_a_line_seeks() {
+        let lyrics = module("music-lyrics.js");
+        assert!(lyrics.contains("lineAt(lines, audio.currentTime - timing.seconds())"));
+        assert!(lyrics.contains("seek(Math.max(0, start + timing.seconds()))"));
+        assert!(lyrics.contains("lyricLine(line, i, answer.synced, seekLine)"));
+        // Only synced lyrics have times to move.
+        assert!(lyrics.contains("timing.box.hidden = !answer.synced;"));
+        // Kept by the browser, and working without storage.
+        let timing = module("music-lyrics-timing.js");
+        assert!(timing.contains(r#"const KEY = "melete.lyrics-offset";"#));
+        assert!(timing.contains("try {\n    const value = Number(localStorage.getItem(KEY));"));
+        assert!(
+            timing.contains("try {\n    if (seconds) localStorage.setItem(KEY, String(seconds));")
+        );
+        for label in [
+            "Show lyrics earlier",
+            "Show lyrics later",
+            "Reset timing",
+            r#""aria-labelledby": "lyrics-timing-name""#,
+        ] {
+            assert!(timing.contains(label), "{label}");
+        }
     }
 
     fn module(name: &str) -> &'static str {
