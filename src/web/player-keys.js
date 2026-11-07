@@ -1,6 +1,7 @@
 // The player's keyboard shortcuts, the list of them under the video, and full screen.
 
 import { announce, h } from "/web/lib.js";
+import { jump } from "/web/player-jump.js";
 
 // Full screen is the stage's: the picture with Skip and the next episode over it. Returns
 // `fullscreen()`, which goes in or out, and `onFullscreen`, the fullscreenchange listener for
@@ -40,10 +41,8 @@ export function playerKeys(video, more = {}) {
     const target = event.target;
     if (target.closest?.("input, select, textarea, button, a, summary, dialog, [contenteditable]")) return;
     const onVideo = target === video;
-    const by = (seconds) => {
-      const end = Number.isFinite(video.duration) ? video.duration : Infinity;
-      video.currentTime = Math.min(Math.max(video.currentTime + seconds, 0), end);
-    };
+    // Each jump shows how far it went on the picture.
+    const by = (seconds) => jump(video, seconds);
     const actions = {
       k: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
       " ": onVideo ? null : () => actions.k(),
