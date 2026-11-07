@@ -680,7 +680,9 @@ mod tests {
         assert!(
             ask.contains(r#"api("/ai/music/search", { method: "POST", body: { query: phrase } })"#)
         );
-        assert!(module("music-browse.js").contains("intro: [songActions(), askSection(ctx, params)],"));
+        assert!(
+            module("music-browse.js").contains("intro: [songActions(), askSection(ctx, params)],")
+        );
         let palette = module("palette.js");
         assert!(palette.contains("if (pal.ai && typed.length >= 3) all.push("));
         assert!(palette.contains("musicAi().then((on) => (pal.ai = on));"));
