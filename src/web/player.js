@@ -8,7 +8,7 @@ import { HLS_MODULE, SOUNDS, audioLabel, choose, describe, mse, probe, subtitleL
 import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
 import { controlBar } from "/web/player-controls.js";
-import { chapterPicker, panelButtons, speedPicker } from "/web/player-menus.js";
+import { chapterPicker, keptQuality, panelButtons, qualityPicker, speedPicker } from "/web/player-menus.js";
 import { episodeHref, episodeLinks, skipButtons, upNextPanel } from "/web/player-next.js";
 import { offlinePanel } from "/web/player-offline.js";
 import { canDrawAss, drawStyled, scaleStyled, serverDraws, stopStyled } from "/web/player-ass.js";
@@ -59,7 +59,7 @@ export async function playerPage(fileId, params, ctx) {
     status: h("p", { class: "status", role: "status" }),
     seriesId,
     subtitles,
-    choice: { ...startingChoice(play.tracks, subtitles), sound: null },
+    choice: { ...startingChoice(play.tracks, subtitles), sound: null, quality: keptQuality() },
     mode: null,
     hls: null,
     // Bumped by each load, so a slow answer for choices already changed again is dropped.
@@ -138,8 +138,8 @@ function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) 
 }
 
 // The control bar's panels: Subtitles (every choice as a chip, their size, and finding more),
-// Audio (the track and the sound) and Settings (speed and chapters), each only when it has
-// something.
+// Audio (the track and the sound) and Settings (speed, quality and chapters), each only when it
+// has something.
 function playerPanels(s, subtitlesBox, search) {
   if (subtitlesBox) subtitlesBox.hidden = true;
   const find = search
@@ -148,7 +148,9 @@ function playerPanels(s, subtitlesBox, search) {
   const size = subtitlesBox ? sizePicker(s.video, (scale) => scaleStyled(s, scale)) : null;
   const subtitleBody = [subtitleChips(subtitlesBox?.querySelector("select"), s.video, Infinity), subtitlesBox, size, find].filter(Boolean);
   const audioBody = [audioPicker(s), soundPicker(s)].filter(Boolean);
-  const settingsBody = [speedPicker(s.video), chapterPicker(s.video, s.info.chapters ?? [])].filter(Boolean);
+  const requality = (bits) => ((s.choice.quality = bits), load(s, s.video.currentTime).catch((err) => onError(s, err)));
+  const quality = s.info.media?.video.length ? qualityPicker(s.choice.quality, requality) : null;
+  const settingsBody = [speedPicker(s.video), quality, chapterPicker(s.video, s.info.chapters ?? [])].filter(Boolean);
   const panels = panelButtons(
     [
       subtitleBody.length ? { name: "subtitles", label: "Subtitles", body: subtitleBody } : null,

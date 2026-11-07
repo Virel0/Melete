@@ -72,6 +72,54 @@ export function speedPicker(video) {
   return h("div", {}, h("label", { for: "playback-speed" }, "Speed"), select);
 }
 
+// The quality limits a viewer can choose, in bits a second: Original (none), or up to one of
+// these. A file over the chosen one is converted to stay within it (player-choice.js).
+const QUALITIES = [
+  { bits: null, label: "Original" },
+  { bits: 40_000_000, label: "Up to 40 Mbps" },
+  { bits: 20_000_000, label: "Up to 20 Mbps" },
+  { bits: 10_000_000, label: "Up to 10 Mbps" },
+  { bits: 6_000_000, label: "Up to 6 Mbps" },
+  { bits: 3_000_000, label: "Up to 3 Mbps" },
+];
+const QUALITY_KEY = "melete.quality";
+
+// The limit this browser keeps: null for Original, when none is kept, or when storage is off.
+export function keptQuality() {
+  try {
+    const kept = Number(localStorage.getItem(QUALITY_KEY));
+    return QUALITIES.find((q) => q.bits === kept)?.bits ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function keepQuality(bits) {
+  try {
+    if (bits) localStorage.setItem(QUALITY_KEY, String(bits));
+    else localStorage.removeItem(QUALITY_KEY);
+  } catch {
+    // Storage turned off: the limit holds for this video, and is forgotten after.
+  }
+}
+
+// The quality limit, for the Settings panel, starting at `chosen`. `onChange(bits)` hears each
+// choice (null for Original), and it's kept by this browser.
+export function qualityPicker(chosen, onChange) {
+  const select = h(
+    "select",
+    { id: "playback-quality" },
+    QUALITIES.map((q) => h("option", { value: q.bits ?? "", selected: q.bits === chosen }, q.label)),
+  );
+  select.addEventListener("change", () => {
+    const bits = Number(select.value) || null;
+    keepQuality(bits);
+    onChange(bits);
+    announce(`Quality: ${select.selectedOptions[0].textContent}`);
+  });
+  return h("div", {}, h("label", { for: "playback-quality" }, "Quality"), select);
+}
+
 // The file's own chapters to jump to, when it has more than one.
 export function chapterPicker(video, chapters) {
   if (chapters.length < 2) return null;

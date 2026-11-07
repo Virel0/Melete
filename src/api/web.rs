@@ -800,6 +800,33 @@ mod tests {
     }
 
     #[test]
+    fn a_quality_limit_kept_by_the_browser_converts_a_file_over_it() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let menus = module("player-menus.js");
+        for label in ["\"Original\"", "\"Up to 40 Mbps\"", "\"Up to 3 Mbps\""] {
+            assert!(menus.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off still plays.
+        assert!(
+            menus.contains("try {\n    const kept = Number(localStorage.getItem(QUALITY_KEY));")
+        );
+        assert!(
+            menus.contains("try {\n    if (bits) localStorage.setItem(QUALITY_KEY, String(bits));")
+        );
+        let player = module("player.js");
+        assert!(player.contains("quality: keptQuality()"));
+        assert!(player.contains("qualityPicker(s.choice.quality, requality)"));
+        // Over the viewer's limit the video is converted, held to it less the sound's share; the
+        // way in's own limit still counts.
+        let choice = module("player-choice.js");
+        assert!(choice.contains("...(held && codec !== \"copy\" ? { max_bitrate: held } : {}),"));
+        assert!(
+            choice.contains("overLimit(info, info.max_bitrate) || held) return request(\"h264\")")
+        );
+        assert!(choice.contains("Math.max(quality - AUDIO_ALLOWANCE, 100_000)"));
+    }
+
+    #[test]
     fn no_module_hands_replace_children_a_null() {
         // The DOM writes a null given to replaceChildren as the text "null", unlike the page's
         // own `h` and `append`, which leave it out.
