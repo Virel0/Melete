@@ -1,18 +1,22 @@
 // How this browser plays music, kept by the browser only (as each Aoide device keeps its own):
 // Crossfade, off by default, Keep albums whole, Level volume and Trim silence, on, the apps'
 // defaults. A part of Your account; the player reads the first two at each hand-over, so a
-// change counts from the next song, and Level volume at once.
+// change counts from the next song, and Level volume at once. Then the sound's extras
+// (music-sound-fields.js): the equaliser, the compressor and the output device, off or the
+// system's unless chosen, and the visualizer, on; each counts at once.
 //
 // listening(name) is a choice as kept; choose(name, value) keeps one and says so with a
 // `melete:listening` event.
 
 import { group } from "/web/forms.js";
 import { h } from "/web/lib.js";
+import { soundFields } from "/web/music-sound-fields.js";
 
 const KEY = "melete.listening";
 // The hand-over's choices, and the sound's.
 const DEFAULTS = { crossfade: false, keepAlbums: true };
 const SOUND = { levelVolume: true, trimSilence: true };
+const EXTRAS = { eq: "Off", eqGains: [], compressor: false, visualizer: true, output: "" };
 
 function read() {
   try {
@@ -25,7 +29,7 @@ function read() {
 
 let choices = read();
 
-export const listening = (name) => choices[name];
+export const listening = (name) => choices[name] ?? EXTRAS[name];
 
 // Keeps a choice; false when this browser's storage is turned off (it holds until a reload).
 export function choose(name, value) {
@@ -84,6 +88,8 @@ export function listeningGroup() {
       "Skip the silence Melete measured at a song's start and end, so the next one comes sooner. A song not measured yet plays whole.",
       said,
     ),
+    h("h3", {}, "Sound"),
+    soundFields(checkbox, said),
     said,
   );
 }

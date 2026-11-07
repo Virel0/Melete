@@ -123,6 +123,13 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .panel-now .cover { width: 4rem; }
 .panel-now p { margin: 0; }
 .now-title { font-weight: 600; }
+.panel-now .visualizer { flex: none; width: 5rem; height: 2rem; color: var(--accent); }
+/* Your account → Listening: the equaliser's own curve, a row a band. */
+.eq-bands { display: grid; grid-template-columns: max-content minmax(0, 1fr) 3.5rem; gap: var(--space-1) var(--space-3); align-items: center; max-width: 32rem; margin-block-start: var(--space-3); }
+.eq-band { display: contents; }
+.eq-band label { font-weight: 400; margin: 0; }
+.eq-band input { width: 100%; min-height: auto; accent-color: var(--accent); }
+.eq-band output { font-variant-numeric: tabular-nums; text-align: end; }
 .now-artist { color: var(--muted); font-size: var(--step--1); }
 .panel-controls { display: none; align-items: flex-start; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); }
 .panel-controls .controls { flex: 1; }

@@ -16,6 +16,7 @@ import * as queue from "/web/music-queue.js";
 import { clip, emptyState } from "/web/page-parts.js";
 import { iconButton, transport } from "/web/music-controls.js";
 import { lyricsTab } from "/web/music-lyrics.js";
+import { visualizer } from "/web/music-visualizer.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
@@ -42,7 +43,7 @@ const panel = h(
     h("h2", { id: "panel-heading" }, "Now playing"),
     h("button", { type: "button", class: "quiet", onclick: () => closePanel() }, "Close"),
   ),
-  h("div", { class: "panel-now" }, h("div", { class: "cover" }, cover), h("div", { class: "words" }, title, artist)),
+  h("div", { class: "panel-now" }, h("div", { class: "cover" }, cover), h("div", { class: "words" }, title, artist), visualizer()),
   h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
   h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue and lyrics" }, tabs.queue, tabs.lyrics),
   bodies.queue,
