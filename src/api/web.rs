@@ -1431,6 +1431,23 @@ mod tests {
         assert!(row.contains("playlistPicker([], r.title, { waiting: r.id })"));
     }
 
+    /// Someone a playlist is shared with to edit changes it here as its owner does, but for
+    /// Delete, Folder and Share, and adds to it from Add to playlist.
+    #[test]
+    fn an_editor_changes_a_shared_playlist_but_doesnt_delete_it() {
+        let one = module("music-playlist.js");
+        for part in [
+            "const changing = editable || (now.can_edit && !now.smart);",
+            "itemList(now, page, changing)",
+            "head(now, page, changing, open)",
+            r#"p.mine ? toggle("delete", "Delete") : null"#,
+        ] {
+            assert!(one.contains(part), "{part}");
+        }
+        let pick = module("music-playlist-pick.js");
+        assert!(pick.contains("all.filter((p) => !p.mine && p.can_edit && !p.smart)"));
+    }
+
     #[test]
     fn album_cards_have_a_heart_that_follows_the_albums_like() {
         assert!(module("music-parts.js").contains("    cardLike(album),\n"));

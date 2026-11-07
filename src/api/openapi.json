@@ -7012,7 +7012,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Make a playlist",
-        "description": "A new hand-made playlist of yours, empty, after all the others. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "A new hand-made playlist of yours, empty, after all the others. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "requestBody": {
           "required": true,
           "content": {
@@ -7216,7 +7216,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Rename a playlist, change its notes, or file it in a folder",
-        "description": "Changes only what's given: `name`, `notes` (null or empty clears them), and `folder_id`. Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "Changes only what's given: `name`, `notes` (null or empty clears them), and `folder_id`. Each field keeps its own time, so a change to another field on a device stands. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7256,7 +7256,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; `folder_id` on a playlist that isn't yours (folders are each user's own); or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7276,7 +7276,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Delete a playlist",
-        "description": "Deletes its items, then the playlist, as a device deletes one. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "Deletes its items, then the playlist, as a device deletes one. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7291,7 +7291,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Not your playlist: only its owner deletes it, not someone it's shared with to edit or to listen; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7340,7 +7340,7 @@
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7379,7 +7379,7 @@
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7399,7 +7399,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Add tracks to a playlist",
-        "description": "Adds the tracks in the order given, the first at `index` (counted in the playlist as it is), or at the end. A track already there is added again, as on the devices. Each must be in the library. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "Adds the tracks in the order given, the first at `index` (counted in the playlist as it is), or at the end. A track already there is added again, as on the devices. Each must be in the library. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7437,7 +7437,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7459,7 +7459,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Add a song the library doesn't have yet",
-        "description": "Adds a song by your own song request for it, at `index` or at the end: it waits in the playlist as an item with `pending` set, on that request, until its song is in the library, when Melete swaps its track in, as for an imported playlist. A song the library has by now goes in as its track at once. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull. Only the playlist's owner adds one here, and a smart playlist is edited on the devices.",
+        "description": "Adds a song by your own song request for it, at `index` or at the end: it waits in the playlist as an item with `pending` set, on that request, until its song is in the library, when Melete swaps its track in, as for an imported playlist. A song the library has by now goes in as its track at once. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull. Its owner adds one here, and so does someone it's shared with to edit; a smart playlist is edited on the devices.",
         "parameters": [
           {
             "name": "id",
@@ -7496,7 +7496,7 @@
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist (shared with you, to edit or to listen); or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7518,7 +7518,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Move a track in a playlist",
-        "description": "Moves the item to `index`, counted in the playlist with it taken out. One row is written, none when it's there already. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "Moves the item to `index`, counted in the playlist with it taken out. One row is written, none when it's there already. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7562,7 +7562,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -7582,7 +7582,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Remove a track from a playlist",
-        "description": "Removes the item. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Only the playlist's owner edits it here (someone it's shared with for editing edits it on their devices), and a smart playlist is edited on the devices, where its rules are worked out.",
+        "description": "Removes the item. Written into your Aoide sync log as an Aoide device of yours would write it, as this session; your devices, and those you share it with, apply it on their next pull, and conflicts with their edits resolve as any two devices' do. Its owner edits it here, and so does someone it's shared with to edit, as their devices may (the change goes into their own sync log and reaches the owner's devices); only the owner deletes it or files it in a folder, and a smart playlist is edited on the devices, where its rules are worked out.",
         "parameters": [
           {
             "name": "id",
@@ -7607,7 +7607,7 @@
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {
-            "description": "Not your playlist: shared with you, it's edited on your devices; or you may see only some music libraries, to whom Aoide's sync log is closed",
+            "description": "Shared with you to listen to, not to change; or you may see only some music libraries, to whom Aoide's sync log is closed",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "404": {
@@ -18208,7 +18208,7 @@
           "mine": {"type": "boolean"},
           "can_edit": {
             "type": "boolean",
-            "description": "Whether the caller may change it from an Aoide app: theirs, or shared with them for editing. The editing routes here take only `mine` hand-made ones."
+            "description": "Whether the caller may change it from an Aoide app: theirs, or shared with them for editing. The editing routes here take hand-made ones it's true for; only the owner deletes one or files it in a folder."
           },
           "tracks": {"type": "integer"},
           "updated_at": {

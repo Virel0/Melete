@@ -66,7 +66,13 @@ pub(super) async fn put_in(
     handled: &Handled,
 ) {
     match write(pool, user_id, playlist, position, track, handled).await {
-        Ok(()) | Err(EditError::NoSuchPlaylist | EditError::NotOwner | EditError::Smart) => {}
+        Ok(())
+        | Err(
+            EditError::NoSuchPlaylist
+            | EditError::NotOwner
+            | EditError::ListenOnly
+            | EditError::Smart,
+        ) => {}
         Err(err) => tracing::warn!(
             playlist,
             position,

@@ -1,6 +1,6 @@
-// Add to playlist: the caller's own hand-made playlists (the only ones the web edits; one shared
-// with them, or a smart one, is changed on their devices), each a button that adds the tracks
-// at the end, and New playlist, which makes one and adds them to it. A search field narrows
+// Add to playlist: the caller's own hand-made playlists, then those shared with them to edit
+// (a smart one is changed on their devices), each a button that adds the tracks at the end, and
+// New playlist, which makes one and adds them to it. A search field narrows
 // the list once there are more than a few. Every change is sent as `melete:playlists`, so what
 // lists playlists can follow.
 //
@@ -21,7 +21,7 @@ export function playlistsChanged() {
 
 // What went wrong with a playlist, in a sentence.
 export function playlistTrouble(err) {
-  if (err.status === 403) return err.message.includes("only some music libraries") ? PLAYLISTS_CLOSED : `Only its owner changes it here: ${err.message}`;
+  if (err.status === 403) return err.message.includes("only some music libraries") ? PLAYLISTS_CLOSED : `${err.message[0].toUpperCase()}${err.message.slice(1)}.`;
   if (err.status === 409) return `It can't be changed here: ${err.message}`;
   return err.message;
 }
@@ -90,7 +90,7 @@ export function playlistPicker(trackIds, what, { waiting } = {}) {
 
   const list = (mine) => {
     const items = mine.map((p) => {
-      const button = h("button", { type: "button", class: "quiet small" }, p.name, h("span", { class: "count" }, plural(p.tracks, "song", "songs")));
+      const button = h("button", { type: "button", class: "quiet small" }, p.name, h("span", { class: "count" }, p.mine ? plural(p.tracks, "song", "songs") : `${plural(p.tracks, "song", "songs")}, ${p.owner}'s`));
       button.addEventListener("click", () => add(button, p));
       return h("li", { "data-name": p.name.toLowerCase() }, button);
     });
@@ -108,7 +108,10 @@ export function playlistPicker(trackIds, what, { waiting } = {}) {
     try {
       const all = await api("/playlists");
       const mine = all.filter((p) => p.mine && !p.smart);
-      body.replaceChildren(...(mine.length ? list(mine) : [h("p", { class: "note" }, "You have no playlists of your own yet.")]), newForm());
+      // Then those shared with them to edit, which they add to as the owner does.
+      const theirs = all.filter((p) => !p.mine && p.can_edit && !p.smart);
+      const open = [...mine, ...theirs];
+      body.replaceChildren(...(open.length ? list(open) : [h("p", { class: "note" }, "You have no playlists of your own yet.")]), newForm());
     } catch (err) {
       if (err instanceof SignedOut) throw err;
       body.replaceChildren(h("p", {}, playlistTrouble(err)));

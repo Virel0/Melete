@@ -456,7 +456,8 @@ async fn only_the_owner_edits_and_smart_playlists_stay_on_the_devices() {
         let (status, _) = call(&f, &bob, method, uri, body.clone()).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
     }
-    // Shared with him for editing: his devices may edit it, the web leaves it to its owner.
+    // Shared with him for editing: he edits it here as his devices may, but only its owner
+    // deletes it.
     sqlx::query(
         "INSERT INTO aoide_playlist_shares (playlist_id, grantee_user_id, can_edit, created_at)
                  SELECT ?, id, 1, 0 FROM users WHERE username = 'bob'",
@@ -467,13 +468,17 @@ async fn only_the_owner_edits_and_smart_playlists_stay_on_the_devices() {
     .unwrap();
     for (method, uri, body) in &edits {
         let (status, body) = call(&f, &bob, method, uri, body.clone()).await;
-        assert_eq!(
-            (status, &body["error"]),
-            (
-                StatusCode::FORBIDDEN,
-                &json!("only its owner edits a playlist here")
-            )
-        );
+        if *method == "DELETE" {
+            assert_eq!(
+                (status, &body["error"]),
+                (
+                    StatusCode::FORBIDDEN,
+                    &json!("only its owner deletes a playlist or files it in a folder")
+                )
+            );
+        } else {
+            assert_eq!(status, StatusCode::OK, "{method} {uri}: {body}");
+        }
     }
     let count = || async {
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM aoide_ops")
@@ -481,7 +486,7 @@ async fn only_the_owner_edits_and_smart_playlists_stay_on_the_devices() {
             .await
             .unwrap()
     };
-    assert_eq!(count().await, 1, "nothing written");
+    assert_eq!(count().await, 3, "his rename and his track, and no delete");
 
     // A smart playlist from a device.
     push(&f, &alice, "phone", "playlists", json!({ "id": "SMART", "name": "Rules", "isSmart": true,
@@ -502,7 +507,7 @@ async fn only_the_owner_edits_and_smart_playlists_stay_on_the_devices() {
         let (status, _) = call(&f, &alice, method, uri, body).await;
         assert_eq!(status, StatusCode::CONFLICT, "{method} {uri}");
     }
-    assert_eq!(count().await, 2);
+    assert_eq!(count().await, 4);
 }
 
 #[tokio::test]
@@ -664,4 +669,194 @@ async fn a_picture_is_refused_before_anything_is_stored() {
         .web("GET", &format!("/api/v1/playlists/{}", d.id), None)
         .await;
     assert_eq!(still["image_url"], Value::Null);
+}
+
+/// Someone a playlist is shared with to edit edits it on the web as their devices may: renames
+/// it, sets its picture, adds, moves and removes songs and adds one waiting to arrive, each
+/// written into their own log, which the owner's devices pull. Only the owner deletes it or files
+/// it in a folder; someone it's shared with to listen to changes nothing; a smart playlist stays
+/// with its rules.
+#[tokio::test]
+async fn an_editor_edits_a_shared_playlist_but_doesnt_delete_or_file_it() {
+    let mut d = made_on_the_web().await;
+    d.sync().await;
+    let bob = session(&d.f, "bob").await;
+    let carol = session(&d.f, "carol").await;
+    let id_of = |name: &'static str| {
+        let pool = d.f.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE username = ?")
+                .bind(name)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let (bob_id, carol_id) = (id_of("bob").await, id_of("carol").await);
+    for (user, can_edit) in [(bob_id, true), (carol_id, false)] {
+        crate::aoide::library::share(&d.f.pool, &d.id, user, can_edit, 1)
+            .await
+            .unwrap();
+    }
+    let playlist = format!("/api/v1/playlists/{}", d.id);
+    let items = format!("{playlist}/items");
+
+    // What an editor may do.
+    let (status, body) = call(
+        &d.f,
+        &bob,
+        "PUT",
+        &playlist,
+        Some(json!({ "name": "Our Night", "notes": "Both of us" })),
+    )
+    .await;
+    assert_eq!(
+        (status, &body["name"]),
+        (StatusCode::OK, &json!("Our Night"))
+    );
+    let (status, body) = upload(
+        &d.f,
+        &bob,
+        &format!("{playlist}/image"),
+        "image/png",
+        PNG.to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(
+        &d.f,
+        &bob,
+        "POST",
+        &items,
+        Some(json!({ "track_ids": [3], "index": 0 })),
+    )
+    .await;
+    assert_eq!((status, tracks_of(&body)), (StatusCode::OK, vec![3, 1, 2]));
+    let first = body["items"][0]["id"].as_str().unwrap().to_owned();
+    let (status, body) = call(
+        &d.f,
+        &bob,
+        "PUT",
+        &format!("{items}/{first}"),
+        Some(json!({ "index": 2 })),
+    )
+    .await;
+    assert_eq!((status, tracks_of(&body)), (StatusCode::OK, vec![1, 2, 3]));
+    let last = body["items"][0]["id"].as_str().unwrap().to_owned();
+    let (status, body) = call(&d.f, &bob, "DELETE", &format!("{items}/{last}"), None).await;
+    assert_eq!((status, tracks_of(&body)), (StatusCode::OK, vec![2, 3]));
+
+    // The owner's phone pulls all of it, from his device.
+    let new = d.sync().await;
+    assert!(!new.is_empty());
+    assert!(new.iter().all(|op| op["deviceId"] != "phone"));
+    let (lists, live) = on_device(&d.seen);
+    assert_eq!(lists[&d.id]["name"], "Our Night");
+    assert_eq!(lists[&d.id]["notes"], "Both of us");
+    assert_eq!(
+        lists[&d.id]["imageHash"],
+        crate::aoide::library::sha256_hex(PNG).as_str()
+    );
+    assert_eq!(
+        live.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(),
+        ["2", "3"]
+    );
+
+    // And a song he asked for, waiting in it until it arrives.
+    let asked: i64 = sqlx::query_scalar(
+        "INSERT INTO requests (user_id, kind, mb_recording_id, title, artist, state, created_at)
+         VALUES (?, 'song', 'rec-new', 'Hunter', 'Björk', 'requested', 1) RETURNING id",
+    )
+    .bind(bob_id)
+    .fetch_one(&d.f.pool)
+    .await
+    .unwrap();
+    let (status, body) = call(
+        &d.f,
+        &bob,
+        "POST",
+        &format!("{playlist}/waiting"),
+        Some(json!({ "request_id": asked })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["items"][2]["pending"]["state"], "requested");
+    // The owner sees it waiting, as he would one of his own.
+    let (_, seen) = call(&d.f, &d.web, "GET", &playlist, None).await;
+    assert_eq!(seen["items"][2]["pending"]["title"], "Hunter");
+
+    // What an editor still may not do: delete it, or file it in a folder (folders are each
+    // user's own).
+    let count = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM aoide_ops")
+            .fetch_one(&d.f.pool)
+            .await
+            .unwrap()
+    };
+    let before = count().await;
+    for (method, body) in [
+        ("DELETE", None),
+        ("PUT", Some(json!({ "folder_id": null }))),
+    ] {
+        let (status, said) = call(&d.f, &bob, method, &playlist, body).await;
+        assert_eq!(
+            (status, &said["error"]),
+            (
+                StatusCode::FORBIDDEN,
+                &json!("only its owner deletes a playlist or files it in a folder")
+            ),
+            "{method}"
+        );
+    }
+    // Shared to listen to: nothing.
+    for (method, uri, body) in [
+        ("PUT", playlist.clone(), Some(json!({ "name": "Mine now" }))),
+        ("POST", items.clone(), Some(json!({ "track_ids": [1] }))),
+        ("DELETE", playlist.clone(), None),
+    ] {
+        let (status, said) = call(&d.f, &carol, method, &uri, body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}: {said}");
+    }
+    let (_, said) = call(
+        &d.f,
+        &carol,
+        "PUT",
+        &playlist,
+        Some(json!({ "name": "Mine now" })),
+    )
+    .await;
+    assert_eq!(
+        said["error"],
+        "it's shared with you to listen to, not to change"
+    );
+    // A smart playlist shared to edit stays with its rules here.
+    push(
+        &d.f,
+        &d.phone,
+        "phone",
+        "playlists",
+        json!({ "id": "SMART", "name": "Rules",
+        "isSmart": true, "smartRules": "{}", "sortIndex": "W", "updatedAt": 10,
+        "deleted": false, "originDevice": "phone" }),
+    )
+    .await;
+    crate::aoide::library::share(&d.f.pool, "SMART", bob_id, true, 1)
+        .await
+        .unwrap();
+    let before_smart = count().await;
+    let (status, _) = call(
+        &d.f,
+        &bob,
+        "PUT",
+        "/api/v1/playlists/SMART",
+        Some(json!({ "name": "x" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(count().await, before_smart);
+    assert_eq!(
+        before_smart,
+        before + 1,
+        "only the smart playlist's own push"
+    );
 }

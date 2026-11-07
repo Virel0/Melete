@@ -124,7 +124,12 @@ pub async fn resolve(pool: &SqlitePool, playlist: Option<&str>) -> Result<usize,
         };
         match playlist_edits::swap_in(pool, &editor, &playlist, &found).await {
             Ok(written) => swapped += written,
-            Err(EditError::NoSuchPlaylist | EditError::NotOwner | EditError::Smart) => {}
+            Err(
+                EditError::NoSuchPlaylist
+                | EditError::NotOwner
+                | EditError::ListenOnly
+                | EditError::Smart,
+            ) => {}
             Err(err) => return Err(err),
         }
     }
