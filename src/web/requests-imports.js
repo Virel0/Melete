@@ -1,7 +1,12 @@
 // Playlist imports: a playlist's tracks asked for as songs, and how far each import has got.
+// Before importing, what the library has of the file is shown; "Also make a playlist" makes
+// an Aoide playlist of it too, filled as the import runs.
 
 import { confirmInline, field, form, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, plural } from "/web/lib.js";
+import { seesAllMusic } from "/web/music-access.js";
+import { playlistHref } from "/web/music-playlists.js";
+import { previewBox, readPlaylist } from "/web/requests-import-preview.js";
 
 // ---------- Playlist imports ----------
 
@@ -14,6 +19,7 @@ const IMPORT_POLL_MS = 3000;
 export function importRow(ctx, i, { approving = false } = {}) {
   const counts = [
     `${plural(i.tracks, "track", "tracks")}`,
+    i.in_library ? `${i.in_library} in the library already` : null,
     i.asked ? `${i.asked} asked for` : null,
     i.already ? `${i.already} asked for already` : null,
     i.unmatched ? `${i.unmatched} not found` : null,
@@ -58,6 +64,8 @@ export function importRow(ctx, i, { approving = false } = {}) {
         },
       }),
     );
+    // The playlist it made, filled as the import runs.
+    if (i.playlist_id) actions.append(h("a", { href: playlistHref(i.playlist_id) }, "Open the playlist"));
     actions.append(remove);
   }
   // The tracks that weren't found, fetched when asked to be shown.
@@ -106,6 +114,28 @@ function playlistName(file) {
 // The largest file the server takes.
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
+// A chosen file's text, and its tracks or why it isn't a playlist.
+const readFile = async (chosen) => {
+  const text = await chosen.text();
+  return { chosen, text, ...readPlaylist(text) };
+};
+
+// "Also make a playlist" (`make_playlist`), with what it does.
+function makePlaylistField() {
+  const input = h("input", { type: "checkbox", id: "import-make-playlist", "aria-describedby": "import-make-playlist-hint" });
+  const box = h(
+    "div",
+    {},
+    h("div", { class: "check" }, input, h("label", { for: "import-make-playlist" }, "Also make a playlist")),
+    h(
+      "p",
+      { class: "note check-hint", id: "import-make-playlist-hint" },
+      "A playlist named as the import, here and on your Aoide devices, with every track in the file's order. Songs the library has go in at once and aren't asked for; the rest go in as each arrives.",
+    ),
+  );
+  return { box, input, clear() {} };
+}
+
 export async function imports(ctx) {
   const first = await api("/requests/imports");
   if (!ctx.current()) return [];
@@ -129,7 +159,19 @@ export async function imports(ctx) {
   };
   draw(first);
   ctx.onLeave(() => clearTimeout(timer));
+  return [
+    group(
+      "Import a playlist",
+      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself. Tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
+      importForm(ctx, draw),
+    ),
+    group("Your playlist imports", empty, list),
+  ];
+}
 
+// The file, its name, what the library has of it, and Also make a playlist; `draw` lists the
+// imports again once one is made.
+function importForm(ctx, draw) {
   const file = field(
     "import-file",
     "Playlist file (CSV)",
@@ -137,18 +179,43 @@ export async function imports(ctx) {
     "Export the playlist with Exportify (exportify.net), then choose the file it saved.",
   );
   const name = field("import-name", "Name", h("input", { autocomplete: "off", maxlength: 200 }), "Taken from the file's name unless you change it.");
-  file.input.addEventListener("change", () => {
+  // Playlists, and the library-wide match the preview uses, are closed to someone who may see
+  // only some music libraries; they import as before.
+  const all = seesAllMusic();
+  const make = makePlaylistField();
+  const preview = previewBox(ctx);
+  // The chosen file as read here, the way the server reads it.
+  let read = null;
+  let named = null;
+  const tooBig = () => file.fail("That file is over 8 MB. Split the playlist, or export fewer columns.");
+  file.input.addEventListener("change", async () => {
+    file.clear();
+    preview.reset();
+    read = null;
     const chosen = file.input.files[0];
-    if (chosen && !name.input.value.trim()) name.input.value = playlistName(chosen);
+    if (!chosen) return;
+    // The name follows the file chosen, unless it was typed.
+    if (!name.input.value.trim() || name.input.value === named) name.input.value = named = playlistName(chosen);
+    if (chosen.size > MAX_IMPORT_BYTES) return tooBig();
+    const now = await readFile(chosen);
+    if (file.input.files[0] !== chosen) return;
+    read = now;
+    if (read.error) file.fail(read.error);
+    else if (all) preview.show(read.tracks);
   });
-  const importing = form([file, name], "Import playlist", async () => {
+  return form(all ? [file, name, preview, make] : [file, name], "Import playlist", async () => {
     const chosen = file.input.files[0];
     if (!chosen) {
       file.fail("Choose the CSV file of the playlist.");
       return null;
     }
     if (chosen.size > MAX_IMPORT_BYTES) {
-      file.fail("That file is over 8 MB. Split the playlist, or export fewer columns.");
+      tooBig();
+      return null;
+    }
+    if (read?.chosen !== chosen) read = await readFile(chosen);
+    if (read.error) {
+      file.fail(read.error);
       return null;
     }
     const called = name.input.value.trim() || playlistName(chosen);
@@ -156,19 +223,14 @@ export async function imports(ctx) {
       name.fail("Give the playlist a name.");
       return null;
     }
-    const made = await api("/requests/imports", { method: "POST", body: { name: called, csv: await chosen.text() } });
+    const making = all && make.input.checked;
+    const made = await api("/requests/imports", { method: "POST", body: { name: called, csv: read.text, make_playlist: making } });
     if (!ctx.current()) return null;
     draw(await api("/requests/imports"));
     announce(`Importing ${made.name}`);
-    return `Importing ${plural(made.tracks, "track", "tracks")} from ${made.name}. Each is matched on MusicBrainz and asked for as a song.`;
+    const tracks = plural(made.tracks, "track", "tracks");
+    return making
+      ? `Importing ${tracks} from ${made.name} into a new playlist of that name. Each the library lacks is matched on MusicBrainz and asked for as a song.`
+      : `Importing ${tracks} from ${made.name}. Each is matched on MusicBrainz and asked for as a song.`;
   });
-
-  return [
-    group(
-      "Import a playlist",
-      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself. Tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
-      importing,
-    ),
-    group("Your playlist imports", empty, list),
-  ];
 }
