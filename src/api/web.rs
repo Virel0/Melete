@@ -625,6 +625,20 @@ mod tests {
     }
 
     #[test]
+    fn cast_and_crew_show_their_pictures_or_initials() {
+        let people = module("people.js");
+        // Each credit's picture, read as it nears the screen, said by the name beside it.
+        assert!(people.contains(r#"src, alt: "", loading: "lazy""#));
+        assert!(people.contains("personItem(c.name, c.person_id, c.job, c.profile)"));
+        assert!(people.contains("personItem(c.name, c.person_id, c.character, c.profile)"));
+        // Initials stand in when there's none, or it can't be read.
+        assert!(people.contains("if (!src) return letters();"));
+        assert!(people.contains(
+            r#"img.addEventListener("error", () => img.replaceWith(letters()), { once: true });"#
+        ));
+    }
+
+    #[test]
     fn a_title_partway_through_can_be_played_from_the_start() {
         let page = module("title-page.js");
         // Beside a movie's Resume, and a series' Resume of the episode partway through.
