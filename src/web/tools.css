@@ -90,6 +90,8 @@
 .condition legend { padding-inline: var(--space-2); font-weight: 600; }
 .choices { border: 0; margin: 0 0 var(--space-4); padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-4); }
 .choices legend { padding: 0; margin-block-end: var(--space-2); font-weight: 600; }
+/* Your account's Light, Dark or System: one under the other, the group's heading naming them. */
+.appearance { border: 0; margin: 0; padding: 0; }
 .choices .check { margin-block-end: var(--space-2); }
 .try { margin-block-start: var(--space-3); }
 /* A row opened for changing in place: its form under a small heading. */
