@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 126] = [
+const MODULES: [(&str, &str); 127] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -92,6 +92,7 @@ const MODULES: [(&str, &str); 126] = [
         "player-subtitle-search.js",
         include_str!("../web/player-subtitle-search.js"),
     ),
+    ("player-resume.js", include_str!("../web/player-resume.js")),
     (
         "player-subtitle-size.js",
         include_str!("../web/player-subtitle-size.js"),
@@ -772,6 +773,30 @@ mod tests {
         let app = module("app.js");
         assert!(app.contains("  stopShell();\n  // The next to sign in here may be someone else.\n  forgetSavedHomes();"));
         assert!(app.contains("if (!kind) return home(gen, me.id);"));
+    }
+
+    #[test]
+    fn picking_up_starts_as_many_seconds_early_as_the_browser_keeps() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        assert!(module("player.js").contains("const start = startAt(play, restart);"));
+        let resume = module("player-resume.js");
+        // Never before the start, and nothing taken off when starting over.
+        assert!(resume.contains("if (restart || !(play.resume_seconds > 0)) return 0;"));
+        assert!(resume.contains("Math.max(play.resume_seconds - resumeEarlier(), 0)"));
+        let prefs = module("playback-prefs.js");
+        for label in [
+            "\"Where I stopped\"",
+            "\"5 seconds earlier\"",
+            "\"30 seconds earlier\"",
+        ] {
+            assert!(prefs.contains(label), "{label}");
+        }
+        // Kept per browser, and a browser with storage turned off picks up where it stopped.
+        assert!(
+            prefs.contains("try {\n    const kept = Number(localStorage.getItem(RESUME_KEY));")
+        );
+        assert!(prefs.contains("try {\n    localStorage.setItem(RESUME_KEY, String(seconds));"));
+        assert!(prefs.contains("Kept by this browser only."));
     }
 
     #[test]

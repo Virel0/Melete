@@ -3,7 +3,7 @@
 // plays). Text subtitles come as WebVTT tracks; picture subtitles are drawn into a conversion.
 // Progress goes back to the server every 10 seconds and on leaving.
 
-import { SignedOut, announce, api, clock, episodeLabel, h, loading, show } from "/web/lib.js";
+import { SignedOut, announce, api, episodeLabel, h, loading, show } from "/web/lib.js";
 import { HLS_MODULE, SOUNDS, audioLabel, choose, describe, mse, probe, subtitleLabel } from "/web/player-choice.js";
 import { playerKeys, shortcutsHelp, stageFullscreen } from "/web/player-keys.js";
 import { nextSubtitle, subtitleChips } from "/web/player-chips.js";
@@ -14,6 +14,7 @@ import { offlinePanel } from "/web/player-offline.js";
 import { canDrawAss, drawStyled, scaleStyled, serverDraws, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
+import { resumedNote, startAt } from "/web/player-resume.js";
 import { sizePicker } from "/web/player-subtitle-size.js";
 
 const REPORT_EVERY_MS = 10_000;
@@ -41,9 +42,9 @@ export async function playerPage(fileId, params, ctx) {
   const seasonQuery = seasonNumber === null ? "" : `?season=${seasonNumber}`;
   const backHref = movieId ? `#/movies/${movieId}` : seriesId ? `#/series/${seriesId}${seasonQuery}` : "#/";
   // Starting over is said with each report, or the server keeps a saved position over one
-  // near the start.
+  // near the start. Picking up starts a few seconds early when this browser asks.
   const restart = params.get("start") === "0";
-  const start = restart ? 0 : play.resume_seconds;
+  const start = startAt(play, restart);
 
   const textTracks = subtitles.filter((t) => t.text);
   // What the player's parts share: the video, the choices made, and the source playing.
@@ -468,31 +469,4 @@ function startReports(s, restart) {
   const onHide = () => report(true);
   addEventListener("pagehide", onHide);
   return { report, timer, onHide };
-}
-
-// ---------- Picking up where it was left ----------
-
-// "Picking up at 12:34", with a button to start from the beginning instead.
-function resumedNote(start, fileId, params) {
-  return start > 0
-    ? h(
-        "p",
-        { class: "resumed" },
-        `Picking up at ${clock(start)}. `,
-        h(
-          "button",
-          {
-            type: "button",
-            class: "link",
-            // Starting over is its own address, so the server is told with every report.
-            onclick: () => {
-              const again = new URLSearchParams(params);
-              again.set("start", "0");
-              location.replace(`#/play/${fileId}?${again}`);
-            },
-          },
-          "Start from the beginning",
-        ),
-      )
-    : null;
 }
