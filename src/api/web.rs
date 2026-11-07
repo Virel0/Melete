@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 140] = [
+const MODULES: [(&str, &str); 142] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -198,6 +198,8 @@ const MODULES: [(&str, &str); 140] = [
         include_str!("../web/music-visualizer.js"),
     ),
     ("music-extras.js", include_str!("../web/music-extras.js")),
+    ("music-saved.js", include_str!("../web/music-saved.js")),
+    ("music-pickup.js", include_str!("../web/music-pickup.js")),
     (
         "music-extras-menu.js",
         include_str!("../web/music-extras-menu.js"),
@@ -1317,6 +1319,32 @@ mod tests {
             assert!(settings.contains(read), "{read}");
         }
         assert!(module("account.js").contains("listeningGroup(),"));
+    }
+
+    #[test]
+    fn the_queue_is_kept_per_user_and_published_only_for_them() {
+        let saved = module("music-saved.js");
+        // Kept under the signed-in user's id, every one forgotten on signing out.
+        assert!(saved.contains("localStorage.setItem(PREFIX + user.id, JSON.stringify(saved));"));
+        assert!(saved.contains("JSON.parse(localStorage.getItem(PREFIX + user.id)"));
+        assert!(saved.contains(
+            "for (const key of Object.keys(localStorage)) if (key.startsWith(PREFIX)) localStorage.removeItem(key);"
+        ));
+        let app = module("app.js");
+        assert!(app.contains("forgetSaved();"));
+        assert!(app.contains("startSaved(user);"));
+        // Published only for a user who may see all the music, and never while private.
+        assert!(saved.contains("if (!user || privately() || !seesAllMusic()) return;"));
+        assert!(saved.contains(r#"api("/music/queue", { method: "PUT", body })"#));
+        // Picking up offers another device's queue of the last day, never this one's.
+        let pickup = module("music-pickup.js");
+        assert!(pickup.contains("!q.isCurrentDevice && q.ageSeconds <= DAY"));
+        assert!(module("music-home.js").contains("pickUpCard(ctx)"));
+        // A restored queue waits, paused, where it was.
+        assert!(
+            module("music-player.js")
+                .contains("return load(queue.position(), { paused: !play, from: kept.elapsed });")
+        );
     }
 
     #[test]

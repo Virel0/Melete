@@ -8,7 +8,8 @@
 // Session API. Every listen is kept in the play history when it ends, tagged with what the
 // listener is doing, and none at all while listening privately (music-extras.js).
 //
-// For pages: playQueue(tracks, start) plays a list from a track; playNext(tracks) and
+// For pages: playQueue(tracks, start) plays a list from a track; restoreQueue(kept) puts back a
+// kept queue (music-saved.js, music-pickup.js), ready where it was; playNext(tracks) and
 // playLast(tracks) add to Next up; nowPlaying() is the track playing (pages mark it, and follow
 // the `melete:now-playing` event). A track is { id, title, artist, album, album_id, cover, codec,
 // duration_seconds, disc_number, track_number }. The bar (music-bar.js) and the panel
@@ -90,6 +91,14 @@ export function playQueue(tracks, start = 0) {
   load(queue.position());
 }
 
+// Puts back a kept queue ({ entries, index, shuffle, repeat, elapsed }), ready at its place and
+// time, paused unless `play`.
+export function restoreQueue(kept, { play = false } = {}) {
+  links.clear();
+  queue.restore(kept.entries, kept.index, kept.shuffle, kept.repeat);
+  return load(queue.position(), { paused: !play, from: kept.elapsed });
+}
+
 // Adds tracks to Next up; with nothing playing, the first of them starts.
 export function playNext(tracks) {
   const idle = !queue.current();
@@ -150,8 +159,8 @@ function prefetch() {
   link(following).catch(() => links.delete(following.id));
 }
 
-// Plays queue entry `at`; with `paused`, only gets it ready.
-async function load(at, { convert = false, paused = false } = {}) {
+// Plays queue entry `at` (from `from` seconds); with `paused`, only gets it ready.
+async function load(at, { convert = false, paused = false, from = null } = {}) {
   const entry = queue.all()[at];
   if (!entry) return;
   // Moving on to another entry before this one ended is a skip.
@@ -170,6 +179,8 @@ async function load(at, { convert = false, paused = false } = {}) {
     deck.converted = got.format !== "original";
     deck.el.src = got.url;
     deck.el.currentTime = startOf(track);
+    // A kept or picked-up queue goes on from where it was.
+    if (from > 0) deck.el.currentTime = from;
     levelled(deck);
     if (paused) return say("");
     await audio.play();
