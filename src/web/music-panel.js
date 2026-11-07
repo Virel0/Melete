@@ -17,6 +17,7 @@ import { clip, emptyState } from "/web/page-parts.js";
 import { iconButton, transport } from "/web/music-controls.js";
 import { lyricsTab } from "/web/music-lyrics.js";
 import { visualizer } from "/web/music-visualizer.js";
+import { extrasMenu } from "/web/music-extras-menu.js";
 
 const wide = matchMedia("(min-width: 68.75rem)");
 const PLAYED_SHOWN = 3;
@@ -44,7 +45,7 @@ const panel = h(
     h("button", { type: "button", class: "quiet", onclick: () => closePanel() }, "Close"),
   ),
   h("div", { class: "panel-now" }, h("div", { class: "cover" }, cover), h("div", { class: "words" }, title, artist), visualizer()),
-  h("div", { class: "panel-controls" }, transport(), iconButton("stop", "Stop and close the player", stopPlayer)),
+  h("div", { class: "panel-controls" }, transport(), extrasMenu({ below: true }), iconButton("stop", "Stop and close the player", stopPlayer)),
   h("div", { class: "panel-tabs", role: "tablist", "aria-label": "Queue and lyrics" }, tabs.queue, tabs.lyrics),
   bodies.queue,
   bodies.lyrics,

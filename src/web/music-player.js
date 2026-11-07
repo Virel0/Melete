@@ -5,7 +5,8 @@
 // The next track's link is asked for as soon as one starts, and the track itself goes on the
 // spare deck before this one ends (music-handover.js), so moving on doesn't wait: gapless, or
 // crossfaded when that's chosen. Media keys and the phone's lock screen work through the Media
-// Session API. Every listen is kept in the play history when it ends.
+// Session API. Every listen is kept in the play history when it ends, tagged with what the
+// listener is doing, and none at all while listening privately (music-extras.js).
 //
 // For pages: playQueue(tracks, start) plays a list from a track; playNext(tracks) and
 // playLast(tracks) add to Next up; nowPlaying() is the track playing (pages mark it, and follow
@@ -17,6 +18,7 @@
 import { SignedOut, announce, api } from "/web/lib.js";
 import { active, audio, empty, refreshed, spare, swap } from "/web/music-decks.js";
 import { cancelHandOver, finish, levelled, startHandOver, startOf } from "/web/music-handover.js";
+import { activity, onSleep, privately, stopsAfter } from "/web/music-extras.js";
 import { measure } from "/web/music-measures.js";
 import * as queue from "/web/music-queue.js";
 
@@ -48,6 +50,9 @@ let signedOut = () => {};
 // The listen under way, kept in the play history when it ends: heard to the end,
 // skipped (moved on from, and where), or stopped.
 let listen = null;
+// The entry playing when Private listening went off: half heard in private, it isn't counted.
+let heldBack = null;
+let wasPrivate = privately();
 
 function endListen({ completed = false, skipped = false } = {}) {
   if (!listen) return;
@@ -76,6 +81,7 @@ function playing(track, loading = false) {
 export function startPlayer({ onSignedOut }) {
   signedOut = onSignedOut;
   startHandOver({ link, handedOver, ended: songEnded });
+  onSleep(() => audio.pause());
 }
 
 export function playQueue(tracks, start = 0) {
@@ -144,8 +150,8 @@ function prefetch() {
   link(following).catch(() => links.delete(following.id));
 }
 
-// Plays queue entry `at`.
-async function load(at, { convert = false } = {}) {
+// Plays queue entry `at`; with `paused`, only gets it ready.
+async function load(at, { convert = false, paused = false } = {}) {
   const entry = queue.all()[at];
   if (!entry) return;
   // Moving on to another entry before this one ended is a skip.
@@ -165,6 +171,7 @@ async function load(at, { convert = false } = {}) {
     deck.el.src = got.url;
     deck.el.currentTime = startOf(track);
     levelled(deck);
+    if (paused) return say("");
     await audio.play();
     say("");
     announce(`Playing ${track.title} by ${track.artist}`);
@@ -225,6 +232,7 @@ export function seekTo(seconds) {
 // was already playing under the fade).
 function handedOver(at, { sounding }) {
   endListen({ completed: true });
+  heldBack = null;
   swap();
   const track = queue.jump(at);
   playing(track);
@@ -241,12 +249,23 @@ function handedOver(at, { sounding }) {
 function beginListen() {
   const track = queue.current();
   if (!track || listen) return;
+  // None while listening privately, nor for the song half heard in private.
+  if (privately() || queue.all()[queue.position()] === heldBack) return;
   const id = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  listen = { id, track_id: track.id, started_at: Math.floor(Date.now() / 1000) };
+  const tag = activity();
+  listen = { id, track_id: track.id, started_at: Math.floor(Date.now() / 1000), ...(tag ? { activity: tag } : {}) };
   api("/music/plays", { method: "POST", body: listen }).catch(() => {});
 }
 audio.addEventListener("playing", beginListen);
 window.addEventListener("pagehide", () => endListen());
+// Private listening on: the listen under way ends here, as stopped, and none begins. Off: the
+// song playing stays unrecorded, and the next one counts.
+document.addEventListener("melete:extras", () => {
+  if (privately() === wasPrivate) return;
+  wasPrivate = privately();
+  if (wasPrivate) endListen();
+  else heldBack = queue.all()[queue.position()] ?? null;
+});
 audio.addEventListener("play", () => {
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
 });
@@ -258,6 +277,13 @@ function songEnded() {
   // The next track was ready on the spare deck and took over.
   if (finish()) return;
   endListen({ completed: true });
+  heldBack = null;
+  // The sleep timer's moment: the next song waits, ready.
+  const next = queue.nextIndex();
+  if (stopsAfter(queue.current(), queue.all()[next]?.track)) {
+    const ready = next >= 0 && next !== queue.position() ? load(next, { paused: true }) : Promise.resolve();
+    return ready.then(() => say("Paused by the sleep timer"));
+  }
   // Repeating one track plays it again, as a new listen.
   if (queue.repeating() === "one") {
     audio.currentTime = startOf(queue.current());
