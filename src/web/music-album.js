@@ -1,6 +1,7 @@
 // An artist's page, with their albums and the ones they appear on, and an album's: its cover on
-// the album's own colours, what its files are, Play, Shuffle, Start radio, Like, Add to playlist
-// and Pin, then its tracks by disc, each with its actions (music-actions.js).
+// the album's own colours, what its files are, Play, Shuffle, Play next, Play last, Start radio,
+// Like, Add to playlist and Pin, then its tracks by disc, each with its actions
+// (music-actions.js).
 
 import { SignedOut, api, h, loading, metaRow, number, plural, runtime, show } from "/web/lib.js";
 import { albumLike, trackActions } from "/web/music-actions.js";
@@ -10,7 +11,11 @@ import { playlistPicker } from "/web/music-playlist-pick.js";
 import { RADIO_CLOSED, albumSeed, artistSeed, radioButton } from "/web/music-radio.js";
 import { artistTopSongs, yourListening } from "/web/music-replay.js";
 import { hold, release } from "/web/page-parts.js";
+<<<<<<< HEAD
 import { codecName } from "/web/music-info.js";
+=======
+import { queueButtons } from "/web/music-album-menu.js";
+>>>>>>> origin/virel/album-menu
 import { SYNC_CLOSED, seesAllMusic } from "/web/music-access.js";
 
 // Play, Shuffle and Start radio for an artist: their songs (their albums', and the ones
@@ -156,8 +161,9 @@ function paint(head, colours) {
   head.style.setProperty("--album-line", colours.text2);
 }
 
-// Play, Shuffle, Start radio, Add to playlist and Pin for the whole album.
+// Play, Shuffle, Play next, Play last, Start radio, Add to playlist and Pin for the whole album.
 function albumActions(album, queue) {
+  const said = h("span", { class: "note", role: "status" });
   const area = h("div", { class: "pick-area" });
   const pick = h("button", { type: "button", class: "quiet", "aria-expanded": "false" }, "Add to playlist");
   pick.addEventListener("click", () => {
@@ -171,10 +177,12 @@ function albumActions(album, queue) {
       { class: "play-actions" },
       h("button", { type: "button", onclick: () => play(queue) }, "Play"),
       h("button", { type: "button", class: "quiet", onclick: () => shufflePlay(queue) }, "Shuffle"),
+      queueButtons(album, async () => queue, said),
       radioButton(() => albumSeed(album.id), album.title),
       seesAllMusic() ? albumLike(album) : null,
       seesAllMusic() ? pick : null,
       pinControl("album", album.id, album.title),
+      said,
     ),
     seesAllMusic() ? area : h("p", { class: "note" }, SYNC_CLOSED),
   ];
