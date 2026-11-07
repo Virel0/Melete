@@ -1427,3 +1427,61 @@ async fn soulseek_marks_musicbrainzs_albums_its_users_share() {
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
 mod playlist_imports;
+
+/// A movie or series found carries its summary from the same TMDB search answer: TMDB is asked
+/// nothing more for it, and a blank one comes back as none.
+#[tokio::test]
+async fn results_carry_the_overview_tmdbs_search_gave() {
+    let pool = db::open_in_memory().await;
+    let alice = token(&pool, "alice", false).await;
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/search/movie?include_adult=false&query=Matrix",
+        vec![Reply::ok(json!({"page": 1, "total_pages": 1, "results": [
+            {"id": 603, "title": "The Matrix", "release_date": "1999-03-30",
+             "overview": "  A hacker learns what the world really is. "},
+            {"id": 9999, "title": "Matrix", "release_date": "", "overview": ""},
+            {"id": 9998, "title": "Matrix II", "release_date": ""},
+        ]}))],
+    )
+    .reply(
+        "/search/tv?include_adult=false&query=Matrix",
+        vec![Reply::ok(json!({"page": 1, "total_pages": 1, "results": [
+            {"id": 77, "name": "Matrix", "first_air_date": "1993-03-01",
+             "overview": "A hitman gets a second chance."},
+        ]}))],
+    );
+    let sources = Sources {
+        tmdb: Some(Arc::new(fake.start().await)),
+        ..Sources::default()
+    };
+    let app = routes(pool.clone(), None, sources);
+    let overviews = |found: &Value| {
+        found
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["overview"].clone())
+            .collect::<Vec<_>>()
+    };
+    let uri = "/api/v1/requests/search?kind=movie&q=Matrix";
+    let (status, found) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(
+        overviews(&found),
+        [
+            json!("A hacker learns what the world really is."),
+            Value::Null,
+            Value::Null
+        ]
+    );
+    // A blank one is null, never left out.
+    assert_eq!(found[1].get("overview"), Some(&Value::Null), "{found}");
+    let uri = "/api/v1/requests/search?kind=series&q=Matrix";
+    let (status, found) = send(&app, "GET", uri, &alice, None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(overviews(&found), [json!("A hitman gets a second chance.")]);
+    // Only the two searches went to TMDB.
+    let asked = fake.log.lock().unwrap().clone();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+}
