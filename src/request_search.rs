@@ -41,6 +41,11 @@ pub struct Candidate {
     /// What tells it from others of the name: an original title, an artist's kind and
     /// country, an album's type, the album a song is on and its length.
     pub detail: Option<String>,
+    /// A movie's or series' summary, from the same TMDB search answer; None for music, or
+    /// when TMDB has none. Sent only by the search route ([`Found`]); Soulseek's songs, which
+    /// never have one, are answered without it.
+    #[serde(skip)]
+    pub overview: Option<String>,
     /// Already on disk: the title, the artist, the album or the song.
     pub in_library: bool,
     /// On the wanted list and looked out for.
@@ -57,6 +62,25 @@ pub struct Candidate {
     /// How close its title and artist are to the words searched, 0 to 100 ([`how_close`]): the
     /// same measure for every source, so results from two of them can be ranked together.
     pub closeness: u8,
+}
+
+/// A result as `GET /requests/search` answers it: the candidate, with its summary.
+#[derive(Debug, Serialize)]
+pub struct Found {
+    #[serde(flatten)]
+    pub candidate: Candidate,
+    /// A movie's or series' summary; None for music, or when TMDB has none.
+    pub overview: Option<String>,
+}
+
+impl From<Candidate> for Found {
+    fn from(candidate: Candidate) -> Self {
+        let overview = candidate.overview.clone();
+        Found {
+            candidate,
+            overview,
+        }
+    }
 }
 
 fn first_artist(credits: &[Credit]) -> Option<(String, String)> {
@@ -154,6 +178,13 @@ async fn find(
     }
 }
 
+/// A summary, when it says something.
+fn summary(overview: Option<String>) -> Option<String> {
+    overview
+        .map(|o| o.trim().to_owned())
+        .filter(|o| !o.is_empty())
+}
+
 /// An original title, when it isn't the title.
 fn other(original: Option<String>, title: &str) -> Option<String> {
     original.filter(|o| o != title)
@@ -173,6 +204,7 @@ async fn screen(
                 tmdb_id: Some(r.id),
                 year: r.release_date.as_deref().and_then(year_of),
                 detail: other(r.original_title, &r.title),
+                overview: summary(r.overview),
                 tmdb_poster: r.poster_path,
                 title: r.title,
                 ..Candidate::default()
@@ -186,6 +218,7 @@ async fn screen(
                 tmdb_id: Some(r.id),
                 year: r.first_air_date.as_deref().and_then(year_of),
                 detail: other(r.original_name, &r.name),
+                overview: summary(r.overview),
                 tmdb_poster: r.poster_path,
                 title: r.name,
                 ..Candidate::default()
