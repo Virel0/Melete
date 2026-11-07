@@ -25,7 +25,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 128] = [
+const MODULES: [(&str, &str); 129] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -79,6 +79,7 @@ const MODULES: [(&str, &str); 128] = [
         include_str!("../web/player-controls.js"),
     ),
     ("player-menus.js", include_str!("../web/player-menus.js")),
+    ("player-report.js", include_str!("../web/player-report.js")),
     ("player-jump.js", include_str!("../web/player-jump.js")),
     ("player-ass.js", include_str!("../web/player-ass.js")),
     (
@@ -677,6 +678,35 @@ mod tests {
             )
         );
         assert!(hero.contains("setMuted(true);\n        video.play().catch(() => {});"));
+    }
+
+    #[test]
+    fn the_player_keeps_what_it_saw_and_sends_it_only_when_asked() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let player = module("player.js");
+        assert!(player.contains("s.log = playbackLog(video, Number(fileId));"));
+        assert!(player.contains("s.log.note(\"mode\", { mode: next });"));
+        assert!(player.contains("s.log.note(\"conversion_error\""));
+        assert!(player.contains("reportButton(s.log, s.ctx)"));
+        assert!(module("account.js").contains("reportGroup(ctx),"));
+        let report = module("player-report.js");
+        // A short ring, kept under the server's 64 KiB, posted only from the button.
+        assert!(report.contains("const MOST = 200;"));
+        assert!(report.contains("if (log.events.length > MOST) log.events.shift();"));
+        assert!(report.contains("JSON.stringify(body).length > MOST_BYTES"));
+        assert_eq!(report.matches("api(\"/me/diagnostics\"").count(), 1);
+        assert!(report.contains("button.addEventListener(\"click\", async () => {"));
+        // What kind of conversion error, never its address, which can carry a session.
+        assert!(!player.contains("url: data.") && !report.contains("currentSrc"));
+        for event in [
+            "\"waiting\"",
+            "\"stalled\"",
+            "\"error\"",
+            "\"seek\"",
+            "\"subtitles\"",
+        ] {
+            assert!(report.contains(event), "{event}");
+        }
     }
 
     #[test]

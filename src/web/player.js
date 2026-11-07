@@ -14,6 +14,7 @@ import { offlinePanel } from "/web/player-offline.js";
 import { canDrawAss, drawStyled, scaleStyled, serverDraws, stopStyled } from "/web/player-ass.js";
 import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
+import { playbackLog, reportButton } from "/web/player-report.js";
 import { resumedNote, startAt } from "/web/player-resume.js";
 import { sizePicker } from "/web/player-subtitle-size.js";
 
@@ -72,6 +73,7 @@ export async function playerPage(fileId, params, ctx) {
     burned: null,
   };
   const video = s.video;
+  s.log = playbackLog(video, Number(fileId));
   convertWhenRefused(s);
   const subtitlesBox = subtitlePicker(s);
   const pickSubtitles = subtitlesBox?.querySelector("select") ?? null;
@@ -150,7 +152,7 @@ function playerPanels(s, subtitlesBox, search) {
   const audioBody = [audioPicker(s), soundPicker(s)].filter(Boolean);
   const requality = (bits) => ((s.choice.quality = bits), load(s, s.video.currentTime).catch((err) => onError(s, err)));
   const quality = s.info.media?.video.length ? qualityPicker(s.choice.quality, requality) : null;
-  const settingsBody = [speedPicker(s.video), quality, chapterPicker(s.video, s.info.chapters ?? [])].filter(Boolean);
+  const settingsBody = [speedPicker(s.video), quality, chapterPicker(s.video, s.info.chapters ?? []), reportButton(s.log, s.ctx)].filter(Boolean);
   const panels = panelButtons(
     [
       subtitleBody.length ? { name: "subtitles", label: "Subtitles", body: subtitleBody } : null,
@@ -219,6 +221,7 @@ async function attachHls(s, url, at, mine) {
     if (Hls.isSupported()) {
       s.hls = new Hls({ enableWorker: false, startPosition: at });
       s.hls.on(Hls.Events.ERROR, (_, data) => {
+        s.log.note("conversion_error", { type: data.type, details: data.details, fatal: data.fatal, status: data.response?.code ?? null });
         if (data.fatal) failed(s, "The converted video stopped loading. Try again, or pick other settings.");
       });
       s.hls.loadSource(url);
@@ -244,6 +247,7 @@ async function load(s, at) {
   const next = choose(s.info, s.choice);
   if (s.mode && JSON.stringify(next) === JSON.stringify(s.mode)) return;
   s.mode = next;
+  s.log.note("mode", { mode: next });
   s.burned = null;
   const mine = ++s.loads;
   s.status.textContent = s.mode.direct ? "Starting…" : "Asking the server to convert the video…";
