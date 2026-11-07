@@ -30,6 +30,8 @@ function recordingQueue(recording) {
     cover: recording.album.cover,
     codec: track.codec,
     duration_seconds: track.duration_seconds,
+    disc_number: track.disc_number,
+    track_number: track.track_number,
   }));
 }
 

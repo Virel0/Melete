@@ -1,9 +1,11 @@
-// Your account: your profile picture, password, two-factor sign-in, languages, playback and a
-// report of the last play in this tab, signing in through an identity provider, sessions and API
-// keys, and Quick Connect for signing in another device. Every user has this page.
+// Your account: your profile picture, password, two-factor sign-in, languages, playback,
+// listening (music-settings.js) and a report of the last play in this tab, signing in through an
+// identity provider, sessions and API keys, and Quick Connect for signing in another device.
+// Every user has this page.
 
 import { confirmInline, field, form, group, secret, when } from "/web/forms.js";
 import { languagesGroup } from "/web/languages.js";
+import { listeningGroup } from "/web/music-settings.js";
 import { playbackGroup } from "/web/playback-prefs.js";
 import { pictureGroup } from "/web/profile-picture.js";
 import { reportGroup } from "/web/player-report.js";
@@ -35,6 +37,7 @@ export async function account(ctx) {
     twoFactorGroup(twoFactor, ctx),
     languages,
     playback,
+    listeningGroup(),
     reportGroup(ctx),
     linking,
     group("Sessions and API keys", h("p", { class: "note" }, "Each device you sign in on, and each key, until it's signed out or goes unused for 90 days."), sessions.list, signInChanges(twoFactor.changes)),
