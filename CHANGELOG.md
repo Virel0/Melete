@@ -7,6 +7,128 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-07
+
+### Added
+
+- Skip recaps, intros and previews by themselves: a playback preference (`auto_skip` on
+  `/me/playback`, off by default) set in Your account → Playback. The web player then passes
+  over each once a play; credits are never skipped this way.
+- The badge a poster tile wears ("New" for 14 days, or "N unwatched" on a series being watched)
+  now shows on the hero, on wide tiles (Continue watching, Next up) and on the cards of the All
+  shows, All anime and All movies grids too.
+- Cast and crew pictures on a title's Cast and crew page: a small round picture beside each
+  name, loaded as it scrolls near, or the person's initials when there's none.
+- Ask for it on a collection's page, under each film that isn't in the library and that nobody
+  has asked for (while trending and similar titles are on, which lists those films). What
+  asking said shows under the film, and its state turns to Requested.
+- An album's page says how often you've played its songs and how often you finish what you
+  start (from 3 finished-or-skipped listens, as the Aoide apps show it); an artist's page says
+  the same for their songs and lists your top five of them.
+- `GET /music/replay` takes `album_id` or `artist_id`, and says how many listens finished.
+- From the start beside Resume on a title's page, for a movie or an episode partway through.
+- The web player shows how far a jump went on the picture: "+10" or "−10" on the side it went,
+  adding up over a run of jumps ("+30"), from the buttons and from J, L and the arrow keys.
+  Screen readers hear the total once the run settles.
+- Languages of their own for movies, shows or anime, per user: under Your account → Languages,
+  each kind follows your languages unless you tick it and give it its own (anime with Japanese
+  audio and English subtitles, say). Picking tracks uses the file's kind's own languages when it
+  has them. `GET`, `PUT` and `DELETE /me/languages/{kind}` read, set and drop them, for the apps
+  too.
+- Watch's Home, its Shows, Anime and Movies pages (rows and the All titles grid) and My List
+  follow the server's live updates: a title that comes in or goes, or a change to My List on
+  another device, shows without a reload. They're drawn again in place, keeping the keyboard's
+  focus and each row's scroll; the hero stays as it is.
+- Send a playback report from the web player: Settings in the player, or Your account for the
+  last thing played in that tab. It holds what the player saw (waiting and stalls, errors, how
+  it played, conversion errors, seeks, subtitle changes) and goes to the admins' Diagnostics
+  only when sent.
+- Play the Watch home's previews with sound: a choice in Your account → Playback, kept by the
+  browser. Previews start with sound once you've clicked or pressed a key on the page, as
+  browsers allow, and muted before that.
+- A quality limit in the web player's Settings panel: Original, or up to 40, 20, 10, 6 or
+  3 Mbps, kept by the browser. A file over it is converted to stay within it; the player says
+  so under the video.
+- Replay under Listen: this month, this year or all time in figures (plays, time listened,
+  songs, artists, albums, the busiest day), the top songs (which play), artists and albums, and
+  every listen of the period, each of which can be deleted, or the whole period at once. Plays
+  are counted as the Aoide apps count them, from every device's listens and the web's.
+- `GET /music/replay` gives those figures and top lists for any window.
+- Listen home's "Most played lately" says how often each song was played.
+- Your requests come in stages (On the way, Waiting for approval, In the library, Declined),
+  each with its poster or cover, who approved or declined it and when ("Approved by alice 2
+  days ago"), and for one on its way where it's coming from and when that last changed ("From
+  a torrent, updated 5 minutes ago").
+- Ask for something's results show their posters and covers.
+- Pick up a few seconds before where you stopped: Your account → Playback offers where you
+  stopped, or 5, 10, 15 or 30 seconds earlier, kept by the browser, so the web player doesn't
+  start mid-sentence.
+- Watch's Home appears at once from a copy of its last answer kept in the browser, then
+  refreshes; when the refresh fails the copy stays on screen. The copy is kept per user and
+  forgotten on signing out, or whenever the browser finds its session ended.
+- When a Soulseek download of a wanted album or song fails once slskd has it (the peer refused
+  a file, it timed out, errored or was cancelled, or slskd lost it), the next best accepted
+  Soulseek result of the same search is grabbed, from a user the album or song hasn't failed
+  with, up to 3 downloads from a search. The failed download says the next source is being
+  tried (2 of 3), and the new one says why while it downloads; when the tries are used up or
+  no other user's copy is left, the failed one says so.
+- A tile whose title the Watch hero shows (after a moment's hover or focus) plays its preview
+  there too after a few seconds, by the hero's rules: a muted clip of the title, only on the
+  home network, as the viewer's hero trailers setting allows, and never when the device asks
+  for less motion.
+- A subtitle size in the web player's Subtitles panel: Small, Medium, Large or Extra large,
+  kept by the browser, for plain and styled subtitles alike.
+- A song's actions on the web have Not interested (kept out of mixes, radio, shuffle and smart
+  playlists; set on the song playing, it moves on) and Don't count plays, the same flags the
+  Aoide apps keep, so a change on any of them shows on the others.
+- Hidden songs under Listen lists the flagged songs, each flag clearable one by one or all at
+  once.
+- `GET /music/flags` and `PUT /music/tracks/{id}/flags` read and set them, written into the
+  listener's sync log as a device of theirs would write them.
+- A title's page plays a muted preview behind its header after a few seconds in view, as the
+  Watch home's hero does and by the same rules (the viewer's hero trailers setting, clips only
+  on the home network, nothing when the device asks for less motion, Unmute and Stop): the
+  title's trailer when it's sharp enough (at least 1080 lines, or as tall as the title's own
+  file), else a clip of the title. It stops when the header scrolls out of view.
+- A search page for movies and shows (Search in the palette, and its last result, See all
+  results): the library's matches with their posters, then, while trending and similar titles
+  are on, the titles TMDB has that aren't in the library, each with Ask for it.
+- `GET /api/v1/discover/status`: whether trending and similar titles are on, asking nothing of
+  TMDB, so an app can leave out what they give while they're off.
+- Trending this week, movies and shows from TMDB as posters, on Requests → Ask for something
+  and on the search page before anything is typed: a title in the library opens its page, any
+  other has Ask for it. Shown only while trending and similar titles are on.
+
+### Changed
+
+- The Watch hero's previews play only while the hero can be seen; scrolled away, a pick's
+  trailer stops, and starts again when it's back in view.
+- A listen from the web UI (or any app that sends listens through the music API) is also
+  written into the listener's sync log as an Aoide play event, so it counts on their Aoide
+  devices: Replay, finish rates, Top songs and play-count rules. Reading the log doesn't keep it
+  a second time. Listens from before this release aren't copied.
+- A song flagged "Don't count plays" (on an Aoide device) has no new listens kept from the web,
+  as the apps already do; `POST /music/plays` answers 409.
+
+### Fixed
+
+- A playlist import finds a song MusicBrainz lists under a slightly different title, such as
+  "The Rare Old Mountain Dew" for "Rare Old Mountain Dew": for a track with an artist, a
+  recording by that artist whose title is the same but for a leading "the", "a" or "an" or a
+  bracketed part, or shares most of its words, is taken when none has its own title, and its
+  words are searched for once more when its title as a phrase finds nothing. A track without
+  an artist still needs its exact title.
+- A playlist item waiting on a song request fills once the request's download is imported,
+  even when the file is tagged with another MusicBrainz recording of the song, or none: the one
+  track the download put in the library counts as the song, as the request already showed it
+  in the library.
+- A subtitle track titled as anime's signs and songs track ("Signs & Songs", "S&S", "Signs"),
+  or a subtitle file named `.signs.`, counts as forced, so with English audio and "when the audio
+  isn't mine" it's the one picked, as a track flagged forced already was. Before, these tracks
+  weren't flagged in most releases, so none was picked.
+- The pickers in the web player's panels showed light text on white; they're on the stage's
+  grey now. On a phone, a panel no longer runs past the top of the picture: it scrolls.
+
 ## [0.6.0] - 2026-11-06
 
 ### Added
@@ -501,7 +623,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Virel0/Melete/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Virel0/Melete/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Virel0/Melete/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Virel0/Melete/compare/v0.3.2...v0.4.0
