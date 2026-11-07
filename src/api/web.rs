@@ -12,7 +12,7 @@ const INDEX: &str = include_str!("../web/index.html");
 const STYLES: &str = include_str!("../web/app.css");
 /// The styles that follow app.css, in the order the page links them: later rules win, so the
 /// order matters.
-const MORE_STYLES: [(&str, &str); 7] = [
+const MORE_STYLES: [(&str, &str); 8] = [
     ("library.css", include_str!("../web/library.css")),
     ("tools.css", include_str!("../web/tools.css")),
     ("shell.css", include_str!("../web/shell.css")),
@@ -20,6 +20,7 @@ const MORE_STYLES: [(&str, &str); 7] = [
     ("manage.css", include_str!("../web/manage.css")),
     ("listen.css", include_str!("../web/listen.css")),
     ("watch.css", include_str!("../web/watch.css")),
+    ("title.css", include_str!("../web/title.css")),
 ];
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
