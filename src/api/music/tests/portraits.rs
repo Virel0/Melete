@@ -140,7 +140,7 @@ async fn a_failed_large_garbled_or_elsewhere_picture_keeps_nothing_and_is_believ
         assert!(in_a_day.is_some(), "{artist} tried again after a day");
     }
 
-    // As the real client: a picture not on upload.wikimedia.org isn't fetched.
+    // As the real client: a picture not on Commons' picture hosts isn't fetched.
     let (f, app, log, picture) = with_commons(false).await;
     listed(&f.pool, RADIOHEAD, &picture).await;
     let (status, _) = ask(&app, &f.token, &uri(RADIOHEAD)).await;

@@ -1,4 +1,4 @@
-//! A fake Wikidata, Commons and upload.wikimedia.org in one, for tests.
+//! A fake Wikidata, Commons and Commons' picture hosts in one, for tests.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -21,6 +21,10 @@ pub const LARGE_ITEM: &str = "Q4";
 pub const MOVED_ITEM: &str = "Q5";
 /// [`ITEM`]'s image.
 pub const FILE: &str = "Radiohead in concert.jpg";
+/// A file whose picture Commons gives on thumb.wikimedia.org, as it does now for resized ones.
+pub const THUMB_FILE: &str = "Thumbnail elsewhere.jpg";
+/// Where Commons gives [`THUMB_FILE`]'s picture, as its answers spell it.
+pub const THUMB_URL: &str = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a1/X.jpg/500px-X.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail";
 /// The picture the fake serves.
 pub const JPEG: &[u8] = b"\xff\xd8\xff\xe0fake portrait";
 
@@ -97,6 +101,7 @@ fn file(base: &str, title: &str) -> Response {
         Some("Failing.jpg") => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         Some("Large.jpg") => "large.jpg",
         Some(name) if name == FILE => "500px.jpg",
+        Some(name) if name == THUMB_FILE => THUMB_URL,
         _ => {
             return json!({"query": {"pages": [{"title": title, "missing": true}]}})
                 .to_string()
@@ -104,7 +109,7 @@ fn file(base: &str, title: &str) -> Response {
         }
     };
     json!({"query": {"pages": [{"title": title, "imageinfo": [{
-        "thumburl": format!("{base}/thumb/{picture}"),
+        "thumburl": if picture.starts_with("https://") { picture.to_owned() } else { format!("{base}/thumb/{picture}") },
         "url": format!("{base}/full.jpg"),
         "descriptionurl": format!("{base}/wiki/File:Radiohead_in_concert.jpg"),
         "extmetadata": {

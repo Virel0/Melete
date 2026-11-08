@@ -14,6 +14,19 @@ fn keeps_to_wikimedias_hosts_over_https() {
 }
 
 #[test]
+fn pictures_come_from_commons_picture_hosts_only() {
+    let picture = |u: &str| is_picture(&reqwest::Url::parse(u).unwrap());
+    assert!(picture(
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/500px-X.jpg"
+    ));
+    assert!(picture(testing::THUMB_URL));
+    assert!(!picture("http://thumb.wikimedia.org/x.jpg"));
+    assert!(!picture("https://thumb.wikimedia.org.evil.example/x.jpg"));
+    assert!(!picture("https://commons.wikimedia.org/x.jpg"));
+    assert!(!picture("https://www.wikidata.org/x.jpg"));
+}
+
+#[test]
 fn only_items_and_plain_text_pass() {
     assert!(is_item("Q44190"));
     for bad in ["Q", "Q0", "Q01", "P18", "Q1 2", "q5", "Q12345678901234567"] {
@@ -92,8 +105,8 @@ async fn refuses_failures_large_pictures_and_other_hosts_without_saying_where() 
     let followed = client.image_of(testing::MOVED_ITEM).await.unwrap();
     assert_eq!(followed.as_deref(), Some(testing::FILE));
 
-    // As the real client: a redirect off Wikimedia isn't followed, a picture not on
-    // upload.wikimedia.org isn't given or fetched, and no error says where it pointed.
+    // As the real client: a redirect off Wikimedia isn't followed, a picture not on Commons'
+    // picture hosts isn't given or fetched, and no error says where it pointed.
     let (strict, log) = testing::start_with(false).await;
     let moved = strict.image_of(testing::MOVED_ITEM).await.unwrap_err();
     assert!(!format!("{moved:#}").contains("127.0.0.1"), "{moved:#}");
@@ -103,6 +116,9 @@ async fn refuses_failures_large_pictures_and_other_hosts_without_saying_where() 
         "the redirect wasn't followed"
     );
     assert_eq!(strict.picture(testing::FILE).await.unwrap(), None);
+    // Commons gives resized pictures on thumb.wikimedia.org now: one there is given.
+    let moved = strict.picture(testing::THUMB_FILE).await.unwrap().unwrap();
+    assert_eq!(moved.url, testing::THUMB_URL);
     let elsewhere = strict.download(&large.url).await.unwrap_err();
     assert!(
         !format!("{elsewhere:#}").contains("127.0.0.1"),
