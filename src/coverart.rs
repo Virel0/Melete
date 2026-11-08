@@ -1,7 +1,8 @@
 //! The Cover Art Archive, for album covers of releases matched to MusicBrainz. Asked
 //! only for an album with no picture of its own, once (then cached), or once when an imported
-//! album brought none, and only when MusicBrainz matching is on; it learns a
-//! release group's id and nothing else. Its answers redirect to
+//! album brought none, and only when MusicBrainz matching is on; with covers of music not in
+//! the library on, also once for each release group a search for a request listed
+//! ([`crate::search_covers`]). It learns a release group's id and nothing else. Its answers redirect to
 //! archive.org, which is followed over https to those hosts only.
 
 use std::time::Duration;
@@ -135,23 +136,41 @@ pub mod testing {
     /// The front cover the fake serves.
     pub const JPEG: &[u8] = b"\xff\xd8\xff\xe0fake jpeg";
 
-    /// A fake archive: release group b1392450… redirects to its image; others have none.
-    /// Requests are logged.
+    /// A release group whose cover is larger than the 10 MiB a cover may be.
+    pub const OVERSIZED: &str = "0b5e55ed-0000-4000-8000-000000000000";
+    /// A release group the archive fails on (it answers 500).
+    pub const FAILING: &str = "fa11ed00-0000-4000-8000-000000000000";
+
+    /// A fake archive: release group b1392450… redirects to its image, [`OVERSIZED`] to one too
+    /// large, [`FAILING`] fails; others have none. Requests are logged.
     pub async fn start() -> (super::Client, Arc<Mutex<Vec<String>>>) {
+        start_with(true).await
+    }
+
+    /// The fake, with a client that follows its redirects only as the real one does (`any_host`
+    /// false: over https to archive.org's hosts, so never to the fake's own plain-http address).
+    pub async fn start_with(any_host: bool) -> (super::Client, Arc<Mutex<Vec<String>>>) {
         let log: Arc<Mutex<Vec<String>>> = Arc::default();
+        let to = |location: &'static str| {
+            (
+                StatusCode::TEMPORARY_REDIRECT,
+                [(header::LOCATION, location)],
+            )
+                .into_response()
+        };
         let router = axum::Router::new()
             .route(
                 "/release-group/{id}/{size}",
                 axum::routing::get(
-                    |State(log): State<Arc<Mutex<Vec<String>>>>,
-                     Path((id, size)): Path<(String, String)>| async move {
+                    move |State(log): State<Arc<Mutex<Vec<String>>>>,
+                          Path((id, size)): Path<(String, String)>| async move {
                         log.lock().unwrap().push(format!("{id} {size}"));
                         if id.starts_with("b1392450") {
-                            (
-                                StatusCode::TEMPORARY_REDIRECT,
-                                [(header::LOCATION, "/image.jpg")],
-                            )
-                                .into_response()
+                            to("/image.jpg")
+                        } else if id == OVERSIZED {
+                            to("/large.jpg")
+                        } else if id == FAILING {
+                            StatusCode::INTERNAL_SERVER_ERROR.into_response()
                         } else {
                             StatusCode::NOT_FOUND.into_response()
                         }
@@ -162,11 +181,19 @@ pub mod testing {
                 "/image.jpg",
                 axum::routing::get(|| async { ([(header::CONTENT_TYPE, "image/jpeg")], JPEG) }),
             )
+            .route(
+                "/large.jpg",
+                axum::routing::get(|| async {
+                    let mut large = JPEG.to_vec();
+                    large.resize(super::MAX_BYTES + 1, 0);
+                    ([(header::CONTENT_TYPE, "image/jpeg")], large)
+                }),
+            )
             .with_state(log.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        (super::Client::with_base(base, true).unwrap(), log)
+        (super::Client::with_base(base, any_host).unwrap(), log)
     }
 }
 
@@ -205,5 +232,26 @@ mod tests {
             .unwrap();
         assert_eq!(none, Fetched::None);
         assert!(client.front("../../etc").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn refuses_a_cover_too_large_a_failure_and_a_redirect_elsewhere() {
+        let (client, _) = testing::start().await;
+        let large = client.front(testing::OVERSIZED).await.unwrap_err();
+        assert!(format!("{large:#}").contains("too large"), "{large:#}");
+        let failed = client.front(testing::FAILING).await.unwrap_err();
+        assert!(format!("{failed:#}").contains("500"), "{failed:#}");
+        // As the real client: the fake's redirect, to plain http off archive.org, isn't
+        // followed (followed, it gives the cover), and the error doesn't say where it pointed.
+        let (strict, _) = testing::start_with(false).await;
+        let elsewhere = strict
+            .front("b1392450-e666-3926-a536-22c65f834433")
+            .await
+            .unwrap_err();
+        let said = format!("{elsewhere:#}");
+        assert!(
+            !said.contains("127.0.0.1") && !said.contains("image.jpg"),
+            "{said}"
+        );
     }
 }

@@ -6,7 +6,8 @@
 // songs and albums both; its songs join MusicBrainz's when they come, without holding them up,
 // and MusicBrainz's albums its users share say so. Each list is then ranked by how close each is
 // to the words (the server's `closeness`). Only the words leave the server, to TMDB,
-// MusicBrainz or slskd.
+// MusicBrainz or slskd; pictures of what isn't here are fetched later, by the server, only with
+// discovery posters or covers of music not in the library on.
 
 import { group } from "/web/forms.js";
 import { SignedOut, api, h, number, plural } from "/web/lib.js";
@@ -77,7 +78,7 @@ export function findPart(page) {
   results.addEventListener("keydown", (event) => move(v, event));
   return group(
     "Add new",
-    h("p", { class: "note" }, `Results appear as you type. Only the words you search for go to ${source}${music ? ", and to Soulseek once you stop typing when slskd is set up: its songs join MusicBrainz's when they come, albums its users share say so, and each list is ranked by how close each is to the words" : ""}${music ? "" : "; posters of titles not here come from TMDB only when that is on under Outside services"}. Adding one puts it on the wanted list at once, as an approved request.`),
+    h("p", { class: "note" }, `Results appear as you type. Only the words you search for go to ${source}${music ? ", and to Soulseek once you stop typing when slskd is set up: its songs join MusicBrainz's when they come, albums its users share say so, and each list is ranked by how close each is to the words" : ""}${music ? "; covers of music not here come from the Cover Art Archive only when that is on under Outside services" : "; posters of titles not here come from TMDB only when that is on under Outside services"}. Adding one puts it on the wanted list at once, as an approved request.`),
     search,
     said,
     results,

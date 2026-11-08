@@ -1427,6 +1427,7 @@ async fn soulseek_marks_musicbrainzs_albums_its_users_share() {
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 }
 mod playlist_imports;
+mod search_covers;
 
 /// A movie or series found carries its summary from the same TMDB search answer: TMDB is asked
 /// nothing more for it, and a blank one comes back as none.

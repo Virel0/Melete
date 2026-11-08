@@ -66,6 +66,15 @@ pub async fn discovery_posters(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_DISCOVERY_POSTERS").await?.as_deref() == Some("on"))
 }
 
+/// Whether covers of music not in the library are offered in music searches
+/// (`MELETE_SEARCH_COVERS`); off by default, and only with MusicBrainz on (`MELETE_MUSICBRAINZ`).
+pub async fn search_covers(pool: &SqlitePool) -> sqlx::Result<bool> {
+    Ok(
+        value(pool, "MELETE_SEARCH_COVERS").await?.as_deref() == Some("on")
+            && value(pool, "MELETE_MUSICBRAINZ").await?.as_deref() == Some("on"),
+    )
+}
+
 /// Whether looking for intros and credits is on (`MELETE_INTRO_DETECTION`); off by default.
 pub async fn intro_detection(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_INTRO_DETECTION").await?.as_deref() == Some("on"))
