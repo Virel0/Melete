@@ -40,14 +40,28 @@ struct RequestState {
     musicbrainz: Option<Arc<musicbrainz::Client>>,
     /// TMDB, and what fetches an approved request's title.
     sources: Sources,
+    /// Wikidata and Commons, for artists' portraits; there only with MusicBrainz on.
+    wikimedia: Option<Arc<crate::wikimedia::Client>>,
 }
 
 /// Asking for things and following one's own requests, for everyone signed in; approving,
-/// declining and the request settings, for admins only.
+/// declining and the request settings, for admins only. Without Wikidata and Commons: the
+/// server's are [`routes_with`].
+#[cfg(test)]
 pub fn routes(
     pool: SqlitePool,
     musicbrainz: Option<Arc<musicbrainz::Client>>,
     sources: Sources,
+) -> Router {
+    routes_with(pool, musicbrainz, sources, None)
+}
+
+/// [`routes`], with Wikidata and Commons for artists' portraits in searches.
+pub fn routes_with(
+    pool: SqlitePool,
+    musicbrainz: Option<Arc<musicbrainz::Client>>,
+    sources: Sources,
+    wikimedia: Option<Arc<crate::wikimedia::Client>>,
 ) -> Router {
     let auth = AppState {
         pool: pool.clone(),
@@ -57,6 +71,7 @@ pub fn routes(
         pool,
         musicbrainz,
         sources,
+        wikimedia,
     };
     let users = Router::new()
         .route("/api/v1/requests", get(list).post(create))

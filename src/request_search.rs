@@ -14,9 +14,11 @@ use crate::want::year_of;
 
 mod art;
 mod close;
+mod found;
 mod soulseek;
 
 pub use close::how_close;
+pub use found::*;
 pub use soulseek::*;
 
 /// Something that can be asked for.
@@ -59,28 +61,16 @@ pub struct Candidate {
     /// only as discovery's posters are, so never sent as it is.
     #[serde(skip)]
     pub tmdb_poster: Option<String>,
+    /// The release group whose cover an album or song not in the library would show
+    /// ([`crate::search_covers`]): an album's own, a song's single's, else its album's.
+    #[serde(skip)]
+    pub cover_group: Option<String>,
+    /// An artist's portrait's author and licence, given with it by the search route ([`Found`]).
+    #[serde(skip)]
+    pub poster_credit: Option<crate::artist_portraits::Credit>,
     /// How close its title and artist are to the words searched, 0 to 100 ([`how_close`]): the
     /// same measure for every source, so results from two of them can be ranked together.
     pub closeness: u8,
-}
-
-/// A result as `GET /requests/search` answers it: the candidate, with its summary.
-#[derive(Debug, Serialize)]
-pub struct Found {
-    #[serde(flatten)]
-    pub candidate: Candidate,
-    /// A movie's or series' summary; None for music, or when TMDB has none.
-    pub overview: Option<String>,
-}
-
-impl From<Candidate> for Found {
-    fn from(candidate: Candidate) -> Self {
-        let overview = candidate.overview.clone();
-        Found {
-            candidate,
-            overview,
-        }
-    }
 }
 
 fn first_artist(credits: &[Credit]) -> Option<(String, String)> {
@@ -267,6 +257,7 @@ async fn albums(
             types.extend(g.primary_type);
             let c = Candidate {
                 kind: "album".into(),
+                cover_group: Some(g.id.clone()),
                 mb_release_group_id: Some(g.id),
                 mb_artist_id: by.as_ref().map(|(id, _)| id.clone()),
                 artist: by.map(|(_, name)| name),
@@ -309,6 +300,7 @@ async fn songs(
             let about: Vec<String> = [album, length].into_iter().flatten().collect();
             let c = Candidate {
                 kind: "song".into(),
+                cover_group: art::cover_group(&r.releases),
                 mb_recording_id: Some(r.id),
                 mb_artist_id: by.as_ref().map(|(id, _)| id.clone()),
                 artist: by.map(|(_, name)| name),

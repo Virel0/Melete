@@ -196,6 +196,10 @@ impl Config {
         {
             anyhow::bail!("MELETE_DISCOVERY_POSTERS={other:?} should be on or off");
         }
+        // Covers of music not in the library: read where they're offered (`settings`).
+        switch(&get, "MELETE_SEARCH_COVERS")?;
+        // Artists' portraits: read where they're offered (`settings`).
+        switch(&get, "MELETE_ARTIST_PORTRAITS")?;
         let trickplay = switch(&get, "MELETE_TRICKPLAY")?;
         check_trickplay_width(&get)?;
         let offline_copies = switch(&get, "MELETE_OFFLINE_COPIES")?;

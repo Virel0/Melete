@@ -15,6 +15,7 @@ mod album_search;
 mod aoide;
 mod api;
 mod arr;
+mod artist_portraits;
 mod artist_search;
 mod auth;
 mod avatars;
@@ -81,6 +82,7 @@ mod rottentomatoes;
 mod rss;
 mod runtime_checks;
 mod search;
+mod search_covers;
 mod search_keys;
 mod search_missing;
 mod secrets;
@@ -113,6 +115,7 @@ mod want;
 mod wanted_edit;
 mod wanted_removed;
 mod ways_in;
+mod wikimedia;
 
 use std::sync::Arc;
 

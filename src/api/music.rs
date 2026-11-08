@@ -5,6 +5,9 @@
 //! An album's cover is the image in its folder, else the picture in a track's tags, else the
 //! Cover Art Archive's for its MusicBrainz release group (fetched once when first asked for,
 //! and only with MusicBrainz matching on). A motion cover is a looping video in its folder.
+//! Covers of music not in the library are served by release group, and artists' portraits by
+//! the artist's MusicBrainz id, only those a search for a request offered
+//! ([`crate::search_covers`], [`crate::artist_portraits`]).
 
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
@@ -32,12 +35,16 @@ use crate::coverart;
 mod albums;
 mod artists;
 mod covers;
+mod portraits;
+mod search_covers;
 mod shuffle;
 mod tracks;
 
 pub(super) use albums::*;
 pub(super) use artists::*;
 use covers::*;
+use portraits::*;
+use search_covers::*;
 use shuffle::*;
 pub(super) use tracks::*;
 
@@ -60,15 +67,30 @@ pub(super) struct MusicState {
     /// Makes those sizes.
     ffmpeg: PathBuf,
     pub(super) coverart: Option<Arc<coverart::Client>>,
+    /// Commons, for artists' portraits; there only with MusicBrainz on.
+    wikimedia: Option<Arc<crate::wikimedia::Client>>,
 }
 
 /// The music browsing routes, for everyone signed in. `covers` is where pictures from tags and
 /// the Cover Art Archive are kept; without `coverart`, the Cover Art Archive isn't asked.
+/// Without Commons: the server's are [`routes_with`].
+#[cfg(test)]
 pub fn routes(
     pool: SqlitePool,
     covers: PathBuf,
     ffmpeg: PathBuf,
     coverart: Option<Arc<coverart::Client>>,
+) -> Router {
+    routes_with(pool, covers, ffmpeg, coverart, None)
+}
+
+/// [`routes`], with Commons for artists' portraits (`wikimedia`; without it, none is fetched).
+pub fn routes_with(
+    pool: SqlitePool,
+    covers: PathBuf,
+    ffmpeg: PathBuf,
+    coverart: Option<Arc<coverart::Client>>,
+    wikimedia: Option<Arc<crate::wikimedia::Client>>,
 ) -> Router {
     let auth = AppState {
         pool: pool.clone(),
@@ -81,6 +103,11 @@ pub fn routes(
         .route("/api/v1/music/albums/{id}", get(album))
         .route("/api/v1/music/albums/{id}/cover", get(cover))
         .route("/api/v1/music/albums/{id}/motion", get(motion))
+        .route(
+            "/api/v1/music/release-groups/{id}/cover",
+            get(release_group_cover),
+        )
+        .route("/api/v1/music/artist-portraits/{id}", get(artist_portrait))
         .route("/api/v1/music/tracks", get(list_tracks))
         .route("/api/v1/music/genres", get(genres))
         .merge(super::music_classical::routes())
@@ -90,6 +117,7 @@ pub fn routes(
             covers,
             ffmpeg,
             coverart,
+            wikimedia,
         })
 }
 

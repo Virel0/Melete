@@ -3,6 +3,7 @@
 use super::*;
 
 mod make_room;
+mod musicbrainz;
 mod trailers;
 
 /// How a setting is entered.
@@ -110,17 +111,7 @@ pub const SERVICES: &[Service] = &[
             ),
         ],
     },
-    Service {
-        key: "musicbrainz",
-        name: "MusicBrainz",
-        about: "Matching music, album covers, and looking up music to request. Album and track names leave the server.",
-        fields: &[field(
-            "MELETE_MUSICBRAINZ",
-            "Match music to MusicBrainz",
-            "One request a second; no account needed.",
-            Input::Toggle { on: "on" },
-        )],
-    },
+    musicbrainz::MUSICBRAINZ,
     Service {
         key: "lyrics",
         name: "Lyrics (LRCLIB)",

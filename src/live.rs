@@ -294,6 +294,11 @@ fn router(
             images: tmdb::Images::new()?,
             tmdb: built.tmdb.clone(),
             coverart: built.coverart.clone(),
+            // Wikimedia, for artists' portraits, comes with MusicBrainz, and only then.
+            wikimedia: match built.musicbrainz {
+                Some(_) => Some(Arc::new(crate::wikimedia::Client::new()?)),
+                None => None,
+            },
             musicbrainz: built.musicbrainz.clone(),
             slskd: built.slskd.clone(),
             stems: fixed.stems_dir.clone(),

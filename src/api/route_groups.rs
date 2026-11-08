@@ -2,13 +2,23 @@
 
 use super::*;
 
+/// MusicBrainz, and Wikidata and Commons beside it for artists' portraits; each there only with
+/// MusicBrainz on.
+pub(super) struct MusicLookups {
+    pub(super) musicbrainz: Option<Arc<crate::musicbrainz::Client>>,
+    pub(super) wikimedia: Option<Arc<crate::wikimedia::Client>>,
+}
+
 /// Music's library, home, recent contexts, pins, collections, likes, mixes, playing, plays and transitions.
 pub(super) fn music_routes(
     router: Router,
     pool: &SqlitePool,
     artwork_dir: &std::path::Path,
     ffmpeg: &std::path::Path,
-    coverart: Option<Arc<crate::coverart::Client>>,
+    (coverart, wikimedia): (
+        Option<Arc<crate::coverart::Client>>,
+        Option<Arc<crate::wikimedia::Client>>,
+    ),
     converter: Arc<crate::music_convert::Converter>,
 ) -> Router {
     router
@@ -21,11 +31,12 @@ pub(super) fn music_routes(
         .merge(music_flags::routes(pool.clone()))
         .merge(music_collections::routes(pool.clone()))
         .merge(music_recent::routes(pool.clone(), coverart.is_some()))
-        .merge(music::routes(
+        .merge(music::routes_with(
             pool.clone(),
             artwork_dir.join("music"),
             ffmpeg.to_path_buf(),
             coverart,
+            wikimedia,
         ))
         .merge(music_play::routes(pool.clone(), converter))
         .merge(music_plays::routes(pool.clone()))
@@ -122,11 +133,15 @@ pub(super) fn wanting_routes(
     router: Router,
     pool: &SqlitePool,
     tmdb: &Option<Arc<tmdb::Client>>,
-    musicbrainz: Option<Arc<crate::musicbrainz::Client>>,
+    music: MusicLookups,
     slskd: &Option<Arc<crate::slskd::Client>>,
     downloads: Option<Arc<crate::downloads::Pipeline>>,
     list_sources: Option<crate::lists::Sources>,
 ) -> Router {
+    let MusicLookups {
+        musicbrainz,
+        wikimedia,
+    } = music;
     router
         .merge(wanted_removed::routes(
             pool.clone(),
@@ -138,7 +153,7 @@ pub(super) fn wanting_routes(
             tmdb.clone(),
             musicbrainz.clone(),
         ))
-        .merge(requests::routes(
+        .merge(requests::routes_with(
             pool.clone(),
             musicbrainz.clone(),
             crate::fulfil::Sources {
@@ -147,6 +162,7 @@ pub(super) fn wanting_routes(
                 pipeline: downloads.clone(),
                 musicbrainz,
             },
+            wikimedia,
         ))
         .merge(artist_search::routes(
             pool.clone(),

@@ -7,7 +7,7 @@ import { SignedOut, announce, api, h, plural } from "/web/lib.js";
 import { follow } from "/web/progress.js";
 import { decide, settings } from "/web/requests-admin.js";
 import { imports } from "/web/requests-imports.js";
-import { KINDS, facts, picture, requestRow } from "/web/requests-row.js";
+import { KINDS, facts, picture, posterCredit, requestRow } from "/web/requests-row.js";
 import { trendingSection } from "/web/trending.js";
 
 export { decide, settings } from "/web/requests-admin.js";
@@ -159,6 +159,7 @@ export function candidateRow(ctx, c) {
       // "Album" again says nothing; "Live Album" does.
       c.detail && c.detail !== KINDS[c.kind] ? h("p", { class: "note" }, c.detail) : null,
       c.overview ? h("p", { class: "candidate-overview", title: c.overview }, c.overview) : null,
+      posterCredit(c),
     ),
     actions,
   );
