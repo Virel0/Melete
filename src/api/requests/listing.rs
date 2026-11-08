@@ -114,7 +114,8 @@ pub(super) async fn search(
 /// movie's or series' poster as discovery gives one: a title Melete knows, or with posters of
 /// titles not in the library on, any listed (and noted as listed). Music not in the library,
 /// with its covers on (and MusicBrainz), gets its release group's cover, offered on the same
-/// terms and fetched only when asked for.
+/// terms and fetched only when asked for; music in a library hidden from the user is not in the
+/// library to them, and gets one just the same.
 async fn pictured(
     state: &RequestState,
     access: &crate::access::Access,
@@ -130,7 +131,7 @@ async fn pictured(
     if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
         let group = seen.cover_group.as_deref();
         let now = crate::db::unix_now();
-        seen.poster = crate::search_covers::offer(&state.pool, access, group, now).await?;
+        seen.poster = crate::search_covers::offer(&state.pool, group, now).await?;
     }
     Ok(seen)
 }

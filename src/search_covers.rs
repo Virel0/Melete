@@ -5,20 +5,20 @@
 //! after they were last listed, at most [`MOST`] remembered. Each is fetched once from the
 //! Cover Art Archive, which learns the release group's id and nothing else, and cached under
 //! that id; housekeeping forgets the rest and deletes their files. Turned off, every one is
-//! forgotten at the next housekeeping and none is served. A user an admin limited to some
-//! libraries isn't given or served the cover of an album in a library hidden from them.
+//! forgotten at the next housekeeping and none is served. An album in a library hidden from a
+//! user is, to them, like any album not in the library, and gets its cover the same way, so
+//! nothing tells them it's there.
 
 use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 
-use crate::access::Access;
-
 /// How long a listed cover is served.
 pub const SERVED_FOR: i64 = 30 * 24 * 3600;
 /// Covers remembered at most; older ones are forgotten first.
 pub const MOST: i64 = 2000;
-/// How long the archive having no cover for a release group is believed without asking again.
+/// How long the archive having no cover for a release group, or failing to give it, is believed
+/// without asking again.
 pub const MISS_FOR: i64 = 24 * 3600;
 
 /// The address a search result gives for `group`'s cover.
@@ -32,37 +32,21 @@ pub fn folder(covers: &Path, group: &str) -> PathBuf {
     covers.join("search").join(group)
 }
 
-/// Whether `group` isn't an album in a library hidden from a user with this access.
-async fn open_to(pool: &SqlitePool, access: &Access, group: &str) -> sqlx::Result<bool> {
-    if !access.limits_libraries() {
-        return Ok(true);
-    }
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT NOT EXISTS (SELECT 1 FROM music_albums a WHERE a.missing_since IS NULL
-             AND ?1 IN (a.mb_release_group_id, a.match_release_group_id) AND NOT {})",
-        access.album_sql("a")
-    )))
-    .bind(group)
-    .fetch_one(pool)
-    .await
-}
-
 /// A search result's cover, for the release group `group`: with the setting on, one the
-/// archive isn't known to lack lately, and that the user may be given, is noted as listed and
-/// its address given. Nothing is fetched here.
+/// archive isn't known to lack (or to have failed on) lately is noted as listed and its address
+/// given. Nothing is fetched here.
 pub async fn offer(
     pool: &SqlitePool,
-    access: &Access,
     group: Option<&str>,
     now: i64,
 ) -> anyhow::Result<Option<String>> {
     let Some(group) = group.filter(|g| crate::library::tags::is_mbid(g)) else {
         return Ok(None);
     };
-    if !crate::settings::search_covers(pool).await? || !open_to(pool, access, group).await? {
+    if !crate::settings::search_covers(pool).await? {
         return Ok(None);
     }
-    let lacking: bool = sqlx::query_scalar(
+    let missed: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM search_covers
              WHERE release_group_id = ? AND missing_at >= ?)",
     )
@@ -70,7 +54,7 @@ pub async fn offer(
     .bind(now - MISS_FOR)
     .fetch_one(pool)
     .await?;
-    if lacking {
+    if missed {
         return Ok(None);
     }
     sqlx::query(
@@ -84,18 +68,13 @@ pub async fn offer(
     Ok(Some(url(group)))
 }
 
-/// Whether the cover route may fetch and serve `group`'s cover to a user with this access: the
-/// setting on, listed in the last 30 days, not lacking one lately, and open to them.
-pub async fn servable_to(
-    pool: &SqlitePool,
-    access: &Access,
-    group: &str,
-    now: i64,
-) -> anyhow::Result<bool> {
+/// Whether the cover route may fetch and serve `group`'s cover: the setting on, listed in the
+/// last 30 days, and not missed lately.
+pub async fn servable(pool: &SqlitePool, group: &str, now: i64) -> anyhow::Result<bool> {
     if !crate::library::tags::is_mbid(group) || !crate::settings::search_covers(pool).await? {
         return Ok(false);
     }
-    let listed: bool = sqlx::query_scalar(
+    Ok(sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM search_covers WHERE release_group_id = ?
              AND listed_at >= ? AND coalesce(missing_at, 0) < ?)",
     )
@@ -103,12 +82,12 @@ pub async fn servable_to(
     .bind(now - SERVED_FOR)
     .bind(now - MISS_FOR)
     .fetch_one(pool)
-    .await?;
-    Ok(listed && open_to(pool, access, group).await?)
+    .await?)
 }
 
-/// Notes that the archive has no front cover for `group`.
-pub async fn lacking(pool: &SqlitePool, group: &str, now: i64) -> sqlx::Result<()> {
+/// Notes that the archive has no front cover for `group`, or failed to give it: neither offered
+/// nor asked for again for [`MISS_FOR`].
+pub async fn missed(pool: &SqlitePool, group: &str, now: i64) -> sqlx::Result<()> {
     sqlx::query("UPDATE search_covers SET missing_at = ? WHERE release_group_id = ?")
         .bind(now)
         .bind(group)

@@ -1,7 +1,7 @@
 //! Covers of music not in the library, served by release group on discovery posters' terms.
 
 use super::*;
-use crate::access::{Access, Restriction, set_restriction};
+use crate::access::{Restriction, set_restriction};
 
 /// A release group the fake archive has a cover for, in no library.
 const ELSEWHERE: &str = "b1392450-0000-4000-8000-000000000000";
@@ -34,7 +34,7 @@ async fn turn(pool: &SqlitePool, on: bool) {
 /// As a search for a request offering it.
 async fn offered(pool: &SqlitePool, group: &str) {
     let now = crate::db::unix_now();
-    let url = crate::search_covers::offer(pool, &Access::everything(), Some(group), now)
+    let url = crate::search_covers::offer(pool, Some(group), now)
         .await
         .unwrap();
     assert_eq!(url, Some(uri(group)));
@@ -84,18 +84,22 @@ async fn only_an_offered_cover_is_fetched_once_and_none_while_off() {
 }
 
 #[tokio::test]
-async fn none_found_is_believed_a_day_and_a_failed_fetch_keeps_nothing() {
+async fn none_found_or_a_failed_fetch_is_believed_a_day_and_keeps_nothing() {
     let (archive, log) = coverart::testing::start().await;
     let f = fixture(Some(Arc::new(archive))).await;
     turn(&f.pool, true).await;
+    let asked = |group: &str| {
+        let log = log.lock().unwrap();
+        log.iter().filter(|l| l.starts_with(group)).count()
+    };
     offered(&f.pool, BARE).await;
     for _ in 0..2 {
         let (status, _) = body(get(&f, &uri(BARE), None).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
-    assert_eq!(log.lock().unwrap().len(), 1, "asked once");
+    assert_eq!(asked(BARE), 1, "asked once");
     let now = crate::db::unix_now();
-    let again = crate::search_covers::offer(&f.pool, &Access::everything(), Some(BARE), now)
+    let again = crate::search_covers::offer(&f.pool, Some(BARE), now)
         .await
         .unwrap();
     assert_eq!(again, None, "a search doesn't offer it again for a while");
@@ -107,6 +111,14 @@ async fn none_found_is_believed_a_day_and_a_failed_fetch_keeps_nothing() {
         let said = String::from_utf8_lossy(&bytes);
         assert!(!said.contains("127.0.0.1"), "{said}");
         assert!(!f.covers.path().join("music/search").join(group).exists());
+        // The failure is believed a day: not asked again, nor offered.
+        let (status, _) = body(get(&f, &uri(group), None).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{group}");
+        assert_eq!(asked(group), 1, "{group} asked once");
+        let again = crate::search_covers::offer(&f.pool, Some(group), now)
+            .await
+            .unwrap();
+        assert_eq!(again, None, "{group}");
     }
 }
 
@@ -135,7 +147,7 @@ async fn sizes_are_made_from_the_kept_cover() {
 }
 
 #[tokio::test]
-async fn an_albums_cover_isnt_served_to_who_may_not_see_its_library() {
+async fn an_album_in_a_hidden_library_is_served_like_one_in_none() {
     let (archive, _) = coverart::testing::start().await;
     let f = fixture(Some(Arc::new(archive))).await;
     turn(&f.pool, true).await;
@@ -150,14 +162,12 @@ async fn an_albums_cover_isnt_served_to_who_may_not_see_its_library() {
         max_age: None,
     };
     set_restriction(&f.pool, user, Some(&none)).await.unwrap();
-    let (status, _) = body(get(&f, &uri(OK_COMPUTER), None).await).await;
-    assert_eq!(
-        status,
-        StatusCode::NOT_FOUND,
-        "an album in a hidden library"
-    );
-    let (status, _) = body(get(&f, &uri(ELSEWHERE), None).await).await;
-    assert_eq!(status, StatusCode::OK, "music in no library");
+    // To a user who may not see its library, OK Computer answers as music in no library does,
+    // so nothing tells them it's there.
+    let hidden = body(get(&f, &uri(OK_COMPUTER), None).await).await;
+    let absent = body(get(&f, &uri(ELSEWHERE), None).await).await;
+    assert_eq!(hidden, absent);
+    assert_eq!(hidden.0, StatusCode::OK);
     set_restriction(&f.pool, user, None).await.unwrap();
     let (status, _) = body(get(&f, &uri(OK_COMPUTER), None).await).await;
     assert_eq!(status, StatusCode::OK);

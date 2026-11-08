@@ -10,18 +10,18 @@ fn no_such_cover() -> ApiError {
 
 pub(super) async fn release_group_cover(
     State(state): State<MusicState>,
-    Extension(current): Extension<CurrentUser>,
     Path(group): Path<String>,
     Query(query): Query<CoverQuery>,
 ) -> Result<Response, ApiError> {
     let size = cover_size(query.size)?;
     let now = crate::db::unix_now();
     // The archive is there only with MusicBrainz on; the id names a folder, and only a real
-    // MusicBrainz id (hex and dashes) is servable.
+    // MusicBrainz id (hex and dashes) is servable. Served alike to everyone signed in: an album
+    // in a library hidden from someone is, to them, like any album not in the library.
     let Some(coverart) = &state.coverart else {
         return Err(no_such_cover());
     };
-    if !crate::search_covers::servable_to(&state.pool, &current.access, &group, now).await? {
+    if !crate::search_covers::servable(&state.pool, &group, now).await? {
         return Err(no_such_cover());
     }
     let dir = crate::search_covers::folder(&state.covers, &group);
@@ -48,8 +48,8 @@ pub(super) async fn release_group_cover(
     image(jpeg)
 }
 
-/// The archive's front cover for `group`; when it has none, that's noted so searches stop
-/// offering it for a while. Why a fetch failed is logged, never sent.
+/// The archive's front cover for `group`. When it has none, or fails, that's noted, so it isn't
+/// offered or asked for again for a while. Why a fetch failed is logged, never sent.
 async fn fetch(
     pool: &SqlitePool,
     coverart: &coverart::Client,
@@ -59,7 +59,7 @@ async fn fetch(
     match coverart.front(group).await {
         Ok(coverart::Fetched::Image { bytes, .. }) if image_type(&bytes).is_some() => Ok(bytes),
         Ok(_) => {
-            crate::search_covers::lacking(pool, group, now).await?;
+            crate::search_covers::missed(pool, group, now).await?;
             Err(no_such_cover())
         }
         Err(err) => {
@@ -67,6 +67,7 @@ async fn fetch(
                 error = format!("{err:#}"),
                 "couldn't fetch a search result's cover"
             );
+            crate::search_covers::missed(pool, group, now).await?;
             Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "the Cover Art Archive didn't give the cover",
