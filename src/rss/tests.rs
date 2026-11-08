@@ -520,6 +520,73 @@ async fn releases_numbered_from_the_first_episode_find_their_episode() {
 }
 
 #[tokio::test]
+async fn an_episode_on_disk_under_the_order_followed_isnt_grabbed_again() {
+    let pool = setup().await;
+    crate::episode_order::testing::some_anime_in_seasons(&pool).await;
+    sqlx::query(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+         INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation, match_tmdb_id)
+         VALUES (1, 1, 'Some Anime', 'Some Anime', 1, 100);
+         INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id, season, episode,
+             first_seen_generation, seen_generation)
+         VALUES (1, 'Some Anime/Some.Anime.S02E06.2160p.BluRay.REMUX.HEVC-GRP.mkv', 1, 0, 1, 2, 6, 1, 1);
+         INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+             quality_profile, source, added_at, series_id, original_language)
+         VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 1, 'en');
+         INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 1, 1), (1, 2, 1), (1, 3, 1);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let feed = indexer(&pool, "[5000]").await;
+    feed.lock().unwrap().0 = releases(&[
+        // TMDB's own order would make it S01E30, with nothing on disk; the group's S02E06 is.
+        ("[SubsPlease] Some Anime - 30 (1080p) [ABCD1234].mkv", ""),
+        ("[SubsPlease] Some Anime - 31 (1080p) [ABCD1234].mkv", ""),
+    ]);
+    let (url, _fake) = testing::start().await;
+    let pipeline = Pipeline {
+        deluge: crate::deluge::Client::new(&url, Secret::for_tests("pw")).unwrap(),
+        fetcher: downloads::Fetcher::new().unwrap(),
+        seedbox: None,
+    };
+    let client = torznab::Client::new().unwrap();
+    let view = sync(&pool, &client, None, Some(&pipeline))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut places: Vec<Place> = view
+        .searches
+        .iter()
+        .map(|s| (s.wanted_movie_id, s.wanted_series_id, s.season, s.episode))
+        .collect();
+    places.sort();
+    assert_eq!(
+        places,
+        [
+            (None, Some(1), Some(2), Some(6)),
+            (None, Some(1), Some(2), Some(7))
+        ]
+    );
+    // Judged against the remux there, and so not grabbed again.
+    let verdicts = verdicts(&pool, &view).await;
+    assert_eq!(
+        verdicts[0],
+        (
+            "[SubsPlease] Some Anime - 30 (1080p) [ABCD1234].mkv".into(),
+            false,
+            Some("the existing file's quality (Remux-2160p) is better".into())
+        )
+    );
+    assert!(verdicts[1].1, "{verdicts:?}");
+    assert!(
+        view.grabbed.iter().all(|g| !g.title.contains("- 30")),
+        "{:?}",
+        view.grabbed
+    );
+}
+
+#[tokio::test]
 async fn looks_out_for_wanted_albums_and_grabs_the_best_once() {
     let pool = setup().await;
     let preset = music_profiles::lossless(&pool).await.unwrap();

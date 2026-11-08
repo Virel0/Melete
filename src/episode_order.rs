@@ -118,3 +118,31 @@ fn needs_another(files: &Seasons, tmdb: &Seasons) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod testing {
+    use sqlx::SqlitePool;
+
+    /// "Some Anime" (TMDB 100, TVDB 200) as TMDB lists it, one season of 59 episodes (TMDB ids
+    /// 1001 to 1059), following its "Seasons" group of 24, 23 and 12.
+    pub(crate) async fn some_anime_in_seasons(pool: &SqlitePool) {
+        sqlx::query(
+            "INSERT INTO tmdb_series (tmdb_id, tvdb_id, name, fetched_at) VALUES (100, 200, 'Some Anime', 0);
+             INSERT INTO tmdb_episodes (series_tmdb_id, season, episode, tmdb_id)
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 59)
+                 SELECT 100, 1, i, 1000 + i FROM n;
+             INSERT INTO tmdb_episode_groups (id, series_tmdb_id, name, kind, fetched_at)
+                 VALUES ('aaaa', 100, 'Seasons', 6, 0);
+             INSERT INTO tmdb_episode_group_episodes (group_id, season, episode, episode_tmdb_id)
+                 SELECT 'aaaa', CASE WHEN episode <= 24 THEN 1 WHEN episode <= 47 THEN 2 ELSE 3 END,
+                        CASE WHEN episode <= 24 THEN episode WHEN episode <= 47 THEN episode - 24
+                             ELSE episode - 47 END, tmdb_id
+                 FROM tmdb_episodes WHERE series_tmdb_id = 100;
+             INSERT INTO series_orders (series_tmdb_id, group_id, chosen_by, chosen_at)
+                 VALUES (100, 'aaaa', 'auto', 0);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
