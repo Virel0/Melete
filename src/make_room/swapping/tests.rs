@@ -180,3 +180,56 @@ async fn a_series_is_swapped_one_episode_file_at_a_time_specials_aside() {
             .unwrap();
     assert_eq!(rows, [(71, 1, 1), (72, 1, 2)]);
 }
+
+/// A swap waiting while its series changes episode order searches for the episode its file is
+/// now, not the number it had when the swap started.
+#[tokio::test]
+async fn a_waiting_swap_follows_its_file_into_a_new_episode_order() {
+    let pool = setup().await;
+    sqlx::raw_sql(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (2, 'anime', 'shows', '/a');
+         INSERT INTO tmdb_series (tmdb_id, tvdb_id, name, fetched_at) VALUES (100, 200, 'Some Anime', 0);
+         INSERT INTO tmdb_episodes (series_tmdb_id, season, episode, tmdb_id)
+             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 59)
+             SELECT 100, 1, i, 1000 + i FROM n;
+         INSERT INTO tmdb_episode_groups (id, series_tmdb_id, name, fetched_at)
+             VALUES ('aaaa', 100, 'Seasons', 0);
+         INSERT INTO tmdb_episode_group_episodes (group_id, season, episode, episode_tmdb_id)
+             SELECT 'aaaa', iif(episode <= 24, 1, iif(episode <= 47, 2, 3)),
+                    iif(episode <= 24, episode, iif(episode <= 47, episode - 24, episode - 47)),
+                    tmdb_id
+             FROM tmdb_episodes WHERE series_tmdb_id = 100;
+         INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation, match_tmdb_id)
+             VALUES (7, 2, 'Some Anime', 'Some Anime', 1, 100);
+         INSERT INTO media_files (id, library_id, rel_path, size, modified_at,
+             first_seen_generation, seen_generation, series_id, absolute_episode)
+             VALUES (71, 2, 'Some Anime/Some Anime - 30.mkv', 1, 1, 1, 1, 7, 30);
+         INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type, source,
+             added_at, series_id)
+             VALUES (1, 200, 100, 'Some Anime', 1, 'anime', 'manual', 0, 7);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    crate::library::absolute::number(&pool).await.unwrap();
+    assert_eq!(start(&pool, true, 7).await.unwrap(), Ok(1));
+    let numbered = |w: Option<Waiting>| w.map(|w| (w.season, w.episode));
+    assert_eq!(
+        numbered(next_waiting(&pool).await.unwrap()),
+        Some((Some(1), Some(30)))
+    );
+    let now = crate::db::unix_now();
+    crate::episode_order::choose(
+        &pool,
+        100,
+        Some("aaaa"),
+        crate::episode_order::ChosenBy::Auto,
+        now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        numbered(next_waiting(&pool).await.unwrap()),
+        Some((Some(2), Some(6)))
+    );
+}

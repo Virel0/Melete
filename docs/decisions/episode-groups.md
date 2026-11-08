@@ -19,9 +19,21 @@ renumbers, in the same transaction and through each episode's TMDB id, what's ke
 and episode number: monitoring (a season of the new order is monitored when any of its episodes
 was, and those that weren't are left out on their own), downloads, searches and history that
 name an episode; those naming only a season are left as they are, and so are numbers the old
-order didn't have. Files keep their names and ids, so watch progress and watched state, kept per
-file, stay with them; files numbered from the first episode are counted again. It's recorded in
-the series' history (`reordered`). What leaves the server: the series' TMDB id and the groups'
+order didn't have. Seasons the new order doesn't have stop being monitored. What names an episode
+the new order leaves out loses its season and episode, which would be another episode's, and
+keeps the episode's TMDB id (`left_out_tmdb_id`); an order that has the episode again numbers it
+again. A switch waits (nothing changes, and Melete tries again next run) while a download is on
+its way for such an episode, or a season pack for a season the new order makes up of other
+episodes. A series' search result is grabbed only when it was searched for after the series
+last changed order (searches are kept as of when they started), so nothing judged in another
+order is grabbed. Files keep their names and ids, so watch progress and watched state, kept per
+file, stay with them; files numbered from the first episode are counted again with the switch,
+and one whose number has no place in the new order loses it. A swap from Make room searches for
+its file's episode as numbered when it runs. A season asked for by TMDB's number (a request)
+is, for a series following a group, the group's seasons holding that season's
+episodes: those are listed, monitored and searched for, its other episodes there left out on
+their own. It's recorded in the series' history (`reordered`). What leaves the server: the
+series' TMDB id and the groups'
 ids, to TMDB, which already has them; it stops with MELETE_TMDB_TOKEN unset, when cached groups
 still serve.
 

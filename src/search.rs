@@ -189,6 +189,7 @@ async fn search_with(
     skip: &[i64],
     narrow: Narrow<'_>,
 ) -> anyhow::Result<Result<i64, Refused>> {
+    let started = unix_now();
     let Some(wanted) = load_wanted(pool, target).await? else {
         return Ok(Err(Refused::NotWanted));
     };
@@ -276,7 +277,16 @@ async fn search_with(
         }
     }
     let summary: Vec<&IndexerOutcome> = outcomes.iter().flatten().map(|(o, _)| o).collect();
-    let search_id = store(pool, target, profile.profile.id, None, &summary, &decided).await?;
+    let search_id = store(
+        pool,
+        target,
+        profile.profile.id,
+        None,
+        &summary,
+        &decided,
+        started,
+    )
+    .await?;
     Ok(Ok(search_id))
 }
 
@@ -425,7 +435,9 @@ pub(crate) async fn decide_all<'a>(
     Ok(decided)
 }
 
-/// Stores a search (from an RSS sync, with its id) with its decisions; returns its id.
+/// Stores a search (from an RSS sync, with its id) with its decisions; returns its id. It's kept
+/// as searched when it `started`, before its target was worked out: a series' result is grabbed
+/// only when the series hasn't changed episode order since.
 pub(crate) async fn store(
     pool: &SqlitePool,
     target: Target,
@@ -433,6 +445,7 @@ pub(crate) async fn store(
     rss_sync_id: Option<i64>,
     summary: &[&IndexerOutcome],
     decided: &[(i64, &torznab::Item, Decision)],
+    started: i64,
 ) -> anyhow::Result<i64> {
     let now = unix_now();
     let mut tx = pool.begin().await?;
@@ -458,7 +471,7 @@ pub(crate) async fn store(
     .bind(season)
     .bind(episode)
     .bind(profile_id)
-    .bind(now)
+    .bind(started.min(now))
     .bind(serde_json::to_string(&summary)?)
     .bind(rss_sync_id)
     .fetch_one(&mut *tx)

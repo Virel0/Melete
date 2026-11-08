@@ -5,6 +5,12 @@
 -- When the series' episode groups were last asked for; asked again once its metadata is newer.
 ALTER TABLE tmdb_series ADD COLUMN episode_groups_fetched_at INTEGER;
 
+-- A download, search or history event naming an episode the order the series follows now leaves
+-- out: its season and episode are NULL (no number in that order is its episode's), and this is
+-- the episode it named, by TMDB's id, so a later order that has it numbers it again.
+ALTER TABLE downloads ADD COLUMN left_out_tmdb_id INTEGER;
+ALTER TABLE searches ADD COLUMN left_out_tmdb_id INTEGER;
+
 CREATE TABLE tmdb_episode_groups (
     -- TMDB's id for the group.
     id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 64),
@@ -83,7 +89,9 @@ CREATE TABLE title_events (
     download_id INTEGER REFERENCES downloads (id) ON DELETE SET NULL,
     -- The release or file involved.
     release TEXT,
-    message TEXT
+    message TEXT,
+    -- As on downloads and searches: the episode named, while the order followed leaves it out.
+    left_out_tmdb_id INTEGER
 ) STRICT;
 INSERT INTO title_events (id, at, kind, service, key, title, season, episode, search_id,
                           download_id, release, message)

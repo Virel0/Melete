@@ -150,29 +150,55 @@ pub async fn decide(pool: &SqlitePool) -> anyhow::Result<usize> {
     .await?;
     let mut switched = 0;
     for tmdb_id in series {
-        let mut conn = pool.acquire().await?;
-        let files = file_episodes(&mut conn, tmdb_id).await?;
-        let tmdb = tmdb_seasons(&mut conn, tmdb_id).await?;
-        if !needs_another(&files, &tmdb) {
-            continue;
+        // One series' trouble doesn't stop the rest.
+        match decide_one(pool, tmdb_id).await {
+            Ok(true) => switched += 1,
+            Ok(false) => {}
+            Err(err) => tracing::warn!(
+                tmdb_id,
+                error = format!("{err:#}"),
+                "couldn't choose a series' episode order; will try again next run"
+            ),
         }
-        let groups = groups(&mut conn, tmdb_id).await?;
-        drop(conn);
-        let fitting: Vec<&Group> = groups.iter().filter(|g| g.seasons == files).collect();
-        let [group] = fitting[..] else {
-            continue;
-        };
-        let now = crate::db::unix_now();
-        if choose(pool, tmdb_id, Some(&group.id), ChosenBy::Auto, now).await? == Chosen::Done {
+    }
+    Ok(switched)
+}
+
+/// Switches one series to the group its files fit exactly, when exactly one does; whether it did.
+async fn decide_one(pool: &SqlitePool, tmdb_id: i64) -> anyhow::Result<bool> {
+    let mut conn = pool.acquire().await?;
+    let files = file_episodes(&mut conn, tmdb_id).await?;
+    let tmdb = tmdb_seasons(&mut conn, tmdb_id).await?;
+    if !needs_another(&files, &tmdb) {
+        return Ok(false);
+    }
+    let groups = groups(&mut conn, tmdb_id).await?;
+    drop(conn);
+    let fitting: Vec<&Group> = groups.iter().filter(|g| g.seasons == files).collect();
+    let [group] = fitting[..] else {
+        return Ok(false);
+    };
+    let now = crate::db::unix_now();
+    match choose(pool, tmdb_id, Some(&group.id), ChosenBy::Auto, now).await? {
+        Chosen::Done => {
             tracing::info!(
                 tmdb_id,
                 group = group.name,
                 "a series follows a TMDB episode group that fits its files"
             );
-            switched += 1;
+            Ok(true)
         }
+        Chosen::Busy((season, episode)) => {
+            tracing::info!(
+                tmdb_id,
+                season,
+                episode,
+                "a series waits to follow the episode group its files fit: a download is on its way"
+            );
+            Ok(false)
+        }
+        Chosen::NoSuchGroup | Chosen::EarlierStands => Ok(false),
     }
-    Ok(switched)
 }
 
 #[cfg(test)]
