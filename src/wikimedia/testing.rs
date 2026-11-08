@@ -16,7 +16,8 @@ pub const BARE_ITEM: &str = "Q2";
 pub const FAILING_ITEM: &str = "Q3";
 /// An item whose picture is larger than 10 MiB.
 pub const LARGE_ITEM: &str = "Q4";
-/// An item Wikidata's answer for redirects to another host.
+/// An item Wikidata's answer for redirects, to [`ITEM`]'s answer on the fake's own plain-http
+/// address: followed, it finds [`FILE`]; Wikimedia's host rules refuse it.
 pub const MOVED_ITEM: &str = "Q5";
 /// [`ITEM`]'s image.
 pub const FILE: &str = "Radiohead in concert.jpg";
@@ -76,9 +77,10 @@ fn claims(item: &str) -> Response {
         ITEM => FILE,
         FAILING_ITEM => "Failing.jpg",
         LARGE_ITEM => "Large.jpg",
+        // To the fake itself, where [`ITEM`]'s claims answer: followed, it gives [`FILE`].
         MOVED_ITEM => {
-            let to = [(header::LOCATION, "http://127.0.0.1:9/w/api.php")];
-            return (StatusCode::FOUND, to).into_response();
+            let to = "/w/api.php?action=wbgetclaims&entity=Q44190&property=P18&format=json";
+            return (StatusCode::FOUND, [(header::LOCATION, to)]).into_response();
         }
         _ => return json!({"claims": {}}).to_string().into_response(),
     };
@@ -120,6 +122,9 @@ async fn picture(State((log, _)): State<Fake>, Path(name): Path<String>) -> Resp
     let mut bytes = JPEG.to_vec();
     if name == "large.jpg" {
         bytes.resize(super::MAX_PICTURE + 1, 0);
+    } else if name == "garbled.jpg" {
+        // Said to be an image, but isn't one.
+        bytes = b"not a picture".to_vec();
     }
     ([(header::CONTENT_TYPE, "image/jpeg")], bytes).into_response()
 }

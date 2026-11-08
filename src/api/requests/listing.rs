@@ -117,8 +117,10 @@ pub(super) async fn search(
 /// movie's or series' poster as discovery gives one: a title Melete knows, or with posters of
 /// titles not in the library on, any listed (and noted as listed). Music not in the library,
 /// with its covers on (and MusicBrainz), gets its release group's cover, offered on the same
-/// terms and fetched only when asked for. An artist, with portraits on, gets its portrait from
-/// Commons with its credit, looked up now when it isn't known and `lookups` has some left.
+/// terms and fetched only when asked for; music in a library hidden from the user is not in the
+/// library to them, and gets one just the same. An artist, with portraits on, gets its portrait
+/// from Commons with its credit, looked up now when it isn't known and `lookups` has some left;
+/// one only in libraries hidden from the user gets it just the same.
 async fn pictured(
     state: &RequestState,
     access: &crate::access::Access,
@@ -135,7 +137,7 @@ async fn pictured(
     let now = crate::db::unix_now();
     if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
         let group = seen.cover_group.as_deref();
-        seen.poster = crate::search_covers::offer(&state.pool, access, group, now).await?;
+        seen.poster = crate::search_covers::offer(&state.pool, group, now).await?;
     }
     if seen.kind == "artist"
         && let (Some(musicbrainz), Some(wikimedia)) = (&state.musicbrainz, &state.wikimedia)
@@ -146,8 +148,7 @@ async fn pictured(
         };
         let artist = seen.mb_artist_id.as_deref();
         let offered =
-            crate::artist_portraits::offer(&state.pool, &services, access, artist, lookups, now)
-                .await?;
+            crate::artist_portraits::offer(&state.pool, &services, artist, lookups, now).await?;
         (seen.poster, seen.poster_credit) = offered.unzip();
     }
     Ok(seen)

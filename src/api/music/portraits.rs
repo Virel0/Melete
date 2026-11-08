@@ -10,19 +10,18 @@ fn no_portrait() -> ApiError {
 
 pub(super) async fn artist_portrait(
     State(state): State<MusicState>,
-    Extension(current): Extension<CurrentUser>,
     Path(artist): Path<String>,
     Query(query): Query<CoverQuery>,
 ) -> Result<Response, ApiError> {
     let size = cover_size(query.size)?;
     let now = crate::db::unix_now();
     // Commons is there only with MusicBrainz on; the id names a folder, and only a real
-    // MusicBrainz id (hex and dashes) is servable.
+    // MusicBrainz id (hex and dashes) is servable. Served alike to everyone signed in: an
+    // artist only in libraries hidden from someone is, to them, like any other.
     let Some(wikimedia) = &state.wikimedia else {
         return Err(no_portrait());
     };
-    let picture =
-        crate::artist_portraits::servable_to(&state.pool, &current.access, &artist, now).await?;
+    let picture = crate::artist_portraits::servable(&state.pool, &artist, now).await?;
     let Some(picture) = picture else {
         return Err(no_portrait());
     };
@@ -36,7 +35,7 @@ pub(super) async fn artist_portrait(
     let bytes = match tokio::fs::read(&original).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            let bytes = fetch(wikimedia, &picture).await?;
+            let bytes = fetch(&state.pool, wikimedia, &artist, &picture, now).await?;
             // An earlier picture of theirs, if the portrait changed, goes.
             let dir = crate::artist_portraits::folder(&state.covers, &artist);
             let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -52,16 +51,27 @@ pub(super) async fn artist_portrait(
     image(jpeg)
 }
 
-/// The picture from upload.wikimedia.org. Why a fetch failed is logged, never sent.
-async fn fetch(wikimedia: &crate::wikimedia::Client, picture: &str) -> Result<Vec<u8>, ApiError> {
+/// The picture from upload.wikimedia.org. When it fails, or isn't an image, that's noted, so it
+/// isn't offered or asked for again for a while. Why a fetch failed is logged, never sent.
+async fn fetch(
+    pool: &SqlitePool,
+    wikimedia: &crate::wikimedia::Client,
+    artist: &str,
+    picture: &str,
+    now: i64,
+) -> Result<Vec<u8>, ApiError> {
     match wikimedia.download(picture).await {
         Ok((bytes, _)) if image_type(&bytes).is_some() => Ok(bytes),
-        Ok(_) => Err(no_portrait()),
+        Ok(_) => {
+            crate::artist_portraits::failed(pool, artist, now).await?;
+            Err(no_portrait())
+        }
         Err(err) => {
             tracing::warn!(
                 error = format!("{err:#}"),
                 "couldn't fetch an artist's portrait"
             );
+            crate::artist_portraits::failed(pool, artist, now).await?;
             Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "Wikimedia Commons didn't give the portrait",

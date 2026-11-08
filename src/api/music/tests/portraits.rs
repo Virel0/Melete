@@ -100,23 +100,44 @@ async fn only_a_listed_portrait_is_fetched_once_and_none_while_off() {
 }
 
 #[tokio::test]
-async fn a_failed_large_or_elsewhere_picture_keeps_nothing() {
-    let (f, app, _, picture) = with_commons(true).await;
+async fn a_failed_large_garbled_or_elsewhere_picture_keeps_nothing_and_is_believed_a_day() {
+    let (f, app, log, picture) = with_commons(true).await;
     let large = picture.replace("500px.jpg", "large.jpg");
+    let garbled = picture.replace("500px.jpg", "garbled.jpg");
     let artists = [
-        ("00000000-0000-4000-8000-000000000001", large.as_str()),
+        (
+            "00000000-0000-4000-8000-000000000001",
+            large.as_str(),
+            StatusCode::BAD_GATEWAY,
+        ),
         (
             "00000000-0000-4000-8000-000000000002",
             "http://127.0.0.1:9/x.jpg",
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            "00000000-0000-4000-8000-000000000003",
+            garbled.as_str(),
+            StatusCode::NOT_FOUND,
         ),
     ];
-    for (artist, picture) in artists {
+    for (artist, picture, first) in artists {
         listed(&f.pool, artist, picture).await;
         let (status, bytes) = ask(&app, &f.token, &uri(artist)).await;
-        assert_eq!(status, StatusCode::BAD_GATEWAY, "{artist}");
+        assert_eq!(status, first, "{artist}");
         assert!(!String::from_utf8_lossy(&bytes).contains("127.0.0.1"));
         let folder = crate::artist_portraits::folder(&f.covers.path().join("music"), artist);
         assert!(!folder.exists());
+        // Believed a day: not fetched again until then.
+        let asked = log.lock().unwrap().len();
+        let (status, _) = ask(&app, &f.token, &uri(artist)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{artist}");
+        assert_eq!(log.lock().unwrap().len(), asked, "{artist} not asked again");
+        let now = crate::db::unix_now();
+        let in_a_day = crate::artist_portraits::servable(&f.pool, artist, now + 24 * 3600 + 1)
+            .await
+            .unwrap();
+        assert!(in_a_day.is_some(), "{artist} tried again after a day");
     }
 
     // As the real client: a picture not on upload.wikimedia.org isn't fetched.
@@ -149,10 +170,12 @@ async fn sizes_are_made_from_the_kept_portrait() {
 }
 
 #[tokio::test]
-async fn an_artist_only_in_a_hidden_library_isnt_served_to_who_may_not_see_it() {
+async fn an_artist_only_in_a_hidden_library_is_served_like_one_in_none() {
     let (f, app, _, picture) = with_commons(true).await;
     // The fixture's Radiohead has albums in its one library.
     listed(&f.pool, RADIOHEAD, &picture).await;
+    let elsewhere = "00000000-0000-4000-8000-000000000003";
+    listed(&f.pool, elsewhere, &picture).await;
     let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
         .fetch_one(&f.pool)
         .await
@@ -162,12 +185,12 @@ async fn an_artist_only_in_a_hidden_library_isnt_served_to_who_may_not_see_it() 
         max_age: None,
     };
     set_restriction(&f.pool, user, Some(&none)).await.unwrap();
-    let (status, _) = ask(&app, &f.token, &uri(RADIOHEAD)).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    let elsewhere = "00000000-0000-4000-8000-000000000003";
-    listed(&f.pool, elsewhere, &picture).await;
-    let (status, _) = ask(&app, &f.token, &uri(elsewhere)).await;
-    assert_eq!(status, StatusCode::OK, "an artist in no library");
+    // To a user who may not see its library, Radiohead answers as an artist in no library does,
+    // so nothing tells them it's there.
+    let hidden = ask(&app, &f.token, &uri(RADIOHEAD)).await;
+    let absent = ask(&app, &f.token, &uri(elsewhere)).await;
+    assert_eq!(hidden, absent);
+    assert_eq!(hidden.0, StatusCode::OK);
     set_restriction(&f.pool, user, None).await.unwrap();
     let (status, _) = ask(&app, &f.token, &uri(RADIOHEAD)).await;
     assert_eq!(status, StatusCode::OK);

@@ -10,15 +10,15 @@
 //! Kept to discovery posters' terms ([`crate::discover_posters`]): only artists a search listed
 //! are served, for 30 days after they were last listed, at most [`MOST`] remembered;
 //! housekeeping forgets the rest and deletes their files, and every one when the setting is off.
-//! A user an admin limited to some libraries isn't given or served the portrait of an artist
-//! who's only in libraries hidden from them.
+//! When Commons fails to give a picture, it's neither offered nor asked for again for
+//! [`FAIL_FOR`]. An artist only in libraries hidden from a user is, to them, like any other
+//! artist, and gets a portrait the same way, so nothing tells them it's there.
 
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sqlx::SqlitePool;
 
-use crate::access::Access;
 use crate::{musicbrainz, wikimedia};
 
 /// How long a listed portrait is served.
@@ -29,6 +29,8 @@ pub const MOST: i64 = 2000;
 pub const FOUND_FOR: i64 = 30 * 24 * 3600;
 /// How long an artist having no portrait is believed without asking again.
 pub const NONE_FOR: i64 = 7 * 24 * 3600;
+/// How long Commons failing to give a picture is believed without asking again.
+pub const FAIL_FOR: i64 = 24 * 3600;
 /// Artists one search looks up at most: the closest few, each a MusicBrainz request a second.
 pub const LOOKUPS: usize = 3;
 
@@ -71,28 +73,6 @@ pub fn cached(covers: &Path, artist: &str, picture: &str) -> PathBuf {
     folder(covers, artist).join(format!("{hex}.img"))
 }
 
-/// Whether `artist` isn't an artist only in libraries hidden from a user with this access (as
-/// the music routes see an artist: by an album or a track crediting them).
-async fn open_to(pool: &SqlitePool, access: &Access, artist: &str) -> sqlx::Result<bool> {
-    if !access.limits_libraries() {
-        return Ok(true);
-    }
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT NOT EXISTS (SELECT 1 FROM music_artists ar WHERE ar.mb_artist_id = ?1)
-             OR EXISTS (SELECT 1 FROM music_artists ar WHERE ar.mb_artist_id = ?1
-                 AND (EXISTS (SELECT 1 FROM music_albums a WHERE a.artist_id = ar.id
-                         AND a.missing_since IS NULL AND {})
-                      OR EXISTS (SELECT 1 FROM music_track_artists ta
-                         JOIN music_tracks t ON t.id = ta.track_id
-                         WHERE ta.artist_id = ar.id AND t.missing_since IS NULL AND {})))",
-        access.album_sql("a"),
-        access.track_sql("t")
-    )))
-    .bind(artist)
-    .fetch_one(pool)
-    .await
-}
-
 #[derive(sqlx::FromRow)]
 struct Known {
     looked_up_at: i64,
@@ -132,7 +112,7 @@ async fn keep(pool: &SqlitePool, artist: &str, found: &Found, now: i64) -> sqlx:
              author, licence, licence_url, source_url)
          VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT (mb_artist_id) DO UPDATE SET looked_up_at = excluded.looked_up_at,
-             file = excluded.file, picture_url = excluded.picture_url,
+             file = excluded.file, picture_url = excluded.picture_url, failed_at = NULL,
              author = excluded.author, licence = excluded.licence,
              licence_url = excluded.licence_url, source_url = excluded.source_url",
     )
@@ -191,12 +171,11 @@ async fn known(
     }
 }
 
-/// An artist result's portrait: with the setting on, for an artist the user may be given, what
-/// is [`known`] of it, which notes it as listed. Its address and credit, or none.
+/// An artist result's portrait: with the setting on, what is [`known`] of it, which notes it as
+/// listed. Its address and credit, or none (also for a day after Commons failed to give it).
 pub async fn offer(
     pool: &SqlitePool,
     services: &Services<'_>,
-    access: &Access,
     artist: Option<&str>,
     lookups: &mut usize,
     now: i64,
@@ -204,10 +183,7 @@ pub async fn offer(
     let Some(artist) = artist else {
         return Ok(None);
     };
-    if !crate::library::tags::is_mbid(artist)
-        || !crate::settings::artist_portraits(pool).await?
-        || !open_to(pool, access, artist).await?
-    {
+    if !crate::library::tags::is_mbid(artist) || !crate::settings::artist_portraits(pool).await? {
         return Ok(None);
     }
     if !known(pool, services, artist, lookups, now).await? {
@@ -220,39 +196,43 @@ pub async fn offer(
         .await?;
     let credit: Option<Credit> = sqlx::query_as(
         "SELECT author, licence, licence_url, source_url FROM artist_portraits
-         WHERE mb_artist_id = ? AND file IS NOT NULL",
+         WHERE mb_artist_id = ? AND file IS NOT NULL AND coalesce(failed_at, 0) < ?",
     )
     .bind(artist)
+    .bind(now - FAIL_FOR)
     .fetch_optional(pool)
     .await?;
     Ok(credit.map(|credit| (url(artist), credit)))
 }
 
 /// The picture's address on upload.wikimedia.org, when the portrait route may fetch and serve
-/// `artist`'s portrait to a user with this access: the setting on, listed in the last 30 days,
-/// with a portrait, and open to them.
-pub async fn servable_to(
-    pool: &SqlitePool,
-    access: &Access,
-    artist: &str,
-    now: i64,
-) -> anyhow::Result<Option<String>> {
+/// `artist`'s portrait: the setting on, listed in the last 30 days, with a portrait, and not
+/// failed in the last day.
+pub async fn servable(pool: &SqlitePool, artist: &str, now: i64) -> anyhow::Result<Option<String>> {
     if !crate::library::tags::is_mbid(artist) || !crate::settings::artist_portraits(pool).await? {
         return Ok(None);
     }
-    let picture: Option<String> = sqlx::query_scalar(
+    Ok(sqlx::query_scalar(
         "SELECT picture_url FROM artist_portraits WHERE mb_artist_id = ? AND listed_at >= ?
-             AND file IS NOT NULL",
+             AND file IS NOT NULL AND coalesce(failed_at, 0) < ?",
     )
     .bind(artist)
     .bind(now - SERVED_FOR)
+    .bind(now - FAIL_FOR)
     .fetch_optional(pool)
     .await?
-    .flatten();
-    Ok(match picture {
-        Some(picture) if open_to(pool, access, artist).await? => Some(picture),
-        _ => None,
-    })
+    .flatten())
+}
+
+/// Notes that Commons failed to give `artist`'s picture (an error, or something not an image):
+/// neither offered nor asked for again for [`FAIL_FOR`].
+pub async fn failed(pool: &SqlitePool, artist: &str, now: i64) -> sqlx::Result<()> {
+    sqlx::query("UPDATE artist_portraits SET failed_at = ? WHERE mb_artist_id = ?")
+        .bind(now)
+        .bind(artist)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 async fn forget_files(covers: &Path, artist: &str) -> std::io::Result<()> {

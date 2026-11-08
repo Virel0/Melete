@@ -88,11 +88,20 @@ async fn refuses_failures_large_pictures_and_other_hosts_without_saying_where() 
         "{too_large:#}"
     );
 
+    // The redirect leads somewhere that answers: followed, it finds the image.
+    let followed = client.image_of(testing::MOVED_ITEM).await.unwrap();
+    assert_eq!(followed.as_deref(), Some(testing::FILE));
+
     // As the real client: a redirect off Wikimedia isn't followed, a picture not on
     // upload.wikimedia.org isn't given or fetched, and no error says where it pointed.
     let (strict, log) = testing::start_with(false).await;
     let moved = strict.image_of(testing::MOVED_ITEM).await.unwrap_err();
     assert!(!format!("{moved:#}").contains("127.0.0.1"), "{moved:#}");
+    assert_eq!(
+        log.lock().unwrap().as_slice(),
+        ["wikidata Q5"],
+        "the redirect wasn't followed"
+    );
     assert_eq!(strict.picture(testing::FILE).await.unwrap(), None);
     let elsewhere = strict.download(&large.url).await.unwrap_err();
     assert!(

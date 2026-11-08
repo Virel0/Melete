@@ -51,7 +51,7 @@ async fn music_not_in_the_library_gets_its_cover_only_when_on() {
 }
 
 #[tokio::test]
-async fn an_album_in_a_hidden_library_gets_no_cover_from_outside() {
+async fn an_album_in_a_hidden_library_looks_like_one_in_none() {
     let pool = db::open_in_memory().await;
     let alice = token(&pool, "alice", false).await;
     let kid = token(&pool, "kid", false).await;
@@ -82,12 +82,23 @@ async fn an_album_in_a_hidden_library_gets_no_cover_from_outside() {
     let (mb, _) = crate::musicbrainz::testing::start(0).await;
     let app = routes(pool.clone(), Some(Arc::new(mb)), Sources::default());
 
-    let (_, found) = send(&app, "GET", ALBUMS, &kid, None).await;
-    assert_eq!(found[0]["in_library"], json!(false));
-    assert_eq!(first_poster(&found), Value::Null);
-    assert!(noted(&pool).await.is_empty());
     // Who may see it gets the library's own cover, and nothing is offered from outside.
     let (_, found) = send(&app, "GET", ALBUMS, &alice, None).await;
     assert_eq!(first_poster(&found), json!("/api/v1/music/albums/7/cover"));
     assert!(noted(&pool).await.is_empty());
+
+    // To the kid it's like any album not in the library: the archive's cover, offered alike.
+    let (_, hidden) = send(&app, "GET", ALBUMS, &kid, None).await;
+    assert_eq!(hidden[0]["in_library"], json!(false));
+    assert_eq!(
+        first_poster(&hidden),
+        json!(format!("/api/v1/music/release-groups/{OK_COMPUTER}/cover"))
+    );
+    assert_eq!(noted(&pool).await, [OK_COMPUTER]);
+    sqlx::query("UPDATE music_albums SET missing_since = 1 WHERE id = 7")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, absent) = send(&app, "GET", ALBUMS, &kid, None).await;
+    assert_eq!(hidden, absent, "nothing tells them it's there");
 }
