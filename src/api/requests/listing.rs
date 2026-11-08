@@ -95,6 +95,8 @@ pub(super) async fn search(
         crate::ratings::fetch_unknown(&state.pool, tmdb, &titles).await?;
     }
     let mut shown = Vec::with_capacity(found.len());
+    // Artists looked up for portraits in this search, closest first.
+    let mut lookups = crate::artist_portraits::LOOKUPS;
     for candidate in found {
         let keep = match candidate.tmdb_id {
             Some(id) => {
@@ -104,7 +106,8 @@ pub(super) async fn search(
             None => true,
         };
         if keep {
-            shown.push(pictured(&state, &current.access, candidate).await?.into());
+            let seen = pictured(&state, &current.access, candidate, &mut lookups).await?;
+            shown.push(seen.into());
         }
     }
     Ok(Json(shown))
@@ -114,11 +117,13 @@ pub(super) async fn search(
 /// movie's or series' poster as discovery gives one: a title Melete knows, or with posters of
 /// titles not in the library on, any listed (and noted as listed). Music not in the library,
 /// with its covers on (and MusicBrainz), gets its release group's cover, offered on the same
-/// terms and fetched only when asked for.
+/// terms and fetched only when asked for. An artist, with portraits on, gets its portrait from
+/// Commons with its credit, looked up now when it isn't known and `lookups` has some left.
 async fn pictured(
     state: &RequestState,
     access: &crate::access::Access,
     mut candidate: Candidate,
+    lookups: &mut usize,
 ) -> Result<Candidate, ApiError> {
     if let Some(id) = candidate.tmdb_id {
         let tv = candidate.kind == "series";
@@ -127,10 +132,23 @@ async fn pictured(
         candidate.poster = url.as_str().map(str::to_owned);
     }
     let mut seen = request_search::as_seen_by(&state.pool, access, candidate).await?;
+    let now = crate::db::unix_now();
     if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
         let group = seen.cover_group.as_deref();
-        let now = crate::db::unix_now();
         seen.poster = crate::search_covers::offer(&state.pool, access, group, now).await?;
+    }
+    if seen.kind == "artist"
+        && let (Some(musicbrainz), Some(wikimedia)) = (&state.musicbrainz, &state.wikimedia)
+    {
+        let services = crate::artist_portraits::Services {
+            musicbrainz,
+            wikimedia,
+        };
+        let artist = seen.mb_artist_id.as_deref();
+        let offered =
+            crate::artist_portraits::offer(&state.pool, &services, access, artist, lookups, now)
+                .await?;
+        (seen.poster, seen.poster_credit) = offered.unzip();
     }
     Ok(seen)
 }

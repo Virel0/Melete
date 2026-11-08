@@ -7,6 +7,7 @@
 import { SignedOut, announce, api, h } from "/web/lib.js";
 import { stateLabel } from "/web/page-parts.js";
 import { art } from "/web/cards.js";
+import { posterCredit } from "/web/requests-row.js";
 
 // Forms for results with no id of their own (songs found on Soulseek), told apart by number.
 let unnamed = 0;
@@ -41,6 +42,7 @@ export function candidateRow(page, c) {
       // Where it was found, when a list mixes two sources.
       c.source ? [" ", h("span", { class: "badge" }, c.source)] : null,
       c.detail ? h("p", { class: "note" }, c.detail) : null,
+      posterCredit(c),
       // Who shares an album on Soulseek, filled in when Soulseek answers.
       c.kind === "album" ? h("p", { class: "note find-shared", hidden: true }) : null,
       marks.length ? h("p", { class: "marks" }, marks) : null,

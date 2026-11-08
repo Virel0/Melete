@@ -1,0 +1,295 @@
+//! Artists' portraits for the artist results of a search for a request, from Wikimedia
+//! Commons: on only with `MELETE_ARTIST_PORTRAITS` (and MusicBrainz). An artist's MusicBrainz
+//! url relations give its Wikidata item (asked of MusicBrainz through its client, one request a
+//! second), the item's image (P18) is the portrait, and Commons gives it at one width with its
+//! author and licence, which are kept with it and given with it. A search looks up at most
+//! [`LOOKUPS`] artists it doesn't know yet; what it found, or that there's none, is kept, so the
+//! next search for them asks nothing (a none is believed for [`NONE_FOR`]). The picture itself is
+//! fetched once by the portrait route, when first asked for, and cached.
+//!
+//! Kept to discovery posters' terms ([`crate::discover_posters`]): only artists a search listed
+//! are served, for 30 days after they were last listed, at most [`MOST`] remembered;
+//! housekeeping forgets the rest and deletes their files, and every one when the setting is off.
+//! A user an admin limited to some libraries isn't given or served the portrait of an artist
+//! who's only in libraries hidden from them.
+
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+use sqlx::SqlitePool;
+
+use crate::access::Access;
+use crate::{musicbrainz, wikimedia};
+
+/// How long a listed portrait is served.
+pub const SERVED_FOR: i64 = 30 * 24 * 3600;
+/// Artists remembered at most; older ones are forgotten first.
+pub const MOST: i64 = 2000;
+/// How long a portrait found is kept before it's looked up again.
+pub const FOUND_FOR: i64 = 30 * 24 * 3600;
+/// How long an artist having no portrait is believed without asking again.
+pub const NONE_FOR: i64 = 7 * 24 * 3600;
+/// Artists one search looks up at most: the closest few, each a MusicBrainz request a second.
+pub const LOOKUPS: usize = 3;
+
+/// What a portrait's licence asks to be shown with it, as Commons gives it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, sqlx::FromRow)]
+pub struct Credit {
+    /// Who made it, as plain text.
+    pub author: Option<String>,
+    /// Its licence's short name, such as "CC BY-SA 4.0".
+    pub licence: Option<String>,
+    /// Where the licence is written.
+    pub licence_url: Option<String>,
+    /// The picture's page on Commons.
+    pub source_url: Option<String>,
+}
+
+/// The outside services a lookup asks, both there only with MusicBrainz on.
+pub struct Services<'a> {
+    pub musicbrainz: &'a musicbrainz::Client,
+    pub wikimedia: &'a wikimedia::Client,
+}
+
+/// The address a search result gives for `artist`'s portrait.
+pub fn url(artist: &str) -> String {
+    format!("/api/v1/music/artist-portraits/{artist}")
+}
+
+/// Where `artist`'s portraits are kept, under the music covers' folder. `artist` must be a
+/// MusicBrainz id, which can't climb out of it.
+pub fn folder(covers: &Path, artist: &str) -> PathBuf {
+    covers.join("portraits").join(artist)
+}
+
+/// The file the picture at `picture` is kept in: named for its address, so a portrait that
+/// changed is fetched afresh.
+pub fn cached(covers: &Path, artist: &str, picture: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let key = Sha256::digest(picture.as_bytes());
+    let hex: String = key[..12].iter().map(|b| format!("{b:02x}")).collect();
+    folder(covers, artist).join(format!("{hex}.img"))
+}
+
+/// Whether `artist` isn't an artist only in libraries hidden from a user with this access (as
+/// the music routes see an artist: by an album or a track crediting them).
+async fn open_to(pool: &SqlitePool, access: &Access, artist: &str) -> sqlx::Result<bool> {
+    if !access.limits_libraries() {
+        return Ok(true);
+    }
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT NOT EXISTS (SELECT 1 FROM music_artists ar WHERE ar.mb_artist_id = ?1)
+             OR EXISTS (SELECT 1 FROM music_artists ar WHERE ar.mb_artist_id = ?1
+                 AND (EXISTS (SELECT 1 FROM music_albums a WHERE a.artist_id = ar.id
+                         AND a.missing_since IS NULL AND {})
+                      OR EXISTS (SELECT 1 FROM music_track_artists ta
+                         JOIN music_tracks t ON t.id = ta.track_id
+                         WHERE ta.artist_id = ar.id AND t.missing_since IS NULL AND {})))",
+        access.album_sql("a"),
+        access.track_sql("t")
+    )))
+    .bind(artist)
+    .fetch_one(pool)
+    .await
+}
+
+#[derive(sqlx::FromRow)]
+struct Known {
+    looked_up_at: i64,
+    file: Option<String>,
+}
+
+/// What a lookup found: the Commons file and its picture, or none.
+type Found = Option<(String, wikimedia::Picture)>;
+
+/// Looks `artist` up: MusicBrainz's url relations for its Wikidata item, the item's image, and
+/// Commons for that file.
+async fn look_up(services: &Services<'_>, artist: &str) -> anyhow::Result<Found> {
+    let item = match services.musicbrainz.artist_wikidata(artist).await {
+        Ok(item) => item,
+        Err(musicbrainz::Error::NotFound) => None,
+        Err(err) => anyhow::bail!("{err}"),
+    };
+    let Some(item) = item else {
+        return Ok(None);
+    };
+    let Some(file) = services.wikimedia.image_of(&item).await? else {
+        return Ok(None);
+    };
+    Ok(services
+        .wikimedia
+        .picture(&file)
+        .await?
+        .map(|picture| (file, picture)))
+}
+
+/// Keeps what a lookup found, or that there's none.
+async fn keep(pool: &SqlitePool, artist: &str, found: &Found, now: i64) -> sqlx::Result<()> {
+    let file = found.as_ref().map(|(file, _)| file.clone());
+    let picture = found.as_ref().map(|(_, p)| p);
+    sqlx::query(
+        "INSERT INTO artist_portraits (mb_artist_id, listed_at, looked_up_at, file, picture_url,
+             author, licence, licence_url, source_url)
+         VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT (mb_artist_id) DO UPDATE SET looked_up_at = excluded.looked_up_at,
+             file = excluded.file, picture_url = excluded.picture_url,
+             author = excluded.author, licence = excluded.licence,
+             licence_url = excluded.licence_url, source_url = excluded.source_url",
+    )
+    .bind(artist)
+    .bind(now)
+    .bind(file)
+    .bind(picture.map(|p| &p.url))
+    .bind(picture.and_then(|p| p.author.as_ref()))
+    .bind(picture.and_then(|p| p.licence.as_ref()))
+    .bind(picture.and_then(|p| p.licence_url.as_ref()))
+    .bind(picture.and_then(|p| p.page.as_ref()))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Whether what `artist` has is known: kept from before, or looked up now when it isn't known
+/// or is out of date and `lookups` has some left (an out-of-date one is used when none are).
+/// A failed lookup is logged and kept nowhere, so a later search asks again.
+async fn known(
+    pool: &SqlitePool,
+    services: &Services<'_>,
+    artist: &str,
+    lookups: &mut usize,
+    now: i64,
+) -> anyhow::Result<bool> {
+    let known: Option<Known> =
+        sqlx::query_as("SELECT looked_up_at, file FROM artist_portraits WHERE mb_artist_id = ?")
+            .bind(artist)
+            .fetch_optional(pool)
+            .await?;
+    let fresh = known.as_ref().is_some_and(|k| {
+        let kept_for = if k.file.is_some() {
+            FOUND_FOR
+        } else {
+            NONE_FOR
+        };
+        k.looked_up_at >= now - kept_for
+    });
+    if fresh || *lookups == 0 {
+        return Ok(known.is_some());
+    }
+    *lookups -= 1;
+    match look_up(services, artist).await {
+        Ok(found) => {
+            keep(pool, artist, &found, now).await?;
+            Ok(true)
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "couldn't look up an artist's portrait"
+            );
+            Ok(false)
+        }
+    }
+}
+
+/// An artist result's portrait: with the setting on, for an artist the user may be given, what
+/// is [`known`] of it, which notes it as listed. Its address and credit, or none.
+pub async fn offer(
+    pool: &SqlitePool,
+    services: &Services<'_>,
+    access: &Access,
+    artist: Option<&str>,
+    lookups: &mut usize,
+    now: i64,
+) -> anyhow::Result<Option<(String, Credit)>> {
+    let Some(artist) = artist else {
+        return Ok(None);
+    };
+    if !crate::library::tags::is_mbid(artist)
+        || !crate::settings::artist_portraits(pool).await?
+        || !open_to(pool, access, artist).await?
+    {
+        return Ok(None);
+    }
+    if !known(pool, services, artist, lookups, now).await? {
+        return Ok(None);
+    }
+    sqlx::query("UPDATE artist_portraits SET listed_at = ? WHERE mb_artist_id = ?")
+        .bind(now)
+        .bind(artist)
+        .execute(pool)
+        .await?;
+    let credit: Option<Credit> = sqlx::query_as(
+        "SELECT author, licence, licence_url, source_url FROM artist_portraits
+         WHERE mb_artist_id = ? AND file IS NOT NULL",
+    )
+    .bind(artist)
+    .fetch_optional(pool)
+    .await?;
+    Ok(credit.map(|credit| (url(artist), credit)))
+}
+
+/// The picture's address on upload.wikimedia.org, when the portrait route may fetch and serve
+/// `artist`'s portrait to a user with this access: the setting on, listed in the last 30 days,
+/// with a portrait, and open to them.
+pub async fn servable_to(
+    pool: &SqlitePool,
+    access: &Access,
+    artist: &str,
+    now: i64,
+) -> anyhow::Result<Option<String>> {
+    if !crate::library::tags::is_mbid(artist) || !crate::settings::artist_portraits(pool).await? {
+        return Ok(None);
+    }
+    let picture: Option<String> = sqlx::query_scalar(
+        "SELECT picture_url FROM artist_portraits WHERE mb_artist_id = ? AND listed_at >= ?
+             AND file IS NOT NULL",
+    )
+    .bind(artist)
+    .bind(now - SERVED_FOR)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    Ok(match picture {
+        Some(picture) if open_to(pool, access, artist).await? => Some(picture),
+        _ => None,
+    })
+}
+
+async fn forget_files(covers: &Path, artist: &str) -> std::io::Result<()> {
+    if !crate::library::tags::is_mbid(artist) {
+        return Ok(());
+    }
+    match tokio::fs::remove_dir_all(folder(covers, artist)).await {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+        _ => Ok(()),
+    }
+}
+
+/// Forgets artists past their time, beyond [`MOST`], or all of them when the setting is off,
+/// and deletes their cached files (under `covers`, the music covers' folder). How many were
+/// forgotten.
+pub async fn prune(pool: &SqlitePool, covers: &Path, now: i64) -> anyhow::Result<usize> {
+    let on = crate::settings::artist_portraits(pool).await?;
+    let gone: Vec<String> = sqlx::query_scalar(
+        "SELECT mb_artist_id FROM artist_portraits
+         WHERE NOT ?1 OR listed_at < ?2 OR mb_artist_id NOT IN (
+             SELECT mb_artist_id FROM artist_portraits
+             ORDER BY listed_at DESC, mb_artist_id LIMIT ?3)",
+    )
+    .bind(on)
+    .bind(now - SERVED_FOR)
+    .bind(MOST)
+    .fetch_all(pool)
+    .await?;
+    for artist in &gone {
+        sqlx::query("DELETE FROM artist_portraits WHERE mb_artist_id = ?")
+            .bind(artist)
+            .execute(pool)
+            .await?;
+        forget_files(covers, artist).await?;
+    }
+    Ok(gone.len())
+}
+
+#[cfg(test)]
+mod tests;

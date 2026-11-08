@@ -123,8 +123,8 @@ pub(super) async fn settle_upgrades(pool: &sqlx::SqlitePool) {
     }
 }
 
-/// Forgets discovery posters, covers of music not in the library and diagnostics reports past
-/// their time.
+/// Forgets discovery posters, covers of music not in the library, artists' portraits and
+/// diagnostics reports past their time.
 pub(super) async fn forget_old(pool: &sqlx::SqlitePool, artwork_dir: &std::path::Path) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -148,6 +148,14 @@ pub(super) async fn forget_old(pool: &sqlx::SqlitePool, artwork_dir: &std::path:
         Err(err) => tracing::warn!(
             error = format!("{err:#}"),
             "couldn't forget covers of music not in the library"
+        ),
+    }
+    match crate::artist_portraits::prune(pool, &artwork_dir.join("music"), now).await {
+        Ok(forgotten) if forgotten > 0 => tracing::info!(forgotten, "forgot artists' portraits"),
+        Ok(_) => {}
+        Err(err) => tracing::warn!(
+            error = format!("{err:#}"),
+            "couldn't forget artists' portraits"
         ),
     }
     match diagnostics::prune(pool, now).await {
