@@ -5715,6 +5715,39 @@
         }
       }
     },
+    "/api/v1/music/artist-portraits/{id}": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "An artist's portrait",
+        "description": "Use the `poster` a search for an artist to request gives (`GET /api/v1/requests/search`); only those are served, and show its `poster_credit` with it. With artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on), an artist a search listed with a portrait is served for 30 days after it was last listed (2000 at most remembered): its Wikidata item's image from Wikimedia Commons, 500 pixels wide (or less), fetched once by the server from upload.wikimedia.org and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served alike to everyone signed in. When Commons fails to give the picture, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "The artist's MusicBrainz id.", "schema": {"type": "string", "format": "uuid"}},
+          {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the portrait as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
+        ],
+        "responses": {
+          "200": {
+            "description": "The image",
+            "content": {
+              "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+              "image/png": {"schema": {"type": "string", "format": "binary"}},
+              "image/webp": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "Not one a search listed lately with a portrait, artists' portraits are off, or Commons failed to give the picture in the last day",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "Wikimedia failed, or its picture was over 10 MiB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/tracks": {
       "get": {
         "tags": ["Music"],
@@ -18438,6 +18471,7 @@
           "wanted",
           "requested",
           "poster",
+          "poster_credit",
           "closeness"
         ],
         "properties": {
@@ -18474,7 +18508,19 @@
           },
           "poster": {
             "type": ["string", "null"],
-            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover when it's in a library you may see. An album or song not in the library has one only with covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on): its release group's front cover from the Cover Art Archive (a song's single's, else its album's), served on discovery posters' terms (`GET /api/v1/music/release-groups/{id}/cover`) and fetched once by the server when first asked for, so the archive sees only the release group's id. An album or song in a library hidden from you is not in the library to you, and gets one the same way. None when the archive was found to have none, or failed to give it, in the last day. Artists have none."
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover when it's in a library you may see. An album or song not in the library has one only with covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on): its release group's front cover from the Cover Art Archive (a song's single's, else its album's), served on discovery posters' terms (`GET /api/v1/music/release-groups/{id}/cover`) and fetched once by the server when first asked for, so the archive sees only the release group's id. An album or song in a library hidden from you is not in the library to you, and gets one the same way. None when the archive was found to have none, or failed to give it, in the last day. An artist has one only with artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on): its Wikidata item's image from Wikimedia Commons, served on the same terms (`GET /api/v1/music/artist-portraits/{id}`), with `poster_credit`. A search looks up at most three artists it doesn't know yet, closest first (MusicBrainz for the artist's Wikidata link, wikidata.org for the item's image, Commons for that file), and keeps what it found, or that there's none (believed for a week), so later searches ask nothing; the others have none until a search looks them up. An artist only in libraries hidden from you gets one the same way as any other. None for a day after Commons failed to give its picture."
+          },
+          "poster_credit": {
+            "type": ["object", "null"],
+            "description": "An artist's portrait's credit, from Wikimedia Commons, which its licence may ask to be shown with it; null without a portrait.",
+            "required": ["author", "licence", "licence_url", "source_url"],
+            "properties": {
+              "author": {"type": ["string", "null"], "description": "Who made it, as plain text."},
+              "licence": {"type": ["string", "null"], "description": "Its licence's short name, such as `CC BY-SA 4.0` or `Public domain`."},
+              "licence_url": {"type": ["string", "null"], "description": "Where the licence is written."},
+              "source_url": {"type": ["string", "null"], "description": "The picture's page on Wikimedia Commons."}
+            },
+            "additionalProperties": false
           },
           "closeness": {
             "type": "integer",

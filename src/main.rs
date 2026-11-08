@@ -15,6 +15,7 @@ mod album_search;
 mod aoide;
 mod api;
 mod arr;
+mod artist_portraits;
 mod artist_search;
 mod auth;
 mod avatars;
@@ -113,6 +114,7 @@ mod want;
 mod wanted_edit;
 mod wanted_removed;
 mod ways_in;
+mod wikimedia;
 
 use std::sync::Arc;
 

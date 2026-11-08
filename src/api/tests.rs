@@ -318,6 +318,7 @@ mod openapi {
             images,
             tmdb,
             coverart: None,
+            wikimedia: None,
             musicbrainz,
             slskd: None,
             stems: None,
@@ -364,7 +365,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 378);
+        assert_eq!(checked, 379);
     }
 
     /// The response's fields are exactly the schema's.
@@ -969,6 +970,7 @@ mod openapi {
                 images: tmdb::Images::with_base("http://127.0.0.1:9".into()).unwrap(),
                 tmdb: None,
                 coverart: None,
+                wikimedia: None,
                 musicbrainz: None,
                 slskd: None,
                 stems: None,
@@ -1053,6 +1055,7 @@ mod openapi {
                 images: tmdb::Images::with_base("http://127.0.0.1:9".into()).unwrap(),
                 tmdb: None,
                 coverart: None,
+                wikimedia: None,
                 musicbrainz: None,
                 slskd: None,
                 stems: None,

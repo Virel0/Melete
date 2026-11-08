@@ -31,6 +31,25 @@ export function picture(r) {
   return frame;
 }
 
+// An artist's portrait's credit, from Wikimedia Commons, whose licences ask for it to be shown
+// with the picture: "Portrait: Some One, CC BY-SA 4.0, Wikimedia Commons", the licence and
+// Commons linked when their pages are given. Nothing when there's no portrait.
+export function posterCredit(r) {
+  const credit = r.poster_credit;
+  if (!credit) return null;
+  const link = (href, text) =>
+    href && /^https?:\/\//.test(href) ? h("a", { href, target: "_blank", rel: "noopener noreferrer" }, text) : text;
+  return h(
+    "p",
+    { class: "note" },
+    "Portrait: ",
+    credit.author ?? "author not given",
+    credit.licence ? [", ", link(credit.licence_url, credit.licence)] : null,
+    ", ",
+    link(credit.source_url, "Wikimedia Commons"),
+  );
+}
+
 // A moment as "2 days ago", the date and time in full on hover.
 function lately(unix) {
   return h("span", { title: when(unix) }, ago(unix));

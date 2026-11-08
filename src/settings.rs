@@ -75,6 +75,15 @@ pub async fn search_covers(pool: &SqlitePool) -> sqlx::Result<bool> {
     )
 }
 
+/// Whether artists' portraits from Wikimedia Commons are offered in music searches
+/// (`MELETE_ARTIST_PORTRAITS`); off by default, and only with MusicBrainz on.
+pub async fn artist_portraits(pool: &SqlitePool) -> sqlx::Result<bool> {
+    Ok(
+        value(pool, "MELETE_ARTIST_PORTRAITS").await?.as_deref() == Some("on")
+            && value(pool, "MELETE_MUSICBRAINZ").await?.as_deref() == Some("on"),
+    )
+}
+
 /// Whether looking for intros and credits is on (`MELETE_INTRO_DETECTION`); off by default.
 pub async fn intro_detection(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_INTRO_DETECTION").await?.as_deref() == Some("on"))
