@@ -1048,3 +1048,6 @@ async fn albums_carry_their_release_groups_types_from_the_match() {
     let (_, album) = json_of(&f, "/api/v1/music/albums/3").await;
     assert_eq!(album["secondary_types"], json!(["Live"]));
 }
+
+mod portraits;
+mod search_covers;

@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 mod answers;
 mod finding;
+mod links;
 mod moved;
 mod releases;
 
@@ -448,6 +449,9 @@ pub mod testing {
         }
     }
 
+    /// An artist search's second Radiohead, a tribute act, with no url relations.
+    pub const TRIBUTE_ACT: &str = "0a0b0c0d-1e2f-4a5b-8c6d-7e8f9a0b1c2d";
+
     /// A 301 to `location`.
     fn redirect(location: String) -> axum::response::Response {
         let header = [(axum::http::header::LOCATION, location)];
@@ -537,10 +541,15 @@ pub mod testing {
             .route(
                 "/artist/{id}",
                 axum::routing::get(
-                    |State((log, _)): State<Fake>, Path(id): Path<String>| async move {
+                    |State((log, _)): State<Fake>, Path(id): Path<String>, RawQuery(query): RawQuery| async move {
                         log.lock().unwrap().push(format!("artist {id}"));
                         if let Some(location) = moved("artist", &id) {
                             return redirect(location);
+                        }
+                        // Url relations: Radiohead's Wikidata item and homepage; the tribute
+                        // act has none.
+                        if query.is_some_and(|q| q.contains("url-rels")) {
+                            return super::links::fake_url_relations(&id);
                         }
                         if id != super::testing::RADIOHEAD {
                             return (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned()).into_response();

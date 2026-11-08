@@ -95,25 +95,63 @@ pub(super) async fn search(
         crate::ratings::fetch_unknown(&state.pool, tmdb, &titles).await?;
     }
     let mut shown = Vec::with_capacity(found.len());
-    for mut candidate in found {
-        let tv = candidate.kind == "series";
+    // Artists looked up for portraits in this search, closest first.
+    let mut lookups = crate::artist_portraits::LOOKUPS;
+    for candidate in found {
         let keep = match candidate.tmdb_id {
-            Some(id) => current.access.shows_tmdb(&state.pool, tv, id).await?,
+            Some(id) => {
+                let tv = candidate.kind == "series";
+                current.access.shows_tmdb(&state.pool, tv, id).await?
+            }
             None => true,
         };
-        // A movie's or series' poster as discovery gives one: a title Melete knows, or with
-        // posters of titles not in the library on, any listed (and noted as listed).
-        if keep && let Some(id) = candidate.tmdb_id {
-            let path = candidate.tmdb_poster.as_deref();
-            let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
-            candidate.poster = url.as_str().map(str::to_owned);
-        }
         if keep {
-            let seen = request_search::as_seen_by(&state.pool, &current.access, candidate).await?;
+            let seen = pictured(&state, &current.access, candidate, &mut lookups).await?;
             shown.push(seen.into());
         }
     }
     Ok(Json(shown))
+}
+
+/// A result as the user is shown it ([`request_search::as_seen_by`]), with its picture. A
+/// movie's or series' poster as discovery gives one: a title Melete knows, or with posters of
+/// titles not in the library on, any listed (and noted as listed). Music not in the library,
+/// with its covers on (and MusicBrainz), gets its release group's cover, offered on the same
+/// terms and fetched only when asked for; music in a library hidden from the user is not in the
+/// library to them, and gets one just the same. An artist, with portraits on, gets its portrait
+/// from Commons with its credit, looked up now when it isn't known and `lookups` has some left;
+/// one only in libraries hidden from the user gets it just the same.
+async fn pictured(
+    state: &RequestState,
+    access: &crate::access::Access,
+    mut candidate: Candidate,
+    lookups: &mut usize,
+) -> Result<Candidate, ApiError> {
+    if let Some(id) = candidate.tmdb_id {
+        let tv = candidate.kind == "series";
+        let path = candidate.tmdb_poster.as_deref();
+        let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
+        candidate.poster = url.as_str().map(str::to_owned);
+    }
+    let mut seen = request_search::as_seen_by(&state.pool, access, candidate).await?;
+    let now = crate::db::unix_now();
+    if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
+        let group = seen.cover_group.as_deref();
+        seen.poster = crate::search_covers::offer(&state.pool, group, now).await?;
+    }
+    if seen.kind == "artist"
+        && let (Some(musicbrainz), Some(wikimedia)) = (&state.musicbrainz, &state.wikimedia)
+    {
+        let services = crate::artist_portraits::Services {
+            musicbrainz,
+            wikimedia,
+        };
+        let artist = seen.mb_artist_id.as_deref();
+        let offered =
+            crate::artist_portraits::offer(&state.pool, &services, artist, lookups, now).await?;
+        (seen.poster, seen.poster_credit) = offered.unzip();
+    }
+    Ok(seen)
 }
 
 #[derive(Deserialize)]

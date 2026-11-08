@@ -118,6 +118,8 @@ pub struct Outside {
     pub tmdb: Option<Arc<tmdb::Client>>,
     /// The Cover Art Archive, for album covers; on with MusicBrainz matching.
     pub coverart: Option<Arc<crate::coverart::Client>>,
+    /// Wikidata and Commons, for artists' portraits in music searches; on with MusicBrainz.
+    pub wikimedia: Option<Arc<crate::wikimedia::Client>>,
     /// MusicBrainz, shared with the background matching, for matching albums by hand.
     pub musicbrainz: Option<Arc<crate::musicbrainz::Client>>,
     /// slskd, for searching Soulseek; on when it's set up.
@@ -193,6 +195,7 @@ pub fn server_with(
         images,
         tmdb,
         coverart,
+        wikimedia,
         musicbrainz,
         slskd,
         stems: stems_dir,
@@ -224,7 +227,8 @@ pub fn server_with(
     // One limiter for every password check, so guesses add up wherever they're made.
     let limiter = kept.limiter.clone();
     let router = app_kept(pool.clone(), kept);
-    let router = music_routes(router, &pool, &artwork_dir, &ffmpeg, coverart, converter);
+    let archives = (coverart, wikimedia.clone());
+    let router = music_routes(router, &pool, &artwork_dir, &ffmpeg, archives, converter);
     let router =
         lyrics_matching_and_aoide(router, &pool, data_dir, lyrics, translator, &musicbrainz);
     let router = router.merge(watch_home::routes_with_ai(
@@ -257,7 +261,10 @@ pub fn server_with(
         router,
         &pool,
         &tmdb,
-        musicbrainz,
+        MusicLookups {
+            musicbrainz,
+            wikimedia,
+        },
         &slskd,
         downloads,
         list_sources,

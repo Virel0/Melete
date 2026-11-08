@@ -78,7 +78,19 @@ static RESIZING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 #[derive(Deserialize)]
 pub(super) struct CoverQuery {
     /// One of [`COVER_SIZES`]' widths; leave out for the cover as it is.
-    size: Option<u32>,
+    pub(super) size: Option<u32>,
+}
+
+/// The size asked for as one of the known ones, so nothing the caller sent names a file.
+pub(super) fn cover_size(asked: Option<u32>) -> Result<Option<(u32, &'static str)>, ApiError> {
+    let Some(asked) = asked else {
+        return Ok(None);
+    };
+    COVER_SIZES
+        .into_iter()
+        .find(|(width, _)| *width == asked)
+        .map(Some)
+        .ok_or_else(|| bad_request("size is 160, 400, 600 or 800"))
 }
 
 /// An album's cover as found: a file in its folder, or bytes from a track's tags or the Cover
@@ -95,16 +107,7 @@ pub(super) async fn cover(
     Query(query): Query<CoverQuery>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    // The size as one of the known ones, so nothing the caller sent names a file.
-    let size = match query.size {
-        None => None,
-        Some(asked) => Some(
-            COVER_SIZES
-                .into_iter()
-                .find(|(width, _)| *width == asked)
-                .ok_or_else(|| bad_request("size is 160, 400, 600 or 800"))?,
-        ),
-    };
+    let size = cover_size(query.size)?;
     if !current.access.sees_album(&state.pool, id).await? {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such album"));
     }
@@ -139,11 +142,22 @@ async fn sized(
         Found::File { path, .. } => tokio::fs::read(&path).await.map_err(|_| no_cover())?,
         Found::Bytes { bytes, .. } => bytes,
     };
+    let jpeg = resized(state, &bytes, width).await?;
+    keep(&dir, &cached, &jpeg).await;
+    image(jpeg)
+}
+
+/// A cover as a JPEG `width` pixels wide at most (never larger than it is), a few at a time.
+pub(super) async fn resized(
+    state: &MusicState,
+    bytes: &[u8],
+    width: u32,
+) -> Result<Vec<u8>, ApiError> {
     let _turn = RESIZING
         .acquire()
         .await
         .map_err(|err| anyhow::anyhow!(err))?;
-    let jpeg = crate::api::local_artwork::resize(&state.ffmpeg, &bytes, width)
+    crate::api::local_artwork::resize(&state.ffmpeg, bytes, width)
         .await
         .map_err(|err| {
             tracing::warn!(
@@ -151,9 +165,7 @@ async fn sized(
                 "couldn't make a cover at a size"
             );
             no_cover()
-        })?;
-    keep(&dir, &cached, &jpeg).await;
-    image(jpeg)
+        })
 }
 
 /// The album's cover: the image in its folder, else a picture in a track's tags, else the Cover
