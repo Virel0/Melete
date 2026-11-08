@@ -7,6 +7,195 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-08
+
+### Added
+
+- Play next and Play last for a whole album on its page, and a More button on album cards
+  with the album's actions: Play, Shuffle, Play next, Play last, Start radio and Add to
+  playlist.
+- Artists' portraits from Wikimedia Commons in searches for music to request, behind
+  `MELETE_ARTIST_PORTRAITS` (Settings → Outside services → MusicBrainz; off by default, needs
+  MusicBrainz on). An artist's `poster` in `GET /requests/search` is its Wikidata item's image,
+  found through its MusicBrainz url relations, with its author, licence and Commons page in the
+  new `poster_credit`; served from `GET /music/artist-portraits/{id}` (at the album covers'
+  sizes) on discovery posters' terms. A search looks up at most three artists it doesn't know
+  yet and keeps what it found, or that there's none, so later searches ask nothing. The web's
+  search results show the credit under the picture.
+- Ask for something's movie and series results show each title's summary under its name,
+  clipped to three lines, and so do the search page's titles not in the library. `GET
+  /requests/search` carries it as `overview`, from the same TMDB search answer that found the
+  title, so nothing more is asked of TMDB.
+- Sound extras on the web, under Your account → Listening and kept by the browser: a ten-band
+  equaliser with the Aoide desktop app's presets or your own curve, a compressor, and the output
+  device where the browser lets a page choose one. Pauses fade out and resumes fade in. A
+  visualizer moves beside Now playing in the queue panel, never when your device asks for less
+  motion.
+- Collections on Listen: narrow the Songs page to several genres, a span of years and only the
+  songs you like, save that as a collection, and open it again from the sidebar. Each
+  listener's collections are their own (`/music/collections`).
+- `/music/tracks` and `/music/albums` take `genres` (several, separated by semicolons),
+  `year_from`, `year_to` and `liked`.
+- Series can follow one of TMDB's episode groups instead of TMDB's own order, for shows TMDB
+  lists as one long season while the files are split into seasons. When a series' files use
+  seasons TMDB's own order doesn't have and exactly one group has exactly their seasons and
+  episodes, Melete follows it by itself and says so on the series' page and in its history;
+  otherwise the closest group is suggested, with Use this order for admins. Admins choose any
+  group, or TMDB's own order, under Episode order on the series' Manage page
+  (`GET /api/v1/series/{id}/orders`, `PUT /api/v1/series/{id}/order`); a choice by hand is never
+  changed automatically. Series details carry `episode_order`.
+- Full-screen Now Playing in the web UI: the panel fills the window with the cover large, the
+  controls under it and the queue or lyrics beside it (under it on a phone), in the colours of
+  the album's cover. Escape leaves full screen.
+- Motion covers in the web UI: an album's looping video plays muted over its cover on the
+  album's page and in Now Playing, never with sound and never when the device asks for less
+  motion.
+- Furigana: with `pronounce`, each lyrics line with kanji in Japanese lyrics comes with `ruby`,
+  pieces of the line with the kanji's readings in hiragana, worked out on the server with the
+  dictionary the pronunciation uses. The web UI's Lyrics tab offers Furigana beside
+  Pronunciation for Japanese lyrics and draws the readings over the kanji.
+- Gapless playback on the web: the next song waits on a second deck and starts the moment one
+  ends, so live albums and classical no longer break at every track.
+- Crossfade and Keep albums whole on the web, under Your account → Listening and kept by the
+  browser, with the Aoide apps' rules and defaults: Crossfade off; when on, an 8-second blend
+  when two songs' tempos match and 4 seconds otherwise, never more than a quarter of a short
+  song; Keep albums whole on, so an album played in order still runs on without a fade.
+- A spotlight beside the All shows, All anime, All movies and My List grids on wide screens: a
+  panel that stays in view as the grid scrolls and shows the card pointed at or focused, with its
+  backdrop, logo or title, facts and summary. Each title is looked up once, after the hero's
+  follow delay and one at a time, so sweeping across the grid or scrolling asks for nothing. On
+  narrower screens there's no room beside the grid, so there's no panel.
+- Listen's Home has Favourites (albums you like, or with songs you like), Recently released and
+  Albums to try (at random) shelves, and its genres are a random dozen.
+- Jump back in lists the playlists and stations (radio from a song) you started as well as
+  albums, and each card has Remove (`/music/recent`).
+- Playlist imports on the web show what the library has of a file before it's imported, matched
+  as Aoide's apps match, with the tracks found and those missing listed.
+- "Also make a playlist" on a playlist import, which makes a playlist of it on the web and the
+  Aoide devices, and a link to that playlist from the import.
+- Infinity in the web player's bar and queue panel, as in the Aoide apps: when it's on and fewer
+  than three songs are left, Melete chooses what follows the song playing and adds it to the end
+  of the queue, each song marked as Infinity's with why it was chosen. Off unless switched on,
+  kept by the browser; it rests while the queue repeats and during Listen Together.
+- Start radio on a genre's page (from one of its songs) and on a playlist (from its first song).
+- Level volume and Trim silence on the web, under Your account → Listening and kept by the
+  browser, both on by default as in the Aoide apps: a loud song is turned down to −18 LUFS by
+  Melete's measurement (never turned up), and the silence Melete measured at a song's start
+  and end is skipped. A song not measured yet plays as it is.
+- Shuffle my library on Listen's Home, and Play and Shuffle on the Songs page for the songs it
+  lists. Songs marked Not interested stay out of a shuffle.
+- A random order for `/music/tracks` and `/music/albums` (`sort=random`), paged through with the
+  `seed` the first page answers.
+- Melete's version under Your account → About, and a Licences page in Settings for everyone:
+  each library the web UI serves (hls.js, jassub and what's bundled with it, the subtitle font)
+  with its licence, where it came from and the full licence text that ships with it.
+- Light, Dark or System under Your account → Appearance, kept by each browser and set before the
+  page is drawn, so it never flashes the other one. System follows the device as it changes.
+- Recent searches in the command palette while its box is empty, kept by each browser, with
+  Clear recent searches.
+- The playing song in the tab's title ("Title – Artist") while music plays; the page's own title
+  comes back once it's paused or stopped.
+- Listen Together in the web UI: a Together tab in the Now playing panel starts a session with
+  what's playing or joins one with its code, shows who's in it, and leaves it or, for whoever
+  started it or an admin, ends it for everyone. Play, pause, seeks, skips and a new queue go
+  to everyone in it, and the web follows their changes from the event stream; a page reloaded
+  mid-session picks its session up again.
+- Lyrics timing in the web UI's Lyrics tab: synced lyrics nudged earlier or later a quarter
+  of a second at a time, for a file that runs ahead of the song or behind it. Kept by the
+  browser; the lit line and a line's seek both follow it.
+- Ask by description above the Songs list, and "Ask for music like …" in the command palette,
+  while AI features are on: the phrase goes to the AI service set up for Melete, as the Aoide
+  apps send it, and what comes back (genres the library has, years, liked only, an order) is
+  run against the library, with Play, Shuffle, Play next and Play last for the songs found.
+- Keyboard shortcuts for music while Listen has the focus (its pages, or the music player):
+  Space or K plays or pauses, N and P move to the next or previous track, S shuffles, R
+  repeats, L likes or unlikes the track playing, and ? lists them.
+- The command palette drives the music player while something is queued (Pause or Play, Next
+  track, Previous track, Shuffle, Repeat, Like, Stop) and opens playlists by name.
+- An offline copy's link carries its seek-bar previews, so an app can keep them with the
+  download: `trickplay` on `POST /offline/{id}/link` gives the preview index and a URL for each
+  sheet, served under the link's own token (`/offline/download/{token}/trickplay/{n}.jpg`), as
+  its subtitles are. Null when the file has none, or has changed since the copy was made.
+- A More menu in the web player's bar (and in the queue panel on a phone), as in the Aoide
+  apps: Private listening, which keeps no listen and sends none while it's on and shows a
+  Private sign in the bar; what you're doing (gaming, focus, chores or commute), sent with each
+  listen; and a sleep timer that pauses at the end of the song or album, or after 15 to 60
+  minutes.
+- Playlist folders through the API: list, make, rename and delete your folders, and file a
+  playlist in one (`folder_id` on `PUT /playlists/{id}`), each written into the sync log as an
+  Aoide device writes it. Deleting a folder moves what was in it up a level.
+- Adding a song the library doesn't have yet to a playlist, by your own request for it
+  (`POST /playlists/{id}/waiting`): it waits there until the song arrives.
+- Playlist folders on the web: New folder on the playlists page and in a folder, Rename and
+  Delete on a folder's page (what's in a deleted folder moves up), folders inside folders, and
+  Folder on your own playlist to file it in one.
+- Share on your own playlist: who it's shared with and whether they can edit or only listen,
+  sharing it with someone else on the server, changing how, and stopping a share.
+- Add to playlist on a song you asked for: it waits in the playlist until it's in the library.
+- An artist's page on Listen lists Albums apart from Singles & EPs, Live and Compilations, by
+  the release types of the MusicBrainz match. Albums carry `primary_type` and
+  `secondary_types` in the music API.
+- The web player keeps its queue across a reload: the queue, its place, shuffle, repeat and how
+  far into the song, kept by the browser for the signed-in user only and restored paused; it's
+  forgotten on Stop and on signing out.
+- "Pick up from …" on Listen home, with the queue another of your devices was playing in the
+  last day, as the Aoide apps offer it.
+- `PUT /music/queue` publishes a session's queue as its device's `queue_state` row, so the Aoide
+  apps can pick up from the web; the web player sends it as its queue changes and while it
+  plays, never while listening privately.
+- Covers of music not in the library in searches for music to request, behind
+  `MELETE_SEARCH_COVERS` (Settings → Outside services → MusicBrainz; off by default, needs
+  MusicBrainz on). An album's `poster` in `GET /requests/search` is its release group's front
+  cover from the Cover Art Archive, and a song's that of its single, else its album; served from
+  `GET /music/release-groups/{id}/cover` (at the album covers' sizes) on discovery posters'
+  terms: only those a search listed, for 30 days, 2000 at most, fetched once by the server and
+  cached. The archive sees only the release group's id.
+- A Mixes page on Listen: Rediscover Mix and Heavy Rotation, the Aoide apps' built-in smart
+  playlists, worked out from your listens to play or shuffle; and, when an admin has set AI up,
+  a mix from a mood, whose songs are shown and can be kept as a smart playlist.
+- Smart playlists play on the web: their songs, worked out by the server from the rules and your
+  own likes and listens, are listed with Play, Shuffle and each song's actions, and a playlist
+  whose rules can't be worked out says why.
+- Smart playlists worked out on the server, in the Aoide apps' rule format, from the library and
+  the listener's own likes, flags and listens on every device and the web:
+  `GET /playlists/{id}/songs` gives a smart playlist's songs, leaving out songs marked Not
+  interested.
+- A smart playlist rule editor on the web: New smart playlist on the playlists page, and Edit
+  rules on your own smart playlist, with every field and comparison the Aoide apps have, all or
+  any, an order and a most, and how many songs the rules give shown as you edit them.
+- `POST /smart-playlists/songs` (what rules give, kept nowhere), `PUT /playlists/{id}/rules`,
+  and `rules` on `POST /playlists` to make a smart playlist.
+- Get info in a song's actions on Listen: its file's format, bit rate, sample rate, bit
+  depth, channels, spatial audio, length and ISRC.
+- Sign in with a code on the web sign-in page, for a browser with no keyboard to speak of (a
+  TV's): the page shows a Quick Connect code, someone signed in elsewhere approves it under Your
+  account → Quick Connect, and the page is signed in as them. `POST
+  /auth/quick-connect/web-poll` is the apps' poll for the web UI: the same code lifetime,
+  approval, single use and limits, and once approved it sets the same session cookie as a
+  password sign-in, with the user alone in the body.
+
+### Changed
+
+- Someone a smart playlist is shared with to edit can change its rules on the web too (Edit
+  rules, `PUT /playlists/{id}/rules`), as their devices may; the change goes into their own sync
+  log and reaches the owner's devices. One shared to listen to still can't.
+- Someone a playlist is shared with to edit now edits it on the web as on their devices: rename
+  it, change its notes and picture, add, move and remove songs, and add a song waiting to
+  arrive, from the playlist page and Add to playlist. Only its owner deletes it, files it in a
+  folder or shares it; someone it's shared with to listen to changes nothing.
+
+### Fixed
+
+- Episodes of a show TMDB lists as one long season no longer show as Untitled, Missing and
+  Monitored when the files are split into seasons, and an episode numbered from the first
+  ("Show - 30") that the library has under the group isn't grabbed again.
+- A new episode no longer keeps TMDB's placeholder name ("Episode 6") for up to a week. A
+  series with an episode aired in the last 14 days, or airing within a day, that has no
+  title, the placeholder title or no summary is fetched again every 6 hours until TMDB fills
+  it in, whether it's in the library or wanted. A file that comes in for an episode still
+  untitled has its series fetched again at once, on the refresh after the scan. Only the
+  series' TMDB id is sent, as with every refresh.
+
 ## [0.7.0] - 2026-11-07
 
 ### Added
@@ -623,7 +812,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Virel0/Melete/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Virel0/Melete/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Virel0/Melete/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Virel0/Melete/compare/v0.4.0...v0.5.0
