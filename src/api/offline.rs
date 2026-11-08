@@ -19,18 +19,21 @@ use tower_http::services::ServeFile;
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_playback};
 use super::playback::{holder_sees, load_file, overall_bitrate, require_playable};
-use crate::offline::{self, Copy};
+use crate::offline::{self, Copy, Opened};
 use crate::transcode::{self, Hardware, Settings};
+use crate::trickplay::{self, Index};
 
 #[derive(Clone)]
 struct OfflineState {
     pool: SqlitePool,
     ffprobe: Arc<PathBuf>,
     root: Arc<PathBuf>,
+    /// The seek-bar previews' folder, whose sheets go with a copy of the file they're for.
+    trickplay: Arc<PathBuf>,
 }
 
 /// The routes: asking and following for everyone signed in, downloads behind their link's token.
-pub fn routes(pool: SqlitePool, ffprobe: PathBuf, root: PathBuf) -> Router {
+pub fn routes(pool: SqlitePool, ffprobe: PathBuf, root: PathBuf, trickplay: PathBuf) -> Router {
     let auth = AppState {
         pool: pool.clone(),
         limiter: Arc::default(),
@@ -47,11 +50,16 @@ pub fn routes(pool: SqlitePool, ffprobe: PathBuf, root: PathBuf) -> Router {
         .route(
             "/api/v1/offline/download/{token}/{track}",
             get(download_subtitle),
+        )
+        .route(
+            "/api/v1/offline/download/{token}/trickplay/{sheet}",
+            get(download_sheet),
         );
     signed_in.merge(downloads).with_state(OfflineState {
         pool,
         ffprobe: Arc::new(ffprobe),
         root: Arc::new(root),
+        trickplay: Arc::new(trickplay),
     })
 }
 
@@ -273,9 +281,28 @@ async fn link(
         .iter()
         .map(|t| json!({ "track": t, "url": format!("{base}/{t}.vtt") }))
         .collect();
-    Ok(Json(
-        json!({ "download_url": base, "expires_at": expires_at, "subtitles": subtitles }),
-    ))
+    let trickplay = previews(&state, id, copy.file_id).await?.map(|index| {
+        let sheets: Vec<String> = (0..index.sheets)
+            .map(|n| format!("{base}/trickplay/{n}.jpg"))
+            .collect();
+        json!({ "index": index, "sheet_urls": sheets })
+    });
+    Ok(Json(json!({
+        "download_url": base,
+        "expires_at": expires_at,
+        "subtitles": subtitles,
+        "trickplay": trickplay,
+    })))
+}
+
+/// The seek-bar previews that go with copy `id` of file `file`: the file's, while the copy was
+/// made from the file as it is now (so their times are the copy's); None otherwise, or when
+/// the file has none.
+async fn previews(state: &OfflineState, id: i64, file: i64) -> Result<Option<Index>, ApiError> {
+    if !offline::made_from_current(&state.pool, id).await? {
+        return Ok(None);
+    }
+    Ok(trickplay::index_of(&state.pool, &state.trickplay, file).await?)
 }
 
 fn not_a_link(token: &str) -> Option<ApiError> {
@@ -292,7 +319,7 @@ fn link_gone() -> ApiError {
 
 /// The copy a link opens and its subtitle tracks, noting the download, while the link's holder
 /// may still see what it's a copy of.
-async fn opened(state: &OfflineState, token: &str) -> Result<(i64, Vec<String>), ApiError> {
+async fn opened(state: &OfflineState, token: &str) -> Result<Opened, ApiError> {
     if let Some(err) = not_a_link(token) {
         return Err(err);
     }
@@ -303,7 +330,7 @@ async fn opened(state: &OfflineState, token: &str) -> Result<(i64, Vec<String>),
         return Err(link_gone());
     }
     offline::downloaded(&state.pool, opened.copy).await?;
-    Ok((opened.copy, opened.subtitles))
+    Ok(opened)
 }
 
 /// A copy's file, with byte ranges so a download can resume.
@@ -312,7 +339,7 @@ async fn download(
     Path(token): Path<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    let (id, _) = opened(&state, &token).await?;
+    let id = opened(&state, &token).await?.copy;
     let response = ServeFile::new(offline::video_path(&state.root, id))
         .try_call(request)
         .await?;
@@ -331,7 +358,11 @@ async fn download_subtitle(
     State(state): State<OfflineState>,
     Path((token, track)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let (id, tracks) = opened(&state, &token).await?;
+    let Opened {
+        copy: id,
+        subtitles: tracks,
+        ..
+    } = opened(&state, &token).await?;
     let track = track.strip_suffix(".vtt").ok_or_else(link_gone)?;
     if !tracks.iter().any(|t| t == track) {
         return Err(link_gone());
@@ -340,6 +371,29 @@ async fn download_subtitle(
         .await
         .map_err(|_| link_gone())?;
     Ok(([(header::CONTENT_TYPE, "text/vtt; charset=utf-8")], bytes).into_response())
+}
+
+/// One sheet (`{n}.jpg`) of a copy's seek-bar previews: its file's, while the copy was made
+/// from the file as it is now.
+async fn download_sheet(
+    State(state): State<OfflineState>,
+    Path((token, sheet)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let opened = opened(&state, &token).await?;
+    let none = || ApiError::new(StatusCode::NOT_FOUND, "this copy has no such preview sheet");
+    let number = sheet
+        .strip_suffix(".jpg")
+        .filter(|n| !n.is_empty() && n.len() <= 6 && n.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.parse::<i64>().ok())
+        .ok_or_else(none)?;
+    if !offline::made_from_current(&state.pool, opened.copy).await? {
+        return Err(none());
+    }
+    let path = trickplay::sheet_path(&state.pool, &state.trickplay, opened.file, number)
+        .await?
+        .ok_or_else(none)?;
+    let bytes = tokio::fs::read(&path).await.map_err(|_| none())?;
+    Ok(([(header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
 }
 
 #[cfg(test)]

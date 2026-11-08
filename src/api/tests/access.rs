@@ -143,6 +143,10 @@ const PUBLIC: &[Public] = &[
         "that copy's subtitles, under its link",
     ),
     by_link(
+        "/api/v1/offline/download/{token}/trickplay/{sheet}",
+        "that copy's seek-bar previews, under its link",
+    ),
+    by_link(
         "/api/v1/hls/{token}/{name}",
         "a transcode's playlist and segments, under its own link",
     ),

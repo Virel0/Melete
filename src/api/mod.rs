@@ -251,6 +251,7 @@ pub fn server_with(
             pool.clone(),
             ffprobe.clone(),
             crate::offline::folder(transcoder.root()),
+            crate::trickplay::folder(data_dir),
         ));
     let router = wanting_routes(
         router,

@@ -88,10 +88,17 @@ pub async fn make_next(pool: &SqlitePool, tools: &Tools) -> anyhow::Result<Optio
     let Some((id, file_id, settings, tracks)) = next else {
         return Ok(None);
     };
-    sqlx::query("UPDATE offline_copies SET status = 'making' WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+    // The source as it is now, so its previews go with the copy only while they're for it.
+    sqlx::query(
+        "UPDATE offline_copies SET status = 'making',
+             source_size = (SELECT size FROM media_files WHERE id = offline_copies.file_id),
+             source_modified_at =
+                 (SELECT modified_at FROM media_files WHERE id = offline_copies.file_id)
+         WHERE id = ?",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
     let tracks: Vec<String> = serde_json::from_str(&tracks)?;
     let made = make(
         pool,
