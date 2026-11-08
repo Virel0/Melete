@@ -264,8 +264,8 @@ async fn upsert_file(
     let first_seen: i64 = sqlx::query_scalar(
             "INSERT INTO media_files (library_id, rel_path, size, modified_at, movie_id, series_id,
                  season, episode, episode_end, absolute_episode, first_seen_generation, seen_generation,
-                 added_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                 first_seen_at, added_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                  -- Came in now (or when last changed, for a file adopted), unless it's another
                  -- file for the same movie or exactly the same episodes: then when the first did.
                  min(?13, ?4, coalesce((SELECT min(o.added_at) FROM media_files o

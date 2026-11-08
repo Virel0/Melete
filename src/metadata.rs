@@ -18,6 +18,7 @@ use crate::tmdb::{
 mod choose;
 mod companies;
 mod credits;
+mod fresh_episodes;
 mod imported;
 mod manual;
 mod matching;
@@ -30,6 +31,7 @@ mod wanted;
 pub use choose::*;
 pub use companies::refresh_companies;
 pub use credits::refresh_credits;
+use fresh_episodes::*;
 use imported::*;
 pub use manual::*;
 use matching::*;
@@ -255,7 +257,8 @@ async fn refresh_stale_movies(
     Ok(())
 }
 
-/// Fetches again the matched series whose cached TMDB entry is stale.
+/// Fetches again the matched series whose cached TMDB entry is stale, or that have an episode
+/// TMDB hasn't filled in yet (see [`with_unfilled`]).
 async fn refresh_stale_series(
     pool: &SqlitePool,
     tmdb: &tmdb::Client,
@@ -271,6 +274,8 @@ async fn refresh_stale_series(
     .bind(tmdb.language())
     .fetch_all(pool)
     .await?;
+    let stale_series =
+        with_unfilled(pool, Among::Library, tmdb.language(), now, stale_series).await?;
     let pace = Pace::start("library", "refreshing series from TMDB", stale_series.len());
     for id in stale_series {
         let item = pace.item();
