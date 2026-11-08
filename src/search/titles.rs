@@ -122,6 +122,22 @@ pub(crate) async fn absolute_in_season(
     Ok(in_season(&episode_order(pool, wanted).await?, numbers))
 }
 
+/// A series release's episodes as the order the series follows numbers them: one numbered from
+/// the first episode is the season and episodes [`absolute_in_season`] makes it, any other as
+/// named; why not, when it can't be mapped.
+pub(crate) async fn numbered_in_order(
+    pool: &SqlitePool,
+    wanted: &Wanted,
+    episodes: &Episodes,
+) -> anyhow::Result<Result<Episodes, String>> {
+    let Episodes::Absolute(numbers) = episodes else {
+        return Ok(Ok(episodes.clone()));
+    };
+    Ok(absolute_in_season(pool, wanted, numbers)
+        .await?
+        .map(|(season, episodes)| Episodes::Standard { season, episodes }))
+}
+
 /// Rejections a closer look can lift. A movie named with a year one off (a festival year,
 /// say) is the wanted film unless TMDB has another film of that title from that year ("Little
 /// Women", 2018 and 2019). And in a season search, an episode range ("S01E01-E12") is the

@@ -586,6 +586,118 @@ async fn an_episode_on_disk_under_the_order_followed_isnt_grabbed_again() {
     );
 }
 
+/// "Some Anime" in its group's seasons, wanted with every season monitored, in a library
+/// holding `files` (season, episode, name); an indexer whose feed is `feed`, and Deluge.
+async fn some_anime(
+    pool: &SqlitePool,
+    files: &[(i64, i64, &str)],
+    feed: &[&str],
+) -> (Pipeline, testing::Shared) {
+    crate::episode_order::testing::some_anime_in_seasons(pool).await;
+    sqlx::query(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+         INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation, match_tmdb_id)
+         VALUES (1, 1, 'Some Anime', 'Some Anime', 1, 100);
+         INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+             quality_profile, source, added_at, series_id, original_language)
+         VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 1, 'en');
+         INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 1, 1), (1, 2, 1), (1, 3, 1);",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (season, episode, name) in files {
+        sqlx::query(
+            "INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id, season,
+                 episode, first_seen_generation, seen_generation)
+             VALUES (1, ?, 1, 0, 1, ?, ?, 1, 1)",
+        )
+        .bind(format!("Some Anime/{name}"))
+        .bind(season)
+        .bind(episode)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    let indexer = indexer(pool, "[5000]").await;
+    let items: Vec<(&str, &str)> = feed.iter().map(|t| (*t, "")).collect();
+    indexer.lock().unwrap().0 = releases(&items);
+    let (url, fake) = testing::start().await;
+    let pipeline = Pipeline {
+        deluge: crate::deluge::Client::new(&url, Secret::for_tests("pw")).unwrap(),
+        fetcher: downloads::Fetcher::new().unwrap(),
+        seedbox: None,
+    };
+    (pipeline, fake)
+}
+
+#[tokio::test]
+async fn a_missing_episode_numbered_from_the_first_is_grabbed_beside_one_on_disk() {
+    let pool = setup().await;
+    let (pipeline, _fake) = some_anime(
+        &pool,
+        &[(2, 6, "Some.Anime.S02E06.2160p.BluRay.REMUX.HEVC-GRP.mkv")],
+        &[
+            "[SubsPlease] Some Anime - 30 (1080p) [ABCD1234].mkv",
+            "[SubsPlease] Some Anime - 31 (1080p) [ABCD1234].mkv",
+        ],
+    )
+    .await;
+    let client = torznab::Client::new().unwrap();
+    let view = sync(&pool, &client, None, Some(&pipeline))
+        .await
+        .unwrap()
+        .unwrap();
+    // The 30th is the remux on disk; the 31st, S02E07, is missing and grabbed as new.
+    let grabbed: Vec<(&str, bool, bool)> = view
+        .grabbed
+        .iter()
+        .map(|g| (g.title.as_str(), g.upgrade, g.download_id.is_some()))
+        .collect();
+    assert_eq!(
+        grabbed,
+        [(
+            "[SubsPlease] Some Anime - 31 (1080p) [ABCD1234].mkv",
+            false,
+            true
+        )]
+    );
+    let placed: (Option<i64>, Option<i64>, String) =
+        sqlx::query_as("SELECT season, episode, replaces FROM downloads")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(placed, (Some(2), Some(7), "[]".into()));
+}
+
+#[tokio::test]
+async fn a_download_for_another_episode_of_the_season_doesnt_hold_up_a_grab() {
+    let pool = setup().await;
+    let (pipeline, _fake) = some_anime(
+        &pool,
+        &[],
+        &["[SubsPlease] Some Anime - 31 (1080p) [ABCD1234].mkv"],
+    )
+    .await;
+    // S02E06 is on its way.
+    sqlx::query(
+        "INSERT INTO downloads (infohash, title, wanted_series_id, season, episode, decision,
+             state, added_at, updated_at)
+         VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', '[SubsPlease] Some Anime - 30', 1,
+             2, 6, '{}', 'downloading', 0, 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let client = torznab::Client::new().unwrap();
+    let view = sync(&pool, &client, None, Some(&pipeline))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.grabbed.len(), 1, "{:?}", view.grabbed);
+    assert!(view.grabbed[0].download_id.is_some(), "{:?}", view.grabbed);
+}
+
 #[tokio::test]
 async fn looks_out_for_wanted_albums_and_grabs_the_best_once() {
     let pool = setup().await;

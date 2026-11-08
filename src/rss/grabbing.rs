@@ -20,17 +20,18 @@ pub struct Grabbed {
 }
 
 /// Grabs the best accepted release of any search for `target`, as a sync would (requests do,
-/// once approved).
+/// once approved). Returns why releases were passed over for what's on disk or on its way,
+/// best first.
 pub(crate) async fn grab_for(
     pool: &SqlitePool,
     pipeline: &Pipeline,
     target: Target,
     search_id: i64,
     grabbed: &mut Vec<Grabbed>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<String>> {
     match search::load_wanted(pool, target).await? {
         Some(wanted) => grab_best(pool, pipeline, target, &wanted, search_id, grabbed).await,
-        None => Ok(()),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -61,6 +62,7 @@ pub(super) async fn grab_all(
 }
 
 /// Grabs the best accepted release of a sync's search for `target`, when [`grab_kind`] allows.
+/// Returns why releases were passed over for what's on disk or on its way, best first.
 pub(super) async fn grab_best(
     pool: &SqlitePool,
     pipeline: &Pipeline,
@@ -68,10 +70,11 @@ pub(super) async fn grab_best(
     wanted: &Wanted,
     search_id: i64,
     grabbed: &mut Vec<Grabbed>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<String>> {
+    let mut passed_over = Vec::new();
     // Its downloads kept failing the running-time check: nothing more until an admin looks.
     if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
-        return Ok(());
+        return Ok(passed_over);
     }
     let best: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, title FROM release_decisions WHERE search_id = ? AND accepted = 1
@@ -86,8 +89,12 @@ pub(super) async fn grab_best(
     .await?;
     for (release_id, title) in best {
         // Accepted against a file there means better than it, below the cutoff.
-        let Some(upgrade) = grab_kind(pool, target, wanted, &title).await? else {
-            continue;
+        let upgrade = match grab_kind(pool, target, wanted, &title).await? {
+            Ok(upgrade) => upgrade,
+            Err(why) => {
+                passed_over.push(why);
+                continue;
+            }
         };
         let outcome =
             downloads::grab(pool, &pipeline.deluge, &pipeline.fetcher, release_id).await?;
@@ -113,7 +120,7 @@ pub(super) async fn grab_best(
             break;
         }
     }
-    Ok(())
+    Ok(passed_over)
 }
 
 /// A release listed in music categories only.
@@ -269,21 +276,60 @@ pub(super) async fn occupied(
     })
 }
 
+/// A release as parsed, a series' one numbered from the first episode renumbered by the order
+/// the series follows (as searches and syncs judged it); why not, when it can't be mapped or
+/// maps outside the season it was found for.
+async fn placed(
+    pool: &SqlitePool,
+    target: Target,
+    wanted: &Wanted,
+    title: &str,
+) -> anyhow::Result<Result<Release, String>> {
+    let mut release = release::parse(title);
+    let Target::Series { season, .. } = target else {
+        return Ok(Ok(release));
+    };
+    release.episodes = match search::numbered_in_order(pool, wanted, &release.episodes).await? {
+        Ok(Episodes::Standard { season: s, .. }) if s != season => {
+            return Ok(Err(format!(
+                "as numbered it's in season {s}, not season {season}"
+            )));
+        }
+        Ok(episodes) => episodes,
+        Err(why) => {
+            return Ok(Err(format!(
+                "it's numbered from the first episode and can't be matched to an episode ({why})"
+            )));
+        }
+    };
+    Ok(Ok(release))
+}
+
 /// Why a release may be grabbed: nothing is where it goes, or it's an upgrade of exactly the
-/// files there, with nothing on the way or unsettled. `None` when it may not.
+/// files there, with nothing on the way or unsettled; whether it's an upgrade. One numbered
+/// from the first episode goes where the order the series follows puts it, and isn't grabbed
+/// when it can't be placed. `Err` says why it may not be.
 pub(super) async fn grab_kind(
     pool: &SqlitePool,
     target: Target,
     wanted: &Wanted,
     title: &str,
-) -> anyhow::Result<Option<bool>> {
-    let release = release::parse(title);
+) -> anyhow::Result<Result<bool, String>> {
+    let release = match placed(pool, target, wanted, title).await? {
+        Ok(release) => release,
+        Err(why) => return Ok(Err(why)),
+    };
     let here = occupied(pool, target, wanted, &release).await?;
     if here.files == 0 && here.downloads == 0 {
-        return Ok(Some(false));
+        return Ok(Ok(false));
     }
-    if here.files == 0 || here.unsettled > 0 {
-        return Ok(None);
+    if here.unsettled > 0 {
+        return Ok(Err(
+            "a download for it is still on its way or not yet in the library".into(),
+        ));
+    }
+    if here.files == 0 {
+        return Ok(Err("a download for it was brought in already".into()));
     }
     let (movie, series, season) = match target {
         Target::Movie(id) => (Some(id), None, None),
@@ -291,5 +337,15 @@ pub(super) async fn grab_kind(
     };
     let replaced = crate::upgrades::replaced_by(pool, movie, series, season, title).await?;
     // Every file there is one it replaces: none in another folder, none left beside it.
-    Ok((!replaced.is_empty() && replaced.len() as i64 == here.files).then_some(true))
+    if !replaced.is_empty() && replaced.len() as i64 == here.files {
+        return Ok(Ok(true));
+    }
+    let pack = series.is_some() && !matches!(release.episodes, Episodes::Standard { .. });
+    Ok(Err(if pack {
+        "it's a season pack and part of the season is on disk already; a pack never replaces \
+         files"
+    } else {
+        "it's on disk already, and this release wouldn't replace exactly the files there"
+    }
+    .into()))
 }
