@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 166] = [
+const MODULES: [(&str, &str); 168] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -71,6 +71,7 @@ const MODULES: [(&str, &str); 166] = [
     ),
     ("title-more.js", include_str!("../web/title-more.js")),
     ("title-trailer.js", include_str!("../web/title-trailer.js")),
+    ("title-order.js", include_str!("../web/title-order.js")),
     ("title-preview.js", include_str!("../web/title-preview.js")),
     ("people.js", include_str!("../web/people.js")),
     ("lib.js", include_str!("../web/lib.js")),
@@ -298,6 +299,7 @@ const MODULES: [(&str, &str); 166] = [
     ("manage-artist.js", include_str!("../web/manage-artist.js")),
     ("manage-album.js", include_str!("../web/manage-album.js")),
     ("manage-want.js", include_str!("../web/manage-want.js")),
+    ("manage-order.js", include_str!("../web/manage-order.js")),
     ("manage-select.js", include_str!("../web/manage-select.js")),
     ("manage-add.js", include_str!("../web/manage-add.js")),
     ("manage-find.js", include_str!("../web/manage-find.js")),
@@ -1331,6 +1333,31 @@ mod tests {
             assert!(String::from_utf8_lossy(&body).contains(needle), "{uri}");
         }
         assert!(INDEX.contains(r#"<link rel="stylesheet" href="/web/manage.css">"#));
+    }
+
+    /// A series' episode order: said on its page, with the suggested group's Use this order for
+    /// admins, and chosen under Episode order on its Manage page.
+    #[tokio::test]
+    async fn serves_the_episode_order_controls() {
+        for (uri, needle) in [
+            ("/web/title-order.js", "Use this order"),
+            ("/web/title-order.js", "/order`"),
+            ("/web/title-page.js", "/web/title-order.js"),
+            ("/web/manage-order.js", "/orders`"),
+            ("/web/manage-order.js", "group_id: picked || null"),
+            ("/web/manage-title.js", "Episode order…"),
+            ("/web/manage-history.js", "reordered:"),
+            ("/web/manage.css", ".order-box .choices"),
+        ] {
+            let request = Request::get(uri).body(Body::empty()).unwrap();
+            let response = routes().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                String::from_utf8_lossy(&body).contains(needle),
+                "{uri}: {needle}"
+            );
+        }
     }
 
     /// Add new looks for songs on Soulseek while slskd is set up, only once typing has stopped

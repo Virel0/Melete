@@ -18,8 +18,8 @@ mod fetch;
 mod fit;
 mod switch;
 
-pub use fetch::refresh;
-pub use fit::{decide, suggestion};
+pub use fetch::{fetch, refresh};
+pub use fit::{decide, offered, suggestion};
 pub use switch::{Chosen, choose};
 
 /// Who chose a series' order.
@@ -27,12 +27,15 @@ pub use switch::{Chosen, choose};
 pub enum ChosenBy {
     /// Melete, because the files fit a group exactly.
     Auto,
+    /// An admin, by hand.
+    Admin,
 }
 
 impl ChosenBy {
     fn as_str(self) -> &'static str {
         match self {
             ChosenBy::Auto => "auto",
+            ChosenBy::Admin => "admin",
         }
     }
 }

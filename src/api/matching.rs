@@ -84,7 +84,7 @@ async fn require_title(pool: &SqlitePool, kind: Kind, id: i64) -> Result<(), Api
 }
 
 /// TMDB trouble is the gateway's fault (502/503), not ours (500).
-fn tmdb_error(err: anyhow::Error) -> ApiError {
+pub(super) fn tmdb_error(err: anyhow::Error) -> ApiError {
     if err.is::<Unauthorized>() {
         ApiError::new(StatusCode::BAD_GATEWAY, err.to_string())
     } else if err.is::<RateLimited>() {

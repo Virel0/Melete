@@ -101,6 +101,14 @@ fn offer(group: &Group, files: &Seasons) -> Offered {
     }
 }
 
+/// The series' fetched groups, each with how it fits the files.
+pub async fn offered(pool: &SqlitePool, tmdb_id: i64) -> sqlx::Result<Vec<Offered>> {
+    let mut conn = pool.acquire().await?;
+    let files = file_episodes(&mut conn, tmdb_id).await?;
+    let groups = groups(&mut conn, tmdb_id).await?;
+    Ok(groups.iter().map(|g| offer(g, &files)).collect())
+}
+
 /// The group closest to the files: the one holding most of their episodes (more than TMDB's own
 /// order does), then the one with fewest episodes beyond them, then by id.
 fn closest<'a>(files: &Seasons, tmdb: &Seasons, groups: &'a [Group]) -> Option<&'a Group> {
