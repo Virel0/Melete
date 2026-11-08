@@ -95,25 +95,45 @@ pub(super) async fn search(
         crate::ratings::fetch_unknown(&state.pool, tmdb, &titles).await?;
     }
     let mut shown = Vec::with_capacity(found.len());
-    for mut candidate in found {
-        let tv = candidate.kind == "series";
+    for candidate in found {
         let keep = match candidate.tmdb_id {
-            Some(id) => current.access.shows_tmdb(&state.pool, tv, id).await?,
+            Some(id) => {
+                let tv = candidate.kind == "series";
+                current.access.shows_tmdb(&state.pool, tv, id).await?
+            }
             None => true,
         };
-        // A movie's or series' poster as discovery gives one: a title Melete knows, or with
-        // posters of titles not in the library on, any listed (and noted as listed).
-        if keep && let Some(id) = candidate.tmdb_id {
-            let path = candidate.tmdb_poster.as_deref();
-            let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
-            candidate.poster = url.as_str().map(str::to_owned);
-        }
         if keep {
-            let seen = request_search::as_seen_by(&state.pool, &current.access, candidate).await?;
-            shown.push(seen.into());
+            shown.push(pictured(&state, &current.access, candidate).await?.into());
         }
     }
     Ok(Json(shown))
+}
+
+/// A result as the user is shown it ([`request_search::as_seen_by`]), with its picture. A
+/// movie's or series' poster as discovery gives one: a title Melete knows, or with posters of
+/// titles not in the library on, any listed (and noted as listed). Music not in the library,
+/// with its covers on (and MusicBrainz), gets its release group's cover, offered on the same
+/// terms and fetched only when asked for; music in a library hidden from the user is not in the
+/// library to them, and gets one just the same.
+async fn pictured(
+    state: &RequestState,
+    access: &crate::access::Access,
+    mut candidate: Candidate,
+) -> Result<Candidate, ApiError> {
+    if let Some(id) = candidate.tmdb_id {
+        let tv = candidate.kind == "series";
+        let path = candidate.tmdb_poster.as_deref();
+        let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
+        candidate.poster = url.as_str().map(str::to_owned);
+    }
+    let mut seen = request_search::as_seen_by(&state.pool, access, candidate).await?;
+    if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
+        let group = seen.cover_group.as_deref();
+        let now = crate::db::unix_now();
+        seen.poster = crate::search_covers::offer(&state.pool, group, now).await?;
+    }
+    Ok(seen)
 }
 
 #[derive(Deserialize)]

@@ -5682,6 +5682,39 @@
         }
       }
     },
+    "/api/v1/music/release-groups/{id}/cover": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "The cover of music not in the library",
+        "description": "Use the `poster` a music search for a request gives (`GET /api/v1/requests/search`); only those are served. With covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on), a release group a search listed is served for 30 days after it was last listed (2000 at most remembered): the Cover Art Archive's 500-pixel front cover, fetched once by the server (the archive sees only the release group's id) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served alike to everyone signed in. When the archive has no cover, or fails to give it, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "The release group's MusicBrainz id.", "schema": {"type": "string", "format": "uuid"}},
+          {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the cover as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
+        ],
+        "responses": {
+          "200": {
+            "description": "The image",
+            "content": {
+              "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+              "image/png": {"schema": {"type": "string", "format": "binary"}},
+              "image/webp": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "Not one a search listed lately, covers of music not in the library are off, or the archive has no cover for it or failed to give it in the last day",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "The Cover Art Archive failed, or its cover was over 10 MiB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/tracks": {
       "get": {
         "tags": ["Music"],
@@ -18441,7 +18474,7 @@
           },
           "poster": {
             "type": ["string", "null"],
-            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover when it's in a library you may see. An album or song not in the library has one only with covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on): its release group's front cover from the Cover Art Archive (a song's single's, else its album's), served on discovery posters' terms (`GET /api/v1/music/release-groups/{id}/cover`) and fetched once by the server when first asked for, so the archive sees only the release group's id. An album or song in a library hidden from you is not in the library to you, and gets one the same way. None when the archive was found to have none, or failed to give it, in the last day. Artists have none."
           },
           "closeness": {
             "type": "integer",
@@ -18501,7 +18534,7 @@
           },
           "poster": {
             "type": ["string", "null"],
-            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see: there's no fetching covers for other albums, so a music search sends out only its words."
+            "description": "Its poster or cover on this server. A movie's or series' as discovery gives posters: a title Melete knows always, any other only with posters of titles not in the library on (`MELETE_DISCOVERY_POSTERS`; then served on the same terms, fetched once from TMDB's image server). An album's cover only when it's in a library you may see; nothing is fetched for Soulseek's songs, which have none."
           },
           "closeness": {
             "type": "integer",

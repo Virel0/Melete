@@ -5,6 +5,8 @@
 //! An album's cover is the image in its folder, else the picture in a track's tags, else the
 //! Cover Art Archive's for its MusicBrainz release group (fetched once when first asked for,
 //! and only with MusicBrainz matching on). A motion cover is a looping video in its folder.
+//! Covers of music not in the library are served by release group, only those a search for a
+//! request offered ([`crate::search_covers`]).
 
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
@@ -32,12 +34,14 @@ use crate::coverart;
 mod albums;
 mod artists;
 mod covers;
+mod search_covers;
 mod shuffle;
 mod tracks;
 
 pub(super) use albums::*;
 pub(super) use artists::*;
 use covers::*;
+use search_covers::*;
 use shuffle::*;
 pub(super) use tracks::*;
 
@@ -81,6 +85,10 @@ pub fn routes(
         .route("/api/v1/music/albums/{id}", get(album))
         .route("/api/v1/music/albums/{id}/cover", get(cover))
         .route("/api/v1/music/albums/{id}/motion", get(motion))
+        .route(
+            "/api/v1/music/release-groups/{id}/cover",
+            get(release_group_cover),
+        )
         .route("/api/v1/music/tracks", get(list_tracks))
         .route("/api/v1/music/genres", get(genres))
         .merge(super::music_classical::routes())
