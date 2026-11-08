@@ -1016,3 +1016,31 @@ async fn copying_home_counts_from_a_resumed_part_file_up_to_the_total() {
 mod extras;
 mod holding;
 mod verifying;
+
+/// A series download naming no season (its episode left out by the order the series follows) is
+/// never brought home: it would go loose in the series' folder, its running time unchecked.
+#[tokio::test]
+async fn a_series_download_naming_no_season_fails_closed() {
+    let r = rig().await;
+    let wanted: i64 = sqlx::query_scalar(
+        "INSERT INTO wanted_series (tvdb_id, title, year, monitored, series_type, source, added_at, library_id)
+         VALUES (1, 'Show', 2020, 1, 'standard', 'manual', 0, 2) RETURNING id",
+    )
+    .fetch_one(&r.pool)
+    .await
+    .unwrap();
+    let files = r.seed(&[("Show.13.1080p.WEB.H264-GRP.mkv", data(100, 9))]);
+    let id = r
+        .download(None, Some((wanted, 1)), "/home/user/Completed", &files)
+        .await;
+    sqlx::query("UPDATE downloads SET season = NULL, left_out_tmdb_id = 13 WHERE id = ?")
+        .bind(id)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    let (state, message, destination, _) = r.state(id).await;
+    assert_eq!((state.as_str(), destination), ("failed", None));
+    assert!(message.unwrap().contains("names no season"));
+    assert!(!r.local.path().join("shows/Show").exists());
+}

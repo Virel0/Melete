@@ -23,6 +23,9 @@ pub async fn grab(
     fetcher: &Fetcher,
     release_id: i64,
 ) -> anyhow::Result<Result<Download, Refused>> {
+    // No series changes episode order between checking the result was searched for in the order
+    // it follows and recording the download with the season and episode it was searched as.
+    let _no_switching = crate::episode_order::SWITCHING.read().await;
     let row = match grabbable(pool, release_id).await? {
         Ok(row) => row,
         Err(refused) => return Ok(Err(refused)),

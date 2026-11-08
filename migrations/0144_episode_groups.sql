@@ -8,8 +8,10 @@ ALTER TABLE tmdb_series ADD COLUMN episode_groups_fetched_at INTEGER;
 -- A download, search or history event naming an episode the order the series follows now leaves
 -- out: its season and episode are NULL (no number in that order is its episode's), and this is
 -- the episode it named, by TMDB's id, so a later order that has it numbers it again.
-ALTER TABLE downloads ADD COLUMN left_out_tmdb_id INTEGER;
-ALTER TABLE searches ADD COLUMN left_out_tmdb_id INTEGER;
+ALTER TABLE downloads ADD COLUMN left_out_tmdb_id INTEGER
+    CHECK (left_out_tmdb_id IS NULL OR (season IS NULL AND episode IS NULL));
+ALTER TABLE searches ADD COLUMN left_out_tmdb_id INTEGER
+    CHECK (left_out_tmdb_id IS NULL OR (season IS NULL AND episode IS NULL));
 
 CREATE TABLE tmdb_episode_groups (
     -- TMDB's id for the group.
@@ -92,6 +94,7 @@ CREATE TABLE title_events (
     message TEXT,
     -- As on downloads and searches: the episode named, while the order followed leaves it out.
     left_out_tmdb_id INTEGER
+        CHECK (left_out_tmdb_id IS NULL OR (season IS NULL AND episode IS NULL))
 ) STRICT;
 INSERT INTO title_events (id, at, kind, service, key, title, season, episode, search_id,
                           download_id, release, message)

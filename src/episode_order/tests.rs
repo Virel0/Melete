@@ -495,4 +495,5 @@ async fn groups_are_fetched_only_when_needed_and_again_with_the_metadata() {
     assert_eq!(episode_at(&pool, 3, 12).await.unwrap().0, 1059);
 }
 
+mod by_hand;
 mod switching;
