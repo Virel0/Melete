@@ -66,6 +66,21 @@ pub(super) async fn link_and_number(pool: &sqlx::SqlitePool) {
             "couldn't link wanted titles to their folders"
         ),
     }
+    // A series whose files fit one of its episode groups exactly follows it, before anything is
+    // counted through its order.
+    match crate::episode_order::decide(pool).await {
+        Ok(switched) if switched > 0 => {
+            tracing::info!(
+                switched,
+                "series switched to episode groups their files fit"
+            )
+        }
+        Ok(_) => {}
+        Err(err) => tracing::warn!(
+            error = format!("{err:#}"),
+            "couldn't choose series' episode orders"
+        ),
+    }
     // With shows matched and their episode lists in, anime numbered from the first episode
     // can be given seasons.
     match library::absolute::number(pool).await {

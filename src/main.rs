@@ -35,6 +35,7 @@ mod diagnostics;
 mod discover_posters;
 mod disk;
 mod downloads;
+mod episode_order;
 mod flaresolverr;
 mod follow;
 mod fulfil;

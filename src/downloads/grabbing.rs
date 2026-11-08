@@ -23,6 +23,9 @@ pub async fn grab(
     fetcher: &Fetcher,
     release_id: i64,
 ) -> anyhow::Result<Result<Download, Refused>> {
+    // No series changes episode order between checking the result was searched for in the order
+    // it follows and recording the download with the season and episode it was searched as.
+    let _no_switching = crate::episode_order::SWITCHING.read().await;
     let row = match grabbable(pool, release_id).await? {
         Ok(row) => row,
         Err(refused) => return Ok(Err(refused)),
@@ -90,10 +93,34 @@ async fn grabbable(
     if row.from_soulseek {
         return Ok(Err(Refused::Soulseek));
     }
+    if reordered_since(pool, release_id).await? {
+        return Ok(Err(Refused::Reordered));
+    }
     if crate::blocklist::blocks(pool, &row.title, None).await? {
         return Ok(Err(Refused::Blocklisted));
     }
     Ok(Ok(row))
+}
+
+/// Whether the result is a series search's from before the series last changed episode order
+/// (or one whose episode the order leaves out): it was judged as an episode numbered another
+/// way, so grabbing it could bring home the wrong episode.
+async fn reordered_since(pool: &SqlitePool, release_id: i64) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT s.season IS NULL
+             OR EXISTS (SELECT 1 FROM series_orders o
+                        WHERE o.series_tmdb_id = coalesce(w.tmdb_id,
+                                  (SELECT t.tmdb_id FROM tmdb_series t WHERE t.tvdb_id = w.tvdb_id
+                                   ORDER BY t.tmdb_id LIMIT 1))
+                          AND o.chosen_at >= s.searched_at)
+         FROM release_decisions d JOIN searches s ON s.id = d.search_id
+         JOIN wanted_series w ON w.id = s.wanted_series_id
+         WHERE d.id = ?",
+    )
+    .bind(release_id)
+    .fetch_optional(pool)
+    .await
+    .map(|found| found.unwrap_or(false))
 }
 
 /// The torrent behind a result's link, and its info hash.

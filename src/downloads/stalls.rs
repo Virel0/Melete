@@ -74,6 +74,7 @@ async fn replace(
     download: &Stalled,
 ) -> anyhow::Result<bool> {
     let hours = STALLED_AFTER / 3600;
+    let set_aside_at = unix_now();
     // Failed for now, so the search doesn't count it as on its way.
     let set_aside = sqlx::query(
         "UPDATE downloads SET state = 'failed', message = ?, updated_at = ?
@@ -82,7 +83,7 @@ async fn replace(
     .bind(format!(
         "no progress for {hours} hours; searching for another release"
     ))
-    .bind(unix_now())
+    .bind(set_aside_at)
     .bind(download.id)
     .execute(pool)
     .await?
@@ -109,7 +110,7 @@ async fn replace(
             if !listed_before && let Some(entry) = entry {
                 crate::blocklist::remove(pool, entry.id).await?;
             }
-            keep_going(pool, download.id, &why).await?;
+            keep_going(pool, download.id, &why, set_aside_at).await?;
             Ok(false)
         }
     }
@@ -143,23 +144,51 @@ async fn drop_stalled(
 }
 
 /// Nothing else was grabbed: the torrent goes back to downloading, saying why, until it's
-/// looked at again.
-async fn keep_going(pool: &SqlitePool, id: i64, why: &str) -> sqlx::Result<()> {
+/// looked at again; whether it did. Not when its series changed episode order since it was set
+/// aside (`set_aside_at`): set aside, it wasn't on its way for the switch to wait for, so its
+/// season and episode may no longer be what it holds. It stays failed, saying so.
+pub(super) async fn keep_going(
+    pool: &SqlitePool,
+    id: i64,
+    why: &str,
+    set_aside_at: i64,
+) -> sqlx::Result<bool> {
     let hours = STALLED_AFTER / 3600;
     let note = format!(
         "no progress for {hours} hours, but {why}, so it keeps going and is looked at again in {hours} hours"
     );
-    sqlx::query(
+    let resumed = sqlx::query(
         "UPDATE downloads SET state = 'downloading', message = 'Downloading; ' || ?1,
              stall_note = ?1, stall_checked_at = ?2, updated_at = ?2
-         WHERE id = ?3 AND state = 'failed'",
+         WHERE id = ?3 AND state = 'failed'
+           AND NOT EXISTS (SELECT 1 FROM wanted_series w JOIN series_orders o
+                               ON o.series_tmdb_id = coalesce(w.tmdb_id,
+                                   (SELECT t.tmdb_id FROM tmdb_series t WHERE t.tvdb_id = w.tvdb_id
+                                    ORDER BY t.tmdb_id LIMIT 1))
+                           WHERE w.id = downloads.wanted_series_id AND o.chosen_at >= ?4)",
     )
-    .bind(note)
+    .bind(&note)
     .bind(unix_now())
     .bind(id)
+    .bind(set_aside_at)
     .execute(pool)
-    .await
-    .map(|_| ())
+    .await?
+    .rows_affected();
+    if resumed == 0 {
+        sqlx::query(
+            "UPDATE downloads SET message = ?, updated_at = ? WHERE id = ? AND state = 'failed'",
+        )
+        .bind(format!(
+            "no progress for {hours} hours, and its series changed episode order while it was \
+             set aside, so it stays failed rather than be brought home as an episode numbered \
+             otherwise"
+        ))
+        .bind(unix_now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    }
+    Ok(resumed > 0)
 }
 
 /// Searches again for what the download was for: its movie or season, or its album.
@@ -387,5 +416,48 @@ mod tests {
             assert_eq!(row(&pool, id).await.0, "downloading", "{message}");
         }
         assert!(blocked(&pool).await.is_empty());
+    }
+
+    /// A series' torrent set aside while its series changed episode order wasn't on its way for
+    /// the switch to wait for: it stays failed rather than come home numbered for the old order.
+    #[tokio::test]
+    async fn a_torrent_set_aside_across_a_switch_stays_failed() {
+        let pool = setup().await;
+        sqlx::query(
+            "INSERT INTO tmdb_series (tmdb_id, tvdb_id, name, fetched_at) VALUES (100, 200, 'Some Anime', 0);
+             INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type, source, added_at)
+                 VALUES (1, 200, 100, 'Some Anime', 1, 'anime', 'manual', 0);
+             INSERT INTO downloads (id, infohash, title, wanted_series_id, season, episode, decision,
+                     state, added_at, updated_at)
+                 VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Some Anime - 13', 1, 1, 13,
+                     '{}', 'failed', 0, 0),
+                        (2, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'Some Anime - 14', 1, 1, 14,
+                     '{}', 'failed', 0, 0);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let set_aside_at = unix_now() - 60;
+        // Before any switch, it keeps going.
+        assert!(
+            keep_going(&pool, 2, "nothing else", set_aside_at)
+                .await
+                .unwrap()
+        );
+        sqlx::query(
+            "INSERT INTO series_orders (series_tmdb_id, group_id, chosen_by, chosen_at)
+             VALUES (100, NULL, 'admin', unixepoch())",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !keep_going(&pool, 1, "nothing else", set_aside_at)
+                .await
+                .unwrap()
+        );
+        let (state, message) = row(&pool, 1).await;
+        assert_eq!(state, "failed");
+        assert!(message.contains("changed episode order"), "{message}");
     }
 }

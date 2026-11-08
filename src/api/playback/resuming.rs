@@ -114,10 +114,12 @@ pub(in super::super) async fn continue_rows(
              f.movie_id, f.series_id, f.season, f.episode,
              COALESCE(tm.title, m.parsed_title, ts.name, s.parsed_title) AS title,
              COALESCE(tm.year, m.parsed_year, ts.year, s.parsed_year) AS year,
-             te.name AS episode_name,
+             (SELECT te.name FROM episodes_in_order te WHERE te.series_tmdb_id = ts.tmdb_id
+                  AND te.season = f.season AND te.episode = f.episode) AS episode_name,
              COALESCE(m.local_poster_key, tm.poster_path, s.local_poster_key, ts.poster_path)
                  AS poster_path,
-             te.still_path,
+             (SELECT te.still_path FROM episodes_in_order te WHERE te.series_tmdb_id = ts.tmdb_id
+                  AND te.season = f.season AND te.episode = f.episode) AS still_path,
              COALESCE(m.local_backdrop_key, tm.backdrop_path, s.local_backdrop_key,
                  ts.backdrop_path) AS backdrop_path,
              af.x AS backdrop_x, af.y AS backdrop_y
@@ -128,8 +130,6 @@ pub(in super::super) async fn continue_rows(
          LEFT JOIN tmdb_movies tm ON tm.tmdb_id = m.match_tmdb_id
          LEFT JOIN series s ON s.id = f.series_id
          LEFT JOIN tmdb_series ts ON ts.tmdb_id = s.match_tmdb_id
-         LEFT JOIN tmdb_episodes te ON te.series_tmdb_id = ts.tmdb_id
-             AND te.season = f.season AND te.episode = f.episode
          LEFT JOIN artwork_focus af ON af.file = COALESCE(m.local_backdrop_key, tm.backdrop_path,
              s.local_backdrop_key, ts.backdrop_path)
          WHERE p.user_id = ?1 AND p.position_seconds > 0 AND f.missing_since IS NULL

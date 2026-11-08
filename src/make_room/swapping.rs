@@ -162,16 +162,7 @@ pub async fn step(
     skip: &[i64],
 ) -> anyhow::Result<Vec<i64>> {
     settle(pool).await?;
-    let next: Option<Waiting> = sqlx::query_as(
-        "SELECT s.id, s.wanted_movie_id, s.wanted_series_id, s.season, s.episode, f.size,
-             CAST(json_extract(p.info, '$.duration_seconds') AS REAL) AS seconds
-         FROM swaps s JOIN media_files f ON f.id = s.file_id
-         LEFT JOIN media_probes p ON p.file_id = f.id
-         WHERE s.state = 'waiting' ORDER BY s.id LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
-    let Some(next) = next else {
+    let Some(next) = next_waiting(pool).await? else {
         return Ok(Vec::new());
     };
     let gone: bool = sqlx::query_scalar(
@@ -185,7 +176,28 @@ pub async fn step(
         finish(pool, next.id, "failed", Some("its file left the library")).await?;
         return Ok(Vec::new());
     }
+    if next.wanted_series_id.is_some() && next.season.is_none() {
+        let why = "its file has no episode in the order the series follows now";
+        finish(pool, next.id, "failed", Some(why)).await?;
+        return Ok(Vec::new());
+    }
     swap_one(pool, tmdb, pipeline, skip, &next).await
+}
+
+/// The next waiting swap. A series' episode is its file's as numbered now, not as when the swap
+/// started: a change of the series' episode order may have numbered the file again.
+async fn next_waiting(pool: &SqlitePool) -> sqlx::Result<Option<Waiting>> {
+    sqlx::query_as(
+        "SELECT s.id, s.wanted_movie_id, s.wanted_series_id,
+             CASE WHEN s.wanted_series_id IS NOT NULL THEN f.season END AS season,
+             CASE WHEN s.wanted_series_id IS NOT NULL THEN f.episode END AS episode, f.size,
+             CAST(json_extract(p.info, '$.duration_seconds') AS REAL) AS seconds
+         FROM swaps s JOIN media_files f ON f.id = s.file_id
+         LEFT JOIN media_probes p ON p.file_id = f.id
+         WHERE s.state = 'waiting' ORDER BY s.id LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
 }
 
 /// Searches for a smaller release of one waiting swap and grabs the best. Returns the indexers

@@ -165,7 +165,7 @@ pub(super) async fn series(
     };
 
     let known: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT season, count(*) FROM tmdb_episodes WHERE series_tmdb_id = ? GROUP BY season",
+        "SELECT season, count(*) FROM episodes_in_order WHERE series_tmdb_id = ? GROUP BY season",
     )
     .bind(s.tmdb_id)
     .fetch_all(&state.pool)
@@ -221,11 +221,29 @@ pub(super) async fn series(
         "backdrop": artwork_url("w1280", s.backdrop_path),
         "match_status": s.match_status,
         "seasons": seasons,
+        "episode_order": episode_order(&state.pool, s.tmdb_id).await?,
         // Files whose names gave no season and episode, so apps can still offer them.
         "unparsed_files": unparsed.iter().map(FileRow::to_json).collect::<Vec<_>>(),
     });
     add_extras(&state, true, id, &mut body).await?;
     Ok(Json(body))
+}
+
+/// The order the series' seasons and episodes follow, and the TMDB episode group suggested
+/// when its files use seasons TMDB's own order doesn't have; null when it isn't matched.
+async fn episode_order(pool: &SqlitePool, tmdb_id: Option<i64>) -> sqlx::Result<Value> {
+    let Some(tmdb_id) = tmdb_id else {
+        return Ok(Value::Null);
+    };
+    let order = crate::episode_order::current(pool, tmdb_id).await?;
+    let suggested = crate::episode_order::suggestion(pool, tmdb_id).await?;
+    Ok(json!({
+        "group_id": order.group_id,
+        "name": order.name,
+        "chosen_by": order.chosen_by,
+        "chosen_at": order.chosen_at,
+        "suggested": suggested,
+    }))
 }
 
 pub(super) fn episode_range(first: i64, last: Option<i64>) -> std::ops::RangeInclusive<i64> {
@@ -270,7 +288,7 @@ pub(super) async fn season(
         return Err(not_found("series"));
     };
     let episodes: Vec<EpisodeRow> = sqlx::query_as(
-        "SELECT episode, name, overview, air_date, runtime_minutes, still_path FROM tmdb_episodes
+        "SELECT episode, name, overview, air_date, runtime_minutes, still_path FROM episodes_in_order
          WHERE series_tmdb_id = ? AND season = ? ORDER BY episode",
     )
     .bind(tmdb_id)

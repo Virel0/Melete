@@ -61,7 +61,7 @@ pub async fn between(pool: &SqlitePool, start: &str, end: &str) -> anyhow::Resul
              FROM wanted_series w
              JOIN tmdb_series t
                  ON t.tmdb_id = w.tmdb_id OR (w.tmdb_id IS NULL AND t.tvdb_id = w.tvdb_id)
-             JOIN tmdb_episodes e ON e.series_tmdb_id = t.tmdb_id
+             JOIN episodes_in_order e ON e.series_tmdb_id = t.tmdb_id
              LEFT JOIN wanted_seasons ws ON ws.wanted_series_id = w.id AND ws.season = e.season
              LEFT JOIN wanted_episode_overrides o
                  ON o.wanted_series_id = w.id AND o.season = e.season AND o.episode = e.episode

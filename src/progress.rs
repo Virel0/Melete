@@ -390,7 +390,7 @@ pub async fn seasons(
                 EXISTS (SELECT 1 FROM wanted_episode_overrides o
                         WHERE o.wanted_series_id = w.id AND o.season = e.season
                           AND o.episode = e.episode AND o.monitored = 0)
-         FROM tmdb_episodes e
+         FROM episodes_in_order e
            JOIN wanted_series w ON w.tmdb_id = e.series_tmdb_id
          WHERE w.id = ? AND e.air_date IS NOT NULL AND e.air_date <= date('now')",
     )

@@ -687,3 +687,38 @@ async fn season_and_episode_switches_take_effect_for_rss_at_once() {
     );
     assert_eq!(why().await.as_deref(), Some("season 1 isn't monitored"));
 }
+
+/// A release refused because its series changed episode order during the sync isn't counted as
+/// looked at: the next sync decides on it again, in the order the series follows now.
+#[tokio::test]
+async fn a_release_refused_for_a_changed_order_is_looked_at_again() {
+    let pool = setup().await;
+    indexer(&pool, "[5000]").await;
+    let reordered = torznab::Item {
+        title: "Some.Anime.S01E13.1080p.WEB.H264-GRP".into(),
+        ..torznab::Item::default()
+    };
+    let other = torznab::Item {
+        title: "Some.Anime.S01E14.1080p.WEB.H264-GRP".into(),
+        ..torznab::Item::default()
+    };
+    let fresh: Fresh = vec![
+        (1, &reordered, "key-13".into()),
+        (1, &other, "key-14".into()),
+    ];
+    let grabbed = [Grabbed {
+        release_id: 1,
+        title: reordered.title.clone(),
+        upgrade: false,
+        download_id: None,
+        refused: Some(crate::downloads::Refused::Reordered.to_string()),
+    }];
+    finish_record(&pool, 1, &grabbed, &fresh, unix_now())
+        .await
+        .unwrap();
+    let seen: Vec<String> = sqlx::query_scalar("SELECT release_key FROM rss_seen")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(seen, ["key-14"]);
+}

@@ -87,7 +87,8 @@ fn refused(refused: Refused) -> ApiError {
         | Refused::NoLink
         | Refused::Already(_)
         | Refused::Soulseek
-        | Refused::Blocklisted => StatusCode::CONFLICT,
+        | Refused::Blocklisted
+        | Refused::Reordered => StatusCode::CONFLICT,
         Refused::Fetch(_) | Refused::Deluge(_) | Refused::Slskd(_) => StatusCode::BAD_GATEWAY,
     };
     ApiError::new(status, refused.to_string())

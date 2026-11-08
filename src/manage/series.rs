@@ -120,7 +120,7 @@ pub(super) const LIBRARY: &str = "
 pub(super) const MONITORED_EPISODES: &str = "
     SELECT w.id, e.season, e.episode, coalesce(e.air_date <= date('now'), 0)
     FROM wanted_series w
-    JOIN tmdb_episodes e ON e.series_tmdb_id = w.tmdb_id
+    JOIN episodes_in_order e ON e.series_tmdb_id = w.tmdb_id
     JOIN wanted_seasons ws ON ws.wanted_series_id = w.id AND ws.season = e.season
     LEFT JOIN wanted_episode_overrides o
         ON o.wanted_series_id = w.id AND o.season = e.season AND o.episode = e.episode

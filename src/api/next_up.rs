@@ -132,16 +132,17 @@ pub(super) async fn rows(
          SELECT n.id AS file_id, n.series_id, n.season, n.episode,
              COALESCE(ts.name, s.parsed_title) AS title,
              COALESCE(ts.year, s.parsed_year) AS year,
-             te.name AS episode_name, COALESCE(s.local_poster_key, ts.poster_path) AS poster_path,
-             te.still_path,
+             (SELECT te.name FROM episodes_in_order te WHERE te.series_tmdb_id = ts.tmdb_id
+                  AND te.season = n.season AND te.episode = n.episode) AS episode_name,
+             COALESCE(s.local_poster_key, ts.poster_path) AS poster_path,
+             (SELECT te.still_path FROM episodes_in_order te WHERE te.series_tmdb_id = ts.tmdb_id
+                  AND te.season = n.season AND te.episode = n.episode) AS still_path,
              COALESCE(s.local_backdrop_key, ts.backdrop_path) AS backdrop_path,
              af.x AS backdrop_x, af.y AS backdrop_y,
              n.watched_at AS last_watched_at
          FROM following n
          JOIN series s ON s.id = n.series_id
          LEFT JOIN tmdb_series ts ON ts.tmdb_id = s.match_tmdb_id
-         LEFT JOIN tmdb_episodes te ON te.series_tmdb_id = ts.tmdb_id
-             AND te.season = n.season AND te.episode = n.episode
          LEFT JOIN artwork_focus af ON af.file = COALESCE(s.local_backdrop_key, ts.backdrop_path)
          WHERE n.n = 1 AND n.position = 0 AND s.missing_since IS NULL
          ORDER BY n.watched_at DESC, n.series_id DESC

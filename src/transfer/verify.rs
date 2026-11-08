@@ -76,7 +76,7 @@ pub(crate) async fn expected(pool: &SqlitePool, row: &Row) -> sqlx::Result<Optio
     };
     let runtimes: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT e.episode, e.runtime_minutes FROM wanted_series w
-         JOIN tmdb_episodes e ON e.series_tmdb_id = w.tmdb_id
+         JOIN episodes_in_order e ON e.series_tmdb_id = w.tmdb_id
          WHERE w.id = ? AND e.season = ? AND e.runtime_minutes > 0",
     )
     .bind(series)

@@ -130,6 +130,9 @@ pub enum Refused {
     Slskd(String),
     /// It's on the blocklist.
     Blocklisted,
+    /// A series' result from before the series last changed episode order: it was judged as an
+    /// episode numbered another way.
+    Reordered,
 }
 
 impl std::fmt::Display for Refused {
@@ -148,6 +151,9 @@ impl std::fmt::Display for Refused {
             Refused::Blocklisted => {
                 f.write_str("it's on the blocklist; take it off the blocklist to grab it")
             }
+            Refused::Reordered => f.write_str(
+                "the series' episode order changed since it was searched for; search again",
+            ),
         }
     }
 }

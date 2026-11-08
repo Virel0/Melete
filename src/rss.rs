@@ -95,6 +95,8 @@ pub async fn sync(
     pipeline: Option<&Pipeline>,
 ) -> anyhow::Result<Option<SyncView>> {
     let _one_at_a_time = RUNNING.lock().await;
+    // Before releases are matched to episodes, which counts through each series' order.
+    let started = unix_now();
     let indexers = search::enabled_indexers(pool).await?;
     if indexers.is_empty() {
         return Ok(None);
@@ -109,7 +111,15 @@ pub async fn sync(
     let now = unix_now();
     let summary: Vec<&IndexerOutcome> = outcomes.iter().map(|(o, _)| o).collect();
     let sync_id = start_record(pool, now, &summary, fresh.len()).await?;
-    let stored = decide_titles(pool, tmdb, &candidates, &groups, sync_id, &summary).await?;
+    let stored = decide_titles(
+        pool,
+        tmdb,
+        &candidates,
+        &groups,
+        (sync_id, started),
+        &summary,
+    )
+    .await?;
     let stored_albums = decide_albums(pool, &albums, &album_groups, sync_id, &summary).await?;
     let grabbed = match pipeline {
         Some(pipeline) => grab_all(pool, pipeline, &candidates, &stored, &stored_albums).await?,
@@ -152,7 +162,18 @@ async fn finish_record(
         .bind(sync_id)
         .execute(&mut *tx)
         .await?;
-    for (indexer_id, _, key) in fresh {
+    // A release refused because its series changed episode order during the sync is looked at
+    // again next time, in the order it follows now.
+    let reordered = crate::downloads::Refused::Reordered.to_string();
+    let again: Vec<&str> = grabbed
+        .iter()
+        .filter(|g| g.refused.as_deref() == Some(reordered.as_str()))
+        .map(|g| g.title.as_str())
+        .collect();
+    for (indexer_id, item, key) in fresh {
+        if again.contains(&item.title.as_str()) {
+            continue;
+        }
         sqlx::query(
             "INSERT INTO rss_seen (indexer_id, release_key, seen_at) VALUES (?, ?, ?)
              ON CONFLICT DO NOTHING",

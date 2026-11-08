@@ -73,7 +73,7 @@ async fn signature(pool: &SqlitePool, title: Title) -> sqlx::Result<Option<Strin
         Title::Series(_) => sqlx::query_scalar(
             "SELECT group_concat(season || ':' || episode || ':' || coalesce(runtime_minutes, ''), ',')
              FROM (SELECT e.season, e.episode, e.runtime_minutes FROM wanted_series w
-                   JOIN tmdb_episodes e ON e.series_tmdb_id = w.tmdb_id WHERE w.id = ?
+                   JOIN episodes_in_order e ON e.series_tmdb_id = w.tmdb_id WHERE w.id = ?
                    ORDER BY e.season, e.episode)",
         ),
     }
