@@ -270,6 +270,20 @@ pub async fn opened_by(pool: &SqlitePool, token: &str) -> sqlx::Result<Option<Op
     }))
 }
 
+/// Whether copy `id` was made from its file as the file is now, so the file's seek-bar previews
+/// fit the copy. A copy made before its source version was kept, or of a file changed since,
+/// isn't.
+pub async fn made_from_current(pool: &SqlitePool, id: i64) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM offline_copies c JOIN media_files f ON f.id = c.file_id
+             WHERE c.id = ? AND c.source_size = f.size
+               AND c.source_modified_at = f.modified_at)",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+}
+
 /// Notes a copy was downloaded, which keeps it another 7 days.
 pub async fn downloaded(pool: &SqlitePool, id: i64) -> sqlx::Result<()> {
     sqlx::query("UPDATE offline_copies SET last_download_at = ? WHERE id = ?")

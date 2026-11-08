@@ -11128,7 +11128,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["download_url", "expires_at", "subtitles"],
+                  "required": ["download_url", "expires_at", "subtitles", "trickplay"],
                   "properties": {
                     "download_url": {"type": "string", "description": "The MP4, with byte ranges."},
                     "expires_at": {"type": "integer"},
@@ -11140,6 +11140,25 @@
                         "properties": {"track": {"type": "string"}, "url": {"type": "string"}},
                         "additionalProperties": false
                       }
+                    },
+                    "trickplay": {
+                      "description": "The seek-bar previews to keep with the copy: those of the file it was made from, while the file is still that version, so their times are the copy's. Null when there are none (not made yet, turned off, the file changed since, or a copy made before copies kept their source's version).",
+                      "oneOf": [
+                        {"type": "null"},
+                        {
+                          "type": "object",
+                          "required": ["index", "sheet_urls"],
+                          "properties": {
+                            "index": {"$ref": "#/components/schemas/Trickplay"},
+                            "sheet_urls": {
+                              "type": "array",
+                              "items": {"type": "string"},
+                              "description": "Each sheet in order (`0.jpg`, `1.jpg`…), under this link."
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": false
@@ -11230,6 +11249,45 @@
           },
           "404": {
             "description": "Unknown or expired link, or no such track",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/offline/download/{token}/trickplay/{sheet}": {
+      "get": {
+        "tags": ["Playback"],
+        "x-melete-access": "public",
+        "summary": "One sheet of an offline copy's seek-bar previews",
+        "description": "The previews of the file the copy was made from, while the file is still the version the copy was made from (so their times are the copy's), under the copy's link as its subtitles are. The link's `trickplay` lists them.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "description": "From the copy's link.",
+            "schema": {"type": "string"}
+          },
+          {
+            "name": "sheet",
+            "in": "path",
+            "required": true,
+            "description": "{n}.jpg, from 0 to the index's `sheets` less one.",
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sheet",
+            "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}}
+          },
+          "400": {
+            "description": "Not an offline copy's link",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "404": {
+            "description": "Unknown or expired link, or the copy has no such sheet: no previews, or the file has changed since the copy was made",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
