@@ -57,8 +57,11 @@ async fn needed(pool: &SqlitePool, tmdb_id: i64) -> sqlx::Result<bool> {
 
 /// Fetches a series' episode groups and each one's episodes, and keeps them, replacing what was
 /// kept. A group TMDB no longer lists is forgotten unless the series follows it, which keeps its
-/// last episodes. Only the series' TMDB id and the groups' ids leave the server. False when TMDB
-/// has no such series.
+/// last episodes. When TMDB changed the episodes of the group the series follows, the series is
+/// renumbered for them as a switch would ([`super::switch::regroup`]); while that has to wait
+/// for a download, the group keeps its episodes as they were and the series isn't marked as
+/// fetched, so the next run tries again. Only the series' TMDB id and the groups' ids leave the
+/// server. False when TMDB has no such series.
 pub async fn fetch(pool: &SqlitePool, tmdb: &tmdb::Client, tmdb_id: i64) -> anyhow::Result<bool> {
     let Some(mut listed) = tmdb.episode_groups(tmdb_id).await? else {
         mark_fetched(pool, tmdb_id).await?;
@@ -71,17 +74,91 @@ pub async fn fetch(pool: &SqlitePool, tmdb: &tmdb::Client, tmdb_id: i64) -> anyh
             groups.push(details);
         }
     }
+    let followed: Option<String> = sqlx::query_scalar(
+        "SELECT group_id FROM series_orders WHERE series_tmdb_id = ? AND group_id IS NOT NULL",
+    )
+    .bind(tmdb_id)
+    .fetch_optional(pool)
+    .await?;
     let mut tx = pool.begin().await?;
-    store(&mut tx, tmdb_id, &groups).await?;
+    store(&mut tx, tmdb_id, &groups, followed.as_deref()).await?;
     tx.commit().await?;
+    let now = crate::db::unix_now();
+    if let Some(group) = groups.iter().find(|g| Some(&g.id) == followed.as_ref())
+        && changed(pool, group).await?
+        && let Some((season, episode)) = super::switch::regroup(pool, tmdb_id, group, now).await?
+    {
+        tracing::info!(
+            tmdb_id,
+            season,
+            episode,
+            "TMDB changed the episode group a series follows; renumbering waits for a download"
+        );
+        return Ok(true);
+    }
+    mark_fetched(pool, tmdb_id).await?;
     Ok(true)
 }
 
-/// Keeps a series' groups as fetched, in place of those kept before.
+/// A group's episodes as kept: (season, episode, TMDB id), in order.
+fn rows(group: &tmdb::EpisodeGroup) -> Vec<(i64, i64, i64)> {
+    let mut rows: Vec<(i64, i64, i64)> = group
+        .seasons
+        .iter()
+        .flat_map(|(season, episodes)| {
+            episodes
+                .iter()
+                .enumerate()
+                .map(move |(i, id)| (*season, i as i64 + 1, *id))
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// Whether TMDB's episodes for the group aren't the ones kept.
+async fn changed(pool: &SqlitePool, group: &tmdb::EpisodeGroup) -> sqlx::Result<bool> {
+    let kept: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT season, episode, episode_tmdb_id FROM tmdb_episode_group_episodes
+         WHERE group_id = ? ORDER BY season, episode, episode_tmdb_id",
+    )
+    .bind(&group.id)
+    .fetch_all(pool)
+    .await?;
+    Ok(kept != rows(group))
+}
+
+/// Replaces the group's episodes with these.
+pub(super) async fn put_episodes(
+    conn: &mut sqlx::SqliteConnection,
+    group: &tmdb::EpisodeGroup,
+) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM tmdb_episode_group_episodes WHERE group_id = ?")
+        .bind(&group.id)
+        .execute(&mut *conn)
+        .await?;
+    for (season, episode, id) in rows(group) {
+        sqlx::query(
+            "INSERT INTO tmdb_episode_group_episodes (group_id, season, episode, episode_tmdb_id)
+             VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        )
+        .bind(&group.id)
+        .bind(season)
+        .bind(episode)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Keeps a series' groups as fetched, in place of those kept before; the episodes of the one it
+/// follows (`followed`) are left to a switch.
 async fn store(
     tx: &mut sqlx::SqliteConnection,
     tmdb_id: i64,
     groups: &[tmdb::EpisodeGroup],
+    followed: Option<&str>,
 ) -> anyhow::Result<()> {
     let now = crate::db::unix_now();
     let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
@@ -111,47 +188,19 @@ async fn store(
         .fetch_optional(&mut *tx)
         .await?;
         // Another series' group by that id: TMDB's answer is wrong, and the group is left out.
-        if mine.is_none() {
+        if mine.is_none() || followed == Some(group.id.as_str()) {
             continue;
         }
-        sqlx::query("DELETE FROM tmdb_episode_group_episodes WHERE group_id = ?")
-            .bind(&group.id)
-            .execute(&mut *tx)
-            .await?;
-        for (season, episodes) in &group.seasons {
-            for (i, episode_tmdb_id) in episodes.iter().enumerate() {
-                sqlx::query(
-                    "INSERT INTO tmdb_episode_group_episodes
-                         (group_id, season, episode, episode_tmdb_id)
-                     VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                )
-                .bind(&group.id)
-                .bind(season)
-                .bind(i as i64 + 1)
-                .bind(episode_tmdb_id)
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
+        put_episodes(&mut *tx, group).await?;
     }
-    mark_fetched_in(tx, tmdb_id, now).await?;
     Ok(())
 }
 
 async fn mark_fetched(pool: &SqlitePool, tmdb_id: i64) -> sqlx::Result<()> {
-    let mut conn = pool.acquire().await?;
-    mark_fetched_in(&mut conn, tmdb_id, crate::db::unix_now()).await
-}
-
-async fn mark_fetched_in(
-    conn: &mut sqlx::SqliteConnection,
-    tmdb_id: i64,
-    now: i64,
-) -> sqlx::Result<()> {
     sqlx::query("UPDATE tmdb_series SET episode_groups_fetched_at = ? WHERE tmdb_id = ?")
-        .bind(now)
+        .bind(crate::db::unix_now())
         .bind(tmdb_id)
-        .execute(conn)
+        .execute(pool)
         .await?;
     Ok(())
 }

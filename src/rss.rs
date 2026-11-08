@@ -162,7 +162,18 @@ async fn finish_record(
         .bind(sync_id)
         .execute(&mut *tx)
         .await?;
-    for (indexer_id, _, key) in fresh {
+    // A release refused because its series changed episode order during the sync is looked at
+    // again next time, in the order it follows now.
+    let reordered = crate::downloads::Refused::Reordered.to_string();
+    let again: Vec<&str> = grabbed
+        .iter()
+        .filter(|g| g.refused.as_deref() == Some(reordered.as_str()))
+        .map(|g| g.title.as_str())
+        .collect();
+    for (indexer_id, item, key) in fresh {
+        if again.contains(&item.title.as_str()) {
+            continue;
+        }
         sqlx::query(
             "INSERT INTO rss_seen (indexer_id, release_key, seen_at) VALUES (?, ?, ?)
              ON CONFLICT DO NOTHING",

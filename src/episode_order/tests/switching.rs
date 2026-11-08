@@ -320,3 +320,169 @@ async fn a_file_numbered_from_the_first_with_no_place_in_the_new_order_loses_its
     .unwrap();
     assert_eq!(numbered, (None, None, 0));
 }
+
+/// An indexer whose torrent link answers after `delay`, with a magnet link.
+async fn slow_indexer(delay: std::time::Duration) -> String {
+    let router = axum::Router::new().route(
+        "/t",
+        axum::routing::get(move || async move {
+            tokio::time::sleep(delay).await;
+            axum::response::Redirect::to(&format!("magnet:?xt=urn:btih:{}", "c".repeat(40)))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/t", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    url
+}
+
+#[tokio::test]
+async fn a_switch_waits_for_a_grab_under_way_and_then_sees_its_download() {
+    let pool = some_anime().await;
+    add_group_without_the_recap(&pool).await;
+    // An accepted result for the recap (S01E13), searched for under TMDB's own order.
+    let link = slow_indexer(std::time::Duration::from_millis(800)).await;
+    let sealing = crate::secrets::sealing(&pool).await.unwrap();
+    let stored =
+        crate::secrets::link_to_store(sealing, crate::secrets::DOWNLOAD_URL, Some(&link)).unwrap();
+    let search: i64 = sqlx::query_scalar(
+        "INSERT INTO searches (wanted_series_id, season, episode, searched_at, indexers)
+         VALUES (1, 1, 13, unixepoch() - 60, '[]') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let release: i64 = sqlx::query_scalar(
+        "INSERT INTO release_decisions (search_id, title, accepted, decision, download_url)
+         VALUES (?, 'Some.Anime.S01E13.1080p.WEB.H264-GRP', 1, '{}', ?) RETURNING id",
+    )
+    .bind(search)
+    .bind(stored)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (url, _fake) = crate::deluge::testing::start().await;
+    let grabbing = {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let deluge =
+                crate::deluge::Client::new(&url, crate::config::Secret::for_tests("pw")).unwrap();
+            let fetcher = crate::downloads::Fetcher::new().unwrap();
+            crate::downloads::grab(&pool, &deluge, &fetcher, release)
+                .await
+                .unwrap()
+                .is_ok()
+        })
+    };
+    // The grab is fetching its torrent when the switch comes: the switch waits for it, then sees
+    // the recap on its way, which the group leaves out.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(
+        choose(&pool, 100, Some("rrrr"), ChosenBy::Auto, 50)
+            .await
+            .unwrap(),
+        Chosen::Busy((1, 13))
+    );
+    assert!(grabbing.await.unwrap(), "the grab went through");
+    let kept: (Option<i64>, Option<i64>) = sqlx::query_as("SELECT season, episode FROM downloads")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, (Some(1), Some(13)));
+}
+
+fn changed_group_reply() -> Reply {
+    // The group's first season without the recap (TMDB id 1013).
+    let part = |name: &str, order: i64, ids: Vec<i64>| {
+        json!({
+            "name": name,
+            "order": order,
+            "episodes": ids.iter().enumerate()
+                .map(|(n, id)| json!({"id": id, "order": n}))
+                .collect::<Vec<_>>(),
+        })
+    };
+    Reply::ok(
+        json!({"id": "aaaa", "name": "Seasons", "type": 6, "groups": [
+            part("Season 1", 1, (1001..=1024).filter(|id| *id != 1013).collect()),
+            part("Season 2", 2, (1025..=1047).collect()),
+            part("Season 3", 3, (1048..=1059).collect()),
+        ]}),
+    )
+}
+
+#[tokio::test]
+async fn tmdb_changing_the_group_followed_renumbers_as_a_switch_does() {
+    let pool = some_anime().await;
+    add_group(&pool, "aaaa", "Seasons", &[24, 23, 12]).await;
+    assert_eq!(decide(&pool).await.unwrap(), 1);
+    sqlx::query("UPDATE series_orders SET chosen_at = 0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // The recap and the next episode, grabbed under the group: the recap still on its way.
+    download(&pool, 'a', 1, Some(13), "downloading").await;
+    download(&pool, 'b', 1, Some(14), "imported").await;
+    let fake = FakeTmdb::default();
+    fake.reply(
+        "/tv/100/episode_groups",
+        vec![Reply::ok(
+            json!({"results": [{"id": "aaaa", "name": "Seasons", "type": 6}]}),
+        )],
+    );
+    fake.reply("/tv/episode_group/aaaa", vec![changed_group_reply()]);
+    let tmdb = fake.start().await;
+    let fetched_at = || async {
+        let at: Option<i64> =
+            sqlx::query_scalar("SELECT episode_groups_fetched_at FROM tmdb_series")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        at
+    };
+    // The recap on its way: the group keeps its episodes, and the series is asked for again.
+    crate::episode_order::fetch::fetch(&pool, &tmdb, 100)
+        .await
+        .unwrap();
+    assert_eq!(episode_at(&pool, 1, 13).await.unwrap().0, 1013);
+    assert_eq!(fetched_at().await, None);
+    // Once it's in, the change goes through as a switch would.
+    sqlx::query("UPDATE downloads SET state = 'imported'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    crate::episode_order::fetch::fetch(&pool, &tmdb, 100)
+        .await
+        .unwrap();
+    assert_eq!(episode_at(&pool, 1, 13).await.unwrap().0, 1014);
+    assert!(fetched_at().await.is_some());
+    let rows: Vec<(Option<i64>, Option<i64>, Option<i64>)> =
+        sqlx::query_as("SELECT season, episode, left_out_tmdb_id FROM downloads ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        vec![(None, None, Some(1013)), (Some(1), Some(13), None)]
+    );
+    let now_at: i64 = sqlx::query_scalar("SELECT chosen_at FROM series_orders")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(now_at > 0, "results searched for before aren't grabbed");
+    assert!(events(&pool).await.last().unwrap().contains("TMDB changed"));
+}
+
+#[tokio::test]
+async fn a_row_left_out_has_no_number() {
+    let pool = some_anime().await;
+    let wrong = sqlx::query(
+        "INSERT INTO downloads (infohash, title, wanted_series_id, season, episode, decision,
+             state, added_at, updated_at, left_out_tmdb_id)
+         VALUES ('dddddddddddddddddddddddddddddddddddddddd', 'x', 1, 1, 13, '{}', 'imported', 0, 0,
+             1013)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(wrong.is_err());
+}

@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 
 mod fetch;
 mod fit;
+mod renumber;
 mod requested;
 mod switch;
 
@@ -23,6 +24,11 @@ pub use fetch::refresh;
 pub use fit::{decide, suggestion};
 pub use requested::{followed_seasons, monitor_tmdb_season, tmdb_id_of, tmdb_season_in_order};
 pub use switch::{Chosen, choose};
+
+/// Held for writing while a series changes order, and for reading by what records season and
+/// episode numbers it worked out before (a grab, from checking its result to recording its
+/// download), so one can't land between the other's reading and writing.
+pub(crate) static SWITCHING: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
 /// Who chose a series' order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
