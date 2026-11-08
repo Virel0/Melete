@@ -11,6 +11,16 @@ use sqlx::SqlitePool;
 /// shows. A number past the end of TMDB's list is left alone. Returns how many files it
 /// numbered (or renumbered, when TMDB's list changed).
 pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
+    let mut tx = pool.begin().await?;
+    let numbered = number_in(&mut tx).await?;
+    tx.commit().await?;
+    Ok(numbered)
+}
+
+/// [`number`], in a transaction already open: a switch of order's, so files are counted through
+/// the new order with it. A file numbered before whose number has no place in the list now loses
+/// its season and episode, which would be another episode's.
+pub(crate) async fn number_in(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<usize> {
     #[derive(sqlx::FromRow)]
     struct File {
         id: i64,
@@ -25,11 +35,10 @@ pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
          WHERE f.absolute_episode IS NOT NULL AND (f.season IS NULL OR f.mapped = 1)
            AND f.missing_since IS NULL AND s.match_tmdb_id IS NOT NULL",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await?;
     let mut lists: HashMap<i64, Vec<(i64, i64)>> = HashMap::new();
     let mut numbered = 0;
-    let mut tx = pool.begin().await?;
     for file in files {
         let list = match lists.entry(file.show) {
             Entry::Occupied(known) => known.into_mut(),
@@ -39,7 +48,7 @@ pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
                      WHERE series_tmdb_id = ? AND season > 0 ORDER BY season, episode",
                 )
                 .bind(file.show)
-                .fetch_all(&mut *tx)
+                .fetch_all(&mut *conn)
                 .await?,
             ),
         };
@@ -47,6 +56,16 @@ pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
             .ok()
             .and_then(|i| list.get(i))
         else {
+            if file.season.is_some() {
+                sqlx::query(
+                    "UPDATE media_files SET season = NULL, episode = NULL, episode_end = NULL,
+                         mapped = 0 WHERE id = ?",
+                )
+                .bind(file.id)
+                .execute(&mut *conn)
+                .await?;
+                numbered += 1;
+            }
             continue;
         };
         if (file.season, file.episode) == (Some(season), Some(episode)) {
@@ -56,11 +75,10 @@ pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
             .bind(season)
             .bind(episode)
             .bind(file.id)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
         numbered += 1;
     }
-    tx.commit().await?;
     Ok(numbered)
 }
 

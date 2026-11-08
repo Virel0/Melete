@@ -248,26 +248,58 @@ pub async fn series(
         return Ok(Wanted::Already(id));
     };
     let seasons: Vec<i64> = show.seasons.iter().map(|s| s.season_number).collect();
+    add_seasons(&mut tx, (id, tmdb_id), seasons, placement.seasons).await?;
+    tx.commit().await?;
+    Ok(Wanted::Added(id))
+}
+
+/// Lists a newly wanted series' seasons, monitored as `asked` says: those of the order it follows,
+/// TMDB's own (`tmdb`) or a group's. A season asked for by TMDB's number is, for a series
+/// following a group, the group's seasons holding its episodes.
+async fn add_seasons(
+    tx: &mut sqlx::SqliteConnection,
+    (id, tmdb_id): (i64, i64),
+    tmdb: Vec<i64>,
+    asked: Seasons,
+) -> anyhow::Result<()> {
+    let followed = crate::episode_order::followed_seasons(&mut *tx, tmdb_id).await?;
+    let mapped = followed.is_some();
+    let seasons = followed.unwrap_or(tmdb);
     let latest = seasons.iter().copied().filter(|s| *s > 0).max();
     for season in seasons {
+        let on = match asked {
+            Seasons::Only(_) if mapped => false,
+            asked => asked.monitors(season, latest),
+        };
         sqlx::query(
             "INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (?, ?, ?)
              ON CONFLICT DO NOTHING",
         )
         .bind(id)
         .bind(season)
-        .bind(placement.seasons.monitors(season, latest))
+        .bind(on)
         .execute(&mut *tx)
         .await?;
     }
-    tx.commit().await?;
-    Ok(Wanted::Added(id))
+    if let (Seasons::Only(season), true) = (asked, mapped) {
+        crate::episode_order::monitor_tmdb_season(tx, id, tmdb_id, season).await?;
+    }
+    Ok(())
 }
 
-/// For a series wanted already: the one season asked for is monitored, added if it's new; as
-/// a choice made in Melete, which an import from Sonarr keeps.
+/// For a series wanted already: the one season asked for (by TMDB's number) is monitored, added
+/// if it's new; as a choice made in Melete, which an import from Sonarr keeps. For a series
+/// following an episode group, that's the group's seasons holding TMDB's season's episodes.
 pub async fn monitor_asked(pool: &SqlitePool, id: i64, seasons: Seasons) -> anyhow::Result<()> {
     if let Seasons::Only(season) = seasons {
+        let mut tx = pool.begin().await?;
+        if let Some(tmdb_id) = crate::episode_order::tmdb_id_of(&mut tx, id).await?
+            && crate::episode_order::monitor_tmdb_season(&mut tx, id, tmdb_id, season).await?
+        {
+            tx.commit().await?;
+            return Ok(());
+        }
+        drop(tx);
         sqlx::query(
             "INSERT INTO wanted_seasons (wanted_series_id, season, monitored, monitored_here)
              VALUES (?, ?, 1, 1)

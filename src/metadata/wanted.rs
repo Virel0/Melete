@@ -4,8 +4,9 @@ use super::*;
 
 /// TMDB entries for the wanted list's calendar. Monitored wanted titles are fetched
 /// even when they aren't on disk (a series known only by its TVDB id is found through TMDB's
-/// find), wanted series still airing are refreshed daily, and release dates are asked for
-/// movies out within the last year, coming, or undated. Counts what it fetched as refreshed.
+/// find), wanted series still airing are refreshed daily (and sooner while a new episode has
+/// no title or summary yet), and release dates are asked for movies out within the last
+/// year, coming, or undated. Counts what it fetched as refreshed.
 pub async fn refresh_wanted(
     pool: &SqlitePool,
     tmdb: &tmdb::Client,
@@ -135,7 +136,8 @@ async fn fetch_wanted_series(
     Ok(())
 }
 
-/// Fetches again the monitored wanted series still airing whose cached entry is over a day old.
+/// Fetches again the monitored wanted series still airing whose cached entry is over a day old,
+/// and the wanted series with a new episode TMDB hasn't filled in yet.
 async fn refresh_airing_series(
     pool: &SqlitePool,
     tmdb: &tmdb::Client,
@@ -151,6 +153,7 @@ async fn refresh_airing_series(
     .bind(now - REFRESH_AIRING)
     .fetch_all(pool)
     .await?;
+    let airing = with_unfilled(pool, Among::Wanted, tmdb.language(), now, airing).await?;
     for id in airing {
         match fetch_series(tmdb, id).await {
             Ok(Some((details, seasons))) => {
