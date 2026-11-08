@@ -5,7 +5,7 @@ use super::*;
 
 /// A group with one season of all of TMDB's episodes but the 13th (TMDB id 1013, a recap, say):
 /// the 14th is its episode 13.
-async fn add_group_without_the_recap(pool: &SqlitePool) {
+pub(super) async fn add_group_without_the_recap(pool: &SqlitePool) {
     sqlx::query(
         "INSERT INTO tmdb_episode_groups (id, series_tmdb_id, name, kind, fetched_at)
              VALUES ('rrrr', 100, 'No recap', 6, 10);
@@ -19,7 +19,13 @@ async fn add_group_without_the_recap(pool: &SqlitePool) {
 }
 
 /// A download of `title` for (season, episode) of the wanted series, in `state`.
-async fn download(pool: &SqlitePool, hash: char, season: i64, episode: Option<i64>, state: &str) {
+pub(super) async fn download(
+    pool: &SqlitePool,
+    hash: char,
+    season: i64,
+    episode: Option<i64>,
+    state: &str,
+) {
     sqlx::query(
         "INSERT INTO downloads (infohash, title, wanted_series_id, season, episode, decision,
              state, added_at, updated_at)

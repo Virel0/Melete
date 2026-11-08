@@ -20,8 +20,8 @@ mod renumber;
 mod requested;
 mod switch;
 
-pub use fetch::refresh;
-pub use fit::{decide, suggestion};
+pub use fetch::{fetch, refresh};
+pub use fit::{decide, offered, suggestion};
 pub use requested::{followed_seasons, monitor_tmdb_season, tmdb_id_of, tmdb_season_in_order};
 pub use switch::{Chosen, choose};
 
@@ -35,12 +35,15 @@ pub(crate) static SWITCHING: tokio::sync::RwLock<()> = tokio::sync::RwLock::cons
 pub enum ChosenBy {
     /// Melete, because the files fit a group exactly.
     Auto,
+    /// An admin, by hand.
+    Admin,
 }
 
 impl ChosenBy {
     fn as_str(self) -> &'static str {
         match self {
             ChosenBy::Auto => "auto",
+            ChosenBy::Admin => "admin",
         }
     }
 }

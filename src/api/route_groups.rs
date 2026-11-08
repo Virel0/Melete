@@ -213,6 +213,7 @@ pub(super) fn watching_routes(
     router
         .merge(calendar::routes(pool.clone()))
         .merge(matching::routes(pool.clone(), tmdb.clone()))
+        .merge(episode_orders::routes(pool.clone(), tmdb.clone()))
         .merge(playback::routes(pool.clone(), ffprobe.clone()))
         .merge(next_up::routes(pool.clone()))
         .merge(speedtest::routes(pool.clone()))

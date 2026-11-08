@@ -1,6 +1,6 @@
 // A title's page in Manage's Movies, Series and Anime: its header (poster, monitoring, state,
 // profile, library, folder, size), what can be done with it (Search, Search and choose, Edit,
-// Fix match, Open in Watch, Take off the list), its seasons and episodes for a series, its
+// Fix match, Episode order, Open in Watch, Take off the list), its seasons and episodes for a series, its
 // files, its downloads under way, its running-time checks and its history. Reached as `#/admin/<service>/title/<id>`,
 // the id a wanted entry's, or "f" and a folder's for a title in the library that isn't wanted.
 
@@ -12,6 +12,7 @@ import { searchAndChoose, searchAndGrab } from "/web/manage-search.js";
 import { historyPart } from "/web/manage-history.js";
 import { seasonsPart } from "/web/manage-seasons.js";
 import { wantPanel } from "/web/manage-want.js";
+import { orderPanel, orderSaid } from "/web/manage-order.js";
 import { fixMatch } from "/web/settings.js";
 import { art } from "/web/cards.js";
 import { checking, copyingBar } from "/web/progress.js";
@@ -92,6 +93,7 @@ function header(v) {
     ["Library", t.library ?? "—"],
     v.wanted ? ["Series type", { standard: "Standard", daily: "Daily", anime: "Anime" }[v.wanted.series_type] ?? v.wanted.series_type] : null,
     folderPath ? ["Folder", folderPath] : null,
+    v.folder?.episode_order ? ["Episode order", orderSaid(v.folder.episode_order)] : null,
     ["Size", t.size ? size(t.size) : "Nothing on disk"],
     t.quality ? ["Quality", t.quality] : null,
     t.added_at ? ["Added", when(t.added_at)] : null,
@@ -157,6 +159,7 @@ function toolbar(v, panel, said) {
   }
   if (t.wanted) buttons.push(h("button", { type: "button", class: "quiet", onclick: () => open(editPanel(v, said)) }, "Edit…"));
   if (v.folder) buttons.push(h("button", { type: "button", class: "quiet", onclick: () => open(matchPanel(v)) }, "Fix match…"));
+  if (v.folder?.episode_order) buttons.push(h("button", { type: "button", class: "quiet", onclick: () => open(orderPanel(ctx, v.folder.id)) }, "Episode order…"));
   const watch = kind.watch(t);
   if (watch) buttons.push(h("a", { class: "button quiet", href: watch }, "Open in Watch"));
   if (t.wanted) {

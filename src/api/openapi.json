@@ -3824,6 +3824,107 @@
         }
       }
     },
+    "/api/v1/series/{id}/orders": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "The orders a series' episodes can follow",
+        "description": "TMDB's own order and the series' TMDB episode groups, each with how it fits the files. The first time, the groups are asked of TMDB (only the series' TMDB id and the groups' ids leave the server); they're asked again after each refresh of the series' metadata.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Id from a list or detail response.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SeriesOrders"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such series",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "The series isn't matched to TMDB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "TMDB failed or rejected the token",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "TMDB rate limited",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/series/{id}/order": {
+      "put": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Choose the order a series' episodes follow",
+        "description": "One of the series' episode groups, as listed by `/orders`, or TMDB's own order with `group_id` null. The choice is final: Melete never changes it by itself. What's kept by season and episode number (monitoring, downloads, searches and history) is renumbered to the new order through each episode's TMDB id; files keep their names, and so their progress; files numbered from the first episode are counted again.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Id from a list or detail response.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["group_id"],
+                "properties": {
+                  "group_id": {
+                    "type": ["string", "null"],
+                    "description": "The group to follow; null for TMDB's own order. Required: a body without it, or with any other field, is refused with 400."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SeriesOrders"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such series",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "The series isn't matched to TMDB, or a download is on its way for an episode (or a season pack) the new order would number otherwise or leave out; try again once it's in",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {
+            "description": "The series has no such group, or its episodes haven't been fetched",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/rss/sync": {
       "post": {
         "tags": ["Admin"],
@@ -13278,6 +13379,32 @@
           },
           "exact": {"type": "boolean", "description": "It has exactly the seasons and episodes the files are named as."},
           "covered": {"type": "integer", "description": "How many of the files' episodes it has."}
+        },
+        "additionalProperties": false
+      },
+      "SeriesOrders": {
+        "type": "object",
+        "required": ["series_id", "tmdb_id", "order", "suggested", "groups", "groups_fetched_at"],
+        "properties": {
+          "series_id": {"type": "integer"},
+          "tmdb_id": {"type": "integer"},
+          "order": {
+            "type": "object",
+            "required": ["group_id", "name", "chosen_by", "chosen_at"],
+            "properties": {
+              "group_id": {"type": ["string", "null"]},
+              "name": {"type": ["string", "null"]},
+              "chosen_by": {"enum": ["auto", "admin", null]},
+              "chosen_at": {"type": ["integer", "null"]}
+            },
+            "additionalProperties": false
+          },
+          "suggested": {"oneOf": [{"$ref": "#/components/schemas/EpisodeGroupOffered"}, {"type": "null"}]},
+          "groups": {"type": "array", "items": {"$ref": "#/components/schemas/EpisodeGroupOffered"}},
+          "groups_fetched_at": {
+            "type": ["integer", "null"],
+            "description": "When the groups were last asked of TMDB; asked again after each refresh of the series' metadata."
+          }
         },
         "additionalProperties": false
       },

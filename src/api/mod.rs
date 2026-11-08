@@ -19,6 +19,7 @@ mod credits;
 mod diagnostics;
 mod discover;
 mod downloads;
+mod episode_orders;
 mod events;
 mod favourites;
 mod high_frame_rate;

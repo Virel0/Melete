@@ -276,6 +276,96 @@ async fn a_switch_keeps_monitoring_downloads_searches_history_and_progress_on_th
 }
 
 #[tokio::test]
+async fn an_admins_choice_and_its_undoing_stand() {
+    let pool = some_anime().await;
+    add_group(&pool, "aaaa", "Seasons", &[24, 23, 12]).await;
+    add_group(&pool, "bbbb", "Story arcs", &[24, 23, 9, 3]).await;
+    assert_eq!(
+        choose(&pool, 100, Some("bbbb"), ChosenBy::Admin, 50)
+            .await
+            .unwrap(),
+        Chosen::Done
+    );
+    assert_eq!(episode_at(&pool, 4, 1).await.unwrap().0, 1057);
+    // Melete never overrides it, though another group fits the files exactly.
+    assert_eq!(decide(&pool).await.unwrap(), 0);
+    assert_eq!(
+        choose(&pool, 100, Some("aaaa"), ChosenBy::Auto, 60)
+            .await
+            .unwrap(),
+        Chosen::EarlierStands
+    );
+    assert_eq!(
+        current(&pool, 100).await.unwrap().group_id.as_deref(),
+        Some("bbbb")
+    );
+    // Back to TMDB's own order, by hand: that stands too.
+    assert_eq!(
+        choose(&pool, 100, None, ChosenBy::Admin, 70).await.unwrap(),
+        Chosen::Done
+    );
+    let order = current(&pool, 100).await.unwrap();
+    assert_eq!(
+        (order.group_id, order.chosen_by.as_deref()),
+        (None, Some("admin"))
+    );
+    assert_eq!(episode_at(&pool, 1, 59).await.unwrap().0, 1059);
+    assert_eq!(decide(&pool).await.unwrap(), 0);
+    assert_eq!(suggestion(&pool, 100).await.unwrap(), None);
+    let said = events(&pool).await;
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[1].contains("TMDB's own order") && said[1].contains("an admin chose it"));
+    // A group the series doesn't have isn't chosen.
+    assert_eq!(
+        choose(&pool, 100, Some("zzzz"), ChosenBy::Admin, 80)
+            .await
+            .unwrap(),
+        Chosen::NoSuchGroup
+    );
+}
+
+#[tokio::test]
+async fn switching_back_by_hand_puts_everything_where_it_was() {
+    let pool = some_anime().await;
+    add_group(&pool, "aaaa", "Seasons", &[24, 23, 12]).await;
+    sqlx::query(
+        "INSERT INTO wanted_episode_overrides (wanted_series_id, season, episode, monitored)
+             VALUES (1, 1, 30, 0);
+         INSERT INTO downloads (infohash, title, wanted_series_id, season, episode, decision,
+                 state, added_at, updated_at)
+             VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Some Anime - 40', 1, 1, 40, '{}',
+                 'downloading', unixepoch(), 1);
+         INSERT INTO searches (wanted_series_id, season, episode, searched_at, indexers)
+             VALUES (1, 1, 40, unixepoch(), '[]');",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let state = || async {
+        let off: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT season, episode FROM wanted_episode_overrides WHERE monitored = 0",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let grabbed: (i64, i64) = sqlx::query_as("SELECT season, episode FROM downloads")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let searched: (i64, i64) = sqlx::query_as("SELECT season, episode FROM searches")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        (off, grabbed, searched)
+    };
+    assert_eq!(decide(&pool).await.unwrap(), 1);
+    assert_eq!(state().await, (vec![(2, 6)], (2, 16), (2, 16)));
+    choose(&pool, 100, None, ChosenBy::Admin, 90).await.unwrap();
+    assert_eq!(state().await, (vec![(1, 30)], (1, 40), (1, 40)));
+    assert_eq!(episode_at(&pool, 2, 1).await, None);
+}
+
+#[tokio::test]
 async fn files_numbered_from_the_first_episode_count_through_the_group() {
     let pool = some_anime().await;
     add_group(&pool, "aaaa", "Seasons", &[24, 23, 12]).await;
@@ -405,4 +495,5 @@ async fn groups_are_fetched_only_when_needed_and_again_with_the_metadata() {
     assert_eq!(episode_at(&pool, 3, 12).await.unwrap().0, 1059);
 }
 
+mod by_hand;
 mod switching;

@@ -17,6 +17,7 @@ import { buttonColour, css, strongest, tintPage } from "/web/title-colour.js";
 import { episodesPicker, markFiles, markSeries, seasonOrder } from "/web/title-episodes.js";
 import { aboutSection, castPage, extrasPage, moreLikeThis, moreLinks } from "/web/title-more.js";
 import { headerPreview } from "/web/title-preview.js";
+import { orderNote } from "/web/title-order.js";
 import { trailerButton } from "/web/title-trailer.js";
 import { partway, playTarget, timeLeft } from "/web/watch-play.js";
 
@@ -237,11 +238,15 @@ export async function series(id, params, gen, admin = false) {
   list.show({ kind: "series", id: s.id, title: s.title });
   const numbered = s.seasons.filter((x) => x.season > 0).length;
   const markAll = h("button", { type: "button", class: "quiet" }, "Mark all watched");
-  const head = header(s, ["Series", s.year && String(s.year), numbered ? plural(numbered, "season", "seasons") : null, s.status], (g) => `#/${anime ? "anime" : "shows"}?genre=${encodeURIComponent(g)}`, [
-    s.seasons.some((x) => x.available) ? markAll : null,
-    list.el,
-    trailerButton("series", s, extras),
-  ]);
+  const redraw = () => dispatchEvent(new HashChangeEvent("hashchange"));
+  const order = orderNote(s, admin, `#/admin/${anime ? "anime" : "series"}/title/f${s.id}`, redraw);
+  const head = header(
+    s,
+    ["Series", s.year && String(s.year), numbered ? plural(numbered, "season", "seasons") : null, s.status],
+    (g) => `#/${anime ? "anime" : "shows"}?genre=${encodeURIComponent(g)}`,
+    [s.seasons.some((x) => x.available) ? markAll : null, list.el, trailerButton("series", s, extras)],
+    [order],
+  );
   aim(head, target, s.title);
   colour(s, head.play, gen);
   const asked = params.has("season") ? Number(params.get("season")) : null;

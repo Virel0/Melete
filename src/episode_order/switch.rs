@@ -265,6 +265,7 @@ async fn record(
     };
     let why = match by {
         ChosenBy::Auto => "the files' seasons fit it exactly",
+        ChosenBy::Admin => "an admin chose it",
     };
     say(
         conn,

@@ -78,6 +78,8 @@ pub fn part(path: &str) -> Part {
         "avatars" => Part::Always,
         "movies" | "series"
             if api.ends_with("/match")
+                || api.ends_with("/order")
+                || api.ends_with("/orders")
                 || api.ends_with("/rescan")
                 || api.ends_with("/unstyled-subtitles") =>
         {
