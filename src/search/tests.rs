@@ -1265,6 +1265,62 @@ async fn releases_numbered_from_the_first_episode_are_mapped() {
 }
 
 #[tokio::test]
+async fn releases_numbered_from_the_first_episode_count_through_the_order_followed() {
+    let pool = setup().await;
+    crate::episode_order::testing::some_anime_in_seasons(&pool).await;
+    sqlx::query(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+         INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation, match_tmdb_id)
+         VALUES (1, 1, 'Some Anime', 'Some Anime', 1, 100);
+         INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id, season, episode,
+             first_seen_generation, seen_generation)
+         VALUES (1, 'Some Anime/Some.Anime.S02E06.2160p.BluRay.REMUX.HEVC-GRP.mkv', 1, 0, 1, 2, 6, 1, 1);
+         INSERT INTO wanted_series (tvdb_id, tmdb_id, title, monitored, series_type, quality_profile,
+             source, added_at, series_id, original_language)
+         VALUES (200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 1, 'en')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM wanted_series")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    indexers(
+        &pool,
+        feed(&[
+            "[SubsPlease] Some Anime - 30 (1080p) [ABCD1234].mkv",
+            "[SubsPlease] Some Anime - 31 (1080p) [ABCD1234].mkv",
+        ]),
+    )
+    .await;
+    let client = torznab::Client::new().unwrap();
+    let target = Target::Series {
+        id,
+        season: 2,
+        episode: Some(6),
+    };
+    let view = get(
+        &pool,
+        search(&pool, &client, None, target).await.unwrap().unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let verdicts = summary(&view);
+    let find = |t: &str| {
+        verdicts
+            .iter()
+            .find(|(title, ..)| title.contains(t))
+            .unwrap()
+    };
+    // The 30th episode is the group's S02E06, the remux on disk: not grabbed again.
+    let (_, accepted, why) = find("Anime - 30");
+    assert!(!accepted && why[0].contains("better"), "{why:?}");
+    assert!(find("Anime - 31").2[0].contains("as numbered it's S02E07"));
+}
+
+#[tokio::test]
 async fn a_movie_converted_to_a_high_frame_rate_is_turned_down_unless_allowed() {
     let pool = setup().await;
     let id = want_dune(&pool, "4K Preferred").await;

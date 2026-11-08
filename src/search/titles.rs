@@ -78,7 +78,7 @@ pub(super) async fn episode_order(
     wanted: &Wanted,
 ) -> anyhow::Result<Vec<(i64, i64)>> {
     Ok(sqlx::query_as(
-        "SELECT e.season, e.episode FROM tmdb_episodes e
+        "SELECT e.season, e.episode FROM episodes_in_order e
          WHERE e.season > 0 AND e.series_tmdb_id = (
              SELECT tmdb_id FROM tmdb_series
              WHERE tmdb_id = ?1 OR (?1 IS NULL AND tvdb_id = ?2) ORDER BY tmdb_id LIMIT 1)
@@ -219,7 +219,7 @@ async fn episode_range(
         Entry::Occupied(known) => known.into_mut(),
         Entry::Vacant(new) => new.insert(
             sqlx::query_scalar(
-                "SELECT episode FROM tmdb_episodes WHERE season = ?3 AND series_tmdb_id = (
+                "SELECT episode FROM episodes_in_order WHERE season = ?3 AND series_tmdb_id = (
                              SELECT tmdb_id FROM tmdb_series
                              WHERE tmdb_id = ?1 OR (?1 IS NULL AND tvdb_id = ?2)
                              ORDER BY tmdb_id LIMIT 1)",
