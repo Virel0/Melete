@@ -10205,7 +10205,8 @@
                 "extra_found",
                 "renamed",
                 "set_aside",
-                "removed_from_deluge"
+                "removed_from_deluge",
+                "reordered"
               ]
             }
           },
@@ -13104,6 +13105,7 @@
           "textless_backdrop_focus",
           "match_status",
           "seasons",
+          "episode_order",
           "unparsed_files"
         ],
         "properties": {
@@ -13157,11 +13159,59 @@
           },
           "match_status": {"$ref": "#/components/schemas/MatchStatus"},
           "seasons": {"type": "array", "items": {"$ref": "#/components/schemas/SeasonSummary"}},
+          "episode_order": {
+            "oneOf": [{"$ref": "#/components/schemas/SeriesEpisodeOrder"}, {"type": "null"}],
+            "description": "The order its seasons and episodes follow; null when it isn't matched to TMDB."
+          },
           "unparsed_files": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/File"},
             "description": "Files whose names gave no season and episode."
           }
+        },
+        "additionalProperties": false
+      },
+      "SeriesEpisodeOrder": {
+        "type": "object",
+        "description": "Seasons and episodes follow TMDB's own order, or one of the series' TMDB episode groups (the seasons other sites use, say). Everything that numbers episodes follows it: seasons and episodes here, Missing and Monitored, searches, RSS sync, absolute numbers and imports. Titles, air dates and stills are each episode's TMDB data. Melete follows a group by itself only when the files use seasons TMDB's own order doesn't have and exactly one group has exactly their seasons and episodes; an admin's choice is never changed automatically.",
+        "required": ["group_id", "name", "chosen_by", "chosen_at", "suggested"],
+        "properties": {
+          "group_id": {"type": ["string", "null"], "description": "The TMDB episode group followed; null for TMDB's own order."},
+          "name": {"type": ["string", "null"], "description": "The group's name, as TMDB has it."},
+          "chosen_by": {
+            "enum": ["auto", "admin", null],
+            "description": "`auto` when Melete chose it because the files fit it exactly, `admin` when an admin did; null when nobody chose."
+          },
+          "chosen_at": {"type": ["integer", "null"], "description": "Unix seconds."},
+          "suggested": {
+            "oneOf": [{"$ref": "#/components/schemas/EpisodeGroupOffered"}, {"type": "null"}],
+            "description": "While nobody chose and the files use seasons TMDB's own order doesn't have: the group holding most of their episodes (more than TMDB's own order does), to offer an admin; `exact` when it has exactly theirs (and another group does too, or Melete would have chosen it). Null otherwise."
+          }
+        },
+        "additionalProperties": false
+      },
+      "EpisodeGroupOffered": {
+        "type": "object",
+        "required": ["group_id", "name", "kind", "seasons", "exact", "covered"],
+        "properties": {
+          "group_id": {"type": "string", "description": "TMDB's id for the group."},
+          "name": {"type": "string"},
+          "kind": {
+            "type": ["integer", "null"],
+            "description": "TMDB's type: 1 original air date, 2 absolute, 3 DVD, 4 digital, 5 story arc, 6 production, 7 TV."
+          },
+          "seasons": {
+            "type": "array",
+            "description": "Its seasons in order, specials left out. Its parts are seasons 1, 2, ... in TMDB's order (a part called Specials is season 0), each part's episodes numbered from 1.",
+            "items": {
+              "type": "object",
+              "required": ["season", "episodes"],
+              "properties": {"season": {"type": "integer"}, "episodes": {"type": "integer"}},
+              "additionalProperties": false
+            }
+          },
+          "exact": {"type": "boolean", "description": "It has exactly the seasons and episodes the files are named as."},
+          "covered": {"type": "integer", "description": "How many of the files' episodes it has."}
         },
         "additionalProperties": false
       },
@@ -19730,7 +19780,8 @@
               "extra_found",
               "renamed",
               "set_aside",
-              "removed_from_deluge"
+              "removed_from_deluge",
+              "reordered"
             ]
           },
           "title": {

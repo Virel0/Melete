@@ -326,6 +326,15 @@ pub(crate) async fn match_on_request(
 /// After matching: wanted titles' details, content ratings, cast and crew, and TMDB scores
 /// titles fetched before scores were kept lack.
 async fn refresh_the_rest(pool: &sqlx::SqlitePool, tmdb: &tmdb::Client) {
+    // Series whose files use seasons TMDB's own order doesn't have, or that follow a group.
+    match crate::episode_order::refresh(pool, tmdb).await {
+        Ok(fetched) if fetched > 0 => tracing::info!(fetched, "series' episode groups fetched"),
+        Ok(_) => {}
+        Err(err) => tracing::warn!(
+            error = format!("{err:#}"),
+            "fetching series' episode groups stopped"
+        ),
+    }
     match metadata::refresh_wanted(pool, tmdb).await {
         Ok(report) => tracing::info!(
             fetched = report.refreshed,

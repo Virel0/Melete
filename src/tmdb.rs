@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 use tokio::time::{Instant, sleep, sleep_until};
 
 mod credits;
+mod episode_groups;
 mod images;
 pub mod language;
 mod ratings;
@@ -22,6 +23,7 @@ mod types;
 mod videos;
 
 pub use credits::*;
+pub use episode_groups::*;
 pub use images::*;
 use language::ENGLISH;
 pub use types::*;

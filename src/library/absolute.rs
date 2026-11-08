@@ -35,7 +35,7 @@ pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
             Entry::Occupied(known) => known.into_mut(),
             Entry::Vacant(new) => new.insert(
                 sqlx::query_as(
-                    "SELECT season, episode FROM tmdb_episodes
+                    "SELECT season, episode FROM episodes_in_order
                      WHERE series_tmdb_id = ? AND season > 0 ORDER BY season, episode",
                 )
                 .bind(file.show)
