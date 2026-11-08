@@ -185,7 +185,7 @@ async fn a_switch_keeps_monitoring_downloads_searches_history_and_progress_on_th
              VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Some Anime - 40', 1, 1, 40, '{}',
                  'downloading', unixepoch(), 1),
                     ('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'Some Anime S01', 1, 1, NULL, '{}',
-                 'downloading', unixepoch(), 1);
+                 'imported', unixepoch(), 1);
          INSERT INTO searches (wanted_series_id, season, episode, searched_at, indexers)
              VALUES (1, 1, 40, unixepoch(), '[]');",
     )
@@ -494,3 +494,5 @@ async fn groups_are_fetched_only_when_needed_and_again_with_the_metadata() {
     assert_eq!(kept, vec!["aaaa"]);
     assert_eq!(episode_at(&pool, 3, 12).await.unwrap().0, 1059);
 }
+
+mod switching;

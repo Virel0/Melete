@@ -10,7 +10,7 @@ pub(super) async fn decide_titles(
     tmdb: Option<&crate::tmdb::Client>,
     candidates: &[Candidate],
     groups: &[Group<'_>],
-    sync_id: i64,
+    (sync_id, started): (i64, i64),
     summary: &[&IndexerOutcome],
 ) -> anyhow::Result<Vec<(Target, usize, i64)>> {
     let mut stored: Vec<(Target, usize, i64)> = Vec::new();
@@ -45,6 +45,7 @@ pub(super) async fn decide_titles(
             Some(sync_id),
             summary,
             &decided,
+            started,
         )
         .await?;
         stored.push((*target, *candidate, search_id));

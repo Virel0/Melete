@@ -372,10 +372,19 @@ pub async fn albums_after(pool: &SqlitePool, sources: &Sources) -> anyhow::Resul
     Ok(albums)
 }
 
-/// The seasons to search for: the one asked for, else every monitored one but specials.
+/// The seasons to search for: the one asked for (by TMDB's number, so for a series following an
+/// episode group, the group's seasons holding its episodes), else every monitored one but
+/// specials.
 async fn seasons(pool: &SqlitePool, series: i64, asked: Option<i64>) -> sqlx::Result<Vec<i64>> {
     if let Some(season) = asked {
-        return Ok(vec![season]);
+        let mut conn = pool.acquire().await?;
+        let mapped = match crate::episode_order::tmdb_id_of(&mut conn, series).await? {
+            Some(tmdb_id) => {
+                crate::episode_order::tmdb_season_in_order(&mut conn, tmdb_id, season).await?
+            }
+            None => None,
+        };
+        return Ok(mapped.map_or_else(|| vec![season], |m| m.into_keys().collect()));
     }
     sqlx::query_scalar(
         "SELECT season FROM wanted_seasons WHERE wanted_series_id = ? AND monitored = 1 AND season > 0
@@ -777,5 +786,34 @@ mod tests {
             sqlx::query(undo).execute(&pool).await.unwrap();
         }
         assert!(albums_after(&pool, &sources).await.unwrap().is_empty());
+    }
+
+    /// A season asked for by TMDB's number, of a series following an episode group, is searched
+    /// for where the group has its episodes.
+    #[tokio::test]
+    async fn a_season_asked_for_is_searched_where_the_group_has_its_episodes() {
+        let pool = db::open_in_memory().await;
+        // TMDB: seasons of 24 and 35 (ids 1001 to 1059); the group: 24, 23 and 12.
+        sqlx::query(
+            "INSERT INTO tmdb_series (tmdb_id, tvdb_id, name, fetched_at) VALUES (100, 200, 'Some Anime', 0);
+             INSERT INTO tmdb_episodes (series_tmdb_id, season, episode, tmdb_id)
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 59)
+                 SELECT 100, iif(i <= 24, 1, 2), iif(i <= 24, i, i - 24), 1000 + i FROM n;
+             INSERT INTO tmdb_episode_groups (id, series_tmdb_id, name, fetched_at)
+                 VALUES ('aaaa', 100, 'Seasons', 0);
+             INSERT INTO tmdb_episode_group_episodes (group_id, season, episode, episode_tmdb_id)
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 59)
+                 SELECT 'aaaa', iif(i <= 24, 1, iif(i <= 47, 2, 3)),
+                        iif(i <= 24, i, iif(i <= 47, i - 24, i - 47)), 1000 + i FROM n;
+             INSERT INTO series_orders (series_tmdb_id, group_id, chosen_by, chosen_at)
+                 VALUES (100, 'aaaa', 'auto', 0);
+             INSERT INTO wanted_series (id, tvdb_id, title, monitored, series_type, source, added_at)
+                 VALUES (1, 200, 'Some Anime', 1, 'anime', 'manual', 0);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(seasons(&pool, 1, Some(2)).await.unwrap(), vec![2, 3]);
+        assert_eq!(seasons(&pool, 1, Some(1)).await.unwrap(), vec![1]);
     }
 }

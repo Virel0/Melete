@@ -2,7 +2,11 @@
 //! keeps what's attached to each: files are named as the order they follow and stay as they are
 //! (watch progress and watched state are kept per file), and what's kept by season and episode
 //! number (monitoring, downloads, searches and history) is renumbered through each episode's
-//! TMDB id, in one transaction with the switch.
+//! TMDB id, in one transaction with the switch. What names an episode the new order leaves out
+//! loses its number, which would be another episode's, and keeps the episode's TMDB id instead
+//! (`left_out_tmdb_id`), so an order that has it again numbers it again. A switch waits while a
+//! download is on its way for such an episode, or for a season the new order makes up of other
+//! episodes: it would be imported as something it isn't.
 
 use std::collections::HashMap;
 
@@ -17,14 +21,17 @@ pub enum Chosen {
     NoSuchGroup,
     /// Melete doesn't choose for a series whose order was chosen already.
     EarlierStands,
+    /// A download is on its way for this episode (or, with episode 0, this season) as the series
+    /// is numbered now, which the new order leaves out or makes up differently: nothing changed.
+    Busy(Key),
 }
 
 /// A numbered episode: (season, episode).
-type Key = (i64, i64);
+pub type Key = (i64, i64);
 
 /// Makes the TMDB series follow `group` (None: TMDB's own order), as chosen by `by`, and
-/// renumbers what's kept by episode number to match; then gives files numbered from the first
-/// episode their seasons in the new order.
+/// renumbers what's kept by episode number to match, files numbered from the first episode
+/// included.
 pub async fn choose(
     pool: &SqlitePool,
     tmdb_id: i64,
@@ -32,7 +39,8 @@ pub async fn choose(
     by: ChosenBy,
     now: i64,
 ) -> anyhow::Result<Chosen> {
-    let mut tx = pool.begin().await?;
+    // Writing from the start, so a scan's writes meanwhile wait rather than fail it.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(group) = group
         && !usable(&mut tx, tmdb_id, group).await?
     {
@@ -62,19 +70,23 @@ pub async fn choose(
     .execute(&mut *tx)
     .await?;
     let after = order_of(&mut tx, tmdb_id).await?;
-    let moved = moves(&before, &after);
-    let changed = chosen.as_ref().is_none_or(|was| was.as_deref() != group);
-    for (wanted, key) in wanted_series(&mut tx, tmdb_id).await? {
-        if !moved.is_empty() {
-            renumber_monitoring(&mut tx, wanted, &before, &after).await?;
-            renumber_kept(&mut tx, wanted, &key, &moved).await?;
-        }
-        if changed {
-            record(&mut tx, wanted, tmdb_id, group, by, now).await?;
+    let wanted = wanted_series(&mut tx, tmdb_id).await?;
+    for (id, _) in &wanted {
+        if let Some(key) = on_the_way(&mut tx, *id, &before, &after).await? {
+            // Dropping the transaction undoes the switch.
+            return Ok(Chosen::Busy(key));
         }
     }
+    let changed = chosen.as_ref().is_none_or(|was| was.as_deref() != group);
+    for (id, key) in &wanted {
+        renumber(&mut tx, (*id, key), &before, &after).await?;
+        if changed {
+            record(&mut tx, *id, tmdb_id, group, by, now).await?;
+        }
+    }
+    // Files numbered from the first episode, counted through the new order with the switch.
+    crate::library::absolute::number_in(&mut tx).await?;
     tx.commit().await?;
-    crate::library::absolute::number(pool).await?;
     Ok(Chosen::Done)
 }
 
@@ -125,6 +137,17 @@ fn moves(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>) -> Vec<(Key, Key
     moved
 }
 
+/// Each episode the old order has and the new one leaves out: where it was, and its TMDB id.
+fn left_out(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>) -> Vec<(Key, i64)> {
+    let mut gone: Vec<(Key, i64)> = before
+        .iter()
+        .filter(|(id, _)| !after.contains_key(id))
+        .map(|(id, key)| (*key, *id))
+        .collect();
+    gone.sort();
+    gone
+}
+
 /// The wanted series that are this TMDB series, with the key their history is kept under.
 async fn wanted_series(
     conn: &mut sqlx::SqliteConnection,
@@ -140,9 +163,68 @@ async fn wanted_series(
     .await
 }
 
+/// The first download on its way for the wanted series that the switch would leave without its
+/// episode: one for an episode the new order leaves out, or a season pack for a season the new
+/// order makes up of other episodes (episode 0).
+async fn on_the_way(
+    conn: &mut sqlx::SqliteConnection,
+    wanted: i64,
+    before: &HashMap<i64, Key>,
+    after: &HashMap<i64, Key>,
+) -> sqlx::Result<Option<Key>> {
+    let coming: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT season, episode FROM downloads
+         WHERE wanted_series_id = ? AND season IS NOT NULL
+           AND state IN ('downloading', 'completed', 'transferring')
+         ORDER BY season, episode",
+    )
+    .bind(wanted)
+    .fetch_all(conn)
+    .await?;
+    let season_of = |order: &HashMap<i64, Key>, season: i64| -> BTreeSet<i64> {
+        order
+            .iter()
+            .filter(|(_, key)| key.0 == season)
+            .map(|(id, _)| *id)
+            .collect()
+    };
+    for (season, episode) in coming {
+        let busy = match episode {
+            Some(episode) => before
+                .iter()
+                .any(|(id, key)| *key == (season, episode) && !after.contains_key(id)),
+            None => season_of(before, season) != season_of(after, season),
+        };
+        if busy {
+            return Ok(Some((season, episode.unwrap_or(0))));
+        }
+    }
+    Ok(None)
+}
+
+/// Renumbers one wanted series' monitoring, downloads, searches and history from the old order
+/// to the new.
+async fn renumber(
+    conn: &mut sqlx::SqliteConnection,
+    (wanted, key): (i64, &str),
+    before: &HashMap<i64, Key>,
+    after: &HashMap<i64, Key>,
+) -> sqlx::Result<()> {
+    let moved = moves(before, after);
+    let gone = left_out(before, after);
+    if !moved.is_empty() || !gone.is_empty() {
+        renumber_monitoring(conn, wanted, before, after).await?;
+        // Left out first: renumbering may give their numbers to other episodes.
+        detach_left_out(conn, wanted, key, &gone).await?;
+        renumber_kept(conn, wanted, key, &moved).await?;
+    }
+    number_again(conn, wanted, key, after).await
+}
+
 /// Keeps each episode monitored or not as it was: a season of the new order is monitored when
 /// any of its episodes was, and those of them that weren't are left out on their own. Numbers
-/// the old order didn't have are left as they are.
+/// the old order didn't have are left as they are; seasons the new order doesn't have are no
+/// longer monitored, as they hold no episode.
 async fn renumber_monitoring(
     conn: &mut sqlx::SqliteConnection,
     wanted: i64,
@@ -179,20 +261,7 @@ async fn renumber_monitoring(
     for (_, now, on) in &episodes {
         *season_on.entry(now.0).or_default() |= on;
     }
-    for (season, on) in &season_on {
-        sqlx::query(
-            "INSERT INTO wanted_seasons (wanted_series_id, season, monitored, monitored_here)
-             VALUES (?, ?, ?, 1)
-             ON CONFLICT (wanted_series_id, season) DO UPDATE SET monitored = excluded.monitored,
-                 monitored_here = CASE WHEN wanted_seasons.monitored = excluded.monitored
-                                       THEN wanted_seasons.monitored_here ELSE 1 END",
-        )
-        .bind(wanted)
-        .bind(season)
-        .bind(on)
-        .execute(&mut *conn)
-        .await?;
-    }
+    set_seasons(conn, wanted, &season_on, after).await?;
     for (was, now, _) in &episodes {
         for key in [was, now] {
             sqlx::query(
@@ -223,6 +292,74 @@ async fn renumber_monitoring(
     Ok(())
 }
 
+/// Monitors each season of the new order as worked out, and stops monitoring seasons it doesn't
+/// have (a choice made here, as an import from Sonarr counts it).
+async fn set_seasons(
+    conn: &mut sqlx::SqliteConnection,
+    wanted: i64,
+    season_on: &BTreeMap<i64, bool>,
+    after: &HashMap<i64, Key>,
+) -> sqlx::Result<()> {
+    for (season, on) in season_on {
+        sqlx::query(
+            "INSERT INTO wanted_seasons (wanted_series_id, season, monitored, monitored_here)
+             VALUES (?, ?, ?, 1)
+             ON CONFLICT (wanted_series_id, season) DO UPDATE SET monitored = excluded.monitored,
+                 monitored_here = CASE WHEN wanted_seasons.monitored = excluded.monitored
+                                       THEN wanted_seasons.monitored_here ELSE 1 END",
+        )
+        .bind(wanted)
+        .bind(season)
+        .bind(on)
+        .execute(&mut *conn)
+        .await?;
+    }
+    if after.is_empty() {
+        return Ok(());
+    }
+    let have: BTreeSet<i64> = after.values().map(|key| key.0).collect();
+    sqlx::query(
+        "UPDATE wanted_seasons SET monitored = 0, monitored_here = 1
+         WHERE wanted_series_id = ? AND monitored = 1
+           AND season NOT IN (SELECT value FROM json_each(?))",
+    )
+    .bind(wanted)
+    .bind(serde_json::to_string(&have).expect("numbers serialize"))
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// What's kept by episode number for a wanted series (`?2`, its history's key `?3`).
+const KEPT: [(&str, &str); 3] = [
+    ("downloads", "t.wanted_series_id = ?2"),
+    ("searches", "t.wanted_series_id = ?2"),
+    (
+        "title_events",
+        "t.key = ?3 AND t.service IN ('series', 'anime')",
+    ),
+];
+
+/// Runs `update` (with `FROM {pairs} m`, `{whose}` and the table as `t`) on each of [`KEPT`],
+/// binding `pairs` as JSON, the wanted series and its history's key.
+async fn each_kept(
+    conn: &mut sqlx::SqliteConnection,
+    update: &str,
+    pairs: &str,
+    (wanted, key): (i64, &str),
+) -> sqlx::Result<()> {
+    for (table, whose) in KEPT {
+        let sql = update.replace("{table}", table).replace("{whose}", whose);
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(pairs)
+            .bind(wanted)
+            .bind(key)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Renumbers the series' downloads, searches and history that name an episode, each row once.
 /// Those naming only a season (packs, season searches) are left as they are.
 async fn renumber_kept(
@@ -238,27 +375,84 @@ async fn renumber_kept(
             .collect::<Vec<_>>(),
     )
     .expect("numbers serialize");
-    const MOVES: &str = "(SELECT value ->> 0 AS s, value ->> 1 AS e, value ->> 2 AS ns,
-                                 value ->> 3 AS ne FROM json_each(?1)) m";
-    for (table, whose) in [
-        ("downloads", "t.wanted_series_id = ?2"),
-        ("searches", "t.wanted_series_id = ?2"),
-        (
-            "title_events",
-            "t.key = ?3 AND t.service IN ('series', 'anime')",
-        ),
-    ] {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "UPDATE {table} AS t SET season = m.ns, episode = m.ne FROM {MOVES}
-             WHERE {whose} AND t.season = m.s AND t.episode = m.e"
-        )))
-        .bind(&moves)
-        .bind(wanted)
-        .bind(key)
-        .execute(&mut *conn)
-        .await?;
+    each_kept(
+        conn,
+        "UPDATE {table} AS t SET season = m.ns, episode = m.ne
+         FROM (SELECT value ->> 0 AS s, value ->> 1 AS e, value ->> 2 AS ns, value ->> 3 AS ne
+               FROM json_each(?1)) m
+         WHERE {whose} AND t.season = m.s AND t.episode = m.e",
+        &moves,
+        (wanted, key),
+    )
+    .await
+}
+
+/// Downloads, searches and history naming an episode the new order leaves out: their number
+/// would be another episode's, so it goes, and the episode's TMDB id stays. Monitoring it set
+/// goes too.
+async fn detach_left_out(
+    conn: &mut sqlx::SqliteConnection,
+    wanted: i64,
+    key: &str,
+    gone: &[(Key, i64)],
+) -> sqlx::Result<()> {
+    if gone.is_empty() {
+        return Ok(());
     }
+    let pairs = serde_json::to_string(
+        &gone
+            .iter()
+            .map(|((s, e), id)| [*s, *e, *id])
+            .collect::<Vec<_>>(),
+    )
+    .expect("numbers serialize");
+    each_kept(
+        conn,
+        "UPDATE {table} AS t SET season = NULL, episode = NULL, left_out_tmdb_id = m.id
+         FROM (SELECT value ->> 0 AS s, value ->> 1 AS e, value ->> 2 AS id
+               FROM json_each(?1)) m
+         WHERE {whose} AND t.season = m.s AND t.episode = m.e",
+        &pairs,
+        (wanted, key),
+    )
+    .await?;
+    sqlx::query(
+        "DELETE FROM wanted_episode_overrides
+         WHERE wanted_series_id = ?1 AND EXISTS (
+             SELECT 1 FROM json_each(?2) m
+             WHERE m.value ->> 0 = season AND m.value ->> 1 = episode)",
+    )
+    .bind(wanted)
+    .bind(&pairs)
+    .execute(&mut *conn)
+    .await?;
     Ok(())
+}
+
+/// Numbers again what named an episode an earlier order left out, when this one has it.
+async fn number_again(
+    conn: &mut sqlx::SqliteConnection,
+    wanted: i64,
+    key: &str,
+    after: &HashMap<i64, Key>,
+) -> sqlx::Result<()> {
+    let back = serde_json::to_string(
+        &after
+            .iter()
+            .map(|(id, (s, e))| [*id, *s, *e])
+            .collect::<Vec<_>>(),
+    )
+    .expect("numbers serialize");
+    each_kept(
+        conn,
+        "UPDATE {table} AS t SET season = m.s, episode = m.e, left_out_tmdb_id = NULL
+         FROM (SELECT value ->> 0 AS id, value ->> 1 AS s, value ->> 2 AS e
+               FROM json_each(?1)) m
+         WHERE {whose} AND t.left_out_tmdb_id = m.id",
+        &back,
+        (wanted, key),
+    )
+    .await
 }
 
 /// Says in the series' history which order it follows now, and who chose it.

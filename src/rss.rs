@@ -95,6 +95,8 @@ pub async fn sync(
     pipeline: Option<&Pipeline>,
 ) -> anyhow::Result<Option<SyncView>> {
     let _one_at_a_time = RUNNING.lock().await;
+    // Before releases are matched to episodes, which counts through each series' order.
+    let started = unix_now();
     let indexers = search::enabled_indexers(pool).await?;
     if indexers.is_empty() {
         return Ok(None);
@@ -109,7 +111,15 @@ pub async fn sync(
     let now = unix_now();
     let summary: Vec<&IndexerOutcome> = outcomes.iter().map(|(o, _)| o).collect();
     let sync_id = start_record(pool, now, &summary, fresh.len()).await?;
-    let stored = decide_titles(pool, tmdb, &candidates, &groups, sync_id, &summary).await?;
+    let stored = decide_titles(
+        pool,
+        tmdb,
+        &candidates,
+        &groups,
+        (sync_id, started),
+        &summary,
+    )
+    .await?;
     let stored_albums = decide_albums(pool, &albums, &album_groups, sync_id, &summary).await?;
     let grabbed = match pipeline {
         Some(pipeline) => grab_all(pool, pipeline, &candidates, &stored, &stored_albums).await?,

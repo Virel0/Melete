@@ -16,10 +16,12 @@ use sqlx::SqlitePool;
 
 mod fetch;
 mod fit;
+mod requested;
 mod switch;
 
 pub use fetch::{fetch, refresh};
 pub use fit::{decide, offered, suggestion};
+pub use requested::{followed_seasons, monitor_tmdb_season, tmdb_id_of, tmdb_season_in_order};
 pub use switch::{Chosen, choose};
 
 /// Who chose a series' order.
