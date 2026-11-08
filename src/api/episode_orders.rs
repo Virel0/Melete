@@ -4,16 +4,18 @@
 
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, put};
 use axum::{Json, Router, middleware};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, require_admin};
+use super::errors::bad_request;
 use super::matching::tmdb_error;
 use crate::episode_order::{self, Chosen, ChosenBy};
 use crate::tmdb;
@@ -93,22 +95,39 @@ async fn list(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OrderRequest {
-    /// The group to follow; null for TMDB's own order.
-    group_id: Option<String>,
+    /// The group to follow, or null for TMDB's own order; left out, it's nothing at all, so a
+    /// misspelt field can't switch a series to TMDB's own order.
+    #[serde(default, deserialize_with = "given")]
+    group_id: Option<Option<String>>,
+}
+
+/// A field that's there, null or not.
+fn given<'de, D: Deserializer<'de>>(field: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(field).map(Some)
 }
 
 async fn set(
     State(state): State<OrderState>,
     Path(id): Path<i64>,
-    Json(body): Json<OrderRequest>,
+    body: Result<Json<OrderRequest>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    let tmdb_id = tmdb_id_of(&state.pool, id).await?;
-    let group = body.group_id.as_deref();
-    if group.is_some_and(|g| !tmdb::is_group_id(g)) {
-        return Err(super::errors::bad_request(
-            "group_id isn't a TMDB episode group id",
+    let body = match body {
+        Ok(Json(body)) => body,
+        // A field unknown or of the wrong type.
+        Err(JsonRejection::JsonDataError(err)) => return Err(bad_request(&err.body_text())),
+        Err(other) => return Err(ApiError::new(other.status(), other.body_text())),
+    };
+    let Some(group) = body.group_id else {
+        return Err(bad_request(
+            "group_id is required: a group's id, or null for TMDB's own order",
         ));
+    };
+    let tmdb_id = tmdb_id_of(&state.pool, id).await?;
+    let group = group.as_deref();
+    if group.is_some_and(|g| !tmdb::is_group_id(g)) {
+        return Err(bad_request("group_id isn't a TMDB episode group id"));
     }
     let now = crate::db::unix_now();
     match episode_order::choose(&state.pool, tmdb_id, group, ChosenBy::Admin, now).await? {
@@ -119,6 +138,19 @@ async fn set(
         )),
         // Only Melete's own choices give way to one made before.
         Chosen::EarlierStands => Err(ApiError::new(StatusCode::CONFLICT, "already chosen")),
+        Chosen::Busy((season, episode)) => {
+            let what = match episode {
+                0 => format!("a pack of season {season}"),
+                _ => format!("S{season:02}E{episode:02}"),
+            };
+            Err(ApiError::new(
+                StatusCode::CONFLICT,
+                format!(
+                    "a download of {what} is on its way, and this order doesn't number it so; \
+                     try again once it's in"
+                ),
+            ))
+        }
     }
 }
 

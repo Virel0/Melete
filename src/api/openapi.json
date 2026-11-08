@@ -3891,8 +3891,12 @@
                 "type": "object",
                 "required": ["group_id"],
                 "properties": {
-                  "group_id": {"type": ["string", "null"], "description": "The group to follow; null for TMDB's own order."}
-                }
+                  "group_id": {
+                    "type": ["string", "null"],
+                    "description": "The group to follow; null for TMDB's own order. Required: a body without it, or with any other field, is refused with 400."
+                  }
+                },
+                "additionalProperties": false
               }
             }
           }
@@ -3910,7 +3914,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "The series isn't matched to TMDB",
+            "description": "The series isn't matched to TMDB, or a download is on its way for an episode (or a season pack) the new order would number otherwise or leave out; try again once it's in",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "415": {"$ref": "#/components/responses/UnsupportedMediaType"},

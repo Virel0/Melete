@@ -183,3 +183,53 @@ async fn orders_are_refused_for_what_isnt_there() {
     let (status, _) = send(&f, "GET", "/api/v1/series/2/orders", None).await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn a_body_without_group_id_or_with_another_field_is_refused() {
+    let (f, pool, _fake) = fixture().await;
+    send(&f, "GET", "/api/v1/series/1/orders", None).await;
+    for body in [
+        json!({}),
+        json!({"group": "aaaa"}),
+        json!({"group_id": null, "extra": 1}),
+    ] {
+        let (status, said) = send(&f, "PUT", "/api/v1/series/1/order", Some(body.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {said}");
+    }
+    // Nothing was chosen by them.
+    let chosen: Option<String> = sqlx::query_scalar("SELECT chosen_by FROM series_orders")
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+    assert_eq!(chosen, None);
+}
+
+#[tokio::test]
+async fn a_switch_waits_for_a_season_pack_on_its_way() {
+    let (f, pool, _fake) = fixture().await;
+    send(&f, "GET", "/api/v1/series/1/orders", None).await;
+    sqlx::query(
+        "INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type, source,
+             added_at, series_id)
+             VALUES (1, 200, 100, 'Some Anime', 1, 'anime', 'manual', 0, 1);
+         INSERT INTO downloads (infohash, title, wanted_series_id, season, episode, decision,
+                 state, added_at, updated_at)
+             VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Some Anime S01', 1, 1, NULL, '{}',
+                 'downloading', unixepoch(), 1);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (status, said) = send(
+        &f,
+        "PUT",
+        "/api/v1/series/1/order",
+        Some(json!({"group_id": "aaaa"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{said}");
+    assert!(
+        said["error"].as_str().unwrap().contains("season 1"),
+        "{said}"
+    );
+}
