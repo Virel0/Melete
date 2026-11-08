@@ -26,7 +26,12 @@ again. A switch waits (nothing changes, and Melete tries again next run) while a
 its way for such an episode, or a season pack for a season the new order makes up of other
 episodes. A series' search result is grabbed only when it was searched for after the series
 last changed order (searches are kept as of when they started), so nothing judged in another
-order is grabbed. Files keep their names and ids, so watch progress and watched state, kept per
+order is grabbed; a switch and a grab, from that check to recording the download, never overlap
+(one lock in the server, a switch holding it to write). A stalled torrent set aside while its
+series changed order stays failed rather than resume, and a series download naming no season is
+never brought home. TMDB changing the episodes of the group a series follows is put in place as
+a switch would be, waiting the same way (the group keeps its episodes until then). Files keep
+their names and ids, so watch progress and watched state, kept per
 file, stay with them; files numbered from the first episode are counted again with the switch,
 and one whose number has no place in the new order loses it. A swap from Make room searches for
 its file's episode as numbered when it runs. A season asked for by TMDB's number (a request)

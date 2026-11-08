@@ -9,6 +9,16 @@ pub(super) async fn plan(
     seedbox: &Seedbox,
     row: &Row,
 ) -> anyhow::Result<Result<Plan, Stop>> {
+    // Every series download names its season; one that doesn't (its episode left out by the
+    // order its series follows now) would go loose in the series' folder, its running time
+    // unchecked.
+    if row.wanted_series_id.is_some() && row.season.is_none() {
+        return Ok(Err(Stop::Fail(
+            "it names no season of its series (the order the series follows now leaves its \
+             episode out), so it isn't brought home"
+                .into(),
+        )));
+    }
     let Some((root, dir)) = destination(pool, row).await? else {
         return Ok(Err(Stop::Fail(
             "it isn't for a wanted title with a library any more, so there's nowhere to put it"
