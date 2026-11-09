@@ -87,8 +87,8 @@ pub(super) async fn run(
     area: Area,
     goal: Goal,
 ) -> anyhow::Result<Ended> {
-    let items = to_do(pool, area, goal).await?;
-    let total = items.len();
+    let mut items: VecDeque<Item> = to_do(pool, area, goal).await?.into();
+    let mut total = items.len();
     sqlx::query("UPDATE missing_searches SET total = ? WHERE id = ?")
         .bind(i64::try_from(total)?)
         .bind(id)
@@ -113,7 +113,7 @@ pub(super) async fn run(
     // Indexers found at their limit: left out of the rest of the run, by id and by name.
     let mut skipped: Vec<i64> = Vec::new();
     let mut limited: Vec<String> = Vec::new();
-    for item in items {
+    while let Some(item) = items.pop_front() {
         if wait_or_stop(pool, id, next_search).await? {
             return Ok(Ended::Stopped(format!(
                 "asked to stop; {}",
@@ -158,12 +158,20 @@ pub(super) async fn run(
         // It went out to the indexers: the next waits its turn. A refused one asked no one.
         next_search = Instant::now() + sources.pace;
         counts.searched += 1;
-        let (grabbed, passed_over) =
-            grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
-        if grabbed.iter().any(|g| g.download_id.is_some()) {
+        let (grabbed, said) = grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
+        let got = grabbed.iter().any(|g| g.download_id.is_some());
+        // Whatever the refusal, what's missing and not on its way decides: nothing, when a
+        // torrent already on its way for the season holds it.
+        if !got && grabbing && goal == Goal::Missing {
+            total += episodes_next(pool, id, &item, &mut items, &mut counts).await?;
+        }
+        if got {
             counts.grabbed += 1;
+            if let Some(took) = said.took {
+                counts.note(format!("{name}: {took}"));
+            }
         } else if let Some(why) = (grabbed.iter().rev().find_map(|g| g.refused.clone()))
-            .or_else(|| passed_over.into_iter().next())
+            .or_else(|| said.passed_over.into_iter().next())
         {
             counts.note(format!("{name}: not grabbed: {why}"));
         }
@@ -171,6 +179,43 @@ pub(super) async fn run(
         leave_out_limited(pool, id, search_id, &mut counts, &mut skipped, &mut limited).await?;
     }
     Ok(Ended::Done(counts.summary(total)))
+}
+
+/// After a missing season's search grabbed nothing: its missing episodes, each searched for
+/// next on its own, with a note saying so. Returns how many were added.
+async fn episodes_next(
+    pool: &SqlitePool,
+    id: i64,
+    item: &Item,
+    items: &mut VecDeque<Item>,
+    counts: &mut Counts,
+) -> anyhow::Result<usize> {
+    let instead = episodes_instead(pool, item).await?;
+    if instead.is_empty() {
+        return Ok(0);
+    }
+    let numbers: Vec<i64> = instead
+        .iter()
+        .filter_map(|i| match i {
+            Item::Episode { episode, .. } => Some(*episode),
+            _ => None,
+        })
+        .collect();
+    counts.note(format!(
+        "{}: no pack was grabbed; searching for episodes {} on their own",
+        item.name(),
+        crate::rss::numbers(&numbers)
+    ));
+    let added = instead.len();
+    for episode in instead.into_iter().rev() {
+        items.push_front(episode);
+    }
+    sqlx::query("UPDATE missing_searches SET total = total + ? WHERE id = ?")
+        .bind(i64::try_from(added)?)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(added)
 }
 
 /// Searches for one item as its own search would, leaving out the indexers in `skipped`.
@@ -195,7 +240,7 @@ async fn search_item(
 }
 
 /// Grabs the best accepted result of an item's search, when downloads are on for it; with why
-/// results were passed over for what's on disk or on its way, best first.
+/// results were passed over for what's on disk or on its way, and what was taken from a pack.
 async fn grab_item(
     pool: &SqlitePool,
     sources: &Sources,
@@ -203,20 +248,19 @@ async fn grab_item(
     grabbing: bool,
     item: &Item,
     search_id: i64,
-) -> anyhow::Result<(Vec<Grabbed>, Vec<String>)> {
+) -> anyhow::Result<(Vec<Grabbed>, crate::rss::Said)> {
     let mut grabbed: Vec<Grabbed> = Vec::new();
-    let mut passed_over = Vec::new();
+    let mut said = crate::rss::Said::default();
     match (item, item.target(), &sources.pipeline) {
         (Item::Album { .. }, ..) if grabbing => {
             artist_search::grab_best(pool, music, search_id, &mut grabbed).await?;
         }
         (_, Some(target), Some(pipeline)) => {
-            passed_over =
-                crate::rss::grab_for(pool, pipeline, target, search_id, &mut grabbed).await?;
+            said = crate::rss::grab_for(pool, pipeline, target, search_id, &mut grabbed).await?;
         }
         _ => {}
     }
-    Ok((grabbed, passed_over))
+    Ok((grabbed, said))
 }
 
 /// Leaves the indexers that said in this search they reached their limit out of the rest of
@@ -249,4 +293,271 @@ async fn leave_out_limited(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{admin, finished, sources};
+    use super::*;
+    use crate::config::Secret;
+    use crate::deluge;
+    use crate::downloads::Fetcher;
+    use crate::rss::tests::{indexer, releases, setup};
+    use sha2::{Digest, Sha256};
+
+    /// "Some Anime" in its group's seasons, every episode aired, with season 2 wanted and its
+    /// first `on_disk` episodes in the library; an indexer answering `feed`, and Deluge.
+    async fn some_anime(pool: &SqlitePool, on_disk: i64, feed: &[&str]) -> Arc<Pipeline> {
+        crate::episode_order::testing::some_anime_in_seasons(pool).await;
+        sqlx::raw_sql(
+            "UPDATE tmdb_episodes SET air_date = '2020-01-01' WHERE series_tmdb_id = 100;
+             INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                     match_tmdb_id)
+                 VALUES (3, 1, 'Some Anime', 'Some Anime', 1, 100);
+             INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+                     quality_profile, source, added_at, series_id, original_language)
+                 VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 3,
+                     'en');
+             INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 2, 1);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        for episode in 1..=on_disk {
+            sqlx::query(
+                "INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id,
+                     season, episode, first_seen_generation, seen_generation)
+                 VALUES (1, ?, 1, 0, 3, 2, ?, 1, 1)",
+            )
+            .bind(format!(
+                "Some Anime/Some.Anime.S02E{episode:02}.2160p.BluRay.REMUX.HEVC-GRP.mkv"
+            ))
+            .bind(episode)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        let indexer = indexer(pool, "[5000]").await;
+        let items: Vec<(&str, &str)> = feed.iter().map(|t| (*t, "")).collect();
+        indexer.lock().unwrap().0 = releases(&items);
+        let (url, _fake) = deluge::testing::start().await;
+        Arc::new(Pipeline {
+            deluge: deluge::Client::new(&url, Secret::for_tests("pw")).unwrap(),
+            fetcher: Fetcher::new().unwrap(),
+            seedbox: None,
+        })
+    }
+
+    type Row = (String, Option<i64>, Option<i64>, Option<String>);
+
+    /// Each download's title, season, episode and the episodes it was taken for.
+    async fn downloads(pool: &SqlitePool) -> Vec<Row> {
+        sqlx::query_as("SELECT title, season, episode, episodes FROM downloads ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn missing_episodes_no_pack_holds_are_searched_for_one_by_one() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        // Season 2 has 23 episodes, all on disk but the last two; no pack is out.
+        let (e22, e23) = (
+            "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv",
+            "[SubsPlease] Some Anime - 47 (1080p) [ABCD1234].mkv",
+        );
+        let pipeline = some_anime(&pool, 21, &[e22, e23]).await;
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 3, 3, 2),
+            "{run:?}"
+        );
+        assert_eq!(
+            run.notes,
+            [
+                "Some Anime, season 2: no pack was grabbed; searching for episodes 22, 23 on their own"
+            ]
+        );
+        let searched: Vec<(i64, Option<i64>)> =
+            sqlx::query_as("SELECT season, episode FROM searches ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(searched, [(2, None), (2, Some(22)), (2, Some(23))]);
+        assert_eq!(
+            downloads(&pool).await,
+            [
+                (e22.to_owned(), Some(2), Some(22), None),
+                (e23.to_owned(), Some(2), Some(23), None)
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_torrent_on_its_way_for_another_season_doesnt_stop_the_episodes() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        let pipeline = some_anime(&pool, 0, &[]).await;
+        sqlx::query(
+            "INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Season 1's pack is season 2's too, under another name: one torrent, which comes
+        // home as season 1's and can't bring season 2.
+        let item = |title: &str, hash: &str, n: usize| {
+            format!(
+                r#"<item><title>{title}</title><guid>https://tracker.example/{n}</guid>
+                <link>magnet:?xt=urn:btih:{hash}</link><size>5000000000</size>
+                <torznab:attr name="seeders" value="50"/></item>"#
+            )
+        };
+        let (both, single) = ("a".repeat(40), "b".repeat(40));
+        let feed = indexer(&pool, "[5000]").await;
+        feed.lock().unwrap().0 = format!(
+            r#"<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>{}{}{}</channel></rss>"#,
+            item("Some.Anime.S01.1080p.BluRay.x264-GRP", &both, 1),
+            item("Some.Anime.S02.1080p.BluRay.x264-GRP", &both, 2),
+            item(
+                "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv",
+                &single,
+                3
+            ),
+        );
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 25, 25, 2),
+            "{run:?}"
+        );
+        assert_eq!(
+            run.notes,
+            [
+                "Some Anime, season 2: no pack was grabbed; searching for episodes 1\u{2013}23 on \
+                 their own",
+                "Some Anime, season 2: not grabbed: it's already download 1"
+            ]
+        );
+        let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
+        assert_eq!(
+            titles,
+            [
+                "Some.Anime.S01.1080p.BluRay.x264-GRP",
+                "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_season_whose_pack_failed_before_has_its_episodes_searched_for() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        // Episodes 1 to 21 are on disk; the season's pack failed in an earlier run (a dead
+        // torrent, say) and is all an indexer still offers for the season.
+        let pack = "Some.Anime.S02.1080p.BluRay.x264-GRP";
+        let e22 = "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv";
+        let pipeline = some_anime(&pool, 21, &[pack, e22]).await;
+        let hash: String = Sha256::digest(pack.as_bytes())[..20]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        sqlx::query(
+            "INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
+                 added_at, updated_at, episodes)
+             VALUES (?, ?, 1, 2, '{}', 'failed', 0, 0, '[22, 23]')",
+        )
+        .bind(hash)
+        .bind(pack)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 3, 3, 1),
+            "{run:?}"
+        );
+        let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
+        assert_eq!(titles, [pack, e22]);
+    }
+
+    #[tokio::test]
+    async fn a_pack_set_aside_for_stalling_leaves_no_episode_to_search_for() {
+        let pool = setup().await;
+        some_anime(&pool, 0, &[]).await;
+        let all: Vec<i64> = (1..=23).collect();
+        // Season 2's pack, stalled and set aside while another release is looked for: it may
+        // yet go on.
+        let stalled = format!(
+            "no progress for {} hours; searching for another release",
+            crate::downloads::STALLED_AFTER / 3600
+        );
+        sqlx::query(
+            "INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
+                 added_at, updated_at, message)
+             VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Some.Anime.S02.1080p',
+                 1, 2, '{}', 'failed', 0, 0, ?)",
+        )
+        .bind(&stalled)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
+            Vec::<i64>::new()
+        );
+        // Given up on, it's missing again.
+        sqlx::query("UPDATE downloads SET message = 'no progress, so another was grabbed'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
+            all
+        );
+    }
+
+    #[tokio::test]
+    async fn a_season_missing_whole_takes_the_pack() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        let pack = "Some.Anime.S02.1080p.BluRay.x264-GRP";
+        let pipeline = some_anime(
+            &pool,
+            0,
+            &[pack, "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv"],
+        )
+        .await;
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 1, 1, 1),
+            "{run:?}"
+        );
+        assert!(run.notes.is_empty(), "{run:?}");
+        assert_eq!(
+            downloads(&pool).await,
+            [(pack.to_owned(), Some(2), None, None)]
+        );
+    }
 }

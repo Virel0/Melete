@@ -22,6 +22,9 @@ pub(crate) enum Expected {
         season: i64,
         runtimes: HashMap<i64, f64>,
         release: Episodes,
+        /// For each file named with numbers from the first episode, the episodes of the season
+        /// they are in the order the series follows; None when they aren't any of its episodes.
+        numbered: HashMap<String, Option<Vec<i64>>>,
     },
 }
 
@@ -44,7 +47,7 @@ static LONGER_CUT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(
 
 /// The runtimes a movie or episode download is checked against; None when TMDB has none for it
 /// (nothing to compare, so it's placed as before) or it's music.
-pub(crate) async fn expected(pool: &SqlitePool, row: &Row) -> sqlx::Result<Option<Expected>> {
+pub(crate) async fn expected(pool: &SqlitePool, row: &Row) -> anyhow::Result<Option<Expected>> {
     // An admin said the runtime is right after all: the last held-back film's, or no check.
     if let Some(title) = row.target().map(crate::runtime_checks::title_of)
         && let Some(instead) = crate::runtime_checks::override_for(pool, title).await?
@@ -86,14 +89,59 @@ pub(crate) async fn expected(pool: &SqlitePool, row: &Row) -> sqlx::Result<Optio
     if runtimes.is_empty() {
         return Ok(None);
     }
+    let (release, numbered) = numbered_in_order(pool, row, season).await?;
     Ok(Some(Expected::Episodes {
         season,
         runtimes: runtimes
             .into_iter()
             .map(|(e, m)| (e, m as f64 * 60.0))
             .collect(),
-        release: release::parse(&row.title).episodes,
+        release,
+        numbered,
     }))
+}
+
+/// The release's episodes, and each of its files named with numbers from the first episode, as
+/// the order the series follows makes them in `season`, as grabbing placed them: by the file's
+/// own number, never a guess.
+async fn numbered_in_order(
+    pool: &SqlitePool,
+    row: &Row,
+    season: i64,
+) -> anyhow::Result<(Episodes, HashMap<String, Option<Vec<i64>>>)> {
+    let release = release::parse(&row.title).episodes;
+    let wanted = match row.target() {
+        Some(target @ Target::Series { .. }) => crate::search::load_wanted(pool, target).await?,
+        _ => None,
+    };
+    let Some(wanted) = wanted else {
+        return Ok((release, HashMap::new()));
+    };
+    let in_season = |mapped: Result<Episodes, String>| match mapped {
+        Ok(Episodes::Standard {
+            season: s,
+            episodes,
+        }) if s == season => Some(episodes),
+        _ => None,
+    };
+    let release = match crate::search::numbered_in_order(pool, &wanted, &release).await? {
+        Ok(mapped) => mapped,
+        Err(_) => release,
+    };
+    let files: Vec<TorrentFile> = match row.files.as_deref() {
+        Some(files) => serde_json::from_str(files)?,
+        None => Vec::new(),
+    };
+    let mut numbered = HashMap::new();
+    for file in files {
+        let name = file.path.rsplit('/').next().unwrap_or_default().to_owned();
+        let named = release::parse(&name).episodes;
+        if matches!(named, Episodes::Absolute(_)) {
+            let mapped = crate::search::numbered_in_order(pool, &wanted, &named).await?;
+            numbered.insert(name, in_season(mapped));
+        }
+    }
+    Ok((release, numbered))
 }
 
 /// Whether a movie file of `file` seconds can be the film TMDB times at `film`: down to 10% or
@@ -173,7 +221,8 @@ pub(crate) async fn check(check: &Check, videos: &[Video<'_>]) -> Result<(), Sto
             season,
             runtimes,
             release,
-        } => episodes_match(&durations, *season, runtimes, release),
+            numbered,
+        } => episodes_match(&durations, *season, runtimes, release, numbered),
     }
 }
 
@@ -213,10 +262,25 @@ fn episodes_match(
     season: i64,
     runtimes: &HashMap<i64, f64>,
     release: &Episodes,
+    numbered: &HashMap<String, Option<Vec<i64>>>,
 ) -> Result<(), Stop> {
     let only = durations.len() == 1;
     for &(name, seconds) in durations {
-        let parsed = release::parse(name).episodes;
+        let mut parsed = release::parse(name).episodes;
+        // Numbered from the first episode: checked as the episode it is, or held back when
+        // that can't be told.
+        if let Episodes::Absolute(_) = parsed {
+            let Some(Some(episodes)) = numbered.get(name) else {
+                return Err(Stop::NotTheTitle(format!(
+                    "{name} is numbered from the first episode, and which episode of season \
+                     {season} that is can't be told, so it can't be checked"
+                )));
+            };
+            parsed = Episodes::Standard {
+                season,
+                episodes: episodes.clone(),
+            };
+        }
         let Some(episodes) = episodes_of(&parsed, release, season, only) else {
             if only {
                 continue;
@@ -351,6 +415,69 @@ mod tests {
             assert!(LONGER_CUT.is_match(name), "{name}");
         }
         assert!(!LONGER_CUT.is_match("Some.Movie.2024.1080p.WEBRip.x265-GRP"));
+    }
+
+    #[tokio::test]
+    async fn files_numbered_from_the_first_episode_are_checked_as_theirs() {
+        let pool = crate::db::open_in_memory().await;
+        crate::episode_order::testing::some_anime_in_seasons(&pool).await;
+        sqlx::query(
+            "UPDATE tmdb_episodes SET runtime_minutes = 24;
+             INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+                     source, added_at)
+                 VALUES (1, 200, 100, 'Some Anime', 1, 'anime', 'sonarr', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // The 29th and 30th episodes are the group's S02E05 and S02E06; it has no 99th.
+        let (five, six, none) = (
+            "[Grp] Some Anime - 29 (1080p).mkv",
+            "[Grp] Some Anime - 30 (1080p).mkv",
+            "[Grp] Some Anime - 99 (1080p).mkv",
+        );
+        let files: Vec<serde_json::Value> = [five, six, none]
+            .iter()
+            .map(|name| serde_json::json!({ "path": format!("Pack/{name}"), "size": 1 }))
+            .collect();
+        let row = Row {
+            title: "Some.Anime.S02.1080p.BluRay.x264-GRP".into(),
+            wanted_movie_id: None,
+            wanted_series_id: Some(1),
+            season: Some(2),
+            episode: None,
+            wanted_album_id: None,
+            save_path: None,
+            files: Some(serde_json::to_string(&files).unwrap()),
+            attempts: 0,
+            episodes: Some("[5, 6]".into()),
+        };
+        let Some(Expected::Episodes {
+            season,
+            runtimes,
+            release,
+            numbered,
+        }) = expected(&pool, &row).await.unwrap()
+        else {
+            panic!("episodes are expected");
+        };
+        let judged = |durations: &[(&str, f64)]| {
+            episodes_match(durations, season, &runtimes, &release, &numbered)
+        };
+        assert_eq!(judged(&[(five, 24.0 * MIN), (six, 23.0 * MIN)]), Ok(()));
+        assert_eq!(
+            judged(&[(five, 24.0 * MIN), (six, 5.0 * MIN)]),
+            Err(Stop::NotTheTitle(format!(
+                "{six} runs 5 m; episode 6 runs 24 m"
+            )))
+        );
+        assert_eq!(
+            judged(&[(none, 24.0 * MIN)]),
+            Err(Stop::NotTheTitle(format!(
+                "{none} is numbered from the first episode, and which episode of season 2 that \
+                 is can't be told, so it can't be checked"
+            )))
+        );
     }
 
     #[test]

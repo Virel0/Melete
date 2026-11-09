@@ -43,6 +43,9 @@ pub static TMDB: Notify = Notify::const_new();
 /// Wakes the look for followed artists' new albums.
 pub static FOLLOW: Notify = Notify::const_new();
 
+/// Wakes the lookup of library artists' portraits (an admin running it from Tasks).
+pub static PORTRAITS: Notify = Notify::const_new();
+
 /// Wakes the library scan now rather than at its next run, every library whole.
 pub fn request_rescan() {
     scans::ask_whole();

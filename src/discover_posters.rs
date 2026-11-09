@@ -12,6 +12,8 @@ use std::path::Path;
 
 use sqlx::SqlitePool;
 
+use crate::picture_listings::{self, Kind};
+
 /// How long a listed poster is served.
 pub const SERVED_FOR: i64 = 30 * 24 * 3600;
 /// Posters remembered at most; older ones are forgotten first.
@@ -33,16 +35,20 @@ pub async fn servable(pool: &SqlitePool, file: &str, now: i64) -> anyhow::Result
     .await?)
 }
 
-/// Whether the artwork route may serve `file` (as `/name.jpg`) as a listed poster to a user
-/// with this access: as [`servable`], and for a user with a highest rating, only when one of the
-/// titles it was listed for is rated within it (as discovery judges those titles).
+/// Whether the artwork route may serve `file` (as `/name.jpg`) as a listed poster to `user`,
+/// with this access: as [`servable`], listed for them in the last 30 days (so nobody learns what
+/// someone else was shown), and for a user with a highest rating, only when one of the titles it
+/// was listed for is rated within it (as discovery judges those titles).
 pub async fn servable_to(
     pool: &SqlitePool,
     access: &crate::access::Access,
+    user: i64,
     file: &str,
     now: i64,
 ) -> anyhow::Result<bool> {
-    if !servable(pool, file, now).await? {
+    if !servable(pool, file, now).await?
+        || !picture_listings::listed_for(pool, Kind::Poster, file, user, now - SERVED_FOR).await?
+    {
         return Ok(false);
     }
     if !access.limits_rating() {
@@ -59,16 +65,18 @@ pub async fn servable_to(
     .await?)
 }
 
-/// Notes that a discovery answer listed `file` for the title with TMDB id `tmdb_id` (a
-/// series' with `tv`), as [`listed`] does, keeping which title it was.
+/// Notes that a discovery answer listed `file` for `user` and the title with TMDB id `tmdb_id`
+/// (a series' with `tv`), as [`listed`] does, keeping which title it was.
 pub async fn listed_for(
     pool: &SqlitePool,
     file: &str,
     tv: bool,
     tmdb_id: i64,
+    user: i64,
     now: i64,
 ) -> anyhow::Result<()> {
     listed(pool, file, now).await?;
+    picture_listings::note(pool, Kind::Poster, file, user, now).await?;
     sqlx::query(
         "INSERT INTO discover_poster_titles (file, tv, tmdb_id) VALUES (?, ?, ?)
          ON CONFLICT DO NOTHING",
@@ -81,7 +89,8 @@ pub async fn listed_for(
     Ok(())
 }
 
-/// Notes that a discovery answer listed `file`.
+/// Notes that a discovery answer listed `file`, waking the forgetting when that makes more
+/// than [`MOST`].
 pub async fn listed(pool: &SqlitePool, file: &str, now: i64) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO discover_posters (file, listed_at) VALUES (?, ?)
@@ -91,6 +100,10 @@ pub async fn listed(pool: &SqlitePool, file: &str, now: i64) -> anyhow::Result<(
     .bind(now)
     .execute(pool)
     .await?;
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM discover_posters")
+        .fetch_one(pool)
+        .await?;
+    picture_listings::over(kept, MOST);
     Ok(())
 }
 
@@ -113,6 +126,7 @@ pub async fn prune(pool: &SqlitePool, artwork_dir: &Path, now: i64) -> anyhow::R
             .bind(file)
             .execute(pool)
             .await?;
+        picture_listings::forget(pool, Kind::Poster, file).await?;
         let named: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM tmdb_movies WHERE poster_path = ?1
                             UNION ALL SELECT 1 FROM tmdb_series WHERE poster_path = ?1

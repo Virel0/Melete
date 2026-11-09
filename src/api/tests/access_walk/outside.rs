@@ -174,10 +174,14 @@ async fn a_rating_limited_user_gets_posters_only_of_outside_titles_rated_within(
     assert!(body.contains("/api/v1/artwork/w342/open-501.jpg"), "{body}");
     let (status, _) = ask(&w, "GET", "/api/v1/artwork/w342/open-501.jpg").await;
     assert_eq!(status, StatusCode::OK);
-    // As a discovery answer to someone without a rating limit would list them.
+    // As a discovery answer would list them for the kid, were the kid not rating-limited.
     let now = crate::db::unix_now();
+    let kid: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'kid'")
+        .fetch_one(&w.pool)
+        .await
+        .unwrap();
     for (file, id) in [("/zyxveil-511.jpg", 511), ("/zyxveil-512.jpg", 512)] {
-        crate::discover_posters::listed_for(&w.pool, file, false, id, now)
+        crate::discover_posters::listed_for(&w.pool, file, false, id, kid, now)
             .await
             .unwrap();
         let (status, _) = ask(&w, "GET", &format!("/api/v1/artwork/w342{file}")).await;

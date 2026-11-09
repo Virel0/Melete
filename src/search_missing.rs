@@ -3,7 +3,9 @@
 //! monitored season of a monitored series still missing episodes, or every monitored album of a
 //! monitored artist that isn't on disk or downloading. Each is searched as its own search would
 //! be (indexers, and Soulseek for albums) and, when downloads are on, the best accepted result
-//! is grabbed, as an RSS sync or an approved request does.
+//! is grabbed, as an RSS sync or an approved request does. A season whose search grabbed
+//! nothing (no pack holds its missing episodes yet) has each missing episode searched for next
+//! on its own.
 //!
 //! Pacing: a run makes one search at a time, and starts the next no sooner than [`PACE`] after
 //! the last one ended, so each indexer is asked at most once per pace from a run. Indexers
@@ -13,6 +15,7 @@
 //! time per area (the database's own constraint); it can be asked to stop, and finishes the
 //! search under way first.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -273,7 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_release_passed_over_for_whats_on_disk_says_why() {
+    async fn a_pack_for_a_season_partly_on_disk_is_taken_for_what_it_adds() {
         let pool = setup().await;
         let who = admin(&pool).await;
         crate::episode_order::testing::some_anime_in_seasons(&pool).await;
@@ -285,7 +288,10 @@ mod tests {
                  VALUES (3, 1, 'Some Anime', 'Some Anime', 1, 100);
              INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id, season,
                      episode, first_seen_generation, seen_generation)
-                 VALUES (1, 'Some Anime/Some.Anime.S02E06.1080p.WEB-DL.mkv', 1, 0, 3, 2, 6, 1, 1);
+                 VALUES (1, 'Some Anime/Some.Anime.S02E05.720p.HDTV.x264-GRP.mkv', 1, 0, 3, 2, 5,
+                         1, 1),
+                        (1, 'Some Anime/Some.Anime.S02E06.2160p.BluRay.REMUX.HEVC-GRP.mkv', 1, 0,
+                         3, 2, 6, 1, 1);
              INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
                      quality_profile, source, added_at, series_id, original_language)
                  VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 3,
@@ -295,7 +301,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        // Season 2 is missing all but its sixth episode; the pack would be a second copy of it.
+        // Season 2's 23 episodes are missing but for the fifth, a 720p file the pack is better
+        // than, and the sixth, a remux better than the pack.
         let feed = indexer(&pool, "[5000]").await;
         feed.lock().unwrap().0 = releases(&[("Some.Anime.S02.1080p.BluRay.x264-GRP", "")]);
         let (url, fake) = deluge::testing::start().await;
@@ -311,17 +318,31 @@ mod tests {
         let run = finished(&pool, run.id).await;
         assert_eq!(
             (run.state.as_str(), run.searched, run.grabbed),
-            ("done", 1, 0),
+            ("done", 1, 1),
             "{run:?}"
         );
         assert_eq!(
             run.notes,
             [
-                "Some Anime, season 2: not grabbed: it's a season pack and part of the season is \
-                 on disk already; a pack never replaces files"
+                "Some Anime, season 2: took episodes 1–5, 7–23 from a pack (5 replacing \
+                 the file on disk); kept 6 on disk"
             ]
         );
-        assert!(fake.lock().unwrap().torrents.is_empty());
+        assert_eq!(fake.lock().unwrap().torrents.len(), 1);
+        let (episodes, replaces): (String, String) =
+            sqlx::query_as("SELECT episodes, replaces FROM downloads")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let episodes: Vec<i64> = serde_json::from_str(&episodes).unwrap();
+        let expected: Vec<i64> = (1..=23).filter(|e| *e != 6).collect();
+        assert_eq!(episodes, expected);
+        let replaces: Vec<crate::upgrades::Replaced> = serde_json::from_str(&replaces).unwrap();
+        let replaced: Vec<&str> = replaces.iter().map(|r| r.rel_path.as_str()).collect();
+        assert_eq!(
+            replaced,
+            ["Some Anime/Some.Anime.S02E05.720p.HDTV.x264-GRP.mkv"]
+        );
     }
 
     #[tokio::test]

@@ -10,8 +10,10 @@ use crate::{
     subtitles, tmdb, track_artists, trickplay, upgrades,
 };
 
+mod between;
 mod steps;
 
+pub(crate) use between::*;
 use steps::*;
 
 /// Scans, subtitle cache cleaning, TMDB matching and probing: on the scan schedule, from the

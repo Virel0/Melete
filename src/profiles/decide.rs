@@ -136,6 +136,13 @@ impl Loaded {
         }
     }
 
+    /// Whether a release of this rank, revision and score is an upgrade over `existing`, as
+    /// [`Loaded::decide`] judges one: a season pack's episode is judged against its file so.
+    pub fn upgrades(&self, rank: Option<i64>, proper: u8, score: i64, existing: &Existing) -> bool {
+        self.upgrade_rejection(rank, proper, score, existing)
+            .is_none()
+    }
+
     /// Why a release isn't an upgrade over `existing`, following Radarr.
     fn upgrade_rejection(
         &self,

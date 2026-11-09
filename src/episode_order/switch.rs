@@ -206,7 +206,10 @@ async fn wanted_series(
 
 /// The first download on its way for the wanted series that the switch would leave without its
 /// episode: one for an episode the new order leaves out, or a season pack for a season the new
-/// order makes up of other episodes (episode 0).
+/// order makes up of other episodes (episode 0). And, in a season the switch renumbers at all, a
+/// season pack taken for some of its episodes and not yet settled, or a download whose replaced
+/// files haven't been dealt with: what they're for and what they replace are kept by number,
+/// which would then name other episodes.
 async fn on_the_way(
     conn: &mut sqlx::SqliteConnection,
     wanted: i64,
@@ -220,7 +223,7 @@ async fn on_the_way(
          ORDER BY season, episode",
     )
     .bind(wanted)
-    .fetch_all(conn)
+    .fetch_all(&mut *conn)
     .await?;
     let season_of = |order: &HashMap<i64, Key>, season: i64| -> BTreeSet<i64> {
         order
@@ -240,7 +243,59 @@ async fn on_the_way(
             return Ok(Some((season, episode.unwrap_or(0))));
         }
     }
-    Ok(None)
+    let by_number: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT season, episode FROM downloads
+         WHERE wanted_series_id = ? AND season IS NOT NULL
+           AND (episodes IS NOT NULL OR replaces <> '[]')
+           AND (state IN ('downloading', 'completed', 'transferring')
+                OR (state = 'imported' AND replaces <> '[]'
+                    AND retired_at IS NULL))
+         ORDER BY season, episode",
+    )
+    .bind(wanted)
+    .fetch_all(&mut *conn)
+    .await?;
+    // A file numbered from the first episode counts through every season before its own, so
+    // once one season is renumbered, so is every one after it for such a file.
+    let absolute: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM media_files f JOIN series s ON s.id = f.series_id
+                        JOIN wanted_series w ON s.id = w.series_id OR s.match_tmdb_id = w.tmdb_id
+                        WHERE w.id = ? AND f.absolute_episode IS NOT NULL
+                          AND f.missing_since IS NULL)",
+    )
+    .bind(wanted)
+    .fetch_one(conn)
+    .await?;
+    let first = first_renumbered(before, after);
+    Ok(by_number
+        .into_iter()
+        .find(|(season, _)| {
+            renumbers(before, after, *season)
+                || (absolute && first.is_some_and(|first| *season >= first))
+        })
+        .map(|(season, episode)| (season, episode.unwrap_or(0))))
+}
+
+/// The first season, specials aside, the switch numbers any episode of differently.
+fn first_renumbered(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>) -> Option<i64> {
+    let seasons: BTreeSet<i64> = before
+        .values()
+        .chain(after.values())
+        .map(|key| key.0)
+        .filter(|season| *season > 0)
+        .collect();
+    seasons
+        .into_iter()
+        .find(|season| renumbers(before, after, *season))
+}
+
+/// Whether the switch numbers any episode of `season` differently, before or after it.
+fn renumbers(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>, season: i64) -> bool {
+    let in_season = |key: Option<&Key>| key.is_some_and(|k| k.0 == season);
+    before.keys().chain(after.keys()).any(|id| {
+        let (was, is) = (before.get(id), after.get(id));
+        (in_season(was) || in_season(is)) && was != is
+    })
 }
 
 /// Says in the series' history which order it follows now, and who chose it.

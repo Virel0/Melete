@@ -48,11 +48,15 @@ pub(crate) fn is_extra(parts: &[&str]) -> bool {
     if gives_episode(name) {
         return false;
     }
+    in_extras_folder(folders) || crate::library::extras::has_extra_name(name) || named_extra(name)
+}
+
+/// Whether any of a download's folders holds extras.
+pub(crate) fn in_extras_folder(folders: &[&str]) -> bool {
     folders.iter().any(|folder| {
         let lower = folder.to_lowercase();
         FOLDERS.contains(&lower.as_str()) || crate::library::extras::is_extras_folder(folder)
-    }) || crate::library::extras::has_extra_name(name)
-        || named_extra(name)
+    })
 }
 
 /// Whether the name gives an episode by season and number, or a date: then it's an episode
