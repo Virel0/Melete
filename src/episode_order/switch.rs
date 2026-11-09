@@ -206,7 +206,10 @@ async fn wanted_series(
 
 /// The first download on its way for the wanted series that the switch would leave without its
 /// episode: one for an episode the new order leaves out, or a season pack for a season the new
-/// order makes up of other episodes (episode 0).
+/// order makes up of other episodes (episode 0). And, in a season the switch renumbers at all, a
+/// season pack taken for some of its episodes and not yet settled, or a download whose replaced
+/// files haven't been dealt with: what they're for and what they replace are kept by number,
+/// which would then name other episodes.
 async fn on_the_way(
     conn: &mut sqlx::SqliteConnection,
     wanted: i64,
@@ -220,7 +223,7 @@ async fn on_the_way(
          ORDER BY season, episode",
     )
     .bind(wanted)
-    .fetch_all(conn)
+    .fetch_all(&mut *conn)
     .await?;
     let season_of = |order: &HashMap<i64, Key>, season: i64| -> BTreeSet<i64> {
         order
@@ -240,7 +243,31 @@ async fn on_the_way(
             return Ok(Some((season, episode.unwrap_or(0))));
         }
     }
-    Ok(None)
+    let by_number: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT season, episode FROM downloads
+         WHERE wanted_series_id = ? AND season IS NOT NULL
+           AND (episodes IS NOT NULL OR replaces <> '[]')
+           AND (state IN ('downloading', 'completed', 'transferring')
+                OR (state = 'imported' AND replaces <> '[]'
+                    AND retired_at IS NULL))
+         ORDER BY season, episode",
+    )
+    .bind(wanted)
+    .fetch_all(conn)
+    .await?;
+    Ok(by_number
+        .into_iter()
+        .find(|(season, _)| renumbers(before, after, *season))
+        .map(|(season, episode)| (season, episode.unwrap_or(0))))
+}
+
+/// Whether the switch numbers any episode of `season` differently, before or after it.
+fn renumbers(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>, season: i64) -> bool {
+    let in_season = |key: Option<&Key>| key.is_some_and(|k| k.0 == season);
+    before.keys().chain(after.keys()).any(|id| {
+        let (was, is) = (before.get(id), after.get(id));
+        (in_season(was) || in_season(is)) && was != is
+    })
 }
 
 /// Says in the series' history which order it follows now, and who chose it.

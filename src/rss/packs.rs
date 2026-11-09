@@ -95,7 +95,7 @@ pub(super) async fn part_of(
              can't be told"
         )));
     }
-    let Some(on_the_way) = on_the_way(pool, wanted_series_id, season).await? else {
+    let Some(on_the_way) = on_the_way(pool, wanted_series_id, season, wanted).await? else {
         return Ok(Err(
             "a download for the whole season is on its way or not yet in the library".into(),
         ));
@@ -269,7 +269,7 @@ pub(crate) async fn missing_episodes(
     let Some(wanted) = search::load_wanted(pool, target).await? else {
         return Ok(Vec::new());
     };
-    let Some(on_the_way) = on_the_way(pool, wanted_series_id, season).await? else {
+    let Some(on_the_way) = on_the_way(pool, wanted_series_id, season, &wanted).await? else {
         return Ok(Vec::new());
     };
     let files = files_in(pool, &wanted, season).await?;
@@ -280,27 +280,63 @@ pub(crate) async fn missing_episodes(
         .collect())
 }
 
+/// A download's name, season, episode and the episodes it was taken for.
+type Coming = (String, Option<i64>, Option<i64>, Option<String>);
+
 /// The episodes of the season a download is on its way for, or not yet settled in the library;
-/// None when one is for the whole season.
+/// None when one is for the whole season. A download names the season and first episode it was
+/// searched for, so its own name says the rest: every episode of a multi-episode release, and a
+/// pack recorded under another season that holds this one too.
 async fn on_the_way(
     pool: &SqlitePool,
     wanted_series_id: i64,
     season: i64,
+    wanted: &Wanted,
 ) -> anyhow::Result<Option<Vec<i64>>> {
-    let rows: Vec<(Option<i64>, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT episode, episodes FROM downloads
-         WHERE wanted_series_id = ? AND season = ? AND state <> 'failed' AND {UNSETTLED}"
+    let rows: Vec<Coming> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT title, season, episode, episodes FROM downloads
+             WHERE wanted_series_id = ? AND state <> 'failed' AND {UNSETTLED}"
     )))
     .bind(wanted_series_id)
-    .bind(season)
     .fetch_all(pool)
     .await?;
     let mut episodes = Vec::new();
-    for (episode, part) in rows {
-        match (episode, part) {
-            (Some(e), _) => episodes.push(e),
-            (None, Some(part)) => episodes.extend(serde_json::from_str::<Vec<i64>>(&part)?),
-            (None, None) => return Ok(None),
+    for (title, of, episode, part) in rows {
+        let named = release::parse(&title).episodes;
+        let named = search::numbered_in_order(pool, wanted, &named).await?;
+        match (of == Some(season), episode, part, named) {
+            // Taken for some episodes of this season only.
+            (true, None, Some(part), _) => {
+                episodes.extend(serde_json::from_str::<Vec<i64>>(&part)?);
+            }
+            (true, Some(e), _, named) => {
+                episodes.push(e);
+                if let Ok(Episodes::Standard {
+                    season: s,
+                    episodes: all,
+                }) = named
+                    && s == season
+                {
+                    episodes.extend(all);
+                }
+            }
+            // The season's pack, or one naming no season.
+            (true, None, None, _) | (_, _, _, Ok(Episodes::CompleteSeries)) => return Ok(None),
+            (false, _, None, Ok(Episodes::Seasons(seasons))) if seasons.contains(&season) => {
+                return Ok(None);
+            }
+            (
+                false,
+                _,
+                _,
+                Ok(Episodes::Standard {
+                    season: s,
+                    episodes: all,
+                }),
+            ) if s == season => {
+                episodes.extend(all);
+            }
+            _ => {}
         }
     }
     Ok(Some(episodes))

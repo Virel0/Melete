@@ -496,4 +496,5 @@ async fn groups_are_fetched_only_when_needed_and_again_with_the_metadata() {
 }
 
 mod by_hand;
+mod renumbered;
 mod switching;
