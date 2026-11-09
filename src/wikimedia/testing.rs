@@ -19,6 +19,12 @@ pub const LARGE_ITEM: &str = "Q4";
 /// An item Wikidata's answer for redirects, to [`ITEM`]'s answer on the fake's own plain-http
 /// address: followed, it finds [`FILE`]; Wikimedia's host rules refuse it.
 pub const MOVED_ITEM: &str = "Q5";
+/// An item Wikidata first answers 429 for, asking for a one-second pause, then as [`ITEM`].
+pub const PAUSED_ITEM: &str = "Q6";
+/// An item Wikidata always answers 429 for, asking for an hour's pause.
+pub const HELD_ITEM: &str = "Q7";
+/// The picture the fake answers 429 for, asking for two minutes' pause.
+pub const HELD_PICTURE: &str = "held.jpg";
 /// [`ITEM`]'s image.
 pub const FILE: &str = "Radiohead in concert.jpg";
 /// A file whose picture Commons gives on thumb.wikimedia.org, as it does now for resized ones.
@@ -51,7 +57,9 @@ pub async fn start_with(any_host: bool) -> (super::Client, Log) {
         .route("/thumb/{name}", axum::routing::get(picture))
         .with_state((log.clone(), base.clone()));
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-    let client = super::Client::with_bases(base.clone(), base, any_host).unwrap();
+    let client = super::Client::with_bases(base.clone(), base, any_host)
+        .unwrap()
+        .spaced(std::time::Duration::from_millis(1));
     (client, log)
 }
 
@@ -67,12 +75,32 @@ async fn api(
     let get = |k: &str| q.get(k).cloned().unwrap_or_default();
     if get("action") == "wbgetclaims" {
         let item = get("entity");
-        log.lock().unwrap().push(format!("wikidata {item}"));
-        return claims(&item);
+        let asked = {
+            let mut log = log.lock().unwrap();
+            log.push(format!("wikidata {item}"));
+            log.iter()
+                .filter(|l| **l == format!("wikidata {item}"))
+                .count()
+        };
+        return match item.as_str() {
+            PAUSED_ITEM if asked == 1 => pause("1"),
+            PAUSED_ITEM => claims(ITEM),
+            HELD_ITEM => pause("3600"),
+            _ => claims(&item),
+        };
     }
     let title = get("titles");
     log.lock().unwrap().push(format!("commons {title}"));
     file(&base, &title)
+}
+
+/// Too many requests, and how many seconds to wait.
+fn pause(seconds: &'static str) -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [(header::RETRY_AFTER, seconds)],
+    )
+        .into_response()
 }
 
 /// An item's image statements: a deprecated one before the one to use.
@@ -124,6 +152,9 @@ fn file(base: &str, title: &str) -> Response {
 
 async fn picture(State((log, _)): State<Fake>, Path(name): Path<String>) -> Response {
     log.lock().unwrap().push(format!("picture {name}"));
+    if name == HELD_PICTURE {
+        return pause("120");
+    }
     let mut bytes = JPEG.to_vec();
     if name == "large.jpg" {
         bytes.resize(super::MAX_PICTURE + 1, 0);

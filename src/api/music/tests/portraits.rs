@@ -164,6 +164,27 @@ async fn a_failed_large_garbled_or_elsewhere_picture_keeps_nothing_and_is_believ
 }
 
 #[tokio::test]
+async fn a_picture_wikimedia_asks_a_pause_for_is_asked_for_again_later() {
+    let (f, app, log, picture) = with_commons(true).await;
+    let held = picture.replace("500px.jpg", commons::HELD_PICTURE);
+    listed(&f.pool, RADIOHEAD, &held).await;
+    let (status, bytes) = ask(&app, &f.token, &uri(RADIOHEAD)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!String::from_utf8_lossy(&bytes).contains("127.0.0.1"));
+    // Nothing's wrong with the picture: it's still offered, and nothing more is sent meanwhile.
+    let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let now = crate::db::unix_now();
+    let servable = crate::artist_portraits::servable(&f.pool, RADIOHEAD, user, now).await;
+    assert!(servable.unwrap().is_some(), "not believed failed");
+    let (status, _) = ask(&app, &f.token, &uri(RADIOHEAD)).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(log.lock().unwrap().len(), 1, "held: asked once");
+}
+
+#[tokio::test]
 async fn sizes_are_made_from_the_kept_portrait() {
     let (f, app, log, picture) = with_commons(true).await;
     listed(&f.pool, RADIOHEAD, &picture).await;

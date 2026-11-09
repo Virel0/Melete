@@ -130,7 +130,7 @@ async fn commons(
 }
 
 /// The picture from Commons' picture hosts. When it fails, or isn't an image, that's noted, so it
-/// isn't offered or asked for again for a while. Why a fetch failed is logged, never sent.
+/// isn't offered or asked for again for a while; when Wikimedia is busy, it isn't. Why a fetch failed is logged, never sent.
 async fn fetch(
     pool: &SqlitePool,
     wikimedia: &crate::wikimedia::Client,
@@ -145,6 +145,12 @@ async fn fetch(
             crate::artist_portraits::failed(pool, artist, user, now).await?;
             Err(no_portrait())
         }
+        // Asked too much at once, or Wikimedia asked for a pause: nothing's wrong with the
+        // picture, so it's asked for again next time.
+        Err(err) if err.is::<crate::wikimedia::Busy>() => Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Wikimedia Commons is busy; try again in a few minutes",
+        )),
         Err(err) => {
             tracing::warn!(
                 error = format!("{err:#}"),
