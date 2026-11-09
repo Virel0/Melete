@@ -253,12 +253,40 @@ async fn on_the_way(
          ORDER BY season, episode",
     )
     .bind(wanted)
-    .fetch_all(conn)
+    .fetch_all(&mut *conn)
     .await?;
+    // A file numbered from the first episode counts through every season before its own, so
+    // once one season is renumbered, so is every one after it for such a file.
+    let absolute: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM media_files f JOIN series s ON s.id = f.series_id
+                        JOIN wanted_series w ON s.id = w.series_id OR s.match_tmdb_id = w.tmdb_id
+                        WHERE w.id = ? AND f.absolute_episode IS NOT NULL
+                          AND f.missing_since IS NULL)",
+    )
+    .bind(wanted)
+    .fetch_one(conn)
+    .await?;
+    let first = first_renumbered(before, after);
     Ok(by_number
         .into_iter()
-        .find(|(season, _)| renumbers(before, after, *season))
+        .find(|(season, _)| {
+            renumbers(before, after, *season)
+                || (absolute && first.is_some_and(|first| *season >= first))
+        })
         .map(|(season, episode)| (season, episode.unwrap_or(0))))
+}
+
+/// The first season, specials aside, the switch numbers any episode of differently.
+fn first_renumbered(before: &HashMap<i64, Key>, after: &HashMap<i64, Key>) -> Option<i64> {
+    let seasons: BTreeSet<i64> = before
+        .values()
+        .chain(after.values())
+        .map(|key| key.0)
+        .filter(|season| *season > 0)
+        .collect();
+    seasons
+        .into_iter()
+        .find(|season| renumbers(before, after, *season))
 }
 
 /// Whether the switch numbers any episode of `season` differently, before or after it.

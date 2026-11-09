@@ -167,7 +167,7 @@ async fn a_pack_leaves_out_every_episode_of_a_release_on_its_way() {
 }
 
 #[tokio::test]
-async fn a_pack_of_several_seasons_on_its_way_holds_up_each_of_them() {
+async fn a_pack_recorded_for_another_season_doesnt_hold_this_one_up() {
     let pool = setup().await;
     let (_pipeline, _fake) = some_anime(
         &pool,
@@ -175,7 +175,8 @@ async fn a_pack_of_several_seasons_on_its_way_holds_up_each_of_them() {
         &[],
     )
     .await;
-    // Taken whole for season 1, which it was searched for; it holds season 2 as well.
+    // Taken whole for season 1, which it was searched for and is brought home as: it names
+    // season 2 too, but won't bring it.
     sqlx::query(
         "UPDATE tmdb_episodes SET air_date = '2020-01-01';
          INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
@@ -186,10 +187,7 @@ async fn a_pack_of_several_seasons_on_its_way_holds_up_each_of_them() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        part_for_season_two(&pool).await,
-        Err("a download for the whole season is on its way or not yet in the library".into())
-    );
+    assert_eq!(part_for_season_two(&pool).await, Ok((2..=23).collect()));
 }
 
 #[tokio::test]
