@@ -50,27 +50,39 @@ pub(super) async fn library_portrait(
     let Some(picture) = picture else {
         return Err(no_portrait());
     };
-    commons(&state, wikimedia, artist, &picture, size, now).await
+    commons(
+        &state,
+        wikimedia,
+        artist,
+        &picture,
+        size,
+        current.user.id,
+        now,
+    )
+    .await
 }
 
 pub(super) async fn artist_portrait(
     State(state): State<MusicState>,
+    Extension(current): Extension<CurrentUser>,
     Path(artist): Path<String>,
     Query(query): Query<CoverQuery>,
 ) -> Result<Response, ApiError> {
     let size = cover_size(query.size)?;
     let now = crate::db::unix_now();
     // Commons is there only with MusicBrainz on; the id names a folder, and only a real
-    // MusicBrainz id (hex and dashes) is servable. Served alike to everyone signed in: an
-    // artist only in libraries hidden from someone is, to them, like any other.
+    // MusicBrainz id (hex and dashes) is servable. Served only to those a search listed it for:
+    // an artist only in libraries hidden from someone is, to them, like any other, and nobody
+    // learns from it what someone else searched for.
     let Some(wikimedia) = &state.wikimedia else {
         return Err(no_portrait());
     };
-    let picture = crate::artist_portraits::servable(&state.pool, &artist, now).await?;
+    let user = current.user.id;
+    let picture = crate::artist_portraits::servable(&state.pool, &artist, user, now).await?;
     let Some(picture) = picture else {
         return Err(no_portrait());
     };
-    commons(&state, wikimedia, &artist, &picture, size, now).await
+    commons(&state, wikimedia, &artist, &picture, size, user, now).await
 }
 
 /// `artist`'s portrait at `picture` on Commons, which the caller found servable: the picture
@@ -81,6 +93,7 @@ async fn commons(
     artist: &str,
     picture: &str,
     size: Option<(u32, &'static str)>,
+    user: i64,
     now: i64,
 ) -> Result<Response, ApiError> {
     let original = crate::artist_portraits::cached(&state.covers, artist, picture);
@@ -93,11 +106,15 @@ async fn commons(
     let bytes = match tokio::fs::read(&original).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            let bytes = fetch(&state.pool, wikimedia, artist, picture, now).await?;
-            // An earlier picture of theirs, if the portrait changed, goes.
+            let bytes = fetch(&state.pool, wikimedia, artist, picture, user, now).await?;
             let dir = crate::artist_portraits::folder(&state.covers, artist);
-            let _ = tokio::fs::remove_dir_all(&dir).await;
-            keep(&dir, &original, &bytes).await;
+            let _held = crate::picture_listings::KEEPING.lock().await;
+            // Forgotten meanwhile, nothing would remember the file to delete it.
+            if crate::artist_portraits::remembered(&state.pool, artist).await? {
+                // An earlier picture of theirs, if the portrait changed, goes.
+                let _ = tokio::fs::remove_dir_all(&dir).await;
+                keep(&dir, &original, &bytes).await;
+            }
             bytes
         }
     };
@@ -105,7 +122,10 @@ async fn commons(
         return image(bytes);
     };
     let jpeg = resized(state, &bytes, width).await?;
-    keep(path.parent().unwrap_or(&state.covers), &path, &jpeg).await;
+    let _held = crate::picture_listings::KEEPING.lock().await;
+    if crate::artist_portraits::remembered(&state.pool, artist).await? {
+        keep(path.parent().unwrap_or(&state.covers), &path, &jpeg).await;
+    }
     image(jpeg)
 }
 
@@ -116,12 +136,13 @@ async fn fetch(
     wikimedia: &crate::wikimedia::Client,
     artist: &str,
     picture: &str,
+    user: i64,
     now: i64,
 ) -> Result<Vec<u8>, ApiError> {
     match wikimedia.download(picture).await {
         Ok((bytes, _)) if image_type(&bytes).is_some() => Ok(bytes),
         Ok(_) => {
-            crate::artist_portraits::failed(pool, artist, now).await?;
+            crate::artist_portraits::failed(pool, artist, user, now).await?;
             Err(no_portrait())
         }
         Err(err) => {
@@ -129,7 +150,7 @@ async fn fetch(
                 error = format!("{err:#}"),
                 "couldn't fetch an artist's portrait"
             );
-            crate::artist_portraits::failed(pool, artist, now).await?;
+            crate::artist_portraits::failed(pool, artist, user, now).await?;
             Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "Wikimedia Commons didn't give the portrait",

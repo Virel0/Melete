@@ -106,7 +106,14 @@ pub(super) async fn search(
             None => true,
         };
         if keep {
-            let seen = pictured(&state, &current.access, candidate, &mut lookups).await?;
+            let seen = pictured(
+                &state,
+                &current.access,
+                current.user.id,
+                candidate,
+                &mut lookups,
+            )
+            .await?;
             shown.push(seen.into());
         }
     }
@@ -124,20 +131,21 @@ pub(super) async fn search(
 async fn pictured(
     state: &RequestState,
     access: &crate::access::Access,
+    user: i64,
     mut candidate: Candidate,
     lookups: &mut usize,
 ) -> Result<Candidate, ApiError> {
     if let Some(id) = candidate.tmdb_id {
         let tv = candidate.kind == "series";
         let path = candidate.tmdb_poster.as_deref();
-        let url = super::super::discover::poster(&state.pool, path, tv, id).await?;
+        let url = super::super::discover::poster(&state.pool, path, tv, id, user).await?;
         candidate.poster = url.as_str().map(str::to_owned);
     }
     let mut seen = request_search::as_seen_by(&state.pool, access, candidate).await?;
     let now = crate::db::unix_now();
     if state.musicbrainz.is_some() && !seen.in_library && seen.poster.is_none() {
         let group = seen.cover_group.as_deref();
-        seen.poster = crate::search_covers::offer(&state.pool, group, now).await?;
+        seen.poster = crate::search_covers::offer(&state.pool, group, user, now).await?;
     }
     if seen.kind == "artist"
         && let (Some(musicbrainz), Some(wikimedia)) = (&state.musicbrainz, &state.wikimedia)
@@ -148,7 +156,8 @@ async fn pictured(
         };
         let artist = seen.mb_artist_id.as_deref();
         let offered =
-            crate::artist_portraits::offer(&state.pool, &services, artist, lookups, now).await?;
+            crate::artist_portraits::offer(&state.pool, &services, artist, lookups, user, now)
+                .await?;
         (seen.poster, seen.poster_credit) = offered.unzip();
     }
     Ok(seen)

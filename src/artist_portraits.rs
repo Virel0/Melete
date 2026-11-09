@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use sqlx::SqlitePool;
 
+use crate::picture_listings::{self, Kind};
 use crate::{musicbrainz, wikimedia};
 
 pub mod library;
@@ -186,12 +187,14 @@ async fn known(
 }
 
 /// An artist result's portrait: with the setting on, what is [`known`] of it, which notes it as
-/// listed. Its address and credit, or none (also for a day after Commons failed to give it).
+/// listed for `user` (past [`MOST`], the forgetting is woken). Its address and credit, or none
+/// (also for a day after Commons failed to give it).
 pub async fn offer(
     pool: &SqlitePool,
     services: &Services<'_>,
     artist: Option<&str>,
     lookups: &mut usize,
+    user: i64,
     now: i64,
 ) -> anyhow::Result<Option<(String, Credit)>> {
     let Some(artist) = artist else {
@@ -200,7 +203,20 @@ pub async fn offer(
     if !crate::library::tags::is_mbid(artist) || !crate::settings::artist_portraits(pool).await? {
         return Ok(None);
     }
-    if !known(pool, services, artist, lookups, now).await? {
+    // One listed for them lately is theirs to see again (looked up again when out of date and
+    // there's a lookup left). Any other takes one of the search's few, whether it's known or
+    // not, and gets nothing when none are left: what others' searches made known never shows.
+    let theirs =
+        picture_listings::listed_for(pool, Kind::Portrait, artist, user, now - SERVED_FOR).await?;
+    let shown = if theirs {
+        known(pool, services, artist, lookups, now).await?
+    } else if *lookups == 0 {
+        false
+    } else {
+        *lookups -= 1;
+        known(pool, services, artist, &mut 1, now).await?
+    };
+    if !shown {
         return Ok(None);
     }
     sqlx::query("UPDATE artist_portraits SET listed_at = ? WHERE mb_artist_id = ?")
@@ -208,21 +224,42 @@ pub async fn offer(
         .bind(artist)
         .execute(pool)
         .await?;
+    picture_listings::note(pool, Kind::Portrait, artist, user, now).await?;
+    // As [`prune`] counts them: those a search listed, the library's artists aside.
+    let kept: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM artist_portraits
+         WHERE listed_at > 0 AND mb_artist_id NOT IN (SELECT mb_artist_id FROM ({}))",
+        library::in_library()
+    )))
+    .fetch_one(pool)
+    .await?;
+    picture_listings::over(kept, MOST);
+    // Only their own failures: another's would tell them someone looked at it lately.
+    if picture_listings::missed_for(pool, Kind::Portrait, artist, user, now - FAIL_FOR).await? {
+        return Ok(None);
+    }
     let credit: Option<Credit> = sqlx::query_as(
         "SELECT author, licence, licence_url, source_url FROM artist_portraits
-         WHERE mb_artist_id = ? AND file IS NOT NULL AND coalesce(failed_at, 0) < ?",
+         WHERE mb_artist_id = ? AND file IS NOT NULL",
     )
     .bind(artist)
-    .bind(now - FAIL_FOR)
     .fetch_optional(pool)
     .await?;
     Ok(credit.map(|credit| (url(artist), credit)))
 }
 
 /// The picture's address on Commons' picture hosts, when the portrait route may fetch and serve
-/// `artist`'s portrait: the setting on, listed in the last 30 days, with a portrait, and not
-/// failed in the last day.
-pub async fn servable(pool: &SqlitePool, artist: &str, now: i64) -> anyhow::Result<Option<String>> {
+/// `artist`'s portrait to `user`: the setting on, listed for them in the last 30 days (so nobody
+/// learns what someone else searched for), with a portrait, and not failed in the last day.
+pub async fn servable(
+    pool: &SqlitePool,
+    artist: &str,
+    user: i64,
+    now: i64,
+) -> anyhow::Result<Option<String>> {
+    if !picture_listings::listed_for(pool, Kind::Portrait, artist, user, now - SERVED_FOR).await? {
+        return Ok(None);
+    }
     picture_url(pool, artist, now - SERVED_FOR, now).await
 }
 
@@ -258,15 +295,23 @@ async fn picture_url(
     .flatten())
 }
 
+/// Whether `artist` is still remembered (not forgotten since it was listed or looked up).
+pub async fn remembered(pool: &SqlitePool, artist: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM artist_portraits WHERE mb_artist_id = ?)")
+        .bind(artist)
+        .fetch_one(pool)
+        .await
+}
+
 /// Notes that Commons failed to give `artist`'s picture (an error, or something not an image):
-/// neither offered nor asked for again for [`FAIL_FOR`].
-pub async fn failed(pool: &SqlitePool, artist: &str, now: i64) -> sqlx::Result<()> {
+/// not asked for again for [`FAIL_FOR`], nor offered to `user`, who asked, meanwhile.
+pub async fn failed(pool: &SqlitePool, artist: &str, user: i64, now: i64) -> sqlx::Result<()> {
     sqlx::query("UPDATE artist_portraits SET failed_at = ? WHERE mb_artist_id = ?")
         .bind(now)
         .bind(artist)
         .execute(pool)
         .await?;
-    Ok(())
+    picture_listings::missed(pool, Kind::Portrait, artist, user, now).await
 }
 
 async fn forget_files(covers: &Path, artist: &str) -> std::io::Result<()> {
@@ -305,6 +350,7 @@ pub async fn prune(pool: &SqlitePool, covers: &Path, now: i64) -> anyhow::Result
             .bind(artist)
             .execute(pool)
             .await?;
+        picture_listings::forget(pool, Kind::Portrait, artist).await?;
         forget_files(covers, artist).await?;
     }
     Ok(gone.len())
