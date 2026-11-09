@@ -261,3 +261,219 @@ async fn at_most_two_thousand_are_remembered() {
     .unwrap();
     assert!(!oldest, "the oldest went");
 }
+
+/// A music library holding an album by each of `artists` (MusicBrainz ids, or none), present
+/// or not; the album's id is the artist's.
+async fn in_library(pool: &SqlitePool, artists: &[(Option<&str>, bool)]) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO libraries (id, name, kind, path) VALUES (1, 'm', 'music', '/m')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (n, (artist, present)) in artists.iter().enumerate() {
+        let id = i64::try_from(n).unwrap() + 1;
+        sqlx::query("INSERT INTO music_artists (id, key, name, mb_artist_id) VALUES (?, ?, ?, ?)")
+            .bind(id)
+            .bind(format!("k{id}"))
+            .bind(format!("Artist {id}"))
+            .bind(artist)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+                 seen_generation, missing_since) VALUES (?1, 1, ?2, 'A', ?1, 'A', ?2, 1, ?3)",
+        )
+        .bind(id)
+        .bind(format!("a/{id}"))
+        .bind((!present).then_some(1))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+fn unknown(n: usize) -> String {
+    format!("00000000-0000-4000-8000-{n:012x}")
+}
+
+impl Rig {
+    async fn look_up_library(&self, now: i64) -> Looked {
+        let services = Services {
+            musicbrainz: &self.mb,
+            wikimedia: &self.wiki,
+        };
+        look_up_library(&self.pool, &services, now).await.unwrap()
+    }
+}
+
+#[tokio::test]
+async fn the_librarys_artists_are_looked_up_in_the_background_a_few_a_run() {
+    let r = rig().await;
+    let others: Vec<String> = (1..=LIBRARY_LOOKUPS + 1).map(unknown).collect();
+    let mut artists: Vec<(Option<&str>, bool)> = vec![(Some(RADIOHEAD), true)];
+    artists.extend(others.iter().map(|a| (Some(a.as_str()), true)));
+    let gone = unknown(999);
+    artists.extend([
+        (None, true),
+        (Some(gone.as_str()), false),
+        (Some("not-an-id"), true),
+    ]);
+    in_library(&r.pool, &artists).await;
+
+    assert_eq!(r.look_up_library(NOW).await, Looked::default(), "off");
+    turn(&r.pool, true).await;
+    assert_eq!(r.look_up_library(NOW).await.looked_up, LIBRARY_LOOKUPS);
+    assert_eq!(r.look_up_library(NOW).await.looked_up, 2, "the rest");
+    assert_eq!(r.look_up_library(NOW).await, Looked::default(), "all known");
+    let asked = r.mb_log.lock().unwrap().clone();
+    assert_eq!(asked.len(), LIBRARY_LOOKUPS + 2, "each once");
+    assert!(
+        !asked
+            .iter()
+            .any(|a| a.contains(&gone) || a.contains("not-an-id")),
+        "only present artists with a MusicBrainz id: {asked:?}"
+    );
+    let credits = credits(&r.pool, &[RADIOHEAD, &others[0]], NOW)
+        .await
+        .unwrap();
+    assert_eq!(credits.len(), 1);
+    assert_eq!(credits[RADIOHEAD].author, credit().author);
+    assert!(
+        servable_in_library(&r.pool, RADIOHEAD, NOW)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        servable(&r.pool, RADIOHEAD, NOW).await.unwrap().is_none(),
+        "a lookup for the library isn't a search listing it"
+    );
+
+    // The nones are asked again after a week, the portrait found after 30 days.
+    let looked = r.look_up_library(NOW + NONE_FOR + 1).await;
+    assert_eq!(looked.looked_up, LIBRARY_LOOKUPS);
+    assert_eq!(r.look_up_library(NOW + NONE_FOR + 1).await.looked_up, 1);
+    let later = r.look_up_library(NOW + FOUND_FOR + 1).await;
+    assert_eq!(
+        later.looked_up, LIBRARY_LOOKUPS,
+        "the oldest first, Radiohead among them"
+    );
+    assert!(
+        r.mb_log.lock().unwrap()[LIBRARY_LOOKUPS * 2 + 3..]
+            .iter()
+            .any(|a| a.contains(RADIOHEAD))
+    );
+}
+
+#[tokio::test]
+async fn a_failed_library_lookup_is_counted_and_kept_nowhere() {
+    let r = rig().await;
+    turn(&r.pool, true).await;
+    in_library(&r.pool, &[(Some(RADIOHEAD), true)]).await;
+    let nowhere = "http://127.0.0.1:9".to_owned();
+    let dead = wikimedia::Client::with_bases(nowhere.clone(), nowhere, true).unwrap();
+    let services = Services {
+        musicbrainz: &r.mb,
+        wikimedia: &dead,
+    };
+    for _ in 0..2 {
+        let looked = look_up_library(&r.pool, &services, NOW).await.unwrap();
+        assert_eq!(
+            looked,
+            Looked {
+                looked_up: 1,
+                failed: 1
+            },
+            "asked again"
+        );
+    }
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM artist_portraits")
+        .fetch_one(&r.pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0);
+}
+
+#[tokio::test]
+async fn an_artist_with_a_picture_of_their_own_isnt_looked_up() {
+    let r = rig().await;
+    turn(&r.pool, true).await;
+    in_library(&r.pool, &[(Some(RADIOHEAD), true)]).await;
+    // A second album in the same folder, both with the picture above them.
+    sqlx::raw_sql(
+        "INSERT INTO music_albums (id, library_id, key, title, artist_id, artist_name, folder,
+             seen_generation) VALUES (2, 1, 'b', 'B', 1, 'A', 'a/2', 1);
+         UPDATE music_albums SET artist_file = 'a/artist.jpg';",
+    )
+    .execute(&r.pool)
+    .await
+    .unwrap();
+    assert_eq!(r.look_up_library(NOW).await, Looked::default());
+    assert_eq!(r.asked(), (0, 0));
+    // One album elsewhere: the picture isn't theirs alone.
+    sqlx::query("UPDATE music_albums SET artist_file = NULL WHERE id = 2")
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    assert_eq!(r.look_up_library(NOW).await.looked_up, 1);
+}
+
+#[tokio::test]
+async fn the_librarys_artists_are_kept_past_their_time_and_the_most_until_they_go_or_its_off() {
+    let r = rig().await;
+    turn(&r.pool, true).await;
+    let dir = tempfile::tempdir().unwrap();
+    in_library(
+        &r.pool,
+        &[(Some(RADIOHEAD), true), (Some(TRIBUTE_ACT), true)],
+    )
+    .await;
+    r.look_up_library(NOW).await;
+    let later = NOW + 2 * SERVED_FOR;
+    for n in 0..MOST + 3 {
+        sqlx::query(
+            "INSERT INTO artist_portraits (mb_artist_id, listed_at, looked_up_at) VALUES (?, ?, ?)",
+        )
+        .bind(unknown(usize::try_from(n).unwrap()))
+        .bind(later - 10_000 + n)
+        .bind(later)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    }
+    assert_eq!(
+        prune(&r.pool, dir.path(), later).await.unwrap(),
+        3,
+        "only searched ones"
+    );
+    assert!(
+        servable_in_library(&r.pool, RADIOHEAD, later)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    // Gone from the library: past its time like any other.
+    sqlx::query("UPDATE music_albums SET missing_since = 1 WHERE artist_id = 2")
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    assert_eq!(prune(&r.pool, dir.path(), later).await.unwrap(), 1);
+    let kept: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM artist_portraits WHERE mb_artist_id IN (?, ?)")
+            .bind(RADIOHEAD)
+            .bind(TRIBUTE_ACT)
+            .fetch_one(&r.pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, 1);
+
+    turn(&r.pool, false).await;
+    assert_eq!(
+        prune(&r.pool, dir.path(), later).await.unwrap(),
+        usize::try_from(MOST).unwrap() + 1,
+        "off: all go, the library's too"
+    );
+}

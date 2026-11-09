@@ -36,18 +36,33 @@ const READERS: usize = 8;
 const TAGS_VERSION: i64 = 3;
 /// What an album of several artists is called.
 const VARIOUS: &str = "Various Artists";
+/// An artist's MusicBrainz id, as SQL over `music_artists ar` naming it `mb_artist_id`: from the
+/// tags, else the one most of their matched albums' releases credit alone.
+pub(crate) const ARTIST_MBID: &str = "coalesce(ar.mb_artist_id,
+    (SELECT json_extract(c.artist_credit, '$[0].id') FROM music_albums a2
+     JOIN mb_releases c ON c.id = a2.match_release_id
+     WHERE a2.artist_id = ar.id AND a2.missing_since IS NULL
+       AND json_array_length(c.artist_credit) = 1
+     GROUP BY 1 ORDER BY count(*) DESC LIMIT 1)) AS mb_artist_id";
+
 /// File names (without extension) taken as an album's cover image, best first.
 pub(crate) const COVER_NAMES: &[&str] = &["cover", "folder", "front", "album"];
 pub(crate) const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
+/// File names (without extension) taken as an artist's picture in the folder above their
+/// album's, best first, and the extensions taken.
+const ARTIST_NAMES: &[&str] = &["artist", "folder"];
+const ARTIST_EXTENSIONS: &[&str] = &["jpg", "png"];
 /// File names taken as an album's motion cover (a looping video), best first.
 const MOTION_NAMES: &[&str] = &["cover", "animated", "motion", "animated-cover"];
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm"];
 
-/// An album folder's cover image and motion cover, relative to the library.
+/// An album folder's cover image and motion cover, and the artist's picture in the folder above
+/// it, relative to the library.
 #[derive(Debug, Default, Clone, PartialEq)]
 struct Artwork {
     cover: Option<String>,
     motion: Option<String>,
+    artist: Option<String>,
 }
 
 /// Scans a music library: walks it, reads the tags of new and changed files, finds each album
@@ -518,6 +533,7 @@ mod tests {
             Some(&Artwork {
                 cover: Some("a/cover.png".into()),
                 motion: Some("a/cover.mp4".into()),
+                artist: None,
             }),
             "cover before folder, cover before animated"
         );
@@ -528,6 +544,75 @@ mod tests {
             "a folder named like a cover isn't one"
         );
         assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn finds_an_artists_picture_in_the_folder_above_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for rel in [
+            "A/Folder.PNG",
+            "A/Artist.jpg",
+            "A/one/01.flac",
+            "A/two/01.flac",
+            "B/folder.jpeg",
+            "B/one/01.flac",
+            "folder.jpg",
+            "top/01.flac",
+            "C/D/artist.png",
+            "C/D/e/01.flac",
+        ] {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
+        }
+        let folders = ["A/one", "A/two", "B/one", "top", "C/D/e"].map(String::from);
+        let found = find_artwork(root, &folders);
+        let artist = |folder: &str| found.get(folder).and_then(|a| a.artist.as_deref());
+        assert_eq!(
+            artist("A/one"),
+            Some("A/Artist.jpg"),
+            "artist before folder"
+        );
+        assert_eq!(artist("A/two"), Some("A/Artist.jpg"));
+        assert_eq!(artist("B/one"), None, "only jpg and png");
+        assert_eq!(
+            artist("top"),
+            None,
+            "the library's root is no artist's folder"
+        );
+        assert_eq!(artist("C/D/e"), Some("C/D/artist.png"));
+        assert_eq!(found.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_scan_notes_the_artists_picture_beside_their_albums_and_drops_it_when_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for album in ["One", "Two"] {
+            let tags = [
+                ("artist", "Band"),
+                ("album_artist", "Band"),
+                ("album", album),
+            ];
+            clip(root, &format!("Band/{album}/01.flac"), &tags);
+        }
+        std::fs::write(root.join("Band/artist.jpg"), b"\xff\xd8\xff").unwrap();
+        let (pool, library) = library(root).await;
+        let pictures = || async {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT artist_file FROM music_albums ORDER BY title",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        };
+        scan(&pool, &library).await.unwrap();
+        let noted = Some("Band/artist.jpg".to_owned());
+        assert_eq!(pictures().await, [noted.clone(), noted]);
+        std::fs::remove_file(root.join("Band/artist.jpg")).unwrap();
+        scan(&pool, &library).await.unwrap();
+        assert_eq!(pictures().await, [None, None]);
     }
 
     /// Rewrites an MP3's ID3 tag with lofty, as a tagger would.

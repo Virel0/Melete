@@ -1,10 +1,10 @@
-//! Wikidata and Wikimedia Commons, for artists' portraits in music searches, on only with
-//! `MELETE_ARTIST_PORTRAITS` (and MusicBrainz). Wikidata is asked for one item's image (its
-//! P18 statement) by the item's id, Commons for that file's picture at one width with its
-//! author and licence by the file's name, and upload.wikimedia.org for the picture itself;
-//! nothing else is sent. Every request goes over https to those hosts only, redirects included,
-//! with Melete's usual User-Agent (no contact, though Wikimedia's policy asks for one: a contact
-//! would name the household), a timeout and a size cap.
+//! Wikidata and Wikimedia Commons, for artists' portraits in music searches and the library's
+//! artists, on only with `MELETE_ARTIST_PORTRAITS` (and MusicBrainz). Wikidata is asked for one
+//! item's image (its P18 statement) by the item's id, Commons for that file's picture at one
+//! width with its author and licence by the file's name, and upload.wikimedia.org for the
+//! picture itself; nothing else is sent. Every request goes over https to those hosts only,
+//! redirects included, with Melete's usual User-Agent (no contact, though Wikimedia's policy
+//! asks for one: a contact would name the household), a timeout and a size cap.
 
 use std::time::Duration;
 
