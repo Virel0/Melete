@@ -39,6 +39,12 @@ pub fn switch(setup: Setup) {
     TESTING.with(|in_use| *in_use.lock().unwrap() = Arc::new(Applied::new(setup)));
 }
 
+/// [`switch`] for another task, such as a stand-in's handler, to call while the test runs.
+pub fn switcher() -> impl Fn(Setup) + Send + Sync + 'static {
+    let in_use = TESTING.with(Arc::clone);
+    move |setup| *in_use.lock().unwrap() = Arc::new(Applied::new(setup))
+}
+
 /// A proxy of `kind` at `at`, without a login.
 pub fn proxy(kind: Kind, at: SocketAddr) -> Proxy {
     Proxy {

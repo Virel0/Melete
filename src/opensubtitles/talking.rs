@@ -224,8 +224,11 @@ impl Client {
 
     /// Downloads one subtitle file, which counts against the day's downloads.
     pub async fn download(&self, file_id: i64) -> Result<Vec<u8>, Failure> {
+        // Signed in first: signing in can wait, and the request then goes the way the proxy's
+        // setup says when it's sent, not when it was begun.
+        let token = self.token(false).await?;
         let mut request = self.post("/download").json(&json!({ "file_id": file_id }));
-        if let Some(token) = self.token(false).await? {
+        if let Some(token) = token {
             request = request.bearer_auth(token.expose());
         }
         let answer = request.send().await.map_err(no_answer)?;
