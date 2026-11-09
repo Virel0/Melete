@@ -26,6 +26,9 @@ pub(crate) struct Said {
     pub(crate) passed_over: Vec<String>,
     /// What was taken from a season pack taken in part ("took episodes 6, 7 from a pack...").
     pub(crate) took: Option<String>,
+    /// The best release was a torrent already downloading or downloaded (a pack of several
+    /// seasons grabbed for another, say).
+    pub(crate) already: bool,
 }
 
 /// Grabs the best accepted release of any search for `target`, as a sync would (requests do,
@@ -132,7 +135,10 @@ pub(super) async fn grab_best(
                 | Refused::NoLink
                 | Refused::Blocklisted),
             ) => (None, Some(refused.to_string()), true),
-            Err(refused) => (None, Some(refused.to_string()), false),
+            Err(refused) => {
+                said.already = matches!(refused, Refused::Already(_));
+                (None, Some(refused.to_string()), false)
+            }
         };
         grabbed.push(Grabbed {
             release_id,

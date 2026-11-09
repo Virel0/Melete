@@ -160,7 +160,8 @@ pub(super) async fn run(
         counts.searched += 1;
         let (grabbed, said) = grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
         let got = grabbed.iter().any(|g| g.download_id.is_some());
-        if !got && grabbing && goal == Goal::Missing {
+        // A torrent already on its way for it is as good as grabbed: no episodes instead.
+        if !got && !said.already && grabbing && goal == Goal::Missing {
             total += episodes_next(pool, id, &item, &mut items, &mut counts).await?;
         }
         if got {
@@ -394,6 +395,79 @@ mod tests {
                 (e22.to_owned(), Some(2), Some(22), None),
                 (e23.to_owned(), Some(2), Some(23), None)
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_torrent_already_on_its_way_for_the_season_is_as_good_as_grabbed() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        let pipeline = some_anime(&pool, 0, &[]).await;
+        sqlx::query(
+            "INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Season 1's pack is season 2's too, under another name: one torrent.
+        let item = |title: &str, hash: &str, n: usize| {
+            format!(
+                r#"<item><title>{title}</title><guid>https://tracker.example/{n}</guid>
+                <link>magnet:?xt=urn:btih:{hash}</link><size>5000000000</size>
+                <torznab:attr name="seeders" value="50"/></item>"#
+            )
+        };
+        let (both, single) = ("a".repeat(40), "b".repeat(40));
+        let feed = indexer(&pool, "[5000]").await;
+        feed.lock().unwrap().0 = format!(
+            r#"<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>{}{}{}</channel></rss>"#,
+            item("Some.Anime.S01.1080p.BluRay.x264-GRP", &both, 1),
+            item("Some.Anime.S02.1080p.BluRay.x264-GRP", &both, 2),
+            item(
+                "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv",
+                &single,
+                3
+            ),
+        );
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 2, 2, 1),
+            "{run:?}"
+        );
+        assert_eq!(
+            run.notes,
+            ["Some Anime, season 2: not grabbed: it's already download 1"]
+        );
+        let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
+        assert_eq!(titles, ["Some.Anime.S01.1080p.BluRay.x264-GRP"]);
+    }
+
+    #[tokio::test]
+    async fn a_pack_of_several_seasons_on_its_way_leaves_no_episode_to_search_for() {
+        let pool = setup().await;
+        some_anime(&pool, 0, &[]).await;
+        assert_eq!(
+            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
+            (1..=23).collect::<Vec<i64>>()
+        );
+        // Grabbed for season 1, it holds season 2 as well.
+        sqlx::query(
+            "INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
+                 added_at, updated_at)
+             VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Some.Anime.S01-S02.1080p',
+                 1, 1, '{}', 'downloading', 0, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
+            Vec::<i64>::new()
         );
     }
 
