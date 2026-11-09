@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 168] = [
+const MODULES: [(&str, &str); 169] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -279,6 +279,7 @@ const MODULES: [(&str, &str); 168] = [
     ("search.js", include_str!("../web/search.js")),
     ("trending.js", include_str!("../web/trending.js")),
     ("services.js", include_str!("../web/services.js")),
+    ("vpn-card.js", include_str!("../web/vpn-card.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
     ("manage.js", include_str!("../web/manage.js")),

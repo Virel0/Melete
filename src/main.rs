@@ -39,6 +39,7 @@ mod episode_order;
 mod flaresolverr;
 mod follow;
 mod fulfil;
+mod gluetun;
 mod history;
 mod imdb;
 mod import;

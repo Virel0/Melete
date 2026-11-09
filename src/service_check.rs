@@ -53,6 +53,7 @@ pub fn connects(key: &str) -> bool {
             | "openrouter"
             | "opensubtitles"
             | "proxy"
+            | "vpn"
     )
 }
 
@@ -156,6 +157,10 @@ async fn check_alone(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::R
                 Err(why) => wrong(why),
             },
         },
+        "vpn" => match &config.vpn {
+            None => wrong("Set the control server's address and Melete's key first."),
+            Some(vpn) => vpn_answers(vpn).await?,
+        },
         _ => ok(NOTHING_TO_CONNECT_TO),
     })
 }
@@ -228,6 +233,29 @@ async fn seedbox_answers(
             Err(err) => wrong(format!("The seedbox: {err}")),
         },
     )
+}
+
+/// How Gluetun's control server says the VPN is, asked with Melete's key; one that answers
+/// without a key is turned down. Nothing is changed.
+async fn vpn_answers(settings: &crate::gluetun::Settings) -> anyhow::Result<Checked> {
+    let client = crate::gluetun::Client::new(&settings.url, settings.key.clone())?;
+    Ok(match client.state().await {
+        Err(why) => wrong(why.to_string()),
+        Ok(state) if !state.running => ok("Gluetun answered and took the key; the VPN is stopped."),
+        Ok(state) => {
+            let seen = match (&state.public_ip, &state.country) {
+                (Some(ip), Some(country)) => format!("{ip} ({country})"),
+                (Some(ip), None) => ip.clone(),
+                _ => "an address it doesn't know yet".into(),
+            };
+            let port = state
+                .forwarded_port
+                .map_or(String::new(), |p| format!(" Forwarded port: {p}."));
+            ok(format!(
+                "Gluetun answered and took the key; the VPN is running, and the outside world sees {seen}.{port}"
+            ))
+        }
+    })
 }
 
 /// Whether LibreTranslate answers, has languages, and takes the key.

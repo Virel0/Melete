@@ -78,6 +78,7 @@ mod title_artwork;
 mod transcode;
 mod trickplay;
 mod unstyled_subtitles;
+mod vpn;
 mod wanted_removed;
 mod watch_home;
 mod web;
@@ -242,6 +243,7 @@ pub fn server_with(
         .merge(stems::routes(pool.clone()))
         .merge(music_stems::routes(pool.clone(), stems_dir))
         .merge(services::routes(pool.clone(), reload))
+        .merge(vpn::routes(pool.clone()))
         .merge(system)
         .merge(trickplay::routes(
             pool.clone(),

@@ -1,0 +1,34 @@
+# Who may use which route of Gluetun's control server (compose.vpn.yaml mounts a copy of this
+# at /gluetun/auth/config.toml). Copy it outside the repository, put a key of its own in each
+# role's empty apikey (`docker run --rm qmcgaw/gluetun genkey` makes one), and set
+# MELETE_GLUETUN_ROLES_FILE in .env to the copy. The keys are left empty here so that a copy
+# nobody filled in doesn't run with keys anyone can read: Gluetun won't start with an empty
+# one. With roles set, no route answers without a key, and Melete refuses a control server
+# that does.
+
+# slskd: reads whether the tunnel is up and the forwarded port. Its key is
+# MELETE_GLUETUN_CONTROL_KEY in .env, which compose.soulseek.yaml hands to slskd.
+[[roles]]
+name = "slskd"
+routes = [
+  "GET /v1/vpn/status",
+  "GET /v1/publicip/ip",
+  "GET /v1/portforward",
+  "GET /v1/openvpn/portforwarded",
+]
+auth = "apikey"
+apikey = ""
+
+# Melete: shows how the tunnel is, and starts, stops and restarts it. Not its settings: which
+# provider and servers the tunnel uses stays in Gluetun's own settings file, so this key can't
+# send it anywhere else. Its key goes in Settings, Outside services, VPN.
+[[roles]]
+name = "melete"
+routes = [
+  "GET /v1/vpn/status",
+  "PUT /v1/vpn/status",
+  "GET /v1/publicip/ip",
+  "GET /v1/portforward",
+]
+auth = "apikey"
+apikey = ""

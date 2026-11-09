@@ -102,6 +102,8 @@ pub struct Config {
     pub opensubtitles: Option<OpenSubtitles>,
     /// The proxy and the services sent through it (`MELETE_PROXY_*`); none by default.
     pub proxy: crate::proxy::Setup,
+    /// Gluetun's control server (`MELETE_VPN_URL`, `MELETE_VPN_KEY`); none by default.
+    pub vpn: Option<crate::gluetun::Settings>,
 }
 
 /// A value kept out of `Debug` output, so logging the config cannot leak it.
@@ -223,6 +225,7 @@ impl Config {
         let openrouter = openrouter(&get)?;
         let opensubtitles = opensubtitles(&get)?;
         let proxy = crate::proxy::Setup::from_lookup(&get)?;
+        let vpn = crate::gluetun::Settings::from_lookup(&get)?;
         Ok(Self {
             bind,
             data_dir,
@@ -256,6 +259,7 @@ impl Config {
             openrouter,
             opensubtitles,
             proxy,
+            vpn,
         })
     }
 }
