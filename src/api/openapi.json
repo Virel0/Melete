@@ -16515,7 +16515,7 @@
       },
       "MakeRoomSuggestion": {
         "type": "object",
-        "required": ["kind", "id", "title", "year", "anime", "size", "action", "saves", "score", "reasons"],
+        "required": ["kind", "id", "title", "year", "anime", "size", "action", "saves", "score", "reasons", "options"],
         "properties": {
           "kind": {"enum": ["movie", "series"]},
           "id": {"type": "integer", "description": "The library movie's or series' id."},
@@ -16526,7 +16526,20 @@
           "action": {"enum": ["delete", "swap", "compress"], "description": "`delete`: its files go to the library's trash, deleted 30 days later. `swap`: searched for a release at most 1080p and clearly smaller (POST /api/v1/admin/make-room/swap), the release found replacing its copy; only for titles on the wanted list. `compress`: converted to HEVC on the GPU (POST /api/v1/admin/make-room/compress), its copy going to the trash once the new file is checked."},
           "saves": {"type": "integer", "description": "Bytes the action is expected to free."},
           "score": {"type": "integer", "minimum": 0, "maximum": 100, "description": "How strongly it's suggested."},
-          "reasons": {"type": "array", "items": {"enum": ["never_watched", "not_watched_lately", "untouched", "low_rating", "large_copy", "compressible"]}, "description": "Why, as codes for an app to put in words."}
+          "reasons": {"type": "array", "items": {"enum": ["never_watched", "not_watched_lately", "untouched", "low_rating", "large_copy", "compressible"]}, "description": "Why, as codes for an app to put in words."},
+          "options": {
+            "type": "array",
+            "description": "Every action the title can take, the suggested one (`action`, `saves`) first, then delete, swap and compress: deleting always; swapping when the title is on the wanted list and a 1080p HEVC release of its length (about 3 GB an hour) would be smaller; compressing when its copy is H.264 or older and large enough to compress well. An app can offer the others instead of the suggested one, with what each frees.",
+            "items": {
+              "type": "object",
+              "required": ["action", "saves"],
+              "properties": {
+                "action": {"enum": ["delete", "swap", "compress"]},
+                "saves": {"type": "integer", "description": "Bytes it's expected to free."}
+              },
+              "additionalProperties": false
+            }
+          }
         },
         "additionalProperties": false
       },

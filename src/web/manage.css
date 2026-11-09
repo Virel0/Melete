@@ -62,6 +62,17 @@ div.stacks table.data .r { text-align: end; font-variant-numeric: tabular-nums; 
 div.stacks table.data .num { font-variant-numeric: tabular-nums; }
 div.stacks table.data input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
 
+/* Make room: the count, Choose all and (on a phone, where the columns' names are hidden) the
+   order above the table; the columns' names sort it, and look like names until pointed at. */
+.make-room-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-block-end: var(--space-3); }
+.make-room-head p { margin: 0; flex: 1 1 16rem; }
+.make-room-all { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; }
+.make-room-all input { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
+.make-room-sort { display: none; align-items: center; gap: var(--space-2); }
+div.stacks table.data th button.sort { padding: 0; min-height: 2rem; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+div.stacks table.data th button.sort:hover, div.stacks table.data th[aria-sort] button.sort { color: var(--text); }
+@media (max-width: 40rem) { .make-room-sort { display: inline-flex; } }
+
 /* On a phone, a table marked to stack turns into a block per row: its title first, then each
    cell under its column's name. */
 @media (max-width: 40rem) {

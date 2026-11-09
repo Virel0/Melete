@@ -1,6 +1,7 @@
 //! Make room: suggestions for freeing space in the movies and series libraries, each a title with
 //! one action (delete it, swap it for a smaller release, or compress it), the space that would
-//! free, and the reasons. Worked out from the database when asked; nothing is changed here.
+//! free, and the reasons, and every other action the title can take instead with what it would
+//! free. Worked out from the database when asked; nothing is changed here.
 //!
 //! A title is never suggested while anyone is partway through it, has it on their list, or asked
 //! for it in the last [`RECENT_REQUEST_DAYS`] days. The rest are scored on how little they're
@@ -66,6 +67,17 @@ pub struct Suggestion {
     /// Why, as short codes an app turns into words: `never_watched`, `not_watched_lately`,
     /// `untouched`, `low_rating`, `large_copy`, `compressible`.
     pub reasons: Vec<&'static str>,
+    /// Every action the title can take, the suggested one first, then delete, swap and
+    /// compress, each with what it's expected to free.
+    pub options: Vec<Choice>,
+}
+
+/// One action a suggested title can take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Choice {
+    pub action: Action,
+    /// The space it's expected to free, in bytes.
+    pub saves: i64,
 }
 
 /// What's known about one title, as the scoring reads it.
@@ -140,6 +152,7 @@ pub(crate) fn suggest(f: &Facts, now: i64, major: &[String]) -> Option<Suggestio
         return None;
     }
     let (action, saves) = action(f, studio, large, compressible)?;
+    let options = options(f, compressible, Choice { action, saves });
     Some(Suggestion {
         kind: if f.series { "series" } else { "movie" },
         id: f.id,
@@ -151,7 +164,40 @@ pub(crate) fn suggest(f: &Facts, now: i64, major: &[String]) -> Option<Suggestio
         saves,
         score,
         reasons,
+        options,
     })
+}
+
+/// Every action a title can take, `suggested` first: deleting always; swapping when it's on the
+/// wanted list (a swap searches with its profile) and a 1080p HEVC release of its length would
+/// be smaller; compressing when its copy compresses well.
+fn options(f: &Facts, compressible: bool, suggested: Choice) -> Vec<Choice> {
+    let swapped = f
+        .seconds
+        .filter(|_| f.wanted)
+        .map(|s| f.size - (s / 3600.0 * SWAPPED_GB_PER_HOUR * 1e9) as i64)
+        .filter(|saves| *saves > 0);
+    let all = [
+        Some(Choice {
+            action: Action::Delete,
+            saves: f.size,
+        }),
+        swapped.map(|saves| Choice {
+            action: Action::Swap,
+            saves,
+        }),
+        compressible.then_some(Choice {
+            action: Action::Compress,
+            saves: (f.size as f64 * COMPRESS_SAVES) as i64,
+        }),
+    ];
+    std::iter::once(suggested)
+        .chain(
+            all.into_iter()
+                .flatten()
+                .filter(|c| c.action != suggested.action),
+        )
+        .collect()
 }
 
 /// How strongly a title is suggested, 0 to 100, and why: how little it's watched, how long it's
