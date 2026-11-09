@@ -364,7 +364,7 @@ with what leaves the server.
 | TMDB | Titles, posters, episode lists, ratings, cast | Titles to look up, TMDB ids, the metadata language, and the image files to fetch from its image server |
 | TMDB trending and similar titles | Discovery rows, franchise gaps | Which chart, or a title's or collection's TMDB id; optionally posters of titles not in the library, fetched once and cached |
 | MusicBrainz and the Cover Art Archive | Matching music, covers, music requests | Album and track names, the words of a music request search, and a release group's id for a cover; optionally covers of music not in the library that a search shows, fetched once by their release group's id and cached |
-| Wikidata and Wikimedia Commons | Artists' portraits in music searches, with their author and licence | An artist's Wikidata item id (found through its MusicBrainz id, sent to MusicBrainz) and its image's file name, once per artist; the portrait is fetched once and cached |
+| Wikidata and Wikimedia Commons | Artists' portraits in music searches and for the library's artists (looked up in the background), with their author and licence | An artist's Wikidata item id (found through its MusicBrainz id, sent to MusicBrainz) and its image's file name, once per artist; the portrait is fetched once and cached |
 | LRCLIB | Synced lyrics | Each track's title, artist, album and length, once per track |
 | LibreTranslate | Translating lyrics | The lines of each song translated, to the server you set (you can run your own) |
 | OpenSubtitles | Missing subtitles | A video's OpenSubtitles hash (from its size and first and last 64 KB), its TMDB or IMDb id, season and episode, and the language; nothing about who asked |

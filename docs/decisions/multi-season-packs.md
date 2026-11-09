@@ -1,0 +1,5 @@
+Decision: A pack of several seasons ("Show.S01-S03", "Complete Series") grabbed by a season's search is recorded for that season, and only that season's files come home: the files whose own names give that season (or numbers from the first episode that the order followed puts in it), checked for running time against that season's episodes. Its other seasons' files, extras, and files whose season can't be told stay on the seedbox; when none of its files is of the season, nothing comes home and the download fails, saying so. Its other seasons go on being searched on their own (as since decision 29's amendment for partial packs).
+
+Why: Such a pack was brought home whole into the one season's folder and judged against that season, so a file of another season was taken for another title and the whole download held back, blocklisted and counted toward stopping the title. Bringing home only the season it was taken for keeps every file in the right folder, checked against the right runtimes, and fails closed for anything else.
+
+Date: 2026-11-08

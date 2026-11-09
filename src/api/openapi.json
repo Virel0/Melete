@@ -1625,7 +1625,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artwork image",
-        "description": "Use the URLs the other responses return; they never change meaning, so cache them forever. Answers give posters at w342 or w500, backdrops (textless ones too) at w1280, stills at w300, logos at w500 and people's pictures at w185; the same file can be asked for at any other size of its kind, for larger screens: posters at w342, w500 or w780; backdrops at w1280 or original; stills at w300 or original; logos at w500 or original; people's pictures at w185 or h632. `original` is the image as TMDB has it (at most 3840 wide for backdrops and stills; a title's own image at most 3840 wide). Another kind's size answers 404. With `MELETE_DISCOVERY_POSTERS` on, posters of titles not in the library that a discovery answer listed are served too, at w342 only, for 30 days after they were last listed (2000 at most remembered). A title's own poster and backdrop, from its folder (`poster.*` before `folder.*`, `fanart.*` before `backdrop.*`; JPEG, PNG or WebP), are given ahead of TMDB's as `local-<hash>.jpg`, made from the file at the size asked for (JPEG, never wider than the image) and kept; a changed file gets a new name.",
+        "description": "Use the URLs the other responses return; they never change meaning, so cache them forever. Answers give posters at w342 or w500, backdrops (textless ones too) at w1280, stills at w300, logos at w500 and people's pictures at w185; the same file can be asked for at any other size of its kind, for larger screens: posters at w342, w500 or w780; backdrops at w1280 or original; stills at w300 or original; logos at w500 or original; people's pictures at w185 or h632. `original` is the image as TMDB has it (at most 3840 wide for backdrops and stills; a title's own image at most 3840 wide). Another kind's size answers 404. With `MELETE_DISCOVERY_POSTERS` on, posters of titles not in the library that a discovery answer listed are served too, at w342 only, to the user it listed them for, for 30 days after (2000 at most remembered). A title's own poster and backdrop, from its folder (`poster.*` before `folder.*`, `fanart.*` before `backdrop.*`; JPEG, PNG or WebP), are given ahead of TMDB's as `local-<hash>.jpg`, made from the file at the size asked for (JPEG, never wider than the image) and kept; a changed file gets a new name.",
         "parameters": [
           {
             "name": "size",
@@ -5492,6 +5492,39 @@
         }
       }
     },
+    "/api/v1/music/artists/{id}/portrait": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "A library artist's portrait",
+        "description": "Use the `portrait` an artist in the library gives (`MusicArtist`), and show its `portrait_credit` with it. Their picture of their own (the file in the one folder above the albums of theirs you may see) as it is; else, with artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on), the portrait the background lookup found on Wikimedia Commons, 500 pixels wide (or less), fetched once by the server from Commons' picture hosts (upload.wikimedia.org or thumb.wikimedia.org) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. An artist that joined another answers as that one. When Commons fails to give the picture, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "Artist id.", "schema": {"type": "integer"}},
+          {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the portrait as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
+        ],
+        "responses": {
+          "200": {
+            "description": "The image",
+            "content": {
+              "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+              "image/png": {"schema": {"type": "string", "format": "binary"}},
+              "image/webp": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such artist, none of their albums or tracks is here for you, they have no portrait, its file is gone, or Commons failed to give the picture in the last day",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "Wikimedia failed, or its picture was over 10 MiB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/music/composers": {
       "get": {
         "tags": ["Music"],
@@ -5823,7 +5856,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "The cover of music not in the library",
-        "description": "Use the `poster` a music search for a request gives (`GET /api/v1/requests/search`); only those are served. With covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on), a release group a search listed is served for 30 days after it was last listed (2000 at most remembered): the Cover Art Archive's 500-pixel front cover, fetched once by the server (the archive sees only the release group's id) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served alike to everyone signed in. When the archive has no cover, or fails to give it, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
+        "description": "Use the `poster` a music search for a request gives (`GET /api/v1/requests/search`); only those are served. With covers of music not in the library on (`MELETE_SEARCH_COVERS`, off by default, and MusicBrainz on), a release group a search listed is served for 30 days after it was last listed (2000 at most remembered): the Cover Art Archive's 500-pixel front cover, fetched once by the server (the archive sees only the release group's id) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served only to a user a search listed it for in the last 30 days (answering 404 to anyone else). When the archive has no cover, or fails to give it, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "The release group's MusicBrainz id.", "schema": {"type": "string", "format": "uuid"}},
           {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the cover as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
@@ -5856,7 +5889,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "An artist's portrait",
-        "description": "Use the `poster` a search for an artist to request gives (`GET /api/v1/requests/search`); only those are served, and show its `poster_credit` with it. With artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on), an artist a search listed with a portrait is served for 30 days after it was last listed (2000 at most remembered): its Wikidata item's image from Wikimedia Commons, 500 pixels wide (or less), fetched once by the server from Commons' picture hosts (upload.wikimedia.org or thumb.wikimedia.org) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served alike to everyone signed in. When Commons fails to give the picture, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
+        "description": "Use the `poster` a search for an artist to request gives (`GET /api/v1/requests/search`); only those are served, and show its `poster_credit` with it. With artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on), an artist a search listed with a portrait is served for 30 days after it was last listed (2000 at most remembered): its Wikidata item's image from Wikimedia Commons, 500 pixels wide (or less), fetched once by the server from Commons' picture hosts (upload.wikimedia.org or thumb.wikimedia.org) and kept. With `size`, a JPEG that many pixels wide at most, made once from it and kept. Served only to a user a search listed it for in the last 30 days (answering 404 to anyone else). When Commons fails to give the picture, it's not asked again for a day, and answers 404 until then. Clients may keep it a day.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "The artist's MusicBrainz id.", "schema": {"type": "string", "format": "uuid"}},
           {"name": "size", "in": "query", "required": false, "description": "Width in pixels: 160 for rows, 400 for grids and shelves, 600 for players, 800 for page headers. Leave out for the portrait as it is.", "schema": {"type": "integer", "enum": [160, 400, 600, 800]}}
@@ -10243,6 +10276,7 @@
                 "trailers",
                 "stem-splitting",
                 "following",
+                "artist-portraits",
                 "rss-sync",
                 "import-lists",
                 "offline-copies",
@@ -16373,7 +16407,7 @@
       },
       "MusicArtist": {
         "type": "object",
-        "required": ["id", "name", "mb_artist_id", "albums", "appears_on"],
+        "required": ["id", "name", "mb_artist_id", "albums", "appears_on", "portrait", "portrait_credit"],
         "properties": {
           "id": {"type": "integer"},
           "name": {"type": "string"},
@@ -16388,7 +16422,27 @@
           "appears_on": {
             "type": "integer",
             "description": "Other artists' albums in the library now with a track crediting them (as a featured artist, or one of a duet)."
+          },
+          "portrait": {
+            "type": ["string", "null"],
+            "description": "Their portrait on this server (`GET /api/v1/music/artists/{id}/portrait`), or null. A picture of their own comes first: when the albums of theirs you may see all sit in one folder (not the library's root) holding artist.jpg, artist.png, folder.jpg or folder.png, as the last scan found, that file, whatever the settings. Else, only with artists' portraits on (`MELETE_ARTIST_PORTRAITS`, off by default, and MusicBrainz on), their Wikidata item's image from Wikimedia Commons, with `portrait_credit`: artists in the library with a MusicBrainz id and no picture of their own are looked up in the background, 20 an hour, so a new one has none until then. None for a day after Commons failed to give the picture."
+          },
+          "portrait_credit": {
+            "anyOf": [{"$ref": "#/components/schemas/PortraitCredit"}, {"type": "null"}],
+            "description": "A Commons portrait's credit, which its licence may ask to be shown with it; null for a picture of their own, and without a portrait."
           }
+        },
+        "additionalProperties": false
+      },
+      "PortraitCredit": {
+        "type": "object",
+        "description": "What a portrait from Wikimedia Commons's licence asks to be shown with it, as Commons gives it.",
+        "required": ["author", "licence", "licence_url", "source_url"],
+        "properties": {
+          "author": {"type": ["string", "null"], "description": "Who made it, as plain text."},
+          "licence": {"type": ["string", "null"], "description": "Its licence's short name, such as `CC BY-SA 4.0` or `Public domain`."},
+          "licence_url": {"type": ["string", "null"], "description": "Where the licence is written."},
+          "source_url": {"type": ["string", "null"], "description": "The picture's page on Wikimedia Commons."}
         },
         "additionalProperties": false
       },
@@ -17083,7 +17137,7 @@
       },
       "MusicArtistDetail": {
         "type": "object",
-        "required": ["id", "name", "mb_artist_id", "albums", "appears_on", "album_list", "appears_on_list"],
+        "required": ["id", "name", "mb_artist_id", "albums", "appears_on", "portrait", "portrait_credit", "album_list", "appears_on_list"],
         "properties": {
           "id": {"type": "integer"},
           "name": {"type": "string"},
@@ -17092,6 +17146,14 @@
           "appears_on": {
             "type": "integer",
             "description": "Other artists' albums in the library now with a track crediting them."
+          },
+          "portrait": {
+            "type": ["string", "null"],
+            "description": "Their portrait on this server (`GET /api/v1/music/artists/{id}/portrait`), or null: as in `MusicArtist`, a picture of their own first, else Commons'."
+          },
+          "portrait_credit": {
+            "anyOf": [{"$ref": "#/components/schemas/PortraitCredit"}, {"type": "null"}],
+            "description": "A Commons portrait's credit; null for a picture of their own, and without a portrait."
           },
           "album_list": {
             "type": "array",
@@ -19722,6 +19784,7 @@
               "trailers",
               "stem-splitting",
               "following",
+              "artist-portraits",
               "rss-sync",
               "import-lists",
               "offline-copies",

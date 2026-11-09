@@ -183,6 +183,8 @@ struct Row {
     save_path: Option<String>,
     files: Option<String>,
     attempts: i64,
+    /// For a season pack taken in part, the episodes of its season it was taken for.
+    episodes: Option<String>,
 }
 
 impl Row {
@@ -231,7 +233,7 @@ pub async fn transfer(
 ) -> anyhow::Result<Option<Target>> {
     let row: Option<Row> = sqlx::query_as(
         "SELECT title, wanted_movie_id, wanted_series_id, season, episode, wanted_album_id,
-                save_path, files, attempts
+                save_path, files, attempts, episodes
          FROM downloads WHERE id = ? AND state = 'completed'",
     )
     .bind(id)

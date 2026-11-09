@@ -826,7 +826,12 @@ async fn listed_posters_are_fetched_only_when_allowed_and_only_at_w342() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    crate::discover_posters::listed(&f.pool, "/elsewhere.jpg", now)
+    // A discovery answer listed it for the viewer.
+    let viewer: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'viewer'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    crate::discover_posters::listed_for(&f.pool, "/elsewhere.jpg", false, 1, viewer, now)
         .await
         .unwrap();
     assert_eq!(
@@ -847,6 +852,40 @@ async fn listed_posters_are_fetched_only_when_allowed_and_only_at_w342() {
     // The stand-in image server doesn't know it, but it's asked.
     get(&f, "/api/v1/artwork/w342/elsewhere.jpg").await;
     assert_eq!(f.upstream.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_listed_poster_is_served_only_to_whom_it_was_listed_for() {
+    let f = fixture().await;
+    exec(
+        &f.pool,
+        "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_DISCOVERY_POSTERS', 'on', 0)",
+    )
+    .await;
+    let cache = f._artwork.path().join("w342");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("elsewhere.jpg"), b"poster").unwrap();
+    // Someone else, who may see everything, was shown it.
+    let other = crate::auth::testing::user(&f.pool, "other", false).await;
+    let (_, token) = auth::issue_token(&f.pool, other.id, TokenKind::Session, "t")
+        .await
+        .unwrap();
+    let now = crate::db::unix_now();
+    crate::discover_posters::listed_for(&f.pool, "/elsewhere.jpg", false, 1, other.id, now)
+        .await
+        .unwrap();
+    let theirs = get_raw(&f, "/api/v1/artwork/w342/elsewhere.jpg", Some(&token)).await;
+    assert_eq!(theirs.status(), StatusCode::OK);
+    // The viewer, also seeing everything, can't tell from the route that anyone was.
+    assert_eq!(
+        get(&f, "/api/v1/artwork/w342/elsewhere.jpg").await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        f.upstream.load(Ordering::SeqCst),
+        0,
+        "served from the cache"
+    );
 }
 
 #[tokio::test]
@@ -880,12 +919,14 @@ async fn artwork_refuses_unknown_and_malformed_requests() {
 #[tokio::test]
 async fn a_requested_titles_poster_may_be_fetched() {
     let f = fixture().await;
+    // The viewer's own requests.
     sqlx::raw_sql(
-            "INSERT INTO users (id, username, password_hash, is_admin, created_at) VALUES (90, 'alice', 'x', 0, 0);
-             INSERT INTO requests (user_id, kind, tmdb_id, title, poster, state, created_at)
-                 VALUES (90, 'movie', 7, 'Wanted Movie', '/requested.jpg', 'requested', 0);
+            "INSERT INTO requests (user_id, kind, tmdb_id, title, poster, state, created_at)
+                 SELECT id, 'movie', 7, 'Wanted Movie', '/requested.jpg', 'requested', 0
+                 FROM users WHERE username = 'viewer';
              INSERT INTO requests (user_id, kind, mb_release_group_id, title, poster, state, created_at)
-                 VALUES (90, 'album', 'rg', 'An Album', '/album.jpg', 'requested', 0);",
+                 SELECT id, 'album', 'rg', 'An Album', '/album.jpg', 'requested', 0
+                 FROM users WHERE username = 'viewer';",
         )
         .execute(&f.pool)
         .await
@@ -896,6 +937,33 @@ async fn a_requested_titles_poster_may_be_fetched() {
     // A music request's picture isn't TMDB's: never fetched from there.
     get(&f, "/api/v1/artwork/w342/album.jpg").await;
     assert_eq!(f.upstream.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn someone_elses_requests_poster_isnt_served() {
+    let f = fixture().await;
+    let alice = crate::auth::testing::user(&f.pool, "alice", false).await;
+    sqlx::query(
+        "INSERT INTO requests (user_id, kind, tmdb_id, title, poster, state, created_at)
+         VALUES (?, 'movie', 7, 'Wanted Movie', '/requested.jpg', 'requested', 0)",
+    )
+    .bind(alice.id)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let cache = f._artwork.path().join("w342");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("requested.jpg"), b"poster").unwrap();
+    // The viewer, who may see everything but asked for nothing, can't tell alice did.
+    assert_eq!(
+        get(&f, "/api/v1/artwork/w342/requested.jpg").await.0,
+        StatusCode::NOT_FOUND
+    );
+    let (_, theirs) = auth::issue_token(&f.pool, alice.id, TokenKind::Session, "t")
+        .await
+        .unwrap();
+    let response = get_raw(&f, "/api/v1/artwork/w342/requested.jpg", Some(&theirs)).await;
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

@@ -68,6 +68,7 @@ mod musicbrainz;
 mod offline;
 mod oidc;
 mod opensubtitles;
+mod picture_listings;
 mod playlist_import;
 mod plays;
 mod probe;
@@ -382,6 +383,10 @@ fn spawn_background_jobs(
     ));
     tokio::spawn(background::work_out_works(pool.clone()));
     tokio::spawn(background::match_on_request(pool.clone(), tmdb.clone()));
+    tokio::spawn(background::refresh_series_between_scans(
+        pool.clone(),
+        tmdb.clone(),
+    ));
     tokio::spawn(backup::daily(pool.clone(), config.data_dir.clone()));
     tokio::spawn(background::read_lyrics(pool.clone()));
     tokio::spawn(background::find_segments(
@@ -401,6 +406,10 @@ fn spawn_background_jobs(
         config.data_dir.join("subtitles"),
         config.data_dir.join("artwork"),
         trickplay::folder(&config.data_dir),
+    ));
+    tokio::spawn(background::forget_pictures_when_over(
+        pool.clone(),
+        config.data_dir.join("artwork"),
     ));
     tokio::spawn(background::fetch_import_subtitles(
         pool.clone(),

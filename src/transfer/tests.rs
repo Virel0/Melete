@@ -1044,3 +1044,5 @@ async fn a_series_download_naming_no_season_fails_closed() {
     assert!(message.unwrap().contains("names no season"));
     assert!(!r.local.path().join("shows/Show").exists());
 }
+
+mod packs;

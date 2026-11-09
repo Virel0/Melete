@@ -7,5 +7,5 @@
 - An upgrade numbered from the first episode replaces only its own episode's file, which goes to
   the trash once the upgrade is in, as other upgrades' files do.
 - Search all missing and cutoff runs say why a result was passed over for what's on disk or on
-  its way ("Title, season 2: not grabbed: it's a season pack and part of the season is on disk
-  already; a pack never replaces files").
+  its way ("Title, season 2 episode 6: not grabbed: it's on disk already, and this release
+  wouldn't replace exactly the files there").
