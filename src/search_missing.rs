@@ -273,6 +273,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_release_passed_over_for_whats_on_disk_says_why() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        crate::episode_order::testing::some_anime_in_seasons(&pool).await;
+        sqlx::raw_sql(
+            "UPDATE tmdb_episodes SET air_date = '2020-01-01' WHERE series_tmdb_id = 100;
+             INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                     match_tmdb_id)
+                 VALUES (3, 1, 'Some Anime', 'Some Anime', 1, 100);
+             INSERT INTO media_files (library_id, rel_path, size, modified_at, series_id, season,
+                     episode, first_seen_generation, seen_generation)
+                 VALUES (1, 'Some Anime/Some.Anime.S02E06.1080p.WEB-DL.mkv', 1, 0, 3, 2, 6, 1, 1);
+             INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+                     quality_profile, source, added_at, series_id, original_language)
+                 VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 3,
+                     'en');
+             INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 2, 1);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Season 2 is missing all but its sixth episode; the pack would be a second copy of it.
+        let feed = indexer(&pool, "[5000]").await;
+        feed.lock().unwrap().0 = releases(&[("Some.Anime.S02.1080p.BluRay.x264-GRP", "")]);
+        let (url, fake) = deluge::testing::start().await;
+        let pipeline = Arc::new(Pipeline {
+            deluge: deluge::Client::new(&url, Secret::for_tests("pw")).unwrap(),
+            fetcher: Fetcher::new().unwrap(),
+            seedbox: None,
+        });
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.searched, run.grabbed),
+            ("done", 1, 0),
+            "{run:?}"
+        );
+        assert_eq!(
+            run.notes,
+            [
+                "Some Anime, season 2: not grabbed: it's a season pack and part of the season is \
+                 on disk already; a pack never replaces files"
+            ]
+        );
+        assert!(fake.lock().unwrap().torrents.is_empty());
+    }
+
+    #[tokio::test]
     async fn searches_monitored_albums_not_on_disk_or_on_their_way() {
         let pool = db::open_in_memory().await;
         let who = admin(&pool).await;
