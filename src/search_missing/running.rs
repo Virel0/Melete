@@ -160,8 +160,9 @@ pub(super) async fn run(
         counts.searched += 1;
         let (grabbed, said) = grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
         let got = grabbed.iter().any(|g| g.download_id.is_some());
-        // A torrent already on its way for it is as good as grabbed: no episodes instead.
-        if !got && !said.already && grabbing && goal == Goal::Missing {
+        // Whatever the refusal, what's missing and not on its way decides: nothing, when a
+        // torrent already on its way for the season holds it.
+        if !got && grabbing && goal == Goal::Missing {
             total += episodes_next(pool, id, &item, &mut items, &mut counts).await?;
         }
         if got {
@@ -400,7 +401,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_torrent_already_on_its_way_for_the_season_is_as_good_as_grabbed() {
+    async fn a_torrent_on_its_way_for_another_season_doesnt_stop_the_episodes() {
         let pool = setup().await;
         let who = admin(&pool).await;
         let pipeline = some_anime(&pool, 0, &[]).await;
@@ -410,7 +411,8 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        // Season 1's pack is season 2's too, under another name: one torrent.
+        // Season 1's pack is season 2's too, under another name: one torrent, which comes
+        // home as season 1's and can't bring season 2.
         let item = |title: &str, hash: &str, n: usize| {
             format!(
                 r#"<item><title>{title}</title><guid>https://tracker.example/{n}</guid>
@@ -437,15 +439,25 @@ mod tests {
         let run = finished(&pool, run.id).await;
         assert_eq!(
             (run.state.as_str(), run.total, run.searched, run.grabbed),
-            ("done", 2, 2, 1),
+            ("done", 25, 25, 2),
             "{run:?}"
         );
         assert_eq!(
             run.notes,
-            ["Some Anime, season 2: not grabbed: it's already download 1"]
+            [
+                "Some Anime, season 2: no pack was grabbed; searching for episodes 1\u{2013}23 on \
+                 their own",
+                "Some Anime, season 2: not grabbed: it's already download 1"
+            ]
         );
         let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
-        assert_eq!(titles, ["Some.Anime.S01.1080p.BluRay.x264-GRP"]);
+        assert_eq!(
+            titles,
+            [
+                "Some.Anime.S01.1080p.BluRay.x264-GRP",
+                "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv"
+            ]
+        );
     }
 
     #[tokio::test]
@@ -486,26 +498,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pack_of_several_seasons_on_its_way_leaves_no_episode_to_search_for() {
+    async fn a_pack_set_aside_for_stalling_leaves_no_episode_to_search_for() {
         let pool = setup().await;
         some_anime(&pool, 0, &[]).await;
-        assert_eq!(
-            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
-            (1..=23).collect::<Vec<i64>>()
+        let all: Vec<i64> = (1..=23).collect();
+        // Season 2's pack, stalled and set aside while another release is looked for: it may
+        // yet go on.
+        let stalled = format!(
+            "no progress for {} hours; searching for another release",
+            crate::downloads::STALLED_AFTER / 3600
         );
-        // Grabbed for season 1, it holds season 2 as well.
         sqlx::query(
             "INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
-                 added_at, updated_at)
-             VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Some.Anime.S01-S02.1080p',
-                 1, 1, '{}', 'downloading', 0, 0)",
+                 added_at, updated_at, message)
+             VALUES ('a11bae70b2fdd9eb95b63e746f8594dce2650b0c', 'Some.Anime.S02.1080p',
+                 1, 2, '{}', 'failed', 0, 0, ?)",
         )
+        .bind(&stalled)
         .execute(&pool)
         .await
         .unwrap();
         assert_eq!(
             crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
             Vec::<i64>::new()
+        );
+        // Given up on, it's missing again.
+        sqlx::query("UPDATE downloads SET message = 'no progress, so another was grabbed'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::rss::missing_episodes(&pool, 1, 2).await.unwrap(),
+            all
         );
     }
 

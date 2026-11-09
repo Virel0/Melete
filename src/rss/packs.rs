@@ -255,7 +255,8 @@ fn covering(files: &[OnDiskFile], e: i64) -> Vec<&OnDiskFile> {
 /// The episodes of a wanted series' season that are missing as a pack would find them: aired
 /// by TMDB's list (those left out on their own aside), with no file on disk in any folder
 /// known by the title's ids, and nothing on its way for them. None of them while a download
-/// for the whole season is.
+/// for the whole season is, or while one of the season's is set aside for stalling, as it may
+/// yet go on.
 pub(crate) async fn missing_episodes(
     pool: &SqlitePool,
     wanted_series_id: i64,
@@ -272,6 +273,9 @@ pub(crate) async fn missing_episodes(
     let Some(on_the_way) = on_the_way(pool, wanted_series_id, season, &wanted).await? else {
         return Ok(Vec::new());
     };
+    if crate::downloads::set_aside_in(pool, wanted_series_id, season).await? {
+        return Ok(Vec::new());
+    }
     let files = files_in(pool, &wanted, season).await?;
     Ok(aired(pool, wanted_series_id, season, &wanted)
         .await?
@@ -280,13 +284,14 @@ pub(crate) async fn missing_episodes(
         .collect())
 }
 
-/// A download's name, season, episode and the episodes it was taken for.
-type Coming = (String, Option<i64>, Option<i64>, Option<String>);
+/// A download's name, episode and the episodes it was taken for.
+type Coming = (String, Option<i64>, Option<String>);
 
 /// The episodes of the season a download is on its way for, or not yet settled in the library;
-/// None when one is for the whole season. A download names the season and first episode it was
-/// searched for, so its own name says the rest: every episode of a multi-episode release, and a
-/// pack recorded under another season that holds this one too.
+/// None when one is for the whole season. A download names the first episode it was searched
+/// for, so its own name says the rest of a multi-episode release. Only a download recorded for
+/// this season counts: one recorded for another is brought home as that season's, so this one
+/// never waits on it.
 async fn on_the_way(
     pool: &SqlitePool,
     wanted_series_id: i64,
@@ -294,49 +299,31 @@ async fn on_the_way(
     wanted: &Wanted,
 ) -> anyhow::Result<Option<Vec<i64>>> {
     let rows: Vec<Coming> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT title, season, episode, episodes FROM downloads
-             WHERE wanted_series_id = ? AND state <> 'failed' AND {UNSETTLED}"
+        "SELECT title, episode, episodes FROM downloads
+         WHERE wanted_series_id = ? AND season = ? AND state <> 'failed' AND {UNSETTLED}"
     )))
     .bind(wanted_series_id)
+    .bind(season)
     .fetch_all(pool)
     .await?;
     let mut episodes = Vec::new();
-    for (title, of, episode, part) in rows {
-        let named = release::parse(&title).episodes;
-        let named = search::numbered_in_order(pool, wanted, &named).await?;
-        match (of == Some(season), episode, part, named) {
+    for (title, episode, part) in rows {
+        match (episode, part) {
             // Taken for some episodes of this season only.
-            (true, None, Some(part), _) => {
-                episodes.extend(serde_json::from_str::<Vec<i64>>(&part)?);
-            }
-            (true, Some(e), _, named) => {
+            (None, Some(part)) => episodes.extend(serde_json::from_str::<Vec<i64>>(&part)?),
+            (Some(e), _) => {
                 episodes.push(e);
+                let named = release::parse(&title).episodes;
                 if let Ok(Episodes::Standard {
                     season: s,
                     episodes: all,
-                }) = named
+                }) = search::numbered_in_order(pool, wanted, &named).await?
                     && s == season
                 {
                     episodes.extend(all);
                 }
             }
-            // The season's pack, or one naming no season.
-            (true, None, None, _) | (_, _, _, Ok(Episodes::CompleteSeries)) => return Ok(None),
-            (false, _, None, Ok(Episodes::Seasons(seasons))) if seasons.contains(&season) => {
-                return Ok(None);
-            }
-            (
-                false,
-                _,
-                _,
-                Ok(Episodes::Standard {
-                    season: s,
-                    episodes: all,
-                }),
-            ) if s == season => {
-                episodes.extend(all);
-            }
-            _ => {}
+            (None, None) => return Ok(None),
         }
     }
     Ok(Some(episodes))

@@ -168,6 +168,17 @@ pub(super) async fn retire_one(
     let Some(now) = now else {
         return Ok(Err("it's no longer in the library".into()));
     };
+    // Its successor is found by the episodes it held when grabbed: renumbered since (its
+    // series' order changed), that would be another episode's file.
+    let held = |season, episode: Option<i64>, end: Option<i64>| (season, episode, end.or(episode));
+    if old.season.is_some()
+        && held(now.season, now.episode, now.episode_end)
+            != held(old.season, old.episode, old.episode_end)
+    {
+        return Ok(Err(
+            "its episode number changed since the upgrade was grabbed".into(),
+        ));
+    }
     let Some(successor) = successor(old, new_files) else {
         return Ok(Err("no new file for exactly what it holds".into()));
     };

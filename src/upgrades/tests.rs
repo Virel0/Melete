@@ -1028,3 +1028,37 @@ async fn a_file_changed_since_its_scan_isnt_replaced_by_a_copy() {
     assert!(refused.unwrap_err().contains("scanned"));
     assert!(lib.root.join("Dune (2024)/Dune.mkv").is_file());
 }
+
+#[tokio::test]
+async fn a_file_numbered_as_another_episode_since_the_grab_is_kept() {
+    let lib = library().await;
+    // The upgrade was grabbed for episode 4; since, the series' order made the old file
+    // episode 3, and the new file is the new episode 4.
+    let old_path = "Show/Show - 16.mkv";
+    file(&lib, old_path, Some((2, 4, None)), Some(24.0)).await;
+    let replaces = replaced_by(&lib.pool, None, Some(1), Some(2), "Show.S02E04.2160p.WEB")
+        .await
+        .unwrap();
+    assert_eq!(replaces.len(), 1);
+    sqlx::query("UPDATE media_files SET episode = 3 WHERE rel_path = ?")
+        .bind(old_path)
+        .execute(&lib.pool)
+        .await
+        .unwrap();
+    let new_path = "Show/Show - 17.2160p.mkv";
+    let download = imported(&lib, &replaces, &[new_path], 0).await;
+    file(&lib, new_path, Some((2, 4, None)), Some(24.0)).await;
+    assert_eq!(
+        retire(&lib.pool).await.unwrap(),
+        RetireReport {
+            kept: 1,
+            ..Default::default()
+        }
+    );
+    assert!(lib.root.join(old_path).is_file());
+    assert_eq!(
+        message(&lib, download).await.1.as_deref(),
+        Some("kept Show/Show - 16.mkv: its episode number changed since the upgrade was grabbed")
+    );
+    assert!(files_below(&lib.root.join(TRASH)).is_empty());
+}

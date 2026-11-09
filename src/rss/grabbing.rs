@@ -26,9 +26,6 @@ pub(crate) struct Said {
     pub(crate) passed_over: Vec<String>,
     /// What was taken from a season pack taken in part ("took episodes 6, 7 from a pack...").
     pub(crate) took: Option<String>,
-    /// The best release was a torrent already on its way or not yet settled in the library (a
-    /// pack of several seasons grabbed for another, say); one that failed doesn't count.
-    pub(crate) already: bool,
 }
 
 /// Grabs the best accepted release of any search for `target`, as a sync would (requests do,
@@ -135,12 +132,7 @@ pub(super) async fn grab_best(
                 | Refused::NoLink
                 | Refused::Blocklisted),
             ) => (None, Some(refused.to_string()), true),
-            Err(refused) => {
-                if let Refused::Already(existing) = refused {
-                    said.already = still_coming(pool, existing).await?;
-                }
-                (None, Some(refused.to_string()), false)
-            }
+            Err(refused) => (None, Some(refused.to_string()), false),
         };
         grabbed.push(Grabbed {
             release_id,
@@ -154,16 +146,6 @@ pub(super) async fn grab_best(
         }
     }
     Ok(said)
-}
-
-/// Whether a download is still on its way or not yet settled in the library.
-async fn still_coming(pool: &SqlitePool, download_id: i64) -> sqlx::Result<bool> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT EXISTS (SELECT 1 FROM downloads WHERE id = ? AND state <> 'failed' AND {UNSETTLED})"
-    )))
-    .bind(download_id)
-    .fetch_one(pool)
-    .await
 }
 
 /// A release listed in music categories only.
