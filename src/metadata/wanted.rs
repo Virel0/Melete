@@ -138,7 +138,7 @@ async fn fetch_wanted_series(
 
 /// Fetches again the monitored wanted series still airing whose cached entry is over a day old,
 /// and the wanted series with a new episode TMDB hasn't filled in yet.
-async fn refresh_airing_series(
+pub(super) async fn refresh_airing_series(
     pool: &SqlitePool,
     tmdb: &tmdb::Client,
     now: i64,

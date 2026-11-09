@@ -381,6 +381,10 @@ fn spawn_background_jobs(
     ));
     tokio::spawn(background::work_out_works(pool.clone()));
     tokio::spawn(background::match_on_request(pool.clone(), tmdb.clone()));
+    tokio::spawn(background::refresh_series_between_scans(
+        pool.clone(),
+        tmdb.clone(),
+    ));
     tokio::spawn(backup::daily(pool.clone(), config.data_dir.clone()));
     tokio::spawn(background::read_lyrics(pool.clone()));
     tokio::spawn(background::find_segments(
