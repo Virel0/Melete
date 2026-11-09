@@ -1,18 +1,27 @@
-//! Artists' portraits for the artist results of a search for a request, from Wikimedia
-//! Commons: on only with `MELETE_ARTIST_PORTRAITS` (and MusicBrainz). An artist's MusicBrainz
-//! url relations give its Wikidata item (asked of MusicBrainz through its client, one request a
-//! second), the item's image (P18) is the portrait, and Commons gives it at one width with its
-//! author and licence, which are kept with it and given with it. A search looks up at most
-//! [`LOOKUPS`] artists it doesn't know yet; what it found, or that there's none, is kept, so the
-//! next search for them asks nothing (a none is believed for [`NONE_FOR`]). The picture itself is
-//! fetched once by the portrait route, when first asked for, and cached.
+//! Artists' portraits for the artist results of a search for a request and for the library's
+//! artists, from Wikimedia Commons: on only with `MELETE_ARTIST_PORTRAITS` (and MusicBrainz).
+//! An artist's MusicBrainz url relations give its Wikidata item (asked of MusicBrainz through
+//! its client, one request a second), the item's image (P18) is the portrait, and Commons gives
+//! it at one width with its author and licence, which are kept with it and given with it. A
+//! search looks up at most [`LOOKUPS`] artists it doesn't know yet; what it found, or that
+//! there's none, is kept, so the next search for them asks nothing (a none is believed for
+//! [`NONE_FOR`]). The picture itself is fetched once by the portrait route, when first asked
+//! for, and cached.
 //!
 //! Kept to discovery posters' terms ([`crate::discover_posters`]): only artists a search listed
-//! are served, for 30 days after they were last listed, at most [`MOST`] remembered;
-//! housekeeping forgets the rest and deletes their files, and every one when the setting is off.
-//! When Commons fails to give a picture, it's neither offered nor asked for again for
-//! [`FAIL_FOR`]. An artist only in libraries hidden from a user is, to them, like any other
-//! artist, and gets a portrait the same way, so nothing tells them it's there.
+//! are served by MusicBrainz id, for 30 days after they were last listed, at most [`MOST`]
+//! remembered; housekeeping forgets the rest and deletes their files, and every one when the
+//! setting is off. When Commons fails to give a picture, it's neither offered nor asked for
+//! again for [`FAIL_FOR`]. An artist only in libraries hidden from a user is, to them, like any
+//! other artist, and gets a portrait the same way, so nothing tells them it's there.
+//!
+//! Artists in the library are looked up too, in the background, a few a run ([`library`]), the
+//! same way and with the same three things leaving the server: the artist's MusicBrainz id (to
+//! MusicBrainz), its Wikidata item's id (to www.wikidata.org) and the image's file name (to
+//! Commons). Their portraits are served by their library id to those who may see them, and
+//! aren't forgotten while they're in the library, however long ago a search listed them. An
+//! artist whose albums share a folder holding a picture of them has that one instead, and
+//! Commons isn't asked about them.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +29,10 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 use crate::{musicbrainz, wikimedia};
+
+pub mod library;
+
+pub use library::*;
 
 /// How long a listed portrait is served.
 pub const SERVED_FOR: i64 = 30 * 24 * 3600;
@@ -103,14 +116,15 @@ async fn look_up(services: &Services<'_>, artist: &str) -> anyhow::Result<Found>
         .map(|picture| (file, picture)))
 }
 
-/// Keeps what a lookup found, or that there's none.
+/// Keeps what a lookup found, or that there's none. An artist new here isn't listed yet
+/// (`listed_at` 0): [`offer`] notes a search listing them, and a lookup for the library doesn't.
 async fn keep(pool: &SqlitePool, artist: &str, found: &Found, now: i64) -> sqlx::Result<()> {
     let file = found.as_ref().map(|(file, _)| file.clone());
     let picture = found.as_ref().map(|(_, p)| p);
     sqlx::query(
         "INSERT INTO artist_portraits (mb_artist_id, listed_at, looked_up_at, file, picture_url,
              author, licence, licence_url, source_url)
-         VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         VALUES (?1, 0, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT (mb_artist_id) DO UPDATE SET looked_up_at = excluded.looked_up_at,
              file = excluded.file, picture_url = excluded.picture_url, failed_at = NULL,
              author = excluded.author, licence = excluded.licence,
@@ -209,6 +223,26 @@ pub async fn offer(
 /// `artist`'s portrait: the setting on, listed in the last 30 days, with a portrait, and not
 /// failed in the last day.
 pub async fn servable(pool: &SqlitePool, artist: &str, now: i64) -> anyhow::Result<Option<String>> {
+    picture_url(pool, artist, now - SERVED_FOR, now).await
+}
+
+/// [`servable`] for an artist in the library, whom no search need have listed.
+pub async fn servable_in_library(
+    pool: &SqlitePool,
+    artist: &str,
+    now: i64,
+) -> anyhow::Result<Option<String>> {
+    picture_url(pool, artist, i64::MIN, now).await
+}
+
+/// The picture's address, with the setting on, for `artist` listed since `listed_since`, with a
+/// portrait, and not failed in the last day.
+async fn picture_url(
+    pool: &SqlitePool,
+    artist: &str,
+    listed_since: i64,
+    now: i64,
+) -> anyhow::Result<Option<String>> {
     if !crate::library::tags::is_mbid(artist) || !crate::settings::artist_portraits(pool).await? {
         return Ok(None);
     }
@@ -217,7 +251,7 @@ pub async fn servable(pool: &SqlitePool, artist: &str, now: i64) -> anyhow::Resu
              AND file IS NOT NULL AND coalesce(failed_at, 0) < ?",
     )
     .bind(artist)
-    .bind(now - SERVED_FOR)
+    .bind(listed_since)
     .bind(now - FAIL_FOR)
     .fetch_optional(pool)
     .await?
@@ -246,16 +280,21 @@ async fn forget_files(covers: &Path, artist: &str) -> std::io::Result<()> {
 }
 
 /// Forgets artists past their time, beyond [`MOST`], or all of them when the setting is off,
-/// and deletes their cached files (under `covers`, the music covers' folder). How many were
+/// and deletes their cached files (under `covers`, the music covers' folder). Artists in the
+/// library are kept while the setting is on, and don't count towards [`MOST`]. How many were
 /// forgotten.
 pub async fn prune(pool: &SqlitePool, covers: &Path, now: i64) -> anyhow::Result<usize> {
     let on = crate::settings::artist_portraits(pool).await?;
-    let gone: Vec<String> = sqlx::query_scalar(
-        "SELECT mb_artist_id FROM artist_portraits
-         WHERE NOT ?1 OR listed_at < ?2 OR mb_artist_id NOT IN (
-             SELECT mb_artist_id FROM artist_portraits
-             ORDER BY listed_at DESC, mb_artist_id LIMIT ?3)",
-    )
+    let gone: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "WITH searched AS (SELECT mb_artist_id, listed_at FROM artist_portraits
+             WHERE mb_artist_id NOT IN (SELECT mb_artist_id FROM ({})))
+         SELECT mb_artist_id FROM artist_portraits
+         WHERE NOT ?1 OR mb_artist_id IN (SELECT mb_artist_id FROM searched
+             WHERE listed_at < ?2 OR mb_artist_id NOT IN (
+                 SELECT mb_artist_id FROM searched
+                 ORDER BY listed_at DESC, mb_artist_id LIMIT ?3))",
+        library::in_library()
+    )))
     .bind(on)
     .bind(now - SERVED_FOR)
     .bind(MOST)

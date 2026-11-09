@@ -7,7 +7,8 @@
 //! and only with MusicBrainz matching on). A motion cover is a looping video in its folder.
 //! Covers of music not in the library are served by release group, and artists' portraits by
 //! the artist's MusicBrainz id, only those a search for a request offered
-//! ([`crate::search_covers`], [`crate::artist_portraits`]).
+//! ([`crate::search_covers`], [`crate::artist_portraits`]). The library's artists' portraits
+//! are served by their id, to those who may see them.
 
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
@@ -99,6 +100,7 @@ pub fn routes_with(
     Router::new()
         .route("/api/v1/music/artists", get(list_artists))
         .route("/api/v1/music/artists/{id}", get(artist))
+        .route("/api/v1/music/artists/{id}/portrait", get(library_portrait))
         .route("/api/v1/music/albums", get(list_albums))
         .route("/api/v1/music/albums/{id}", get(album))
         .route("/api/v1/music/albums/{id}/cover", get(cover))

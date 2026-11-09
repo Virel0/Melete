@@ -1049,5 +1049,6 @@ async fn albums_carry_their_release_groups_types_from_the_match() {
     assert_eq!(album["secondary_types"], json!(["Live"]));
 }
 
+mod library_portraits;
 mod portraits;
 mod search_covers;

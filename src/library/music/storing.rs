@@ -249,15 +249,16 @@ async fn upsert_album(
     let album_id: i64 = sqlx::query_scalar(
         "INSERT INTO music_albums (library_id, key, title, artist_id, artist_name, year, folder,
                  compilation, mb_release_id, mb_release_group_id, seen_generation, cover_file,
-                 motion_file)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 motion_file, artist_file)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (library_id, key) DO UPDATE SET
                  title = excluded.title, artist_id = excluded.artist_id,
                  artist_name = excluded.artist_name, year = excluded.year, folder = excluded.folder,
                  compilation = excluded.compilation, mb_release_id = excluded.mb_release_id,
                  mb_release_group_id = excluded.mb_release_group_id,
                  seen_generation = excluded.seen_generation, missing_since = NULL,
-                 cover_file = excluded.cover_file, motion_file = excluded.motion_file
+                 cover_file = excluded.cover_file, motion_file = excluded.motion_file,
+                 artist_file = excluded.artist_file
              RETURNING id",
     )
     .bind(library.id)
@@ -273,6 +274,7 @@ async fn upsert_album(
     .bind(generation)
     .bind(artwork.get(&album.folder).and_then(|a| a.cover.as_deref()))
     .bind(artwork.get(&album.folder).and_then(|a| a.motion.as_deref()))
+    .bind(artwork.get(&album.folder).and_then(|a| a.artist.as_deref()))
     .fetch_one(&mut *tx)
     .await?;
     for track in members {
