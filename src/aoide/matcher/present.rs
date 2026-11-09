@@ -21,13 +21,26 @@ struct TrackRow {
 ///
 /// Fails when the database does.
 pub async fn present_tracks(pool: &SqlitePool) -> sqlx::Result<Vec<LibraryTrack>> {
-    let rows: Vec<TrackRow> = sqlx::query_as(
+    present_tracks_seen(pool, &crate::access::Access::everything()).await
+}
+
+/// [`present_tracks`], only those in libraries `access` may see.
+///
+/// # Errors
+///
+/// Fails when the database does.
+pub async fn present_tracks_seen(
+    pool: &SqlitePool,
+    access: &crate::access::Access,
+) -> sqlx::Result<Vec<LibraryTrack>> {
+    let rows: Vec<TrackRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT t.id, t.title, t.artist, a.artist_name AS album_artist, a.title AS album,
              t.duration_seconds, t.isrc
          FROM music_tracks t JOIN music_albums a ON a.id = t.album_id
-         WHERE t.missing_since IS NULL AND a.missing_since IS NULL
+         WHERE t.missing_since IS NULL AND a.missing_since IS NULL AND {}
          ORDER BY t.id",
-    )
+        access.album_sql("a")
+    )))
     .fetch_all(pool)
     .await?;
     Ok(rows

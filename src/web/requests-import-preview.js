@@ -88,7 +88,7 @@ export function readPlaylist(text) {
     tracks.push({
       title: name,
       // Exportify joins several artists with commas.
-      artists: (cell(artist) ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+      artists: (cell(artist) ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean),
       album: cell(album),
       durationMs: cell(length) === null ? null : lengthMs(cell(length)),
       isrc: cell(isrc)?.toUpperCase() ?? null,

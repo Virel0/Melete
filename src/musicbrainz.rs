@@ -45,6 +45,9 @@ pub enum Error {
     NotFound,
     /// The request or its answer failed, and why.
     Failed(String),
+    /// MusicBrainz turned the request down as it was asked (a 4xx other than 404): asking the
+    /// same again won't help.
+    Refused(String),
 }
 
 impl std::fmt::Display for Error {
@@ -52,6 +55,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::NotFound => f.write_str("MusicBrainz has no such release"),
             Error::Failed(reason) => write!(f, "MusicBrainz: {reason}"),
+            Error::Refused(reason) => write!(f, "MusicBrainz turned the request down: {reason}"),
         }
     }
 }
@@ -231,7 +235,8 @@ impl Client {
             return Ok(Vec::new());
         }
         let url = format!(
-            "{}/isrc/{code}?inc=artist-credits+releases+release-groups&fmt=json",
+            // Only what matching reads: the isrc resource refuses release-groups.
+            "{}/isrc/{code}?inc=artist-credits&fmt=json",
             self.base
         );
         match self.get(&url).await {
@@ -307,6 +312,9 @@ impl Client {
                 let location = response.headers().get(reqwest::header::LOCATION);
                 let location = location.and_then(|l| l.to_str().ok()).map(str::to_owned);
                 return Ok(Fetched::Moved(status, location));
+            }
+            if status.is_client_error() {
+                return Err(Error::Refused(format!("answered {status}")));
             }
             if !status.is_success() {
                 return Err(Error::Failed(format!("answered {status}")));
@@ -576,8 +584,18 @@ pub mod testing {
             .route(
                 "/isrc/{code}",
                 axum::routing::get(
-                    |State((log, _)): State<Fake>, Path(code): Path<String>| async move {
+                    |State((log, _)): State<Fake>, Path(code): Path<String>, RawQuery(query): RawQuery| async move {
                         log.lock().unwrap().push(format!("isrc {code}"));
+                        // As MusicBrainz does: an include the isrc resource hasn't is refused.
+                        let query = query.unwrap_or_default();
+                        let incs = query
+                            .split('&')
+                            .find_map(|p| p.strip_prefix("inc="))
+                            .unwrap_or_default();
+                        let known = ["artists", "artist-credits", "releases", "isrcs", "aliases", "tags", "genres", "ratings", "annotation"];
+                        if let Some(bad) = incs.split(['+', ' ']).filter(|i| !i.is_empty()).find(|i| !known.contains(i)) {
+                            return (StatusCode::BAD_REQUEST, serde_json::json!({"error": format!("{bad} is not a valid inc parameter for the isrc resource.")}).to_string());
+                        }
                         if code != super::testing::PARANOID_ISRC {
                             return (StatusCode::NOT_FOUND, r#"{"error":"Not Found"}"#.to_owned());
                         }
@@ -602,9 +620,13 @@ pub mod testing {
                             .map(|(_, v)| v.to_lowercase())
                             .unwrap_or_default();
                         if asked.contains("mountain dew") {
-                            return super::testing::mountain_dew(&asked).to_string();
+                            return (StatusCode::OK, super::testing::mountain_dew(&asked).to_string());
                         }
-                        serde_json::json!({"recordings": [{
+                        // A query MusicBrainz can't read, as it answers one.
+                        if asked.contains("unreadable") {
+                            return (StatusCode::BAD_REQUEST, r#"{"error":"Invalid query"}"#.to_owned());
+                        }
+                        (StatusCode::OK, serde_json::json!({"recordings": [{
                             "id": super::testing::PARANOID_ANDROID, "title": "Paranoid Android", "length": 383000,
                             "score": 100,
                             "artist-credit": [{"name": "Radiohead", "joinphrase": "",
@@ -613,7 +635,7 @@ pub mod testing {
                                 "release-group": {"id": super::testing::OK_COMPUTER, "title": "OK Computer",
                                     "primary-type": "Album"}}],
                         }]})
-                        .to_string()
+                        .to_string())
                     },
                 ),
             )

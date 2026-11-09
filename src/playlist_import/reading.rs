@@ -100,10 +100,10 @@ pub fn parse(text: &str) -> Result<Vec<Track>, String> {
         }
         tracks.push(Track {
             title: name,
-            // Exportify joins several artists with commas.
+            // Exportify joins several artists with semicolons (with commas before).
             artists: cell(artist)
                 .map(|a| {
-                    a.split(',')
+                    a.split([',', ';'])
                         .map(|s| s.trim().to_owned())
                         .filter(|s| !s.is_empty())
                         .collect()
