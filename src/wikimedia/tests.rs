@@ -129,3 +129,103 @@ async fn refuses_failures_large_pictures_and_other_hosts_without_saying_where() 
         "nothing fetched from elsewhere"
     );
 }
+
+#[tokio::test]
+async fn keeps_to_one_request_a_turn() {
+    let (client, log) = testing::start().await;
+    let client = client.spaced(std::time::Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    for _ in 0..3 {
+        client.image_of(testing::BARE_ITEM).await.unwrap();
+    }
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(600),
+        "three turns, 300 ms apart: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(log.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn waits_out_a_short_pause_and_tries_again() {
+    let (client, log) = testing::start().await;
+    let started = std::time::Instant::now();
+    let file = client.image_of(testing::PAUSED_ITEM).await.unwrap();
+    assert_eq!(file.as_deref(), Some(testing::FILE));
+    assert!(
+        started.elapsed() >= std::time::Duration::from_secs(1),
+        "the second ask waited the second asked for: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(log.lock().unwrap().len(), 2);
+    assert!(!client.held(), "a short pause isn't a hold");
+}
+
+#[tokio::test]
+async fn a_long_pause_holds_every_request_back_without_sending_them() {
+    let (client, log) = testing::start().await;
+    let held = client.image_of(testing::HELD_ITEM).await.unwrap_err();
+    assert_eq!(held.downcast_ref::<Busy>(), Some(&Busy), "{held:#}");
+    assert!(client.held());
+    // Neither another item, Commons nor a picture is asked while the hour lasts.
+    let other = client.image_of(testing::ITEM).await.unwrap_err();
+    assert!(other.downcast_ref::<Busy>().is_some(), "{other:#}");
+    let picture = testing::picture_url(&client, "500px.jpg");
+    assert!(client.download(&picture).await.unwrap_err().is::<Busy>());
+    assert!(
+        client
+            .picture(testing::FILE)
+            .await
+            .unwrap_err()
+            .is::<Busy>()
+    );
+    assert_eq!(
+        *log.lock().unwrap(),
+        ["wikidata Q7"],
+        "asked once, then held"
+    );
+}
+
+#[tokio::test]
+async fn a_picture_asked_too_often_holds_the_rest_back() {
+    let (client, log) = testing::start().await;
+    let held = testing::picture_url(&client, testing::HELD_PICTURE);
+    assert!(client.download(&held).await.unwrap_err().is::<Busy>());
+    assert!(client.held());
+    assert!(
+        client
+            .image_of(testing::ITEM)
+            .await
+            .unwrap_err()
+            .is::<Busy>()
+    );
+    assert_eq!(*log.lock().unwrap(), ["picture held.jpg"]);
+}
+
+#[tokio::test]
+async fn too_many_waiting_their_turn_are_refused_rather_than_kept_waiting() {
+    let (client, log) = testing::start().await;
+    // At eight seconds a turn, only the turns within the longest wait (15 s) are taken.
+    let client = std::sync::Arc::new(client.spaced(std::time::Duration::from_secs(8)));
+    let asks: Vec<_> = (0..8)
+        .map(|_| {
+            let client = client.clone();
+            tokio::spawn(async move { client.image_of(testing::BARE_ITEM).await })
+        })
+        .collect();
+    let mut busy = 0;
+    for ask in asks {
+        match ask.await.unwrap() {
+            Ok(_) => {}
+            Err(err) if err.is::<Busy>() => busy += 1,
+            Err(err) => panic!("{err:#}"),
+        }
+    }
+    let sent = log.lock().unwrap().len();
+    assert_eq!(sent + busy, 8);
+    assert_eq!(
+        sent, 2,
+        "turns at 0 and 8 seconds; the next is past the wait"
+    );
+    assert!(!client.held(), "nobody asked for a pause");
+}

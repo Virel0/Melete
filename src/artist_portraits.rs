@@ -145,7 +145,8 @@ async fn keep(pool: &SqlitePool, artist: &str, found: &Found, now: i64) -> sqlx:
 }
 
 /// Whether what `artist` has is known: kept from before, or looked up now when it isn't known
-/// or is out of date and `lookups` has some left (an out-of-date one is used when none are).
+/// or is out of date, `lookups` has some left and Wikimedia hasn't asked for a pause (an
+/// out-of-date one is used when it can't be).
 /// A failed lookup is logged and kept nowhere, so a later search asks again.
 async fn known(
     pool: &SqlitePool,
@@ -167,7 +168,8 @@ async fn known(
         };
         k.looked_up_at >= now - kept_for
     });
-    if fresh || *lookups == 0 {
+    // While Wikimedia has asked for a pause, a lookup would only ask MusicBrainz for nothing.
+    if fresh || *lookups == 0 || services.wikimedia.held() {
         return Ok(known.is_some());
     }
     *lookups -= 1;

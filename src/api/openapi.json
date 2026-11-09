@@ -5521,6 +5521,10 @@
           "502": {
             "description": "Wikimedia failed, or its picture was over 10 MiB",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "Wikimedia asked for a pause, or is being asked too much at once: nothing was fetched and nothing is wrong with the picture, so ask again in a few minutes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
@@ -5911,6 +5915,10 @@
           },
           "502": {
             "description": "Wikimedia failed, or its picture was over 10 MiB",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "Wikimedia asked for a pause, or is being asked too much at once: nothing was fetched and nothing is wrong with the picture, so ask again in a few minutes",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }

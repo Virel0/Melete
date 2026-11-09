@@ -61,7 +61,7 @@ pub struct Looked {
 
 /// Looks up, with the setting on, at most [`LIBRARY_LOOKUPS`] artists in the library without a
 /// picture of their own whose portrait isn't known or is out of date, never looked up first,
-/// then the longest ago. What's found is kept as a search's lookups are, but not as listed.
+/// then the longest ago; none once Wikimedia asks for a pause, until it's over. What's found is kept as a search's lookups are, but not as listed.
 ///
 /// # Errors
 ///
@@ -86,7 +86,8 @@ pub async fn look_up_library(
     let mut lookups = LIBRARY_LOOKUPS;
     let mut looked = Looked::default();
     for artist in artists.iter().filter(|a| crate::library::tags::is_mbid(a)) {
-        if lookups == 0 {
+        // Out of lookups, or Wikimedia asked for a pause: the next run carries on.
+        if lookups == 0 || services.wikimedia.held() {
             break;
         }
         let before = lookups;

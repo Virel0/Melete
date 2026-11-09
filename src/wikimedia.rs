@@ -6,8 +6,16 @@
 //! Every request goes over https to those hosts only, redirects included, with Melete's usual
 //! User-Agent (no contact, though Wikimedia's policy asks for one: a contact would name the
 //! household), a timeout and a size cap.
+//!
+//! Requests keep to about one a second, all of them together, as Wikimedia asks of clients
+//! that make many: each takes the next free turn, and one whose turn is more than [`MAX_WAIT`]
+//! away isn't sent at all ([`Busy`]). A 429 or 503 holds every request back for as long as its
+//! `Retry-After` says (or [`BUSY_WAIT`] when it says nothing); a hold that short is waited out
+//! and the request tried once more, a longer one fails it and the requests after it until it's
+//! over.
 
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
@@ -22,6 +30,36 @@ const MAX_ANSWER: usize = 1024 * 1024;
 const MAX_PICTURE: usize = 10 * 1024 * 1024;
 /// The longest author or licence kept.
 const MAX_TEXT: usize = 200;
+/// The time between two requests' turns.
+const SPACING: Duration = Duration::from_secs(1);
+/// The longest a request waits for its turn, or for a hold to be over; past that it isn't sent.
+pub const MAX_WAIT: Duration = Duration::from_secs(15);
+/// How long a 429 or 503 that doesn't say holds requests back.
+const BUSY_WAIT: Duration = Duration::from_secs(60);
+/// The longest hold kept, however long Wikimedia asks for.
+const MOST_HELD: Duration = Duration::from_secs(24 * 3600);
+
+/// Wikimedia asked for a pause, or too many requests are waiting their turn, so nothing was
+/// sent: worth asking again later, not a sign anything is wrong with what was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Busy;
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Wikimedia asked for a pause, or is being asked too much at once")
+    }
+}
+
+impl std::error::Error for Busy {}
+
+/// When requests may go.
+#[derive(Debug)]
+struct Turns {
+    /// The next free turn.
+    next: Instant,
+    /// Until when Wikimedia asked for a pause.
+    held_until: Option<Instant>,
+}
 
 /// A Wikimedia client that follows redirects only to Wikimedia's hosts over https.
 pub struct Client {
@@ -30,6 +68,8 @@ pub struct Client {
     commons: String,
     /// For tests: any host, and plain http.
     any_host: bool,
+    turns: Mutex<Turns>,
+    spacing: Duration,
 }
 
 /// A picture on Commons, with what its licence asks to be shown with it.
@@ -201,7 +241,54 @@ impl Client {
             wikidata,
             commons,
             any_host,
+            turns: Mutex::new(Turns {
+                next: Instant::now(),
+                held_until: None,
+            }),
+            spacing: SPACING,
         })
+    }
+
+    /// The same client with `spacing` between turns (tests' fakes, to keep them quick).
+    #[cfg(test)]
+    pub fn spaced(mut self, spacing: Duration) -> Self {
+        self.spacing = spacing;
+        self
+    }
+
+    /// Whether Wikimedia asked for a pause longer than [`MAX_WAIT`] that isn't over, so every
+    /// request would fail [`Busy`] now: a lookup that would also ask MusicBrainz isn't worth
+    /// starting.
+    pub fn held(&self) -> bool {
+        let turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
+        turns
+            .held_until
+            .is_some_and(|until| until > Instant::now() + MAX_WAIT)
+    }
+
+    /// Holds every request back for `wait` (at most [`MOST_HELD`]), or longer when an earlier
+    /// hold says so.
+    fn hold(&self, wait: Duration) {
+        let until = Instant::now() + wait.min(MOST_HELD);
+        let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
+        turns.held_until = Some(turns.held_until.map_or(until, |held| held.max(until)));
+    }
+
+    /// Waits for a request's turn: the next free one, after any hold. [`Busy`], and no turn
+    /// taken, when that's more than [`MAX_WAIT`] away.
+    async fn turn(&self) -> Result<(), Busy> {
+        let at = {
+            let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = Instant::now();
+            let at = turns.next.max(now).max(turns.held_until.unwrap_or(now));
+            if at > now + MAX_WAIT {
+                return Err(Busy);
+            }
+            turns.next = at + self.spacing;
+            at
+        };
+        tokio::time::sleep_until(at.into()).await;
+        Ok(())
     }
 
     /// The file name of a Wikidata item's image (P18): its preferred one, else its first
@@ -310,7 +397,10 @@ impl Client {
         Ok((bytes, content_type))
     }
 
-    /// One request's body, at most `most` bytes, and its type. Errors never carry the address.
+    /// One request's body, at most `most` bytes, and its type, at its turn ([`turn`](Self::turn)).
+    /// A 429 or 503 holds requests back ([`hold`](Self::hold)) and is tried once more after a
+    /// short hold; [`Busy`] when the hold is longer, or the second try is refused too. Errors
+    /// never carry the address.
     async fn get(
         &self,
         url: reqwest::Url,
@@ -318,7 +408,29 @@ impl Client {
         who: &str,
     ) -> anyhow::Result<(Vec<u8>, String)> {
         let failed = |err: reqwest::Error| anyhow::anyhow!("{who}: {}", err.without_url());
-        let mut response = self.http.get(url).send().await.map_err(failed)?;
+        let mut tries = 0;
+        let mut response = loop {
+            self.turn().await?;
+            let response = self.http.get(url.clone()).send().await.map_err(failed)?;
+            let status = response.status();
+            if status != reqwest::StatusCode::TOO_MANY_REQUESTS
+                && status != reqwest::StatusCode::SERVICE_UNAVAILABLE
+            {
+                break response;
+            }
+            let wait = retry_after(&response).unwrap_or(BUSY_WAIT);
+            self.hold(wait);
+            tries += 1;
+            if tries > 1 || wait > MAX_WAIT {
+                tracing::warn!(
+                    service = who,
+                    status = status.as_u16(),
+                    wait_seconds = wait.min(MOST_HELD).as_secs(),
+                    "Wikimedia asked for a pause"
+                );
+                return Err(Busy.into());
+            }
+        };
         anyhow::ensure!(
             response.status().is_success(),
             "{who} answered {}",
@@ -340,6 +452,20 @@ impl Client {
         }
         Ok((bytes, content_type))
     }
+}
+
+/// The wait a 429 or 503 asks for, in seconds as Wikimedia gives it. None when it names none, or
+/// names it some other way.
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    let seconds: u64 = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(Duration::from_secs(seconds))
 }
 
 #[cfg(test)]
