@@ -222,7 +222,8 @@ async fn main() -> anyhow::Result<()> {
 
 /// Runs `melete seedbox host-key <host> [port]` when that's the command, saying whether it was.
 async fn show_seedbox_host_key(args: &[String]) -> anyhow::Result<bool> {
-    // Needs no configuration: it's how the seedbox's key is found before it's pinned.
+    // Needs no configuration but the proxy's: it's how the seedbox's key is found before it's
+    // pinned.
     if let ["seedbox", "host-key", host, rest @ ..] = args
         .iter()
         .map(String::as_str)
@@ -236,6 +237,7 @@ async fn show_seedbox_host_key(args: &[String]) -> anyhow::Result<bool> {
                 .with_context(|| format!("{port:?} isn't a port"))?,
             _ => bail!("{}", cli::USAGE),
         };
+        proxy::apply(cli::proxy_setup().await?);
         let key = seedbox::host_key(host, port).await?;
         println!("{host}:{port} presents the host key {key}");
         println!("Check it with your seedbox provider, then set MELETE_SEEDBOX_HOST_KEY={key}");

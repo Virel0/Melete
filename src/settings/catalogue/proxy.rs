@@ -11,7 +11,7 @@ const LOCAL: &str = "Usually on the local network or inside compose, which a pro
 pub(super) const PROXY: Service = Service {
     key: "proxy",
     name: "Proxy",
-    about: "Sending the services chosen below through a proxy, such as a VPN provider's SOCKS5 or HTTP proxy, so they see its address rather than the server's. Each goes direct until it's switched on here. One switched on only ever goes through the proxy: while the proxy is down or unset its requests fail, they never go direct, and System's status says so. Test asks api.ipify.org through the proxy which address the outside world sees: that's an outside request, made only when Test is pressed. The password stays on the server. Each indexer has a switch of its own, under Indexers. The seedbox's SFTP goes direct.",
+    about: "Sending the services chosen below through a proxy, such as a VPN provider's SOCKS5 or HTTP proxy, so they see its address rather than the server's. Each goes direct until it's switched on here. One switched on only ever goes through the proxy: while the proxy is down or unset its requests fail, they never go direct, and System's status says so. Test asks api.ipify.org through the proxy which address the outside world sees: that's an outside request, made only when Test is pressed. The password stays on the server. Each indexer has a switch of its own, under Indexers.",
     fields: &[
         field(
             "MELETE_PROXY_TYPE",
@@ -102,7 +102,13 @@ pub(super) const PROXY: Service = Service {
         field(
             Via::Deluge.setting(),
             "Deluge through the proxy",
-            "Its web UI on the seedbox. The seedbox's SFTP still goes direct.",
+            "Its web UI on the seedbox.",
+            ON,
+        ),
+        field(
+            Via::Seedbox.setting(),
+            "The seedbox's SFTP through the proxy",
+            "Where finished downloads are fetched from, and the host key the setup command reads. Through an HTTP or HTTPS proxy that lets connections out to the seedbox's SSH port (CONNECT), or SOCKS5.",
             ON,
         ),
         field(

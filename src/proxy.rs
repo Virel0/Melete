@@ -18,6 +18,7 @@ use crate::config::Secret;
 mod check;
 mod http;
 mod setup;
+pub mod stream;
 mod watch;
 
 pub use check::{ECHO, test};
@@ -109,6 +110,8 @@ pub enum Service {
     Oidc,
     /// Deluge's web UI on the seedbox.
     Deluge,
+    /// The seedbox's SFTP, where finished downloads are fetched from.
+    Seedbox,
     /// Sonarr, Radarr, Lidarr and Prowlarr.
     Arr,
     Slskd,
@@ -118,7 +121,7 @@ pub enum Service {
 
 impl Service {
     /// Every service, in the order the settings show them.
-    pub const ALL: [Service; 14] = [
+    pub const ALL: [Service; 15] = [
         Service::Tmdb,
         Service::MusicBrainz,
         Service::CoverArt,
@@ -130,6 +133,7 @@ impl Service {
         Service::Translation,
         Service::Oidc,
         Service::Deluge,
+        Service::Seedbox,
         Service::Arr,
         Service::Slskd,
         Service::FlareSolverr,
@@ -149,6 +153,7 @@ impl Service {
             Service::Translation => "MELETE_PROXY_TRANSLATION",
             Service::Oidc => "MELETE_PROXY_OIDC",
             Service::Deluge => "MELETE_PROXY_DELUGE",
+            Service::Seedbox => "MELETE_PROXY_SEEDBOX",
             Service::Arr => "MELETE_PROXY_ARR",
             Service::Slskd => "MELETE_PROXY_SLSKD",
             Service::FlareSolverr => "MELETE_PROXY_FLARESOLVERR",

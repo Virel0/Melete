@@ -1,6 +1,6 @@
 //! Stand-ins for tests: an HTTP proxy and a SOCKS5 one that note what they're asked and answer
-//! every request with the same body, a plain site that counts its requests, and a way to build
-//! clients with a setup of the test's own.
+//! every request with the same body, proxies that relay plain connections, a plain site that
+//! counts its requests, and a way to build clients with a setup of the test's own.
 
 use std::future::Future;
 use std::net::SocketAddr;
@@ -67,17 +67,22 @@ async fn listen() -> (TcpListener, SocketAddr) {
     (listener, at)
 }
 
-/// Reads one HTTP request's head, and answers it with `body`. Returns the head's lines.
-async fn answer(stream: &mut TcpStream, body: &str) -> Vec<String> {
+/// Reads one HTTP request's head, returning its lines.
+async fn read_head(stream: &mut TcpStream) -> Vec<String> {
     let mut head = Vec::new();
     let mut byte = [0u8; 1];
     while !head.ends_with(b"\r\n\r\n") && stream.read_exact(&mut byte).await.is_ok() {
         head.push(byte[0]);
     }
-    let lines: Vec<String> = String::from_utf8_lossy(&head)
+    String::from_utf8_lossy(&head)
         .lines()
         .map(str::to_owned)
-        .collect();
+        .collect()
+}
+
+/// Reads one HTTP request's head, and answers it with `body`. Returns the head's lines.
+async fn answer(stream: &mut TcpStream, body: &str) -> Vec<String> {
+    let lines = read_head(stream).await;
     let reply = format!(
         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
@@ -138,6 +143,72 @@ pub async fn socks5(
         }
     });
     (at, log)
+}
+
+/// A proxy that relays each connection it's asked for (SOCKS5's connect, or HTTP's CONNECT) to
+/// the IP address asked, or to 127.0.0.1 for any name, so a name only the proxy knows works. A
+/// `login` it wants is checked; an HTTP one turned down gets a 407.
+pub async fn relay(kind: Kind, login: Option<(&'static str, &'static str)>) -> (SocketAddr, Log) {
+    let (listener, at) = listen().await;
+    let log = Log::default();
+    let noted = log.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let noted = noted.clone();
+            tokio::spawn(async move {
+                let Some(to) = relay_handshake(kind, &mut stream, login, &noted).await else {
+                    return;
+                };
+                if let Ok(mut there) = TcpStream::connect(to).await {
+                    let _ = tokio::io::copy_bidirectional(&mut stream, &mut there).await;
+                }
+            });
+        }
+    });
+    (at, log)
+}
+
+/// Where a relaying proxy was asked to connect, its handshake answered; None if refused.
+async fn relay_handshake(
+    kind: Kind,
+    stream: &mut TcpStream,
+    login: Option<(&str, &str)>,
+    log: &Log,
+) -> Option<SocketAddr> {
+    let at = |host: &str, port: u16| {
+        let ip = host.trim_start_matches('[').trim_end_matches(']').parse();
+        SocketAddr::new(ip.unwrap_or(std::net::Ipv4Addr::LOCALHOST.into()), port)
+    };
+    if kind == Kind::Socks5 {
+        socks_handshake(stream, login, log).await?;
+        let seen = log.lock().unwrap();
+        return seen.socks.last().map(|(_, host, port)| at(host, *port));
+    }
+    let lines = read_head(stream).await;
+    note_http(log, &lines);
+    let wanted = login.map(|(user, password)| {
+        use base64::Engine as _;
+        let pair = format!("{user}:{password}");
+        format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(pair)
+        )
+    });
+    let given = log.lock().unwrap().authorizations.last().cloned().flatten();
+    if wanted.is_some() && given != wanted {
+        let _ = stream
+            .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n")
+            .await;
+        return None;
+    }
+    let target = lines.first()?.strip_prefix("CONNECT ")?.split(' ').next()?;
+    let (host, port) = target.rsplit_once(':')?;
+    let to = at(host, port.parse().ok()?);
+    stream
+        .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        .await
+        .ok()?;
+    Some(to)
 }
 
 async fn read_vec(stream: &mut TcpStream, n: usize) -> Option<Vec<u8>> {
