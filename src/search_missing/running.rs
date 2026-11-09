@@ -302,6 +302,7 @@ mod tests {
     use crate::deluge;
     use crate::downloads::Fetcher;
     use crate::rss::tests::{indexer, releases, setup};
+    use sha2::{Digest, Sha256};
 
     /// "Some Anime" in its group's seasons, every episode aired, with season 2 wanted and its
     /// first `on_disk` episodes in the library; an indexer answering `feed`, and Deluge.
@@ -445,6 +446,43 @@ mod tests {
         );
         let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
         assert_eq!(titles, ["Some.Anime.S01.1080p.BluRay.x264-GRP"]);
+    }
+
+    #[tokio::test]
+    async fn a_season_whose_pack_failed_before_has_its_episodes_searched_for() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        // Episodes 1 to 21 are on disk; the season's pack failed in an earlier run (a dead
+        // torrent, say) and is all an indexer still offers for the season.
+        let pack = "Some.Anime.S02.1080p.BluRay.x264-GRP";
+        let e22 = "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv";
+        let pipeline = some_anime(&pool, 21, &[pack, e22]).await;
+        let hash: String = Sha256::digest(pack.as_bytes())[..20]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        sqlx::query(
+            "INSERT INTO downloads (infohash, title, wanted_series_id, season, decision, state,
+                 added_at, updated_at, episodes)
+             VALUES (?, ?, 1, 2, '{}', 'failed', 0, 0, '[22, 23]')",
+        )
+        .bind(hash)
+        .bind(pack)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let run = start(&pool, sources(Some(pipeline)), Area::Series, who)
+            .await
+            .unwrap()
+            .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 3, 3, 1),
+            "{run:?}"
+        );
+        let titles: Vec<String> = downloads(&pool).await.into_iter().map(|d| d.0).collect();
+        assert_eq!(titles, [pack, e22]);
     }
 
     #[tokio::test]
