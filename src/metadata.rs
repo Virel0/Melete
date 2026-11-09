@@ -98,13 +98,31 @@ pub enum Kind {
     Series,
 }
 
+/// One refresh at a time: one started by an import waits for the startup one, then picks up
+/// the titles the import reset; one between scans waits for a scan's.
+static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Fetches again only the series that are due: library series whose cached entry is stale or
+/// that have an episode TMDB hasn't filled in yet, and monitored wanted series still airing
+/// (daily) or with such an episode. Nothing is matched and no library is read, so it runs
+/// between scans: a schedule that scans once a day doesn't hold a new episode's title back
+/// until the next scan. Only the series' TMDB ids leave the server, as with every refresh.
+pub async fn refresh_series_due(
+    pool: &SqlitePool,
+    tmdb: &tmdb::Client,
+) -> anyhow::Result<RefreshReport> {
+    let _one_at_a_time = RUNNING.lock().await;
+    let now = unix_now();
+    let mut report = RefreshReport::default();
+    refresh_stale_series(pool, tmdb, now, &mut report).await?;
+    wanted::refresh_airing_series(pool, tmdb, now, &mut report).await?;
+    Ok(report)
+}
+
 /// Matches titles not yet matched, then refreshes stale cached metadata.
 ///
 /// Stops at once if TMDB rejects the token; other failures skip one title and carry on.
 pub async fn refresh(pool: &SqlitePool, tmdb: &tmdb::Client) -> anyhow::Result<RefreshReport> {
-    // One refresh at a time: one started by an import waits for the startup one, then picks up
-    // the titles the import reset.
-    static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _one_at_a_time = RUNNING.lock().await;
     let now = unix_now();
     let mut report = RefreshReport::default();

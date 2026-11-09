@@ -383,7 +383,14 @@ async fn items(
         } else {
             "requestable"
         };
-        let poster = poster(pool, title.poster_path.as_deref(), kind.tv(), title.id).await?;
+        let poster = poster(
+            pool,
+            title.poster_path.as_deref(),
+            kind.tv(),
+            title.id,
+            user_id,
+        )
+        .await?;
         let (name, date) = match kind {
             Kind::Movie => (title.title, title.release_date),
             Kind::Series => (
@@ -408,7 +415,7 @@ async fn items(
 }
 
 /// A poster's URL when the artwork route serves it: a title in the library's, or one asked
-/// for, or with `MELETE_DISCOVERY_POSTERS` on, any listed here, which is noted with the title
+/// for, or with `MELETE_DISCOVERY_POSTERS` on, any listed here, which is noted for `user` with the title
 /// it was listed for (TMDB id `tmdb_id`, a series' with `tv`) so the route serves it for a
 /// while, to a user with a highest rating only for a title within it
 /// ([`crate::discover_posters`]).
@@ -417,6 +424,7 @@ pub(super) async fn poster(
     path: Option<&str>,
     tv: bool,
     tmdb_id: i64,
+    user: i64,
 ) -> Result<Value, ApiError> {
     let Some(path) = path.filter(|p| p.starts_with('/')) else {
         return Ok(Value::Null);
@@ -438,7 +446,7 @@ pub(super) async fn poster(
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs() as i64);
-            crate::discover_posters::listed_for(pool, path, tv, tmdb_id, now).await?;
+            crate::discover_posters::listed_for(pool, path, tv, tmdb_id, user, now).await?;
             true
         });
     Ok(if served {

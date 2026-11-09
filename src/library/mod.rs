@@ -13,7 +13,7 @@ pub mod unparsed;
 mod walk;
 pub mod watch;
 
-pub(crate) use music::{COVER_NAMES, IMAGE_EXTENSIONS};
+pub(crate) use music::{ARTIST_MBID, COVER_NAMES, IMAGE_EXTENSIONS};
 pub(crate) use scan::AUDIO_EXTENSIONS;
 pub(crate) use title_files::NfoIds;
 

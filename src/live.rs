@@ -62,6 +62,8 @@ struct Built {
     slskd_downloads: Option<PathBuf>,
     pipeline: Option<Arc<downloads::Pipeline>>,
     musicbrainz: Option<Arc<musicbrainz::Client>>,
+    /// Wikimedia, for artists' portraits: there with MusicBrainz, and only then.
+    wikimedia: Option<Arc<crate::wikimedia::Client>>,
     /// LRCLIB for the apps' lyrics, on with lyrics for imports.
     lyrics: Option<Arc<lrclib::Client>>,
     /// LibreTranslate for translating lyrics, when it's set up.
@@ -125,6 +127,10 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         true => Some(Arc::new(musicbrainz::Client::new()?)),
         false => None,
     };
+    let wikimedia = match musicbrainz {
+        Some(_) => Some(Arc::new(crate::wikimedia::Client::new()?)),
+        None => None,
+    };
     let oidc = match &config.oidc {
         Some(settings) => Some(Arc::new(oidc::Client::with_pending(
             settings.clone(),
@@ -150,6 +156,7 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         slskd_downloads,
         pipeline,
         musicbrainz,
+        wikimedia,
         lyrics: match config.lyrics {
             true => Some(Arc::new(lrclib::Client::new()?)),
             false => None,
@@ -261,6 +268,13 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
             )));
             // Followed artists' new albums, through the same client and its pace.
             tasks.push(tokio::spawn(follow::run(pool.clone(), mb.clone())));
+            if let Some(wikimedia) = &built.wikimedia {
+                tasks.push(tokio::spawn(crate::artist_portraits::run(
+                    pool.clone(),
+                    mb.clone(),
+                    wikimedia.clone(),
+                )));
+            }
             tasks.push(tokio::spawn(playlist_import::work(
                 pool.clone(),
                 mb.clone(),
@@ -295,11 +309,7 @@ fn router(
             images: tmdb::Images::new()?,
             tmdb: built.tmdb.clone(),
             coverart: built.coverart.clone(),
-            // Wikimedia, for artists' portraits, comes with MusicBrainz, and only then.
-            wikimedia: match built.musicbrainz {
-                Some(_) => Some(Arc::new(crate::wikimedia::Client::new()?)),
-                None => None,
-            },
+            wikimedia: built.wikimedia.clone(),
             musicbrainz: built.musicbrainz.clone(),
             slskd: built.slskd.clone(),
             stems: fixed.stems_dir.clone(),

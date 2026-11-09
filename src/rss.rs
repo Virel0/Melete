@@ -3,8 +3,9 @@
 //! reasons, so it can be shown why one was grabbed or not. With downloads on, the best accepted
 //! release for a wanted title is grabbed when nothing is on disk where it goes and nothing is
 //! downloading, or when it's an upgrade of exactly the files there with nothing on the way or
-//! unsettled (the files it replaces go to the trash once it's confirmed). Each release is looked
-//! at once.
+//! unsettled (the files it replaces go to the trash once it's confirmed). A season pack for a
+//! season partly on disk or on its way is taken for the episodes it adds ([`packs`]). Each
+//! release is looked at once.
 //!
 //! An RSS release arrives unasked, so it's checked harder than a search result: one that fits
 //! more than one wanted title is refused for all of them, and one whose indexer gives an id
@@ -34,12 +35,15 @@ mod asking;
 mod deciding;
 mod grabbing;
 mod matching;
+mod packs;
 mod view;
 
 use asking::*;
 use deciding::*;
 pub use grabbing::*;
 use matching::*;
+use packs::*;
+pub(crate) use packs::{missing_episodes, numbers};
 pub use view::*;
 
 /// How often indexers are asked for their newest releases.

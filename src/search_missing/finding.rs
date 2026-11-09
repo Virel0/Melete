@@ -14,7 +14,7 @@ pub(super) enum Item {
         title: String,
         season: i64,
     },
-    /// One episode, searched for an upgrade.
+    /// One episode: searched for an upgrade, or missing from a season no pack was found for.
     Episode {
         id: i64,
         title: String,
@@ -171,7 +171,45 @@ pub(super) async fn still_missing(pool: &SqlitePool, item: &Item) -> anyhow::Res
             .await?;
             monitored && !album_search::taken(pool, *id).await?
         }
-        // Searched for upgrades only.
-        Item::Episode { .. } => false,
+        // One episode of a season no pack was found for.
+        Item::Episode {
+            id,
+            season,
+            episode,
+            ..
+        } => {
+            let monitored: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM wanted_series w JOIN wanted_seasons s
+                                ON s.wanted_series_id = w.id
+                                WHERE w.id = ? AND w.monitored = 1 AND s.season = ?
+                                  AND s.monitored = 1)",
+            )
+            .bind(id)
+            .bind(season)
+            .fetch_one(pool)
+            .await?;
+            monitored
+                && crate::rss::missing_episodes(pool, *id, *season)
+                    .await?
+                    .contains(episode)
+        }
     })
+}
+
+/// When a missing season's search grabbed nothing, as for a season still airing that no pack
+/// holds yet: each of its missing episodes, to search for on its own.
+pub(super) async fn episodes_instead(pool: &SqlitePool, item: &Item) -> anyhow::Result<Vec<Item>> {
+    let Item::Season { id, title, season } = item else {
+        return Ok(Vec::new());
+    };
+    Ok(crate::rss::missing_episodes(pool, *id, *season)
+        .await?
+        .into_iter()
+        .map(|episode| Item::Episode {
+            id: *id,
+            title: title.clone(),
+            season: *season,
+            episode,
+        })
+        .collect())
 }

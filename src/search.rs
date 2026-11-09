@@ -33,8 +33,9 @@ mod wanted;
 
 pub(crate) use availability::*;
 pub(crate) use indexer_params::*;
+#[cfg(test)]
 use on_disk::*;
-pub(crate) use on_disk::{OnDisk, Read, best_read, cutoff_unmet, file_name, judge_file};
+pub(crate) use on_disk::{OnDisk, Read, best_read, cutoff_unmet, file_name, judge_file, on_disk};
 pub use shrink::Shrink;
 pub(crate) use storing::store;
 pub(crate) use titles::*;

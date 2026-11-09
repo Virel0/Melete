@@ -40,6 +40,16 @@ async fn listed(pool: &SqlitePool, artist: &str, picture: &str) {
     .execute(pool)
     .await
     .unwrap();
+    // A search by the fixture's user listed it.
+    sqlx::query(
+        "INSERT INTO picture_listings (kind, key, user_id, listed_at)
+         SELECT 'portrait', ?, id, ? FROM users WHERE username = 'u'",
+    )
+    .bind(artist)
+    .bind(now)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 /// The fixture with Commons, and the address of the fake's picture for `file`.
@@ -134,9 +144,14 @@ async fn a_failed_large_garbled_or_elsewhere_picture_keeps_nothing_and_is_believ
         assert_eq!(status, StatusCode::NOT_FOUND, "{artist}");
         assert_eq!(log.lock().unwrap().len(), asked, "{artist} not asked again");
         let now = crate::db::unix_now();
-        let in_a_day = crate::artist_portraits::servable(&f.pool, artist, now + 24 * 3600 + 1)
+        let user: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
+            .fetch_one(&f.pool)
             .await
             .unwrap();
+        let in_a_day =
+            crate::artist_portraits::servable(&f.pool, artist, user, now + 24 * 3600 + 1)
+                .await
+                .unwrap();
         assert!(in_a_day.is_some(), "{artist} tried again after a day");
     }
 

@@ -31,10 +31,18 @@ async fn turn(pool: &SqlitePool, on: bool) {
     }
 }
 
-/// As a search for a request offering it.
+/// The fixture's user.
+async fn user(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar("SELECT id FROM users WHERE username = 'u'")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// As a search by the fixture's user for a request offering it.
 async fn offered(pool: &SqlitePool, group: &str) {
     let now = crate::db::unix_now();
-    let url = crate::search_covers::offer(pool, Some(group), now)
+    let url = crate::search_covers::offer(pool, Some(group), user(pool).await, now)
         .await
         .unwrap();
     assert_eq!(url, Some(uri(group)));
@@ -99,7 +107,7 @@ async fn none_found_or_a_failed_fetch_is_believed_a_day_and_keeps_nothing() {
     }
     assert_eq!(asked(BARE), 1, "asked once");
     let now = crate::db::unix_now();
-    let again = crate::search_covers::offer(&f.pool, Some(BARE), now)
+    let again = crate::search_covers::offer(&f.pool, Some(BARE), user(&f.pool).await, now)
         .await
         .unwrap();
     assert_eq!(again, None, "a search doesn't offer it again for a while");
@@ -115,7 +123,7 @@ async fn none_found_or_a_failed_fetch_is_believed_a_day_and_keeps_nothing() {
         let (status, _) = body(get(&f, &uri(group), None).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{group}");
         assert_eq!(asked(group), 1, "{group} asked once");
-        let again = crate::search_covers::offer(&f.pool, Some(group), now)
+        let again = crate::search_covers::offer(&f.pool, Some(group), user(&f.pool).await, now)
             .await
             .unwrap();
         assert_eq!(again, None, "{group}");
@@ -175,4 +183,18 @@ async fn an_album_in_a_hidden_library_is_served_like_one_in_none() {
     let anyone = Request::get(uri(ELSEWHERE)).body(Body::empty()).unwrap();
     let status = f.app.clone().oneshot(anyone).await.unwrap().status();
     assert_eq!(status, StatusCode::UNAUTHORIZED, "signed in only");
+}
+
+#[tokio::test]
+async fn a_cover_is_served_only_to_whom_a_search_listed_it_for() {
+    let (archive, _log) = coverart::testing::start().await;
+    let f = fixture(Some(Arc::new(archive))).await;
+    turn(&f.pool, true).await;
+    offered(&f.pool, ELSEWHERE).await;
+    let (status, _) = body(get(&f, &uri(ELSEWHERE), None).await).await;
+    assert_eq!(status, StatusCode::OK, "the one who searched");
+    // Someone else, who didn't search for it, can't tell from the route that anyone did.
+    let other = listener(&f, "bob", None).await;
+    let (status, _) = json_as(&f, &other, &uri(ELSEWHERE)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
