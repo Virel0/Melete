@@ -28,7 +28,13 @@ pub(super) async fn artwork(
             "not an artwork file",
         ));
     };
-    if !current.access.is_everything() && !shown_to(&state.pool, &current, &file).await? {
+    let shown = if current.access.is_everything() {
+        crate::api::local_artwork::is_local(&file)
+            || open_to_everyone(&state.pool, &current, &file).await?
+    } else {
+        shown_to(&state.pool, &current, &file).await?
+    };
+    if !shown {
         return Err(not_found("artwork"));
     }
     let path = state.artwork_dir.join(&size).join(&file);
@@ -189,6 +195,43 @@ async fn shown_to(pool: &SqlitePool, current: &CurrentUser, file: &str) -> Resul
     Ok(!in_library
         && crate::discover_posters::servable_to(pool, access, current.user.id, &path, unix_now())
             .await?)
+}
+
+/// Whether a user who may see everything may be served `file`: an image of a title, episode,
+/// collection or person Melete keeps, the poster of a request of theirs (any request's, for an
+/// admin), or a poster a discovery answer listed for them. A poster listed only for someone
+/// else, or another's request, answers as one never listed: nobody learns from this route what
+/// someone else searched for or asked for.
+async fn open_to_everyone(
+    pool: &SqlitePool,
+    current: &CurrentUser,
+    file: &str,
+) -> Result<bool, ApiError> {
+    let path = format!("/{file}");
+    let kept: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM tmdb_movies
+                 WHERE ?1 IN (poster_path, backdrop_path, textless_backdrop_path, logo_path)
+             UNION ALL SELECT 1 FROM tmdb_series
+                 WHERE ?1 IN (poster_path, backdrop_path, textless_backdrop_path, logo_path)
+             UNION ALL SELECT 1 FROM tmdb_collections WHERE ?1 IN (poster_path, backdrop_path)
+             UNION ALL SELECT 1 FROM tmdb_episodes WHERE still_path = ?1
+             UNION ALL SELECT 1 FROM tmdb_people WHERE profile_path = ?1
+             UNION ALL SELECT 1 FROM requests WHERE poster = ?1 AND (user_id = ?2 OR ?3))",
+    )
+    .bind(&path)
+    .bind(current.user.id)
+    .bind(current.user.is_admin)
+    .fetch_one(pool)
+    .await?;
+    Ok(kept
+        || crate::discover_posters::servable_to(
+            pool,
+            &current.access,
+            current.user.id,
+            &path,
+            unix_now(),
+        )
+        .await?)
 }
 
 /// The content type for a TMDB image file name, or `None` if the name is not one. The name

@@ -13,6 +13,11 @@ use tokio::sync::Notify;
 /// beyond it are forgotten then, with their files.
 pub static PRUNE: Notify = Notify::const_new();
 
+/// Held while pictures are forgotten, and while a route keeps a picture it fetched once it has
+/// checked the picture is still remembered: a picture forgotten during its fetch isn't then
+/// written where nothing remembers it, to stay on disk for good.
+pub static KEEPING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Which pictures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -63,6 +68,46 @@ pub async fn listed_for(
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM picture_listings
              WHERE kind = ? AND key = ? AND user_id = ? AND listed_at >= ?)",
+    )
+    .bind(kind.name())
+    .bind(key)
+    .bind(user)
+    .bind(since)
+    .fetch_one(pool)
+    .await
+}
+
+/// Notes that `key` couldn't be had when `user` asked for it.
+pub async fn missed(
+    pool: &SqlitePool,
+    kind: Kind,
+    key: &str,
+    user: i64,
+    now: i64,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE picture_listings SET missed_at = ? WHERE kind = ? AND key = ? AND user_id = ?",
+    )
+    .bind(now)
+    .bind(kind.name())
+    .bind(key)
+    .bind(user)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Whether `key` couldn't be had when `user` asked for it, since `since`.
+pub async fn missed_for(
+    pool: &SqlitePool,
+    kind: Kind,
+    key: &str,
+    user: i64,
+    since: i64,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM picture_listings
+             WHERE kind = ? AND key = ? AND user_id = ? AND missed_at >= ?)",
     )
     .bind(kind.name())
     .bind(key)

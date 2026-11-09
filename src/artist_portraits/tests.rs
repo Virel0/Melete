@@ -183,7 +183,7 @@ async fn a_picture_commons_failed_to_give_is_neither_offered_nor_served_for_a_da
     turn(&r.pool, true).await;
     let mut lookups = LOOKUPS;
     r.offer(RADIOHEAD, &mut lookups, NOW).await.unwrap();
-    failed(&r.pool, RADIOHEAD, NOW).await.unwrap();
+    failed(&r.pool, RADIOHEAD, r.me, NOW).await.unwrap();
     assert_eq!(r.offer(RADIOHEAD, &mut lookups, NOW + 60).await, None);
     assert!(
         servable(&r.pool, RADIOHEAD, r.me, NOW + 60)

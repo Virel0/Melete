@@ -37,8 +37,8 @@ pub(super) async fn release_group_cover(
     let bytes = match tokio::fs::read(&original).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            let bytes = fetch(&state.pool, coverart, &group, now).await?;
-            keep(&dir, &original, &bytes).await;
+            let bytes = fetch(&state.pool, coverart, &group, current.user.id, now).await?;
+            keep_remembered(&state.pool, &group, &dir, &original, &bytes).await?;
             bytes
         }
     };
@@ -46,8 +46,24 @@ pub(super) async fn release_group_cover(
         return image(bytes);
     };
     let jpeg = resized(&state, &bytes, width).await?;
-    keep(&dir, &path, &jpeg).await;
+    keep_remembered(&state.pool, &group, &dir, &path, &jpeg).await?;
     image(jpeg)
+}
+
+/// Keeps a cover fetched or made for `group`, unless it was forgotten meanwhile: then nothing
+/// would remember the file to delete it.
+async fn keep_remembered(
+    pool: &SqlitePool,
+    group: &str,
+    dir: &std::path::Path,
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), ApiError> {
+    let _held = crate::picture_listings::KEEPING.lock().await;
+    if crate::search_covers::remembered(pool, group).await? {
+        keep(dir, path, bytes).await;
+    }
+    Ok(())
 }
 
 /// The archive's front cover for `group`. When it has none, or fails, that's noted, so it isn't
@@ -56,12 +72,13 @@ async fn fetch(
     pool: &SqlitePool,
     coverart: &coverart::Client,
     group: &str,
+    user: i64,
     now: i64,
 ) -> Result<Vec<u8>, ApiError> {
     match coverart.front(group).await {
         Ok(coverart::Fetched::Image { bytes, .. }) if image_type(&bytes).is_some() => Ok(bytes),
         Ok(_) => {
-            crate::search_covers::missed(pool, group, now).await?;
+            crate::search_covers::missed(pool, group, user, now).await?;
             Err(no_such_cover())
         }
         Err(err) => {
@@ -69,7 +86,7 @@ async fn fetch(
                 error = format!("{err:#}"),
                 "couldn't fetch a search result's cover"
             );
-            crate::search_covers::missed(pool, group, now).await?;
+            crate::search_covers::missed(pool, group, user, now).await?;
             Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
                 "the Cover Art Archive didn't give the cover",

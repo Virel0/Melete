@@ -164,6 +164,7 @@ pub(crate) async fn forget_pictures(
     artwork_dir: &std::path::Path,
     now: i64,
 ) {
+    let _no_keeping = crate::picture_listings::KEEPING.lock().await;
     match discover_posters::prune(pool, artwork_dir, now).await {
         Ok(forgotten) if forgotten > 0 => {
             tracing::info!(forgotten, "forgot posters of titles not in the library")

@@ -35,7 +35,7 @@ pub fn folder(covers: &Path, group: &str) -> PathBuf {
 }
 
 /// A search result's cover, for the release group `group`: with the setting on, one the
-/// archive isn't known to lack (or to have failed on) lately is noted as listed for `user` and
+/// archive didn't lack (or fail on) when `user` asked lately is noted as listed for them and
 /// its address given. Nothing is fetched here; past [`MOST`], the forgetting is woken.
 pub async fn offer(
     pool: &SqlitePool,
@@ -49,15 +49,8 @@ pub async fn offer(
     if !crate::settings::search_covers(pool).await? {
         return Ok(None);
     }
-    let missed: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM search_covers
-             WHERE release_group_id = ? AND missing_at >= ?)",
-    )
-    .bind(group)
-    .bind(now - MISS_FOR)
-    .fetch_one(pool)
-    .await?;
-    if missed {
+    // Only their own misses: another's would tell them someone looked at it lately.
+    if picture_listings::missed_for(pool, Kind::Cover, group, user, now - MISS_FOR).await? {
         return Ok(None);
     }
     sqlx::query(
@@ -97,15 +90,23 @@ pub async fn servable(pool: &SqlitePool, group: &str, user: i64, now: i64) -> an
     .await?)
 }
 
-/// Notes that the archive has no front cover for `group`, or failed to give it: neither offered
-/// nor asked for again for [`MISS_FOR`].
-pub async fn missed(pool: &SqlitePool, group: &str, now: i64) -> sqlx::Result<()> {
+/// Whether `group`'s cover is still remembered (not forgotten since it was listed).
+pub async fn remembered(pool: &SqlitePool, group: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM search_covers WHERE release_group_id = ?)")
+        .bind(group)
+        .fetch_one(pool)
+        .await
+}
+
+/// Notes that the archive has no front cover for `group`, or failed to give it, when `user`
+/// asked: not asked for again for [`MISS_FOR`], nor offered to them meanwhile.
+pub async fn missed(pool: &SqlitePool, group: &str, user: i64, now: i64) -> sqlx::Result<()> {
     sqlx::query("UPDATE search_covers SET missing_at = ? WHERE release_group_id = ?")
         .bind(now)
         .bind(group)
         .execute(pool)
         .await?;
-    Ok(())
+    picture_listings::missed(pool, Kind::Cover, group, user, now).await
 }
 
 /// Forgets covers past their time, beyond [`MOST`], or all of them when the setting is off,

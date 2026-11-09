@@ -73,7 +73,7 @@ async fn one_missed_isnt_offered_or_served_for_a_day() {
     turn(&pool, true).await;
     let now = 100 * 24 * 3600;
     offer(&pool, Some(GROUP), me, now).await.unwrap();
-    missed(&pool, GROUP, now).await.unwrap();
+    missed(&pool, GROUP, me, now).await.unwrap();
     assert_eq!(offer(&pool, Some(GROUP), me, now + 60).await.unwrap(), None);
     assert!(!servable(&pool, GROUP, me, now + 60).await.unwrap());
     let later = now + MISS_FOR + 1;
