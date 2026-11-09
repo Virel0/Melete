@@ -13,7 +13,7 @@ const MAX_BYTES: usize = 1024 * 1024;
 
 /// An LRCLIB client: no key, and redirects aren't followed.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
 }
 
@@ -73,11 +73,11 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn with_base(base: String) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Lyrics, |b| {
+            b.timeout(Duration::from_secs(20))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http, base })
     }
 

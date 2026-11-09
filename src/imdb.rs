@@ -35,7 +35,7 @@ impl Chart {
 /// redirects; only a chart's name or a list's id is sent.
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
 }
 
@@ -47,11 +47,11 @@ impl Client {
 
     /// A client that sends its requests to `base` instead of IMDb, for tests.
     pub fn with_base(base: String) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Lists, |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http, base })
     }
 

@@ -86,14 +86,20 @@ impl Client {
 
     /// A client for an API elsewhere: a stand-in, in tests.
     pub fn with_api(settings: &OpenSubtitles, api: &str) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::OpenSubtitles, |b| {
+            b.user_agent(USER_AGENT)
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+        })?;
+        let downloads = crate::proxy::Http::new(crate::proxy::Service::OpenSubtitles, |b| {
+            b.user_agent(USER_AGENT)
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+        })?;
         Ok(Self {
             http,
+            downloads,
             settings: settings.clone(),
             api: api.trim_end_matches('/').to_owned(),
         })
@@ -218,8 +224,11 @@ impl Client {
 
     /// Downloads one subtitle file, which counts against the day's downloads.
     pub async fn download(&self, file_id: i64) -> Result<Vec<u8>, Failure> {
+        // Signed in first: signing in can wait, and the request then goes the way the proxy's
+        // setup says when it's sent, not when it was begun.
+        let token = self.token(false).await?;
         let mut request = self.post("/download").json(&json!({ "file_id": file_id }));
-        if let Some(token) = self.token(false).await? {
+        if let Some(token) = token {
             request = request.bearer_auth(token.expose());
         }
         let answer = request.send().await.map_err(no_answer)?;
@@ -247,13 +256,8 @@ impl Client {
         if !link.starts_with("https://") && !link.starts_with(&self.api) {
             return Err(Failure::Other("its download link wasn't https".into()));
         }
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|e| Failure::Other(e.without_url().to_string()))?;
-        let answer = http.get(link).send().await.map_err(no_answer)?;
+        // Redirects are followed here, unlike the API's, which carry the key.
+        let answer = self.downloads.get(link).send().await.map_err(no_answer)?;
         if !answer.status().is_success() {
             return Err(Failure::Other(format!(
                 "its download link answered {}",

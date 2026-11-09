@@ -33,8 +33,14 @@ pub struct Fake {
     pub quota_reached: std::sync::atomic::AtomicBool,
     /// Searches find nothing.
     pub nothing: std::sync::atomic::AtomicBool,
+    /// Run as each sign-in arrives, before it's answered.
+    pub on_login: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     base: Mutex<String>,
 }
+
+/// A second account the stand-in takes, for a test whose sign-in mustn't be one another test
+/// kept.
+pub const OTHER_USER: &str = "bob";
 
 /// The key the stand-in takes, and the login.
 pub const KEY: &str = "good-key";
@@ -78,8 +84,12 @@ pub async fn start() -> (String, Arc<Fake>) {
             post(
                 |State(f): State<Arc<Fake>>, h: HeaderMap, body: String| async move {
                     note(&f, "/login", None, &h, &body);
+                    if let Some(hook) = f.on_login.lock().unwrap().as_ref() {
+                        hook();
+                    }
                     let v: Value = serde_json::from_str(&body).unwrap_or_default();
-                    if keyed(&h) && v["username"] == USER && v["password"] == PASSWORD {
+                    let user = v["username"] == USER || v["username"] == OTHER_USER;
+                    if keyed(&h) && user && v["password"] == PASSWORD {
                         axum::Json(json!({ "token": "login-token", "status": 200 })).into_response()
                     } else {
                         StatusCode::UNAUTHORIZED.into_response()

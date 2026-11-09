@@ -183,7 +183,7 @@ impl fmt::Debug for Item {
 /// 30-second timeout, no redirects, a User-Agent that names only Melete and its version.
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
 }
 
 impl Client {
@@ -193,12 +193,12 @@ impl Client {
     ///
     /// When the HTTP client can't be built (no TLS backend).
     pub fn new() -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            // The key is in the URL; a redirect would hand it to wherever it points.
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::through(false, |b| {
+            b.timeout(Duration::from_secs(30))
+                // The key is in the URL; a redirect would hand it to wherever it points.
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http })
     }
 

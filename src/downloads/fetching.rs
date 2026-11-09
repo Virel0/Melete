@@ -16,18 +16,18 @@ pub enum Torrent {
 /// quote them).
 #[derive(Clone)]
 pub struct Fetcher {
-    pub(super) http: reqwest::Client,
+    pub(super) http: crate::proxy::Http,
 }
 
 impl Fetcher {
     /// A fetcher whose requests give up after 60 seconds and don't follow redirects by themselves.
     pub fn new() -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            // Followed by hand: a redirect may point at a magnet link.
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::through(false, |b| {
+            b.timeout(Duration::from_secs(60))
+                // Followed by hand: a redirect may point at a magnet link.
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http })
     }
 

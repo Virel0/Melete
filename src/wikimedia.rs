@@ -25,7 +25,7 @@ const MAX_TEXT: usize = 200;
 
 /// A Wikimedia client that follows redirects only to Wikimedia's hosts over https.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     wikidata: String,
     commons: String,
     /// For tests: any host, and plain http.
@@ -180,20 +180,22 @@ impl Client {
     /// picture addresses be anywhere, over plain http; without it they're held to Wikimedia's
     /// hosts over https, as the real client's are.
     pub fn with_bases(wikidata: String, commons: String, any_host: bool) -> anyhow::Result<Self> {
-        let policy = reqwest::redirect::Policy::custom(move |attempt| {
-            if attempt.previous().len() >= 5 {
-                attempt.error("too many redirects")
-            } else if any_host || allowed(attempt.url()) {
-                attempt.follow()
-            } else {
-                attempt.error("redirected somewhere other than Wikimedia")
-            }
-        });
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .redirect(policy)
-            .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let policy = move || {
+            reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.previous().len() >= 5 {
+                    attempt.error("too many redirects")
+                } else if any_host || allowed(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.error("redirected somewhere other than Wikimedia")
+                }
+            })
+        };
+        let http = crate::proxy::Http::new(crate::proxy::Service::Wikimedia, move |b| {
+            b.timeout(Duration::from_secs(20))
+                .redirect(policy())
+                .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             wikidata,

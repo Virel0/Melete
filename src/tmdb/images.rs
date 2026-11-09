@@ -8,7 +8,7 @@ pub(super) const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 /// Downloads artwork from TMDB's image server. It needs no token, so none is sent.
 #[derive(Clone)]
 pub struct Images {
-    pub(super) http: reqwest::Client,
+    pub(super) http: crate::proxy::Http,
     pub(super) base: String,
     pub(super) max_bytes: usize,
 }
@@ -20,10 +20,10 @@ impl Images {
     }
 
     pub(crate) fn with_base(base: String) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Tmdb, |b| {
+            b.timeout(Duration::from_secs(30))
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             base,

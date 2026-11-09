@@ -83,7 +83,7 @@ impl std::error::Error for Failure {}
 
 /// OpenRouter as Melete talks to it, with the household's one key.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     key: Secret,
     model: String,
     api: String,
@@ -107,13 +107,13 @@ impl Client {
     }
 
     fn with_api(settings: &OpenRouter, api: &str, budget: Arc<Budget>) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(45))
-            // The key is in a header; it goes to OpenRouter and nowhere it might send us.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::OpenRouter, |b| {
+            b.user_agent(USER_AGENT)
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(45))
+                // The key is in a header; it goes to OpenRouter and nowhere it might send us.
+                .redirect(reqwest::redirect::Policy::none())
+        })?;
         Ok(Self {
             http,
             key: settings.key.clone(),

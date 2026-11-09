@@ -184,3 +184,45 @@ async fn a_wrong_key_or_login_is_refused() {
     let message = Failure::Refused.to_string();
     assert!(!message.contains("nope") && !message.contains(KEY));
 }
+
+/// A download whose sign-in takes a while goes the way the proxy's setup says once it's sent:
+/// a switch saved while it signed in counts.
+#[tokio::test]
+async fn a_download_goes_the_way_set_when_its_sent() {
+    use crate::proxy::testing as proxied;
+    use crate::proxy::{Kind, Service, Setup};
+    let (base, fake) = testing::start().await;
+    let (proxy_at, proxy_log) = proxied::http_proxy("{}").await;
+    let at = Some(proxied::proxy(Kind::Http, proxy_at));
+    let direct = Setup {
+        at: at.clone(),
+        through: Vec::new(),
+    };
+    proxied::with(direct, async {
+        let switch = proxied::switcher();
+        *fake.on_login.lock().unwrap() = Some(Box::new(move || {
+            switch(Setup {
+                at: at.clone(),
+                through: vec![Service::OpenSubtitles],
+            })
+        }));
+        let mut settings = testing::settings(true);
+        settings.login = Some((
+            testing::OTHER_USER.into(),
+            Secret::for_tests(testing::PASSWORD),
+        ));
+        let client = Client::with_api(&settings, &base).unwrap();
+        let _ = client.download(7).await;
+    })
+    .await;
+    let paths: Vec<String> = fake
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|s| s.path.clone())
+        .collect();
+    assert_eq!(paths, ["/login"], "the download didn't go direct");
+    let through = proxy_log.lock().unwrap().requests.clone();
+    assert_eq!(through, [format!("POST {base}/download HTTP/1.1")]);
+}

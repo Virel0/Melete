@@ -30,7 +30,7 @@ const BUSY_WAIT: Duration = Duration::from_secs(5);
 
 /// A MusicBrainz client that keeps to one request a second, shared by everything that asks.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
     /// When the next request may go.
     next: Mutex<Instant>,
@@ -72,11 +72,11 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn with_base(base: String, spacing: Duration, busy_wait: Duration) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::MusicBrainz, |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(USER_AGENT)
+        })?;
         Ok(Self {
             http,
             base,

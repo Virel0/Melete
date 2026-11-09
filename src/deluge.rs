@@ -117,7 +117,7 @@ const STATUS_FIELDS: [&str; 10] = [
 /// A client for Deluge's web UI. It holds one session and makes one call at a time; requests
 /// give up after 30 seconds.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     url: String,
     password: Secret,
     /// The session cookie, once logged in.
@@ -143,11 +143,11 @@ impl Client {
                 "MELETE_DELUGE_URL must be https:// unless Deluge is on the local network"
             );
         }
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Deluge, |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             url: format!("{}/json", url.trim_end_matches('/')),

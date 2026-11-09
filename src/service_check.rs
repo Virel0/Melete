@@ -52,6 +52,7 @@ pub fn connects(key: &str) -> bool {
             | "oidc"
             | "openrouter"
             | "opensubtitles"
+            | "proxy"
     )
 }
 
@@ -61,6 +62,19 @@ const NOTHING_TO_CONNECT_TO: &str =
 
 /// Tests service `key` as `config` sets it up.
 pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Result<Checked> {
+    let mark = crate::proxy::mark();
+    let mut checked = check_alone(pool, key, config).await?;
+    // A service sent through the proxy that failed there says so, naming the proxy.
+    if !checked.ok
+        && key != "proxy"
+        && let Some(why) = crate::proxy::trouble_since(mark)
+    {
+        checked.message = format!("{}. {why}.", checked.message.trim_end_matches('.'));
+    }
+    Ok(checked)
+}
+
+async fn check_alone(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Result<Checked> {
     Ok(match key {
         "tmdb" => match &config.tmdb_token {
             None => wrong("There's no token to test yet."),
@@ -133,6 +147,13 @@ pub async fn check(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::Res
                 ),
                 Ok(()) => ok("OpenSubtitles took the key. Nothing was searched or downloaded."),
                 Err(failure) => wrong(format!("{failure}.")),
+            },
+        },
+        "proxy" => match &config.proxy.at {
+            None => wrong("Set the proxy's host and port first."),
+            Some(proxy) => match crate::proxy::test(proxy, crate::proxy::ECHO).await {
+                Ok(said) => ok(said),
+                Err(why) => wrong(why),
             },
         },
         _ => ok(NOTHING_TO_CONNECT_TO),

@@ -88,7 +88,7 @@ where
 /// [`RateLimited`] when it asks for a pause of more than a minute, and with a plain error on
 /// any other failure.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
     token: String,
     min_interval: Duration,
@@ -110,10 +110,10 @@ impl Client {
         min_interval: Duration,
         backoff_base: Duration,
     ) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Tmdb, |b| {
+            b.timeout(Duration::from_secs(15))
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             base,

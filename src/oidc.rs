@@ -73,7 +73,7 @@ pub enum BeginError {
 /// The provider as Melete talks to it: its settings, its discovery document (fetched again
 /// after an hour) and the sign-ins under way.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     settings: Oidc,
     provider: Mutex<Option<(Provider, Instant)>>,
     pending: Arc<Pending>,
@@ -90,12 +90,12 @@ impl Client {
     /// A client keeping its sign-ins under way in `pending`, where a client built before it
     /// with the same settings left them.
     pub fn with_pending(settings: Oidc, pending: Arc<Pending>) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(15))
-            // The client secret goes to the token endpoint, and nowhere it might send us.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Oidc, |b| {
+            b.user_agent(USER_AGENT)
+                .timeout(Duration::from_secs(15))
+                // The client secret goes to the token endpoint, and nowhere it might send us.
+                .redirect(reqwest::redirect::Policy::none())
+        })?;
         Ok(Self {
             http,
             scope: scope(&settings),

@@ -100,6 +100,8 @@ pub struct Config {
     pub openrouter: Option<OpenRouter>,
     /// Subtitles fetched from OpenSubtitles (`MELETE_OPENSUBTITLES_KEY`; off unless set).
     pub opensubtitles: Option<OpenSubtitles>,
+    /// The proxy and the services sent through it (`MELETE_PROXY_*`); none by default.
+    pub proxy: crate::proxy::Setup,
 }
 
 /// A value kept out of `Debug` output, so logging the config cannot leak it.
@@ -220,6 +222,7 @@ impl Config {
         let oidc = oidc(&get)?;
         let openrouter = openrouter(&get)?;
         let opensubtitles = opensubtitles(&get)?;
+        let proxy = crate::proxy::Setup::from_lookup(&get)?;
         Ok(Self {
             bind,
             data_dir,
@@ -252,6 +255,7 @@ impl Config {
             oidc,
             openrouter,
             opensubtitles,
+            proxy,
         })
     }
 }

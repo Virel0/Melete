@@ -25,7 +25,7 @@ const MAX_BYTES: usize = 32 * 1024 * 1024;
 
 /// A client for slskd's API, holding its key; it never connects to peers itself.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
     key: Secret,
     poll: Duration,
@@ -99,11 +99,11 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn new(base: &str, key: Secret) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Slskd, |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             base: base.trim_end_matches('/').to_owned(),

@@ -43,7 +43,7 @@ pub struct Finding {
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
     /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
     /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate,
-    /// anime_unstyled_subtitles.
+    /// anime_unstyled_subtitles, proxy_down.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
