@@ -12,7 +12,7 @@ use crate::upgrades::Replaced;
 pub(crate) struct Part {
     /// Every episode taken, in order.
     pub(crate) episodes: Vec<i64>,
-    /// The files on disk the pack's copies replace, once confirmed (decision 37).
+    /// The files on disk the pack's copies replace: they go to the trash once it's confirmed.
     pub(crate) replaces: Vec<Replaced>,
     /// Episodes left on disk as they are.
     pub(super) kept: Vec<i64>,
