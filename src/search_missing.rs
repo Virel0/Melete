@@ -3,7 +3,9 @@
 //! monitored season of a monitored series still missing episodes, or every monitored album of a
 //! monitored artist that isn't on disk or downloading. Each is searched as its own search would
 //! be (indexers, and Soulseek for albums) and, when downloads are on, the best accepted result
-//! is grabbed, as an RSS sync or an approved request does.
+//! is grabbed, as an RSS sync or an approved request does. A season whose search grabbed
+//! nothing (no pack holds its missing episodes yet) has each missing episode searched for next
+//! on its own.
 //!
 //! Pacing: a run makes one search at a time, and starts the next no sooner than [`PACE`] after
 //! the last one ended, so each indexer is asked at most once per pace from a run. Indexers
@@ -13,6 +15,7 @@
 //! time per area (the database's own constraint); it can be asked to stop, and finishes the
 //! search under way first.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
