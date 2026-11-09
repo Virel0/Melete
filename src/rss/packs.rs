@@ -208,16 +208,7 @@ impl Judged<'_> {
         files: &[OnDiskFile],
         e: i64,
     ) -> anyhow::Result<Against> {
-        let here: Vec<&OnDiskFile> = files
-            .iter()
-            .filter(|f| {
-                f.file.episode.is_some_and(|first| first <= e)
-                    && f.file
-                        .episode_end
-                        .or(f.file.episode)
-                        .is_some_and(|last| last >= e)
-            })
-            .collect();
+        let here = covering(files, e);
         // Only one file, in the title's own folder, holding this episode alone, can be replaced;
         // anything else stays.
         let only = match here.as_slice() {
@@ -245,6 +236,52 @@ impl Judged<'_> {
             },
         )
     }
+}
+
+/// The files holding episode `e`.
+fn covering(files: &[OnDiskFile], e: i64) -> Vec<&OnDiskFile> {
+    files
+        .iter()
+        .filter(|f| {
+            f.file.episode.is_some_and(|first| first <= e)
+                && f.file
+                    .episode_end
+                    .or(f.file.episode)
+                    .is_some_and(|last| last >= e)
+        })
+        .collect()
+}
+
+/// The episodes of a wanted series' season that are missing as a pack would find them: aired
+/// by TMDB's list (those left out on their own aside), with no file on disk in any folder
+/// known by the title's ids, and nothing on its way for them. None of them while a download
+/// for the whole season is, or while one of the season's is set aside for stalling, as it may
+/// yet go on.
+pub(crate) async fn missing_episodes(
+    pool: &SqlitePool,
+    wanted_series_id: i64,
+    season: i64,
+) -> anyhow::Result<Vec<i64>> {
+    let target = Target::Series {
+        id: wanted_series_id,
+        season,
+        episode: None,
+    };
+    let Some(wanted) = search::load_wanted(pool, target).await? else {
+        return Ok(Vec::new());
+    };
+    let Some(on_the_way) = on_the_way(pool, wanted_series_id, season, &wanted).await? else {
+        return Ok(Vec::new());
+    };
+    if crate::downloads::set_aside_in(pool, wanted_series_id, season).await? {
+        return Ok(Vec::new());
+    }
+    let files = files_in(pool, &wanted, season).await?;
+    Ok(aired(pool, wanted_series_id, season, &wanted)
+        .await?
+        .into_iter()
+        .filter(|e| !on_the_way.contains(e) && covering(&files, *e).is_empty())
+        .collect())
 }
 
 /// A download's name, episode and the episodes it was taken for.
