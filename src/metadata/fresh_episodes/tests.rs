@@ -263,3 +263,54 @@ async fn a_file_for_a_titled_episode_or_from_before_the_fetch_changes_nothing() 
         assert!(due.is_empty(), "{name:?}");
     }
 }
+
+#[tokio::test]
+async fn between_scans_only_the_series_due_are_fetched_and_nothing_is_matched() {
+    let pool = db::open_in_memory().await;
+    // Aired yesterday under TMDB's placeholder and fetched 7 hours ago: due.
+    series_with_episode(
+        &pool,
+        Path::new("/path/to/shows"),
+        (Some("Episode 6"), None),
+        -1,
+        7,
+    )
+    .await;
+    // A folder nobody matched yet: left for the next scan's matching.
+    sqlx::query(
+        "INSERT INTO series (library_id, rel_path, parsed_title, parsed_year, seen_generation)
+         VALUES (1, 'Other Show (2020)', 'Other Show', 2020, 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fake = titled_now();
+    let tmdb = fake.start().await;
+
+    let report = refresh_series_due(&pool, &tmdb).await.unwrap();
+    assert_eq!(report.refreshed, 1, "{report:?}");
+    let name: String = sqlx::query_scalar("SELECT name FROM tmdb_episodes WHERE episode = 6")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "A Real Title");
+    let asked = fake.log.lock().unwrap().clone();
+    assert!(
+        asked.iter().all(|path| !path.contains("search")),
+        "{asked:?}"
+    );
+    let unmatched: Option<String> =
+        sqlx::query_scalar("SELECT match_status FROM series WHERE parsed_title = 'Other Show'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unmatched, None);
+
+    // Fetched just now: not due again.
+    fake.log.lock().unwrap().clear();
+    assert_eq!(
+        refresh_series_due(&pool, &tmdb).await.unwrap(),
+        RefreshReport::default()
+    );
+    assert!(fake.log.lock().unwrap().is_empty());
+}
