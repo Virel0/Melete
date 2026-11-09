@@ -11,17 +11,18 @@ fn setup(proxy: Proxy, through: &[Service]) -> Setup {
     }
 }
 
-/// Asks `http://outside.example:<port>/hello` with a client from `builder`, the name taken to
-/// mean `site` when the client goes direct; what came back, or the whole error.
-async fn ask(
-    builder: anyhow::Result<reqwest::ClientBuilder>,
-    site: SocketAddr,
-) -> Result<String, String> {
-    let http = builder
-        .unwrap()
-        .resolve("outside.example", site)
-        .build()
-        .unwrap();
+/// A client for `service` that takes outside.example to mean `site` when it goes direct.
+fn service(service: Service, site: SocketAddr) -> Http {
+    Http::new(service, move |b| b.resolve("outside.example", site)).unwrap()
+}
+
+/// The same for a client with a choice of its own, `through` the proxy or not.
+fn its_own(through: bool, site: SocketAddr) -> Http {
+    Http::through(through, move |b| b.resolve("outside.example", site)).unwrap()
+}
+
+/// Asks `http://outside.example:<port>/hello` with `http`; what came back, or the whole error.
+async fn ask(http: Http, site: SocketAddr) -> Result<String, String> {
     let url = format!("http://outside.example:{}/hello", site.port());
     match http.get(url).send().await {
         Ok(answer) => Ok(answer.text().await.unwrap()),
@@ -51,10 +52,10 @@ async fn chosen_services_go_through_the_proxy_and_others_go_direct() {
     );
     let ((tmdb, slskd, musicbrainz, indexer), _) = with(chosen, async {
         (
-            ask(builder(Service::Tmdb), site).await,
-            ask(builder(Service::Slskd), site).await,
-            ask(builder(Service::MusicBrainz), site).await,
-            ask(builder_through(false), site).await,
+            ask(service(Service::Tmdb, site), site).await,
+            ask(service(Service::Slskd, site), site).await,
+            ask(service(Service::MusicBrainz, site), site).await,
+            ask(its_own(false, site), site).await,
         )
     })
     .await;
@@ -112,7 +113,7 @@ async fn a_down_proxy_fails_closed_naming_it() {
     let mut proxy = testing::proxy(Kind::Socks5, gone);
     proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
     let ((failed, finding), applied) = with(setup(proxy, &[Service::Tmdb]), async {
-        (ask(builder(Service::Tmdb), site).await, finding())
+        (ask(service(Service::Tmdb, site), site).await, finding())
     })
     .await;
     let failed = failed.unwrap_err();
@@ -142,7 +143,7 @@ async fn a_down_proxy_fails_closed_naming_it() {
 async fn set_to_use_a_proxy_with_none_set_sends_nothing() {
     let (site, site_log) = testing::site("from the site").await;
     let (failed, _) = with(Setup::default(), async {
-        ask(builder_through(true), site).await
+        ask(its_own(true, site), site).await
     })
     .await;
     assert!(
@@ -164,7 +165,7 @@ async fn a_proxy_that_answers_again_is_up() {
                 .status
                 .failed(&Unreachable::Down("http://somewhere:1".into()));
             assert!(finding().is_some());
-            ask(builder(Service::Tmdb), site).await.unwrap();
+            ask(service(Service::Tmdb, site), site).await.unwrap();
             assert!(finding().is_none());
         },
     )
@@ -178,7 +179,7 @@ async fn socks5_sends_the_name_not_an_address() {
     let chosen = setup(testing::proxy(Kind::Socks5, proxy_at), &[Service::Tmdb]);
     let (answer, _) = with(chosen, async {
         // A name that doesn't resolve here: only the proxy can look it up.
-        let http = builder(Service::Tmdb).unwrap().build().unwrap();
+        let http = Http::new(Service::Tmdb, |b| b).unwrap();
         http.get("http://tmdb.example:8080/3/configuration")
             .send()
             .await
@@ -203,7 +204,7 @@ async fn no_secret_in_answers_logs_or_errors() {
     proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
     let (site, _) = testing::site("from the site").await;
     let (answer, _) = with(setup(proxy.clone(), &[Service::Tmdb]), async {
-        ask(builder(Service::Tmdb), site).await
+        ask(service(Service::Tmdb, site), site).await
     })
     .await;
     assert_eq!(answer.unwrap(), "ok");
@@ -217,7 +218,7 @@ async fn no_secret_in_answers_logs_or_errors() {
     let mut strict = testing::proxy(Kind::Socks5, strict_at);
     strict.login = proxy.login.clone();
     let (refused, _) = with(setup(strict.clone(), &[Service::Tmdb]), async {
-        ask(builder(Service::Tmdb), site).await
+        ask(service(Service::Tmdb, site), site).await
     })
     .await;
     let refused = refused.unwrap_err();
@@ -347,3 +348,42 @@ fn every_service_has_its_switch_in_the_settings() {
 }
 
 use crate::config::Config;
+
+/// A client kept for a long job (an import, a search for everything missing) follows a switch
+/// made while it runs, from its next request: through the proxy once switched on, and nowhere
+/// once its way can't be made.
+#[tokio::test]
+async fn a_client_kept_for_a_job_follows_a_switch_made_while_it_runs() {
+    let (proxy_at, proxy_log) = testing::http_proxy("{}").await;
+    let (site, site_log) = testing::site("{}").await;
+    let proxy = testing::proxy(Kind::Http, proxy_at);
+    let ((), _) = with(setup(proxy.clone(), &[]), async {
+        let base = format!("http://{site}");
+        let mb =
+            crate::musicbrainz::Client::with_base(base, Default::default(), Default::default())
+                .unwrap();
+        let artist = "89ad4ac3-39f7-470e-963a-56509c546377";
+        let _ = mb.artist(artist).await;
+        assert_eq!(asked(&site_log).len(), 1, "direct before the switch");
+
+        testing::switch(setup(proxy.clone(), &[Service::MusicBrainz]));
+        let _ = mb.artist(artist).await;
+        assert_eq!(asked(&site_log).len(), 1, "nothing direct after it");
+        let through = asked(&proxy_log);
+        assert_eq!(through.len(), 1, "{through:?}");
+        assert!(
+            through[0].starts_with(&format!("GET http://{site}/")),
+            "{through:?}"
+        );
+
+        // Switched on with no proxy to use (refused when saved; here as if it got through).
+        testing::switch(Setup {
+            at: None,
+            through: vec![Service::MusicBrainz],
+        });
+        assert!(mb.artist(artist).await.is_err(), "refused");
+        let sent = (asked(&site_log).len(), asked(&proxy_log).len());
+        assert_eq!(sent, (1, 1), "nothing sent, direct or through");
+    })
+    .await;
+}

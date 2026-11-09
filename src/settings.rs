@@ -15,10 +15,12 @@ use crate::db::unix_now;
 mod catalogue;
 mod saving;
 mod views;
+mod withholding;
 
 pub use catalogue::*;
 pub use saving::*;
 pub use views::*;
+pub use withholding::withhold;
 
 fn known(name: &str) -> Option<&'static Field> {
     SERVICES

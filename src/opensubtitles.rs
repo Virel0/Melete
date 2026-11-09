@@ -107,7 +107,9 @@ static LOGIN: Mutex<Option<(String, Secret, Instant)>> = Mutex::new(None);
 
 /// OpenSubtitles as Melete talks to it, with the household's key and, when set, its account.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
+    /// For download links, which need no key and may redirect.
+    downloads: crate::proxy::Http,
     settings: OpenSubtitles,
     api: String,
 }

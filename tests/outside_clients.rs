@@ -1,4 +1,4 @@
-//! Every HTTP client Melete builds starts in its proxy module (`proxy::builder`), which sends the
+//! Every HTTP client Melete builds starts in its proxy module (`proxy::Http`), which sends the
 //! service through the proxy when an admin chose that and keeps it there when the proxy is down.
 //! A client built anywhere else would skip that choice and could go direct, so the hand-written
 //! Rust under `src/` never builds one itself, nor sets a client's proxy.
@@ -62,7 +62,7 @@ fn every_http_client_starts_in_the_proxy_module() {
         let text = std::fs::read_to_string(path).unwrap();
         for (line, what) in builds_a_client(&text) {
             wrong.push(format!(
-                "{}:{line} uses {what}: start the client with crate::proxy::builder(<service>) so the proxy choice applies",
+                "{}:{line} uses {what}: start the client with crate::proxy::Http::new(<service>, ...) so the proxy choice applies",
                 path.display()
             ));
         }
@@ -90,7 +90,7 @@ fn finds_a_client_built_on_its_own() {
         Vec::<usize>::new()
     );
     assert_eq!(
-        found("let http = crate::proxy::builder(crate::proxy::Service::Tmdb)?\n    .build()?;"),
+        found("let http = crate::proxy::Http::new(crate::proxy::Service::Tmdb, |b| b)?;"),
         Vec::<usize>::new()
     );
     assert!(allowed(Path::new("src/proxy/check.rs")) && !allowed(Path::new("src/tmdb.rs")));

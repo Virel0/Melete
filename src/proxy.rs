@@ -1,21 +1,27 @@
 //! Sending chosen services through a proxy (HTTP, HTTPS or SOCKS5), with a kill switch. Every
-//! HTTP client Melete builds to reach another service starts here ([`builder`]), so none can
-//! skip the choice made for it. Each service goes direct unless an admin switches it on; one
-//! switched on only ever goes through the proxy: when the proxy is down or isn't set, its
-//! requests fail with words that name the proxy, never its login, and nothing is sent direct.
-//! SOCKS5 is always used as socks5h, so the proxy looks names up and the server doesn't. What's
-//! set applies to the next client built: per-request clients at once, and the lasting ones
-//! when `live` builds them afresh after a save.
+//! HTTP client Melete makes to reach another service is a [`Http`] from here, so none can skip
+//! the choice made for it (clippy's `disallowed-methods` and `disallowed-types` hold every other
+//! module to that, and `tests/outside_clients.rs` reads the sources for it). Each service goes
+//! direct unless an admin switches it on; one switched on only ever goes through the proxy: when
+//! the proxy is down or isn't set, its requests fail with words that name the proxy, never its
+//! login, and nothing is sent direct. SOCKS5 is always used as socks5h, so the proxy looks names
+//! up and the server doesn't. A change applies to every client from its next request, those
+//! kept for long jobs included.
+
+// The one module that makes reqwest clients and picks their proxy.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 use std::sync::{Arc, LazyLock, RwLock};
 
 use crate::config::Secret;
 
 mod check;
+mod http;
 mod setup;
 mod watch;
 
 pub use check::{ECHO, test};
+pub use http::Http;
 pub use watch::{Status, Unreachable, finding, mark, trouble_since};
 
 /// How the proxy is spoken to.
@@ -186,21 +192,22 @@ static APPLIED: LazyLock<RwLock<Arc<Applied>>> =
 
 #[cfg(test)]
 tokio::task_local! {
-    /// A test's own setup, in place of the server's, so tests running together don't share one.
-    static TESTING: Arc<Applied>;
+    /// A test's own setup, in place of the server's, so tests running together don't share one;
+    /// a test can change it while it runs (`testing::switch`).
+    static TESTING: Arc<std::sync::Mutex<Arc<Applied>>>;
 }
 
-/// The setup clients are built with now.
+/// The setup in use now: every request a client makes goes the way it says.
 pub fn current() -> Arc<Applied> {
     #[cfg(test)]
-    if let Ok(applied) = TESTING.try_with(Arc::clone) {
+    if let Ok(applied) = TESTING.try_with(|t| t.lock().unwrap_or_else(|e| e.into_inner()).clone()) {
         return applied;
     }
     APPLIED.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Puts `setup` in use for every client built from now on; returns the one it replaces, to put
-/// back with [`restore`] if what's built with it can't be used.
+/// Puts `setup` in use, for every request from now on, by clients old and new; returns the one
+/// it replaces, to put back with [`restore`] if what's built with it can't be used.
 pub fn apply(setup: Setup) -> Arc<Applied> {
     let mut applied = APPLIED.write().unwrap_or_else(|e| e.into_inner());
     std::mem::replace(&mut *applied, Arc::new(Applied::new(setup)))
@@ -211,37 +218,34 @@ pub fn restore(previous: Arc<Applied>) {
     *APPLIED.write().unwrap_or_else(|e| e.into_inner()) = previous;
 }
 
-/// The start of every HTTP client for `service`: through the proxy when it's switched on for
-/// it, else direct, as Melete always went.
-///
-/// # Errors
-///
-/// When the proxy's address can't be made into one reqwest takes.
-pub fn builder(service: Service) -> anyhow::Result<reqwest::ClientBuilder> {
-    let applied = current();
-    route(&applied, applied.setup.uses(service))
+/// A bare client builder: the one place outside services' clients start, so nothing else may
+/// make one (clippy's `disallowed-methods` and `tests/outside_clients.rs` hold every other file
+/// to that).
+fn bare() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
 }
 
-/// The start of an HTTP client that goes through the proxy when `through` is true, for what
-/// has a choice of its own rather than one switch.
-///
-/// # Errors
-///
-/// As [`builder`].
-pub fn builder_through(through: bool) -> anyhow::Result<reqwest::ClientBuilder> {
-    route(&current(), through)
-}
-
-fn route(applied: &Applied, through: bool) -> anyhow::Result<reqwest::ClientBuilder> {
-    let builder = reqwest::Client::builder();
+/// `configured` (a bare builder with a service's own settings) set to go the way `applied`
+/// says when `through` is true: through its proxy, or nowhere when it has none.
+fn route(
+    applied: &Applied,
+    through: bool,
+    configured: reqwest::ClientBuilder,
+) -> anyhow::Result<reqwest::ClientBuilder> {
     if !through {
-        return Ok(builder);
+        return Ok(configured);
     }
-    // No proxy to go through: every connection is refused, none made direct.
     let Some(proxy) = &applied.setup.at else {
-        return Ok(builder.no_proxy().connector_layer(watch::Watch::refusing()));
+        return Ok(nowhere(configured));
     };
-    via(builder, proxy, Some(applied.status.clone()))
+    via(configured, proxy, Some(applied.status.clone()))
+}
+
+/// `configured` set to go nowhere: every connection is refused, none made direct.
+fn nowhere(configured: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    configured
+        .no_proxy()
+        .connector_layer(watch::Watch::refusing())
 }
 
 /// `builder` sent through `proxy`, every connection watched, and noted in `status` when given.

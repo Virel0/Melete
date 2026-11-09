@@ -37,7 +37,7 @@ pub fn is_browse_url(url: &str) -> bool {
 /// follow redirects.
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     /// Where requests for HOST go instead, in tests.
     base: Option<String>,
 }
@@ -51,11 +51,11 @@ impl Client {
     /// A client that, given `base`, sends its requests there instead of Rotten Tomatoes, for
     /// tests; None reaches Rotten Tomatoes itself.
     pub fn with_base(base: Option<String>) -> anyhow::Result<Self> {
-        let http = crate::proxy::builder(crate::proxy::Service::Lists)?
-            .timeout(Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Lists, |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http, base })
     }
 

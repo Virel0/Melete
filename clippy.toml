@@ -1,3 +1,21 @@
 # Functions longer than this fail the build outside tests (see the lint attributes in
 # src/main.rs): split them into named steps.
 too-many-lines-threshold = 100
+
+# Every HTTP client starts in src/proxy.rs (`proxy::Http`), so the proxy choice made for its
+# service applies and a service sent through the proxy never goes direct. Nothing else may make
+# a client or pick its proxy; tests/outside_clients.rs reads the sources for the same.
+disallowed-methods = [
+    { path = "reqwest::Client::new", reason = "start HTTP clients with crate::proxy::Http" },
+    { path = "reqwest::Client::builder", reason = "start HTTP clients with crate::proxy::Http" },
+    { path = "reqwest::ClientBuilder::new", reason = "start HTTP clients with crate::proxy::Http" },
+    { path = "reqwest::ClientBuilder::proxy", reason = "the proxy is crate::proxy's to set" },
+    { path = "reqwest::ClientBuilder::no_proxy", reason = "the proxy is crate::proxy's to set" },
+    { path = "reqwest::get", reason = "start HTTP clients with crate::proxy::Http" },
+]
+# Naming the types catches what the methods above can't: Client::default(), a field of a
+# #[derive(Default)] struct, an alias.
+disallowed-types = [
+    { path = "reqwest::Client", reason = "services hold a crate::proxy::Http" },
+    { path = "reqwest::ClientBuilder", reason = "start HTTP clients with crate::proxy::Http" },
+]

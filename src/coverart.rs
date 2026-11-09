@@ -14,7 +14,7 @@ const MAX_BYTES: usize = 10 * 1024 * 1024;
 
 /// A Cover Art Archive client that follows redirects only to archive.org's hosts over https.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
 }
 
@@ -50,20 +50,22 @@ impl Client {
 
     /// `any_host` lets tests redirect to a plain-http fake.
     pub fn with_base(base: String, any_host: bool) -> anyhow::Result<Self> {
-        let policy = reqwest::redirect::Policy::custom(move |attempt| {
-            if attempt.previous().len() >= 5 {
-                attempt.error("too many redirects")
-            } else if any_host || allowed(attempt.url()) {
-                attempt.follow()
-            } else {
-                attempt.error("redirected somewhere other than archive.org")
-            }
-        });
-        let http = crate::proxy::builder(crate::proxy::Service::CoverArt)?
-            .timeout(Duration::from_secs(30))
-            .redirect(policy)
-            .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let policy = move || {
+            reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.previous().len() >= 5 {
+                    attempt.error("too many redirects")
+                } else if any_host || allowed(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.error("redirected somewhere other than archive.org")
+                }
+            })
+        };
+        let http = crate::proxy::Http::new(crate::proxy::Service::CoverArt, move |b| {
+            b.timeout(Duration::from_secs(30))
+                .redirect(policy())
+                .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self { http, base })
     }
 

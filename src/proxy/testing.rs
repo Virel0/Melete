@@ -28,9 +28,15 @@ pub type Log = Arc<Mutex<Seen>>;
 
 /// Runs `test` with `setup` in use for the clients it builds, and how the proxy answered.
 pub async fn with<F: Future>(setup: Setup, test: F) -> (F::Output, Arc<Applied>) {
-    let applied = Arc::new(Applied::new(setup));
-    let output = TESTING.scope(applied.clone(), test).await;
+    let in_use = Arc::new(Mutex::new(Arc::new(Applied::new(setup))));
+    let output = TESTING.scope(in_use.clone(), test).await;
+    let applied = in_use.lock().unwrap().clone();
     (output, applied)
+}
+
+/// Puts `setup` in use in place of the test's, as saving the settings does for the server.
+pub fn switch(setup: Setup) {
+    TESTING.with(|in_use| *in_use.lock().unwrap() = Arc::new(Applied::new(setup)));
 }
 
 /// A proxy of `kind` at `at`, without a login.

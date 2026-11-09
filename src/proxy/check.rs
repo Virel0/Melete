@@ -17,7 +17,7 @@ pub async fn test(proxy: &Proxy, echo: &str) -> Result<String, String> {
         .ok()
         .and_then(|u| u.host_str().map(str::to_owned))
         .unwrap_or_else(|| echo.to_owned());
-    let http = via(reqwest::Client::builder(), proxy, None)
+    let http = via(bare(), proxy, None)
         .and_then(|b| {
             Ok(b.timeout(Duration::from_secs(20))
                 .redirect(reqwest::redirect::Policy::none())

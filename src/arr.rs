@@ -49,7 +49,7 @@ impl std::error::Error for WrongApp {}
 /// sends something that doesn't read as the expected JSON.
 #[derive(Clone)]
 pub struct ArrClient {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
     key: String,
 }
@@ -77,13 +77,13 @@ impl ArrClient {
         if key.trim().is_empty() {
             bail!("the API key is empty");
         }
-        let http = crate::proxy::builder(crate::proxy::Service::Arr)?
-            .timeout(Duration::from_secs(60))
-            // reqwest would carry X-Api-Key to wherever a redirect points (an auth proxy's
-            // login page, say); never follow one.
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Arr, |b| {
+            b.timeout(Duration::from_secs(60))
+                // reqwest would carry X-Api-Key to wherever a redirect points (an auth proxy's
+                // login page, say); never follow one.
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             base: url.trim_end_matches('/').to_owned(),

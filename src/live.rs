@@ -376,8 +376,8 @@ impl Live {
     pub async fn rebuild(&self) -> anyhow::Result<()> {
         let mut tasks = self.tasks.lock().await;
         let config = crate::settings::load(&self.fixed.pool).await?;
-        // The proxy's setup first, for the clients built now and those made per request; put
-        // back when the new ones can't be made, as everything else stays as it was then.
+        // The proxy's setup first: every client, old or new, goes its way from its next request.
+        // Put back when the new clients can't be made, as everything else stays as it was then.
         let before = crate::proxy::apply(config.proxy.clone());
         let made = build(&self.fixed, &self.kept, &config).and_then(|built| {
             Ok((

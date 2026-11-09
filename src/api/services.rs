@@ -71,7 +71,7 @@ async fn test(
     Path(key): Path<String>,
     body: Bytes,
 ) -> Result<Json<Checked>, ApiError> {
-    let changes: Changes = if body.iter().all(u8::is_ascii_whitespace) {
+    let mut changes: Changes = if body.iter().all(u8::is_ascii_whitespace) {
         Changes {
             values: HashMap::new(),
         }
@@ -79,12 +79,29 @@ async fn test(
         serde_json::from_slice(&body)
             .map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, format!("the body: {err}")))?
     };
+    // A stored login isn't handed to an address other than the one it was set up for.
+    let stored = settings::stored(&state.pool).await?;
+    let withheld = match settings::withhold(&key, &mut changes.values, &stored, &env) {
+        Ok(withheld) => withheld,
+        Err(why) => {
+            return Ok(Json(Checked {
+                ok: false,
+                message: why,
+            }));
+        }
+    };
     let (config, _) = settings::candidate(&state.pool, &key, &changes.values, &env)
         .await?
         .map_err(refused)?;
-    Ok(Json(
-        service_check::check(&state.pool, &key, &config).await?,
-    ))
+    let mut checked = service_check::check(&state.pool, &key, &config).await?;
+    if !withheld.is_empty() {
+        checked.message = format!(
+            "{} Stored, but not sent to an address other than the one set up: {}. Enter them to test with them.",
+            checked.message,
+            withheld.join(", ")
+        );
+    }
+    Ok(Json(checked))
 }
 
 /// A new random key, for an API key that Melete and another program share (slskd's, say):
@@ -497,5 +514,39 @@ mod tests {
             error.contains("MELETE_PROXY_TMDB is on, but no proxy is set"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_test_at_a_new_address_leaves_the_stored_login_out() {
+        let pool = db::open_in_memory().await;
+        let admin = token(&pool, "admin", true).await;
+        let app = routes(pool.clone(), rebuilds(true));
+        let gone = crate::proxy::testing::nothing_at().await;
+        let stored = json!({"values": {
+            "MELETE_PROXY_HOST": "127.0.0.1",
+            "MELETE_PROXY_PORT": gone.port().to_string(),
+            "MELETE_PROXY_USERNAME": "alice",
+            "MELETE_PROXY_PASSWORD": "the-proxy-password",
+        }});
+        let uri = "/api/v1/settings/services/proxy";
+        let (status, _) = send(&app, "PUT", uri, &admin, Some(stored)).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Someone else's proxy, which would take the login if it were offered.
+        let wants = Some(("alice", "the-proxy-password"));
+        let (elsewhere, seen) = crate::proxy::testing::socks5(wants, "203.0.113.7").await;
+        let moved = json!({"values": {"MELETE_PROXY_PORT": elsewhere.port().to_string()}});
+        let test = "/api/v1/settings/services/proxy/test";
+        let (status, tested) = send(&app, "POST", test, &admin, Some(moved)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tested["ok"], json!(false));
+        let message = tested["message"].as_str().unwrap();
+        assert!(
+            message.ends_with(
+                "Stored, but not sent to an address other than the one set up: Username, Password. Enter them to test with them."
+            ),
+            "{message}"
+        );
+        assert!(seen.lock().unwrap().logins.is_empty(), "no login offered");
     }
 }

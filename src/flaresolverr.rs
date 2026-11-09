@@ -33,7 +33,7 @@ impl std::fmt::Display for Solver {
 /// Talks to one FlareSolverr.
 #[derive(Clone)]
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     /// Its API, e.g. http://flaresolverr:8191/v1.
     endpoint: String,
 }
@@ -46,10 +46,10 @@ impl Client {
     ///
     /// When the HTTP client can't be built (no TLS backend).
     pub fn new(base: &str) -> anyhow::Result<Self> {
-        let http = crate::proxy::builder(crate::proxy::Service::FlareSolverr)?
-            .timeout(Duration::from_millis(MAX_TIMEOUT_MS + 15_000))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::FlareSolverr, |b| {
+            b.timeout(Duration::from_millis(MAX_TIMEOUT_MS + 15_000))
+                .redirect(reqwest::redirect::Policy::none())
+        })?;
         Ok(Self {
             http,
             endpoint: format!("{}/v1", base.trim_end_matches('/')),

@@ -15,7 +15,7 @@ const MAX_BYTES: usize = 1024 * 1024;
 
 /// A LibreTranslate client, holding its key when there is one.
 pub struct Client {
-    http: reqwest::Client,
+    http: crate::proxy::Http,
     base: String,
     api_key: Option<Secret>,
 }
@@ -38,11 +38,11 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn new(base: &str, api_key: Option<Secret>) -> anyhow::Result<Self> {
-        let http = crate::proxy::builder(crate::proxy::Service::Translation)?
-            .timeout(Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::proxy::Http::new(crate::proxy::Service::Translation, |b| {
+            b.timeout(Duration::from_secs(60))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))
+        })?;
         Ok(Self {
             http,
             base: base.trim_end_matches('/').to_owned(),
