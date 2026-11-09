@@ -30,6 +30,7 @@ pub fn routes(pool: SqlitePool) -> Router {
         .route("/api/v1/indexers", get(list).post(add_torznab))
         .route("/api/v1/indexers/{id}", put(update).delete(remove))
         .route("/api/v1/indexers/{id}/test", post(test))
+        .route("/api/v1/indexers/{id}/proxy", put(route))
         .route("/api/v1/indexers/presets/{key}", post(add_preset))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
         .with_state(pool)
@@ -62,6 +63,41 @@ async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Indexer>>, ApiE
 struct Change {
     name: String,
     enabled: bool,
+}
+
+/// Whether an indexer goes through the proxy.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Route {
+    proxy: bool,
+}
+
+/// Sends an indexer, and the torrents its results link to, through the proxy or direct; false
+/// when there's no such indexer.
+async fn set_proxy(pool: &SqlitePool, id: i64, proxy: bool) -> sqlx::Result<bool> {
+    let changed = sqlx::query("UPDATE indexers SET proxy = ? WHERE id = ?")
+        .bind(proxy)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(changed.rows_affected() > 0)
+}
+
+/// `PUT /indexers/{id}/proxy`: through the proxy, or direct. Kept across Prowlarr imports.
+async fn route(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(route): Json<Route>,
+) -> Result<Json<Indexer>, ApiError> {
+    if !set_proxy(&pool, id, route.proxy).await? {
+        return Err(not_found());
+    }
+    indexers::list(&pool)
+        .await?
+        .into_iter()
+        .find(|i| i.id == id)
+        .map(Json)
+        .ok_or_else(not_found)
 }
 
 fn not_found() -> ApiError {
@@ -128,6 +164,9 @@ struct NewTorznab {
     url: String,
     #[serde(default)]
     api_key: String,
+    /// Through the proxy from its first request on, the one asking what it can do.
+    #[serde(default)]
+    proxy: bool,
 }
 
 /// Adds a Torznab indexer by hand; it's asked what it can do before it's kept.
@@ -136,9 +175,8 @@ async fn add_torznab(
     Json(body): Json<NewTorznab>,
 ) -> Result<(StatusCode, Json<Indexer>), ApiError> {
     let client = torznab::Client::new()?;
-    let id = match indexers::add_torznab(&pool, &client, &body.name, &body.url, &body.api_key)
-        .await?
-    {
+    let (name, url, key) = (&body.name, &body.url, &body.api_key);
+    let id = match indexers::add_torznab(&pool, &client, name, url, key, body.proxy).await? {
         Ok(id) => id,
         Err(NotAddedOwn::Invalid(why)) => return Err(ApiError::new(StatusCode::BAD_REQUEST, why)),
         Err(NotAddedOwn::Already(id)) => {
@@ -304,10 +342,11 @@ mod tests {
             json!([
                 { "id": 1, "name": "Disabled Tracker", "url": format!("{url}/2/api"), "enabled": false,
                   "categories": [], "movie_search_params": [], "tv_search_params": [], "source": "prowlarr", "kind": "torznab",
-                  "added_at": added_at },
+                  "added_at": added_at, "proxy": false },
                 { "id": 2, "name": "Fake Tracker", "url": format!("{url}/1/api"), "enabled": true,
                   "categories": [2000, 2040, 2045, 5000, 5040], "movie_search_params": ["q", "imdbid", "tmdbid"],
-                  "tv_search_params": ["q", "season", "ep", "tvdbid"], "source": "prowlarr", "kind": "torznab", "added_at": added_at }
+                  "tv_search_params": ["q", "season", "ep", "tvdbid"], "source": "prowlarr", "kind": "torznab", "added_at": added_at,
+                  "proxy": false }
             ])
         );
         assert!(
@@ -567,5 +606,40 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = send(&f, "GET", "/api/v1/indexers", &f.viewer, None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn each_indexer_is_sent_through_the_proxy_or_not_by_admins() {
+        let f = fixture().await;
+        let (_, nyaa) = send(&f, "POST", "/api/v1/indexers/presets/nyaa", &f.admin, None).await;
+        assert_eq!(nyaa["proxy"], json!(false), "direct until switched");
+        let uri = format!("/api/v1/indexers/{}/proxy", nyaa["id"]);
+        let through = json!({ "proxy": true });
+        let (status, _) = send(&f, "PUT", &uri, &f.viewer, Some(through.clone())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, changed) = send(&f, "PUT", &uri, &f.admin, Some(through.clone())).await;
+        assert_eq!((status, &changed["proxy"]), (StatusCode::OK, &json!(true)));
+        // Renaming it, or turning it off, leaves its way as it is.
+        let renamed = json!({ "name": "Nyaa.si", "enabled": false });
+        let edit = format!("/api/v1/indexers/{}", nyaa["id"]);
+        let (_, renamed) = send(&f, "PUT", &edit, &f.admin, Some(renamed)).await;
+        assert_eq!(
+            (&renamed["name"], &renamed["proxy"]),
+            (&json!("Nyaa.si"), &json!(true))
+        );
+        let (_, listed) = send(&f, "GET", "/api/v1/indexers", &f.admin, None).await;
+        assert_eq!(listed[0]["proxy"], json!(true));
+        let (status, _) = send(
+            &f,
+            "PUT",
+            "/api/v1/indexers/99/proxy",
+            &f.admin,
+            Some(through),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let wrong = json!({ "proxy": "yes" });
+        let (status, _) = send(&f, "PUT", &uri, &f.admin, Some(wrong)).await;
+        assert!(status.is_client_error(), "{status}");
     }
 }

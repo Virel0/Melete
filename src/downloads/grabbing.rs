@@ -14,9 +14,13 @@ pub(super) struct ReleaseRow {
     pub(super) season: Option<i64>,
     pub(super) episode: Option<i64>,
     pub(super) from_soulseek: bool,
+    /// Whether the indexer that found it goes through the proxy; None when it's been removed.
+    pub(super) through_proxy: Option<bool>,
 }
 
-/// Sends an accepted search result to Deluge and starts following it.
+/// Sends an accepted search result to Deluge and starts following it. Its torrent is fetched
+/// the way the indexer that found it goes; one whose indexer was removed, through the proxy
+/// whenever one is set, as a way not known can't be taken to be direct.
 pub async fn grab(
     pool: &SqlitePool,
     deluge: &deluge::Client,
@@ -54,7 +58,10 @@ pub(crate) async fn grab_only(
     };
     let sealing = crate::secrets::sealing(pool).await?;
     let link = crate::secrets::from_store(sealing, crate::secrets::DOWNLOAD_URL, link)?;
-    let (torrent, hash) = match fetch_torrent(fetcher, &link).await? {
+    let through = row
+        .through_proxy
+        .unwrap_or_else(|| crate::proxy::current().setup.at.is_some());
+    let (torrent, hash) = match fetch_torrent(fetcher, &link, through).await? {
         Ok(fetched) => fetched,
         Err(refused) => return Ok(Err(refused)),
     };
@@ -89,7 +96,8 @@ async fn grabbable(
     let row: Option<ReleaseRow> = sqlx::query_as(
         "SELECT d.title, d.download_url, d.accepted, d.decision, s.wanted_movie_id,
                 s.wanted_series_id, s.wanted_album_id, s.season, s.episode,
-                d.soulseek IS NOT NULL AS from_soulseek
+                d.soulseek IS NOT NULL AS from_soulseek,
+                (SELECT i.proxy FROM indexers i WHERE i.id = d.indexer_id) AS through_proxy
          FROM release_decisions d JOIN searches s ON s.id = d.search_id
          WHERE d.id = ?",
     )
@@ -146,8 +154,9 @@ async fn reordered_since(pool: &SqlitePool, release_id: i64) -> sqlx::Result<boo
 async fn fetch_torrent(
     fetcher: &Fetcher,
     link: &str,
+    through: bool,
 ) -> anyhow::Result<Result<(Torrent, String), Refused>> {
-    let torrent = match fetcher.fetch(link).await {
+    let torrent = match fetcher.fetch(link, through).await {
         Ok(torrent) => torrent,
         Err(why) => return Ok(Err(Refused::Fetch(why))),
     };

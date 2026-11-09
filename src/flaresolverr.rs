@@ -10,6 +10,22 @@ use serde_json::{Value, json};
 /// How long FlareSolverr may take over one page; solving a challenge takes seconds.
 const MAX_TIMEOUT_MS: u64 = 60_000;
 
+/// The first FlareSolverr that reads the `proxy` field of a page request: its 3.0.0 rewrite had
+/// no proxy support, and 3.2.0 brought it back ("Support "proxy" param in requests and
+/// sessions", its changelog). An earlier or unknown one isn't handed the proxy.
+pub const PROXY_FROM: &str = "3.2.0";
+
+/// Whether FlareSolverr `version` (such as "v3.3.21" or "3.4.0") is [`PROXY_FROM`] or later.
+pub(crate) fn takes_a_proxy(version: &str) -> bool {
+    let parts: Vec<u32> = version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .map_while(|p| p.parse().ok())
+        .collect();
+    parts.len() >= 2 && (parts[0], parts[1]) >= (3, 2)
+}
+
 /// What answered at FlareSolverr's address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Solver {
@@ -36,6 +52,8 @@ pub struct Client {
     http: crate::proxy::Http,
     /// Its API, e.g. http://flaresolverr:8191/v1.
     endpoint: String,
+    /// Whether the pages it fetches are for an indexer set to go through the proxy.
+    through: bool,
 }
 
 impl Client {
@@ -53,7 +71,60 @@ impl Client {
         Ok(Self {
             http,
             endpoint: format!("{}/v1", base.trim_end_matches('/')),
+            through: false,
         })
+    }
+
+    /// The same solver, its browser fetching through the proxy when `proxy` is true.
+    pub fn through(self, proxy: bool) -> Self {
+        Self {
+            through: proxy,
+            ..self
+        }
+    }
+
+    /// The `proxy` field to send for a page, None to fetch direct. FlareSolverr's browser is
+    /// handed an http or socks5 proxy (socks5 has the proxy look names up), by its address alone.
+    /// One that can't be handed over is refused, never left out, as the page would then be
+    /// fetched from the solver's own address: an HTTPS proxy (the browser takes none), and a
+    /// proxy with a login, whose password would otherwise travel in FlareSolverr's request
+    /// body, and over plain http on the way there. So is a solver that doesn't say it's
+    /// FlareSolverr [`PROXY_FROM`] or later, which may leave the field unread.
+    async fn proxy_field(&self) -> Result<Option<Value>, String> {
+        use crate::proxy::Kind;
+        if !self.through {
+            return Ok(None);
+        }
+        let applied = crate::proxy::current();
+        let Some(proxy) = &applied.setup.at else {
+            return Err(crate::proxy::Unreachable::NoProxy.to_string());
+        };
+        let at = format!("{}:{}", proxy.host, proxy.port);
+        let refused = |why: &str| {
+            Err(format!(
+                "{why}: the proxy at {} isn't handed to it, and nothing was sent; it never goes direct",
+                proxy.address()
+            ))
+        };
+        let field = match (proxy.kind, &proxy.login) {
+            (_, Some(_)) => {
+                return refused("FlareSolverr is never given a proxy's password");
+            }
+            (Kind::Socks5, None) => json!({ "url": format!("socks5://{at}") }),
+            (Kind::Http, None) => json!({ "url": format!("http://{at}") }),
+            (Kind::Https, None) => {
+                return refused("FlareSolverr's browser can't use an HTTPS proxy");
+            }
+        };
+        match self.ready().await {
+            Ok(Solver::FlareSolverr(Some(version))) if takes_a_proxy(&version) => Ok(Some(field)),
+            Ok(Solver::FlareSolverr(version)) => Err(format!(
+                "FlareSolverr {} may not read the proxy it's handed (it does from {PROXY_FROM}), so nothing was sent through it",
+                version.as_deref().unwrap_or("of an unknown version")
+            )),
+            Ok(Solver::Compatible) => Err("the solver at FlareSolverr's address isn't FlareSolverr itself, so it isn't trusted to fetch through the proxy, and nothing was sent".into()),
+            Err(why) => Err(why),
+        }
     }
 
     /// What answers at the address, asked for FlareSolverr's sessions: nothing is fetched. A
@@ -94,7 +165,10 @@ impl Client {
 
     /// The HTML of a page, as a browser gets it.
     pub async fn get(&self, url: &str) -> Result<String, String> {
-        let request = json!({ "cmd": "request.get", "url": url, "maxTimeout": MAX_TIMEOUT_MS });
+        let mut request = json!({ "cmd": "request.get", "url": url, "maxTimeout": MAX_TIMEOUT_MS });
+        if let Some(proxy) = self.proxy_field().await? {
+            request["proxy"] = proxy;
+        }
         let response = self
             .http
             .post(&self.endpoint)
@@ -150,7 +224,7 @@ pub mod testing {
     }
 
     /// A fake of the solver `plays`, answering every page with `html`; the URLs asked for are
-    /// logged.
+    /// logged, each after `proxy <its proxy field>` when it came with one.
     pub async fn start_as(plays: Plays, html: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
         let log: Arc<Mutex<Vec<String>>> = Arc::default();
         let router =
@@ -161,6 +235,9 @@ pub mod testing {
                         move |State(log): State<Arc<Mutex<Vec<String>>>>,
                               Json(body): Json<Value>| async move {
                             let url = body["url"].as_str().unwrap_or_default().to_owned();
+                            if let Some(proxy) = body.get("proxy") {
+                                log.lock().unwrap().push(format!("proxy {proxy}"));
+                            }
                             log.lock().unwrap().push(url.clone());
                             answer(plays, &body, &url, html)
                         },

@@ -108,6 +108,8 @@ pub(crate) struct IndexerRow {
     pub(crate) api_key: String,
     pub(crate) categories: Vec<i64>,
     pub(crate) kind: torznab::Kind,
+    /// Whether it goes through the proxy, and the torrents its results link to.
+    pub(crate) proxy: bool,
     movie_params: Vec<String>,
     tv_params: Vec<String>,
 }
@@ -213,7 +215,7 @@ async fn search_with(
     let mut tasks = tokio::task::JoinSet::new();
     for (position, indexer) in indexers.iter().enumerate() {
         let params = params(indexer, &wanted, target);
-        let client = client.clone();
+        let client = client.through(indexer.proxy);
         let (url, api_key, kind) = (indexer.url.clone(), indexer.api_key.clone(), indexer.kind);
         tasks.spawn(async move {
             let result = match params {

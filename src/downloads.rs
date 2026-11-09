@@ -853,4 +853,61 @@ mod tests {
         );
         following.abort();
     }
+
+    #[tokio::test]
+    async fn a_release_is_fetched_the_way_its_indexer_goes() {
+        use crate::proxy::testing as fake;
+        let pool = db::open_in_memory().await;
+        let (proxy_at, proxy_log) = fake::http_proxy("not a torrent").await;
+        let (site, site_log) = fake::site("not a torrent").await;
+        let links = [
+            "http://tracker.example/proxied".to_owned(),
+            format!("http://{site}/direct"),
+            "http://tracker.example/indexer-removed".to_owned(),
+            format!("http://{site}/turned-down"),
+        ];
+        let ids = releases(&pool, &links).await;
+        for (release, proxy) in [(ids[0], true), (ids[1], false)] {
+            sqlx::query(
+                "INSERT INTO indexers (name, url, api_key, enabled, categories,
+                     movie_search_params, tv_search_params, source, added_at, proxy)
+                 VALUES (?, 'u', '', 1, '[]', '[]', '[]', 'melete', 0, ?);
+                 UPDATE release_decisions SET indexer_id = last_insert_rowid() WHERE id = ?",
+            )
+            .bind(format!("indexer {release}"))
+            .bind(proxy)
+            .bind(release)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let setup = crate::proxy::Setup {
+            at: Some(fake::proxy(crate::proxy::Kind::Http, proxy_at)),
+            through: Vec::new(),
+        };
+        let (fetched, _) = fake::with(setup, async {
+            let (p, _) = pipeline().await;
+            let mut fetched = Vec::new();
+            for id in &ids[..3] {
+                fetched.push(grab(&pool, &p.deluge, &p.fetcher, *id).await.unwrap());
+            }
+            fetched
+        })
+        .await;
+        let not_a_torrent = Err(Refused::Fetch(
+            "the link gave something that isn't a torrent".into(),
+        ));
+        assert!(fetched.iter().all(|f| *f == not_a_torrent), "{fetched:?}");
+        let through = proxy_log.lock().unwrap().requests.clone();
+        assert_eq!(
+            through,
+            [
+                "GET http://tracker.example/proxied HTTP/1.1",
+                "GET http://tracker.example/indexer-removed HTTP/1.1",
+            ],
+            "a removed indexer's way isn't known, so it goes through the proxy that's set"
+        );
+        let direct = site_log.lock().unwrap().requests.clone();
+        assert_eq!(direct, ["GET /direct HTTP/1.1"]);
+    }
 }

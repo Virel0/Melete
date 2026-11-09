@@ -3230,7 +3230,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Add a Torznab indexer by hand",
-        "description": "Any Torznab address with its API key, such as a Jackett instance or a tracker's own Torznab feed. It's asked what it can do first (`t=caps`); its categories and search parameters come from that answer, and one that doesn't answer isn't added. The key is kept for searches and never shown back. Searches send it what they search for (a title, a year, an id) and the key. Like every outside request, it follows HTTPS_PROXY / ALL_PROXY / NO_PROXY.",
+        "description": "Any Torznab address with its API key, such as a Jackett instance or a tracker's own Torznab feed. It's asked what it can do first (`t=caps`); its categories and search parameters come from that answer, and one that doesn't answer isn't added. The key is kept for searches and never shown back. Searches send it what they search for (a title, a year, an id) and the key. With `proxy` true it's reached through the proxy set under Outside services from its first request on (the one asking what it can do), and fails rather than going direct while that proxy is down or unset; otherwise it goes direct, following HTTPS_PROXY / ALL_PROXY / NO_PROXY.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3248,6 +3248,11 @@
                     "type": "string",
                     "maxLength": 200,
                     "description": "Its API key; empty for a feed that needs none."
+                  },
+                  "proxy": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether it, and the torrents its results link to, go through the proxy set under Outside services."
                   }
                 },
                 "additionalProperties": false
@@ -3272,6 +3277,35 @@
           },
           "502": {
             "description": "It didn't answer as a Torznab indexer (a wrong key, address, or it's down); nothing was added",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/indexers/{id}/proxy": {
+      "put": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Send an indexer through the proxy, or direct",
+        "description": "Outlasts imports from Prowlarr; off for every indexer until an admin switches it on. One sent through the proxy is searched, tested and has its results' torrents fetched through the proxy set under Outside services, and fails rather than going direct while that proxy is down or unset; its Uindex pages and refused feeds are fetched by FlareSolverr only when FlareSolverr 3.2.0 or later answers (the first since its 3.0 rewrite to read the proxy it's handed) and the proxy can be handed over by its address alone: HTTP or SOCKS5 without a login, as a password is never sent to FlareSolverr. For an indexer from Prowlarr, Prowlarr is what reaches the tracker, so its own proxy setting is the one that counts.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "Indexer id.", "schema": {"type": "integer"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IndexerProxy"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "The indexer as it is now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Indexer"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such indexer",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -15203,6 +15237,17 @@
         },
         "additionalProperties": false
       },
+      "IndexerProxy": {
+        "type": "object",
+        "required": ["proxy"],
+        "properties": {
+          "proxy": {
+            "type": "boolean",
+            "description": "Whether it, and the torrents its results link to, go through the proxy set under Outside services."
+          }
+        },
+        "additionalProperties": false
+      },
       "IndexerChange": {
         "type": "object",
         "required": ["name", "enabled"],
@@ -15226,7 +15271,8 @@
           "tv_search_params",
           "source",
           "kind",
-          "added_at"
+          "added_at",
+          "proxy"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -15256,7 +15302,8 @@
             "enum": ["torznab", "apibay", "nyaa", "uindex"],
             "description": "How it's reached: a Torznab feed (Prowlarr's, or AnimeTosho's), The Pirate Bay's JSON API, Nyaa's RSS feed, or Uindex's search page through FlareSolverr."
           },
-          "added_at": {"type": "integer", "description": "Unix seconds."}
+          "added_at": {"type": "integer", "description": "Unix seconds."},
+          "proxy": {"type": "boolean", "description": "Whether it, and the torrents its results link to, go through the proxy set under Outside services; off until an admin switches it on."}
         },
         "additionalProperties": false,
         "description": "Its API key is stored for searching and never shown."

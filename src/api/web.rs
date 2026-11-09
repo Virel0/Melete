@@ -1233,7 +1233,7 @@ mod tests {
             ("/web/manage-services.js", r#"moved: { overview: "list" }"#),
             (
                 "/web/indexers.js",
-                r#"["Name", "Kind", "Used by", "On", "Last result", ""]"#,
+                r#"["Name", "Kind", "Used by", "On", "Proxy", "Last result", ""]"#,
             ),
             ("/web/indexers.js", "It must share nothing."),
             ("/web/manage-parts.js", r#"role: "switch""#),

@@ -141,6 +141,8 @@ pub struct Indexer {
     pub kind: String,
     /// When it was first added, in Unix seconds.
     pub added_at: i64,
+    /// Whether it, and the torrents its results link to, go through the proxy.
+    pub proxy: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -155,13 +157,14 @@ struct IndexerRow {
     source: String,
     kind: String,
     added_at: i64,
+    proxy: bool,
 }
 
 /// Every indexer, by name, without keys.
 pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Indexer>> {
     let rows: Vec<IndexerRow> = sqlx::query_as(
         "SELECT id, name, url, enabled AND NOT turned_off AS enabled, categories,
-                movie_search_params, tv_search_params, source, kind, added_at
+                movie_search_params, tv_search_params, source, kind, added_at, proxy
          FROM indexers ORDER BY name, id",
     )
     .fetch_all(pool)
@@ -179,6 +182,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Indexer>> {
                 source: row.source,
                 kind: row.kind,
                 added_at: row.added_at,
+                proxy: row.proxy,
             })
         })
         .collect()
@@ -263,14 +267,15 @@ pub async fn test(
     client: &torznab::Client,
     id: i64,
 ) -> anyhow::Result<Option<Result<TestReport, torznab::Error>>> {
-    let row: Option<(String, String, String, String)> =
-        sqlx::query_as("SELECT url, api_key, kind, categories FROM indexers WHERE id = ?")
+    let row: Option<(String, String, String, String, bool)> =
+        sqlx::query_as("SELECT url, api_key, kind, categories, proxy FROM indexers WHERE id = ?")
             .bind(id)
             .fetch_optional(pool)
             .await?;
-    let Some((url, api_key, kind, categories)) = row else {
+    let Some((url, api_key, kind, categories, proxy)) = row else {
         return Ok(None);
     };
+    let client = &client.through(proxy);
     let sealing = secrets::sealing(pool).await?;
     let api_key = secrets::from_store(sealing, secrets::INDEXER_KEY, &api_key)?;
     let endpoint = torznab::Endpoint {
@@ -421,8 +426,10 @@ pub async fn add_torznab(
     name: &str,
     url: &str,
     api_key: &str,
+    proxy: bool,
 ) -> anyhow::Result<Result<i64, NotAddedOwn>> {
     let (name, url, api_key) = (name.trim(), url.trim(), api_key.trim());
+    let client = &client.through(proxy);
     if name.is_empty() || name.chars().count() > 100 {
         return Ok(Err(NotAddedOwn::Invalid("the name is 1 to 100 characters")));
     }
@@ -464,8 +471,8 @@ pub async fn add_torznab(
     };
     let id = sqlx::query_scalar(
         "INSERT INTO indexers (name, url, api_key, enabled, categories, movie_search_params,
-             tv_search_params, source, kind, added_at)
-         VALUES (?, ?, ?, 1, ?, ?, ?, 'melete', 'torznab', ?) RETURNING id",
+             tv_search_params, source, kind, added_at, proxy)
+         VALUES (?, ?, ?, 1, ?, ?, ?, 'melete', 'torznab', ?, ?) RETURNING id",
     )
     .bind(name)
     .bind(url)
@@ -478,6 +485,7 @@ pub async fn add_torznab(
     .bind(serde_json::to_string(&caps.movie_search)?)
     .bind(serde_json::to_string(&caps.tv_search)?)
     .bind(unix_now())
+    .bind(proxy)
     .fetch_one(pool)
     .await?;
     Ok(Ok(id))
@@ -524,7 +532,7 @@ mod own_tests {
         let pool = db::open_in_memory().await;
         let client = torznab::Client::new().unwrap();
         let (url, asked) = feed(CAPS).await;
-        let id = add_torznab(&pool, &client, " My Jackett ", &url, "the-key")
+        let id = add_torznab(&pool, &client, " My Jackett ", &url, "the-key", false)
             .await
             .unwrap()
             .unwrap();
@@ -550,7 +558,7 @@ mod own_tests {
             .unwrap();
         assert_eq!(key, "the-key", "kept for searches");
         assert_eq!(
-            add_torznab(&pool, &client, "Again", &url, "k")
+            add_torznab(&pool, &client, "Again", &url, "k", false)
                 .await
                 .unwrap(),
             Err(NotAddedOwn::Already(id))
@@ -565,7 +573,7 @@ mod own_tests {
             .unwrap();
         let client = torznab::Client::new().unwrap();
         let (url, asked) = feed(CAPS).await;
-        let id = add_torznab(&pool, &client, "Mine", &url, "the-key")
+        let id = add_torznab(&pool, &client, "Mine", &url, "the-key", false)
             .await
             .unwrap()
             .unwrap();
@@ -595,7 +603,9 @@ mod own_tests {
         ] {
             assert!(
                 matches!(
-                    add_torznab(&pool, &client, name, url, "k").await.unwrap(),
+                    add_torznab(&pool, &client, name, url, "k", false)
+                        .await
+                        .unwrap(),
                     Err(NotAddedOwn::Invalid(_))
                 ),
                 "{name} {url}"
@@ -603,7 +613,7 @@ mod own_tests {
         }
         let (url, _) =
             feed(r#"<?xml version="1.0"?><error code="100" description="Invalid API Key"/>"#).await;
-        let refused = add_torznab(&pool, &client, "Wrong key", &url, "the-secret-key")
+        let refused = add_torznab(&pool, &client, "Wrong key", &url, "the-secret-key", false)
             .await
             .unwrap();
         let Err(NotAddedOwn::Unanswered(why)) = refused else {

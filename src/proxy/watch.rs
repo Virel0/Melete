@@ -94,6 +94,22 @@ impl Status {
     }
 }
 
+/// Why a request failed at the proxy, when that's what it failed at.
+pub fn unreachable_in(err: &(dyn std::error::Error + 'static)) -> Option<Unreachable> {
+    std::iter::successors(Some(err), |e| e.source())
+        .find_map(|e| e.downcast_ref::<Unreachable>())
+        .cloned()
+}
+
+/// A failed request in words safe to show: the proxy's, when it failed there, else reqwest's
+/// own without the URL (which can carry a key).
+pub fn said(err: reqwest::Error) -> String {
+    match unreachable_in(&err) {
+        Some(why) => why.to_string(),
+        None => err.without_url().to_string(),
+    }
+}
+
 /// Failed connections through the proxy in use so far; with [`trouble_since`], whether one
 /// failed in between.
 pub fn mark() -> u64 {
