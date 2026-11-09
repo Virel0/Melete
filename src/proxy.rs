@@ -22,7 +22,7 @@ mod watch;
 
 pub use check::{ECHO, test};
 pub use http::Http;
-pub use watch::{Status, Unreachable, finding, mark, trouble_since};
+pub use watch::{Status, Unreachable, finding, mark, said, trouble_since};
 
 /// How the proxy is spoken to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

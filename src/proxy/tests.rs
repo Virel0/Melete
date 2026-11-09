@@ -387,3 +387,137 @@ async fn a_client_kept_for_a_job_follows_a_switch_made_while_it_runs() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn each_indexer_goes_its_own_way() {
+    use crate::torznab::Endpoint;
+    let feed = "<rss><channel></channel></rss>";
+    let (proxy_at, proxy_log) = testing::http_proxy(feed).await;
+    let (site, site_log) = testing::site(feed).await;
+    let direct = format!("http://{site}/api");
+    let chosen = setup(testing::proxy(Kind::Http, proxy_at), &[]);
+    with(chosen, async {
+        let client = crate::torznab::Client::new().unwrap();
+        let tracker = Endpoint {
+            url: "http://tracker.example/api",
+            api_key: "",
+        };
+        let search = [("t", "search")];
+        client
+            .through(true)
+            .search(&tracker, &search)
+            .await
+            .unwrap();
+        let local = Endpoint {
+            url: &direct,
+            api_key: "",
+        };
+        client.through(false).search(&local, &search).await.unwrap();
+    })
+    .await;
+    assert_eq!(
+        asked(&proxy_log),
+        ["GET http://tracker.example/api?t=search HTTP/1.1"]
+    );
+    assert_eq!(asked(&site_log), ["GET /api?t=search HTTP/1.1"]);
+
+    // Set to go through a proxy when none is set: refused, nothing sent.
+    let (refused, _) = with(Setup::default(), async {
+        let client = crate::torznab::Client::new().unwrap().through(true);
+        let local = Endpoint {
+            url: &direct,
+            api_key: "",
+        };
+        client.search(&local, &[("t", "search")]).await.unwrap_err()
+    })
+    .await;
+    assert!(refused.to_string().contains("no proxy is set"), "{refused}");
+    assert_eq!(asked(&site_log).len(), 1);
+}
+
+#[tokio::test]
+async fn flaresolverr_is_given_the_proxy_or_asked_nothing() {
+    use crate::flaresolverr::Client;
+    use crate::flaresolverr::testing::{Plays, start_as};
+    let (url, log) = start_as(Plays::FlareSolverr(Some("3.4.0")), "<html></html>").await;
+    let pages = || {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|l| !l.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let at: SocketAddr = "192.168.1.10:1080".parse().unwrap();
+    let page = |setup: Setup, through: bool, solver: String| async move {
+        with(setup, async {
+            Client::new(&solver)
+                .unwrap()
+                .through(through)
+                .get("https://uindex.org/")
+                .await
+        })
+        .await
+        .0
+    };
+    page(
+        setup(testing::proxy(Kind::Socks5, at), &[]),
+        true,
+        url.clone(),
+    )
+    .await
+    .unwrap();
+    page(
+        setup(testing::proxy(Kind::Socks5, at), &[]),
+        false,
+        url.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        pages(),
+        [
+            r#"proxy {"url":"socks5://192.168.1.10:1080"}"#,
+            "https://uindex.org/",
+            "https://uindex.org/",
+        ],
+        "the browser goes through the proxy, and only for an indexer set to"
+    );
+
+    // What can't be passed on is refused, and no page is asked for.
+    let mut login = testing::proxy(Kind::Socks5, at);
+    login.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+    let (byparr, _) = start_as(Plays::Byparr, "<html></html>").await;
+    for (setup, solver, why) in [
+        (
+            setup(login, &[]),
+            url.clone(),
+            "can't log in to the SOCKS5 proxy",
+        ),
+        (
+            setup(testing::proxy(Kind::Https, at), &[]),
+            url.clone(),
+            "can't use the HTTPS proxy",
+        ),
+        (Setup::default(), url.clone(), "no proxy is set"),
+        (
+            setup(testing::proxy(Kind::Socks5, at), &[]),
+            byparr,
+            "isn't FlareSolverr itself",
+        ),
+    ] {
+        let refused = page(setup, true, solver).await.unwrap_err();
+        assert!(refused.contains(why), "{refused}");
+        assert!(!refused.contains("the-proxy-password"), "{refused}");
+    }
+    assert_eq!(pages().len(), 3, "nothing more was fetched");
+
+    // An HTTP proxy's login goes to FlareSolverr with the page, for its browser to give.
+    let mut http = testing::proxy(Kind::Http, at);
+    http.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+    page(setup(http, &[]), true, url.clone()).await.unwrap();
+    assert_eq!(
+        pages()[3],
+        r#"proxy {"password":"the-proxy-password","url":"http://192.168.1.10:1080","username":"alice"}"#
+    );
+}

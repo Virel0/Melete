@@ -13,10 +13,11 @@ pub(crate) async fn enabled_indexers(pool: &SqlitePool) -> anyhow::Result<Vec<In
         movie: String,
         tv: String,
         kind: String,
+        proxy: bool,
     }
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT id, name, url, api_key, categories, movie_search_params AS movie,
-                tv_search_params AS tv, kind
+                tv_search_params AS tv, kind, proxy
          FROM indexers WHERE enabled = 1 AND turned_off = 0 ORDER BY name, id",
     )
     .fetch_all(pool)
@@ -33,9 +34,11 @@ pub(crate) async fn enabled_indexers(pool: &SqlitePool) -> anyhow::Result<Vec<In
                  movie,
                  tv,
                  kind,
+                 proxy,
              }| {
                 Ok(IndexerRow {
                     id,
+                    proxy,
                     name,
                     url,
                     api_key: crate::secrets::from_store(

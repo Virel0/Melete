@@ -63,6 +63,13 @@ export async function indexerList(ctx) {
     page.strip,
     h("div", { class: "toolbar" }, add, all.length ? testAll(page) : null, page.status),
     h("p", { class: "note" }, "Searches and RSS syncs ask every indexer that's turned on. Turning one off keeps it, its name and its history; removing it keeps the results it already found."),
+    h(
+      "p",
+      { class: "note" },
+      "Proxy: an indexer switched on goes through the proxy set under ",
+      h("a", { href: "#/admin/system/services" }, "Outside services"),
+      ", and so do the torrents its results link to. It never goes direct: with the proxy down or unset, it fails. Uindex's pages are fetched by FlareSolverr, which is handed the proxy (HTTP, or SOCKS5 without a login); one it can't use stops the search. Prowlarr's indexers are reached through Prowlarr, which is what asks the tracker, so their proxy is Prowlarr's own setting: switch one on here only when Prowlarr itself sits elsewhere, reached over the internet.",
+    ),
     page.table,
   ];
 }
@@ -72,7 +79,7 @@ function draw(page) {
     page.table.replaceChildren(emptyState("No indexers yet, so Melete can't search for anything.", { href: "#/admin/indexers/add", label: "Add an indexer" }));
     return;
   }
-  page.table.replaceChildren(rowTable(["Name", "Kind", "Used by", "On", "Last result", ""], page.items.map((ix) => indexerRow(page, ix))));
+  page.table.replaceChildren(rowTable(["Name", "Kind", "Used by", "On", "Proxy", "Last result", ""], page.items.map((ix) => indexerRow(page, ix))));
 }
 
 // Testing the ones that failed (or every one turned on when none did), one after another, so
@@ -160,12 +167,30 @@ function indexerRow(page, ix) {
       return true;
     },
   });
+  const proxy = onOff({
+    on: ix.proxy,
+    label: `${ix.name} through the proxy`,
+    change: async (on) => {
+      try {
+        await api(`/indexers/${ix.id}/proxy`, { method: "PUT", body: { proxy: on } });
+      } catch (err) {
+        failed(err);
+        return false;
+      }
+      ix.proxy = on;
+      announce(on ? `${ix.name} goes through the proxy` : `${ix.name} goes direct`);
+      // The switch is turned back on once this returns; focus goes back to it then.
+      setTimeout(() => proxy.querySelector("[role=switch]")?.focus());
+      return true;
+    },
+  });
   return {
     cells: [
       h("span", { class: "name" }, ix.name),
       kindOf(ix),
       usedBy(ix.categories),
       toggle,
+      proxy,
       lastResult(ix, page.rss),
       h("div", { class: "row-actions" }, test, rename, remove),
     ],

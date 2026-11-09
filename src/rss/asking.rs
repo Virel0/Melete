@@ -20,7 +20,7 @@ pub(super) async fn ask_indexers(
         } else {
             "it has no movie or TV categories"
         };
-        let client = client.clone();
+        let client = client.through(indexer.proxy);
         let (url, api_key, kind) = (indexer.url.clone(), indexer.api_key.clone(), indexer.kind);
         tasks.spawn(async move {
             if video.is_empty() && music.is_empty() {

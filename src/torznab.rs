@@ -17,9 +17,11 @@ use reqwest::StatusCode;
 
 mod other_kinds;
 mod page;
+mod solver;
 mod xml;
 
 pub use other_kinds::*;
+pub use solver::{has_flaresolverr, use_flaresolverr};
 pub use xml::*;
 
 /// The largest reply read; a page of 100 results is well under 1 MiB.
@@ -179,27 +181,45 @@ impl fmt::Debug for Item {
     }
 }
 
-/// Asks indexers for results. Holds the one HTTP client every indexer request goes through:
+/// Asks indexers for results. Holds the HTTP clients every indexer request goes through, one
+/// direct and one through the proxy, each indexer using the one it's set to ([`Client::through`]):
 /// 30-second timeout, no redirects, a User-Agent that names only Melete and its version.
 #[derive(Clone)]
 pub struct Client {
-    http: crate::proxy::Http,
+    direct: crate::proxy::Http,
+    proxied: crate::proxy::Http,
+    through: bool,
 }
 
 impl Client {
-    /// A client with that HTTP setup.
+    /// A client with that HTTP setup, direct until [`Client::through`] says otherwise.
     ///
     /// # Errors
     ///
     /// When the HTTP client can't be built (no TLS backend).
     pub fn new() -> anyhow::Result<Self> {
-        let http = crate::proxy::Http::through(false, |b| {
-            b.timeout(Duration::from_secs(30))
-                // The key is in the URL; a redirect would hand it to wherever it points.
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-        })?;
-        Ok(Self { http })
+        let build = |through| {
+            crate::proxy::Http::through(through, |b| {
+                b.timeout(Duration::from_secs(30))
+                    // The key is in the URL; a redirect would hand it to wherever it points.
+                    .redirect(reqwest::redirect::Policy::none())
+                    .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+            })
+        };
+        let (direct, proxied) = (build(false)?, build(true)?);
+        Ok(Self {
+            direct,
+            proxied,
+            through: false,
+        })
+    }
+
+    /// The client for an indexer set to go through the proxy (`proxy`), or direct.
+    pub fn through(&self, proxy: bool) -> Self {
+        Self {
+            through: proxy,
+            ..self.clone()
+        }
     }
 
     /// Asks a Torznab indexer what it can do (`t=caps`).
@@ -265,7 +285,7 @@ impl Client {
                 Ok(items)
             }
             Kind::Uindex => {
-                let Some(flaresolverr) = flaresolverr() else {
+                let Some(flaresolverr) = self.solver() else {
                     return Err(Error::Unreachable(
                         "Uindex sits behind Cloudflare's check; set MELETE_FLARESOLVERR_URL".into(),
                     ));
@@ -320,7 +340,7 @@ impl Client {
                 refused @ Error::Refused {
                     key_sent: false, ..
                 },
-            ) => match flaresolverr() {
+            ) => match self.solver() {
                 Some(flaresolverr) => feed_through(&flaresolverr, endpoint.url, &query).await,
                 None => Err(refused),
             },
@@ -341,9 +361,13 @@ impl Client {
         params: &[(&str, &str)],
         key_sent: bool,
     ) -> Result<String, Error> {
-        let unreachable = |err: reqwest::Error| Error::Unreachable(err.without_url().to_string());
-        let mut response = self
-            .http
+        let unreachable = |err: reqwest::Error| Error::Unreachable(crate::proxy::said(err));
+        let http = if self.through {
+            &self.proxied
+        } else {
+            &self.direct
+        };
+        let mut response = http
             .get(url)
             .query(params)
             .send()
@@ -414,7 +438,7 @@ fn refused(status: StatusCode, body: &str, key_sent: bool) -> Error {
 
 /// A reply's body as text, up to the size cap.
 async fn read_body(response: &mut reqwest::Response) -> Result<String, Error> {
-    let unreachable = |err: reqwest::Error| Error::Unreachable(err.without_url().to_string());
+    let unreachable = |err: reqwest::Error| Error::Unreachable(crate::proxy::said(err));
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
@@ -436,28 +460,6 @@ pub enum Kind {
     Nyaa,
     /// Uindex's search page, through FlareSolverr (it's behind Cloudflare's check).
     Uindex,
-}
-
-/// The FlareSolverr to reach Uindex through, from `MELETE_FLARESOLVERR_URL`; set whenever the
-/// outside services are (`live`).
-static FLARESOLVERR: std::sync::RwLock<Option<crate::flaresolverr::Client>> =
-    std::sync::RwLock::new(None);
-
-fn flaresolverr() -> Option<crate::flaresolverr::Client> {
-    FLARESOLVERR
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-}
-
-/// Makes FlareSolverr available to indexers that need it, or not.
-pub fn use_flaresolverr(client: Option<crate::flaresolverr::Client>) {
-    *FLARESOLVERR.write().unwrap_or_else(|e| e.into_inner()) = client;
-}
-
-/// Whether a FlareSolverr is set, so Uindex can be searched.
-pub fn has_flaresolverr() -> bool {
-    flaresolverr().is_some()
 }
 
 impl Kind {

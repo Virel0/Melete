@@ -36,6 +36,8 @@ pub struct Client {
     http: crate::proxy::Http,
     /// Its API, e.g. http://flaresolverr:8191/v1.
     endpoint: String,
+    /// Whether the pages it fetches are for an indexer set to go through the proxy.
+    through: bool,
 }
 
 impl Client {
@@ -53,7 +55,57 @@ impl Client {
         Ok(Self {
             http,
             endpoint: format!("{}/v1", base.trim_end_matches('/')),
+            through: false,
         })
+    }
+
+    /// The same solver, its browser fetching through the proxy when `proxy` is true.
+    pub fn through(self, proxy: bool) -> Self {
+        Self {
+            through: proxy,
+            ..self
+        }
+    }
+
+    /// The `proxy` field to send for a page, None to fetch direct. FlareSolverr's browser takes
+    /// an http or socks5 proxy (socks5 has the proxy look names up), with a login for http
+    /// only. One it can't be given is refused, never left out: the page would be fetched from
+    /// the solver's own address. So is a solver that doesn't answer as FlareSolverr itself,
+    /// which may leave the field unread.
+    async fn proxy_field(&self) -> Result<Option<Value>, String> {
+        use crate::proxy::Kind;
+        if !self.through {
+            return Ok(None);
+        }
+        let applied = crate::proxy::current();
+        let Some(proxy) = &applied.setup.at else {
+            return Err(crate::proxy::Unreachable::NoProxy.to_string());
+        };
+        let at = format!("{}:{}", proxy.host, proxy.port);
+        let field = match (proxy.kind, &proxy.login) {
+            (Kind::Socks5, None) => json!({ "url": format!("socks5://{at}") }),
+            (Kind::Http, None) => json!({ "url": format!("http://{at}") }),
+            (Kind::Http, Some((user, password))) => json!({
+                "url": format!("http://{at}"), "username": user, "password": password.expose(),
+            }),
+            (Kind::Socks5, Some(_)) => {
+                return Err(format!(
+                    "FlareSolverr's browser can't log in to the SOCKS5 proxy at {}, so nothing was sent: it never goes direct",
+                    proxy.address()
+                ));
+            }
+            (Kind::Https, _) => {
+                return Err(format!(
+                    "FlareSolverr's browser can't use the HTTPS proxy at {}, so nothing was sent: it never goes direct",
+                    proxy.address()
+                ));
+            }
+        };
+        match self.ready().await {
+            Ok(Solver::FlareSolverr(_)) => Ok(Some(field)),
+            Ok(Solver::Compatible) => Err("the solver at FlareSolverr's address isn't FlareSolverr itself, so it isn't trusted to fetch through the proxy, and nothing was sent".into()),
+            Err(why) => Err(why),
+        }
     }
 
     /// What answers at the address, asked for FlareSolverr's sessions: nothing is fetched. A
@@ -94,7 +146,10 @@ impl Client {
 
     /// The HTML of a page, as a browser gets it.
     pub async fn get(&self, url: &str) -> Result<String, String> {
-        let request = json!({ "cmd": "request.get", "url": url, "maxTimeout": MAX_TIMEOUT_MS });
+        let mut request = json!({ "cmd": "request.get", "url": url, "maxTimeout": MAX_TIMEOUT_MS });
+        if let Some(proxy) = self.proxy_field().await? {
+            request["proxy"] = proxy;
+        }
         let response = self
             .http
             .post(&self.endpoint)
@@ -150,7 +205,7 @@ pub mod testing {
     }
 
     /// A fake of the solver `plays`, answering every page with `html`; the URLs asked for are
-    /// logged.
+    /// logged, each after `proxy <its proxy field>` when it came with one.
     pub async fn start_as(plays: Plays, html: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
         let log: Arc<Mutex<Vec<String>>> = Arc::default();
         let router =
@@ -161,6 +216,9 @@ pub mod testing {
                         move |State(log): State<Arc<Mutex<Vec<String>>>>,
                               Json(body): Json<Value>| async move {
                             let url = body["url"].as_str().unwrap_or_default().to_owned();
+                            if let Some(proxy) = body.get("proxy") {
+                                log.lock().unwrap().push(format!("proxy {proxy}"));
+                            }
                             log.lock().unwrap().push(url.clone());
                             answer(plays, &body, &url, html)
                         },

@@ -114,6 +114,7 @@ fn indexer(movie: &[&str], tv: &[&str]) -> IndexerRow {
         api_key: String::new(),
         categories: vec![2000, 2040, 5000, 5040, 8000],
         kind: torznab::Kind::Torznab,
+        proxy: false,
         movie_params: movie.iter().map(|p| p.to_string()).collect(),
         tv_params: tv.iter().map(|p| p.to_string()).collect(),
     }

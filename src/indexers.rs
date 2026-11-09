@@ -141,6 +141,8 @@ pub struct Indexer {
     pub kind: String,
     /// When it was first added, in Unix seconds.
     pub added_at: i64,
+    /// Whether it, and the torrents its results link to, go through the proxy.
+    pub proxy: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -155,13 +157,14 @@ struct IndexerRow {
     source: String,
     kind: String,
     added_at: i64,
+    proxy: bool,
 }
 
 /// Every indexer, by name, without keys.
 pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Indexer>> {
     let rows: Vec<IndexerRow> = sqlx::query_as(
         "SELECT id, name, url, enabled AND NOT turned_off AS enabled, categories,
-                movie_search_params, tv_search_params, source, kind, added_at
+                movie_search_params, tv_search_params, source, kind, added_at, proxy
          FROM indexers ORDER BY name, id",
     )
     .fetch_all(pool)
@@ -179,6 +182,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Indexer>> {
                 source: row.source,
                 kind: row.kind,
                 added_at: row.added_at,
+                proxy: row.proxy,
             })
         })
         .collect()
@@ -263,14 +267,15 @@ pub async fn test(
     client: &torznab::Client,
     id: i64,
 ) -> anyhow::Result<Option<Result<TestReport, torznab::Error>>> {
-    let row: Option<(String, String, String, String)> =
-        sqlx::query_as("SELECT url, api_key, kind, categories FROM indexers WHERE id = ?")
+    let row: Option<(String, String, String, String, bool)> =
+        sqlx::query_as("SELECT url, api_key, kind, categories, proxy FROM indexers WHERE id = ?")
             .bind(id)
             .fetch_optional(pool)
             .await?;
-    let Some((url, api_key, kind, categories)) = row else {
+    let Some((url, api_key, kind, categories, proxy)) = row else {
         return Ok(None);
     };
+    let client = &client.through(proxy);
     let sealing = secrets::sealing(pool).await?;
     let api_key = secrets::from_store(sealing, secrets::INDEXER_KEY, &api_key)?;
     let endpoint = torznab::Endpoint {

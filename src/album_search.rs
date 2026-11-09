@@ -320,7 +320,7 @@ async fn ask_indexers(
     let mut tasks = tokio::task::JoinSet::new();
     for (position, indexer) in indexers.iter().enumerate() {
         let params = params(indexer, album);
-        let client = client.clone();
+        let client = client.through(indexer.proxy);
         let (url, api_key, kind) = (indexer.url.clone(), indexer.api_key.clone(), indexer.kind);
         tasks.spawn(async move {
             let result = match params {

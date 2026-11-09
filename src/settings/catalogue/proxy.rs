@@ -11,7 +11,7 @@ const LOCAL: &str = "Usually on the local network or inside compose, which a pro
 pub(super) const PROXY: Service = Service {
     key: "proxy",
     name: "Proxy",
-    about: "Sending the services chosen below through a proxy, such as a VPN provider's SOCKS5 or HTTP proxy, so they see its address rather than the server's. Each goes direct until it's switched on here. One switched on only ever goes through the proxy: while the proxy is down or unset its requests fail, they never go direct, and System's status says so. Test asks api.ipify.org through the proxy which address the outside world sees: that's an outside request, made only when Test is pressed. The password stays on the server. Indexers go direct for now, and so does the seedbox's SFTP.",
+    about: "Sending the services chosen below through a proxy, such as a VPN provider's SOCKS5 or HTTP proxy, so they see its address rather than the server's. Each goes direct until it's switched on here. One switched on only ever goes through the proxy: while the proxy is down or unset its requests fail, they never go direct, and System's status says so. Test asks api.ipify.org through the proxy which address the outside world sees: that's an outside request, made only when Test is pressed. The password stays on the server. Each indexer has a switch of its own, under Indexers. The seedbox's SFTP goes direct.",
     fields: &[
         field(
             "MELETE_PROXY_TYPE",

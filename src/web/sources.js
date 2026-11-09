@@ -148,6 +148,15 @@ export function indexerRow(ix, { ctx, refresh, extra = null }) {
   );
 }
 
+// Whether a feed added by hand goes through the proxy from its first request, the one asking
+// what it can do; as a form field, a box with nothing to fail.
+function proxyBox() {
+  const input = h("input", { type: "checkbox", id: "own-proxy", "aria-describedby": "own-proxy-hint" });
+  const hint = "Through the proxy set under Outside services, with the torrents its results link to. With no proxy set, it fails rather than going direct.";
+  const box = h("div", { class: "field" }, h("div", { class: "check" }, input, h("label", { for: "own-proxy" }, "Through the proxy")), h("p", { class: "note", id: "own-proxy-hint" }, hint));
+  return { box, input, clear() {}, fail() {} };
+}
+
 // Adding indexers: the public trackers Melete reaches itself, and importing Prowlarr's.
 // `refresh` draws the indexers again after one is added.
 export function addIndexers(ctx, items, refresh) {
@@ -197,14 +206,16 @@ export function addIndexers(ctx, items, refresh) {
     field("own-name", "Name", h("input", { type: "text", autocomplete: "off", maxlength: "100" }), "What it's called in Melete."),
     field("own-url", "Torznab address", h("input", { type: "url", autocomplete: "off", spellcheck: "false", placeholder: "http://192.168.1.10:9117/api/v2.0/indexers/all/results/torznab/api" }), "As the server reaches it, without the key."),
     field("own-key", "API key", h("input", { type: "password", autocomplete: "off", spellcheck: "false" }), "Kept for searches and never shown again. Leave it empty for a feed that needs none."),
+    proxyBox(),
   ];
   const ownForm = form(own, "Test and add", async () => {
-    const [name, url, key] = own;
-    const body = { name: name.input.value.trim(), url: url.input.value.trim(), api_key: key.input.value.trim() };
+    const [name, url, key, proxy] = own;
+    const body = { name: name.input.value.trim(), url: url.input.value.trim(), api_key: key.input.value.trim(), proxy: proxy.input.checked };
     if (!body.name) return name.fail("Enter a name.");
     if (!/^https?:\/\/.+/.test(body.url)) return url.fail("Enter an address starting with http:// or https://.");
     const added = await api("/indexers", { method: "POST", body });
     for (const f of own) f.input.value = "";
+    own[3].input.checked = false;
     await refresh();
     return `Added ${added.name}: it answered with ${plural(added.categories.length, "category", "categories")}.`;
   });
@@ -215,7 +226,7 @@ export function addIndexers(ctx, items, refresh) {
       group("Public trackers", h("p", { class: "note" }, "Reached by Melete itself, without Prowlarr."), presets),
       group(
         "Your own Torznab indexer",
-        h("p", { class: "note" }, "Any Torznab feed, such as Jackett or a tracker's own. Searches send it what they look for and its key; like every outside request, they follow the proxy settings."),
+        h("p", { class: "note" }, "Any Torznab feed, such as Jackett or a tracker's own. Searches send it what they look for and its key, direct or through the proxy as chosen here (it can be changed later in the list)."),
         ownForm,
       ),
       group("Prowlarr", h("p", { class: "note" }, "Its torrent indexers, searched through Prowlarr. Importing again updates them and removes ones Prowlarr no longer has; names given and indexers turned off here are kept."), prowlarrForm),

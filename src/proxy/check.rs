@@ -28,9 +28,7 @@ pub async fn test(proxy: &Proxy, echo: &str) -> Result<String, String> {
     let answer = match http.get(echo).send().await {
         Ok(answer) => answer,
         Err(err) => {
-            let why = std::iter::successors(Some(&err as &dyn std::error::Error), |e| e.source())
-                .find_map(|e| e.downcast_ref::<Unreachable>());
-            return Err(match why {
+            return Err(match watch::unreachable_in(&err) {
                 Some(Unreachable::Down(at)) => format!(
                     "The proxy at {at} doesn't answer. Check its host, port and type, and that it's running."
                 ),

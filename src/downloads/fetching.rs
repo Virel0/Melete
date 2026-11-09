@@ -13,47 +13,54 @@ pub enum Torrent {
 }
 
 /// Fetches .torrent files from indexer links (Prowlarr's, which carry its key: errors never
-/// quote them).
+/// quote them), direct or through the proxy as the indexer that found the release goes.
 #[derive(Clone)]
 pub struct Fetcher {
-    pub(super) http: crate::proxy::Http,
+    direct: crate::proxy::Http,
+    proxied: crate::proxy::Http,
 }
 
 impl Fetcher {
     /// A fetcher whose requests give up after 60 seconds and don't follow redirects by themselves.
     pub fn new() -> anyhow::Result<Self> {
-        let http = crate::proxy::Http::through(false, |b| {
-            b.timeout(Duration::from_secs(60))
-                // Followed by hand: a redirect may point at a magnet link.
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
-        })?;
-        Ok(Self { http })
+        let build = |through| {
+            crate::proxy::Http::through(through, |b| {
+                b.timeout(Duration::from_secs(60))
+                    // Followed by hand: a redirect may point at a magnet link.
+                    .redirect(reqwest::redirect::Policy::none())
+                    .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
+            })
+        };
+        Ok(Self {
+            direct: build(false)?,
+            proxied: build(true)?,
+        })
     }
 
     /// Fetches what an indexer link stands for: a magnet link as it is, or the .torrent file it
-    /// serves. Up to four redirects are followed, and one to a magnet link is taken as the torrent.
+    /// serves, through the proxy when `through` (its indexer goes through it), else direct. Up to
+    /// four redirects are followed, and one to a magnet link is taken as the torrent.
     ///
     /// # Errors
     ///
     /// Why it got no torrent, in words that never quote the link: not a URL or not http(s), an
     /// answer other than 200, a redirect into the local network from another host, a file over
     /// 10 MiB or one that isn't a torrent, or too many redirects.
-    pub async fn fetch(&self, link: &str) -> Result<Torrent, String> {
+    pub async fn fetch(&self, link: &str, through: bool) -> Result<Torrent, String> {
         if link.starts_with("magnet:") {
             return Ok(Torrent::Magnet(link.to_owned()));
         }
+        let http = if through { &self.proxied } else { &self.direct };
         let mut url = reqwest::Url::parse(link).map_err(|_| "the link isn't a URL".to_owned())?;
         for _ in 0..4 {
             if !matches!(url.scheme(), "http" | "https") {
                 return Err("the link isn't http or https".into());
             }
-            let mut response = self
-                .http
+            let mut response = http
                 .get(url.clone())
                 .send()
                 .await
-                .map_err(|err| err.without_url().to_string())?;
+                .map_err(crate::proxy::said)?;
             let status = response.status();
             if status.is_redirection() {
                 let location = response
