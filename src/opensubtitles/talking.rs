@@ -86,7 +86,7 @@ impl Client {
 
     /// A client for an API elsewhere: a stand-in, in tests.
     pub fn with_api(settings: &OpenSubtitles, api: &str) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::OpenSubtitles)?
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
@@ -247,7 +247,8 @@ impl Client {
         if !link.starts_with("https://") && !link.starts_with(&self.api) {
             return Err(Failure::Other("its download link wasn't https".into()));
         }
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::OpenSubtitles)
+            .map_err(|e| Failure::Other(format!("{e:#}")))?
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))

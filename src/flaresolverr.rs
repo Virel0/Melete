@@ -46,7 +46,7 @@ impl Client {
     ///
     /// When the HTTP client can't be built (no TLS backend).
     pub fn new(base: &str) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::FlareSolverr)?
             .timeout(Duration::from_millis(MAX_TIMEOUT_MS + 15_000))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;

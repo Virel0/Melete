@@ -110,7 +110,7 @@ impl Client {
         min_interval: Duration,
         backoff_base: Duration,
     ) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Tmdb)?
             .timeout(Duration::from_secs(15))
             .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
             .build()?;

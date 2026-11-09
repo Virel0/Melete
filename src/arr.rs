@@ -77,7 +77,7 @@ impl ArrClient {
         if key.trim().is_empty() {
             bail!("the API key is empty");
         }
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Arr)?
             .timeout(Duration::from_secs(60))
             // reqwest would carry X-Api-Key to wherever a redirect points (an auth proxy's
             // login page, say); never follow one.

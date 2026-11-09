@@ -189,7 +189,7 @@ impl Client {
                 attempt.error("redirected somewhere other than Wikimedia")
             }
         });
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Wikimedia)?
             .timeout(Duration::from_secs(20))
             .redirect(policy)
             .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))

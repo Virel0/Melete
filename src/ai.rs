@@ -107,7 +107,7 @@ impl Client {
     }
 
     fn with_api(settings: &OpenRouter, api: &str, budget: Arc<Budget>) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::OpenRouter)?
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(45))

@@ -59,7 +59,7 @@ impl Client {
                 attempt.error("redirected somewhere other than archive.org")
             }
         });
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::CoverArt)?
             .timeout(Duration::from_secs(30))
             .redirect(policy)
             .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))

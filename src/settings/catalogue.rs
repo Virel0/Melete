@@ -4,6 +4,7 @@ use super::*;
 
 mod make_room;
 mod musicbrainz;
+mod proxy;
 mod trailers;
 
 /// How a setting is entered.
@@ -476,4 +477,5 @@ pub const SERVICES: &[Service] = &[
             Input::Toggle { on: "on" },
         )],
     },
+    proxy::PROXY,
 ];

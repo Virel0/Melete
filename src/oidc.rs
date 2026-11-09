@@ -90,7 +90,7 @@ impl Client {
     /// A client keeping its sign-ins under way in `pending`, where a client built before it
     /// with the same settings left them.
     pub fn with_pending(settings: Oidc, pending: Arc<Pending>) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Oidc)?
             .user_agent(USER_AGENT)
             .timeout(Duration::from_secs(15))
             // The client secret goes to the token endpoint, and nowhere it might send us.

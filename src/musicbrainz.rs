@@ -72,7 +72,7 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn with_base(base: String, spacing: Duration, busy_wait: Duration) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::MusicBrainz)?
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(USER_AGENT)

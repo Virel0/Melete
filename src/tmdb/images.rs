@@ -20,7 +20,7 @@ impl Images {
     }
 
     pub(crate) fn with_base(base: String) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Tmdb)?
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))
             .build()?;

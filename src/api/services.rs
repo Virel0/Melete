@@ -427,4 +427,75 @@ mod tests {
                 .contains_key("MELETE_LYRICS")
         );
     }
+
+    #[tokio::test]
+    async fn the_proxy_is_admins_only_and_its_login_never_shown() {
+        let pool = db::open_in_memory().await;
+        let (admin, someone) = (
+            token(&pool, "admin", true).await,
+            token(&pool, "someone", false).await,
+        );
+        let app = routes(pool.clone(), rebuilds(true));
+        let gone = crate::proxy::testing::nothing_at().await;
+        let values = json!({"values": {
+            "MELETE_PROXY_HOST": gone.ip().to_string(),
+            "MELETE_PROXY_PORT": gone.port().to_string(),
+            "MELETE_PROXY_USERNAME": "alice",
+            "MELETE_PROXY_PASSWORD": "the-proxy-password",
+            "MELETE_PROXY_TMDB": "on",
+        }});
+        for (method, uri) in [
+            ("GET", "/api/v1/settings/services"),
+            ("PUT", "/api/v1/settings/services/proxy"),
+            ("POST", "/api/v1/settings/services/proxy/test"),
+        ] {
+            let (status, _) = send(&app, method, uri, &someone, Some(values.clone())).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+        }
+        assert!(
+            !settings::stored(&pool)
+                .await
+                .unwrap()
+                .contains_key("MELETE_PROXY_HOST")
+        );
+
+        // Tested before it's saved: the proxy is named, its login isn't.
+        let test = "/api/v1/settings/services/proxy/test";
+        let (status, tested) = send(&app, "POST", test, &admin, Some(values.clone())).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(tested["ok"], json!(false));
+        let message = tested["message"].as_str().unwrap();
+        let named = format!("The proxy at socks5h://{gone} doesn't answer");
+        assert!(message.starts_with(&named), "{message}");
+
+        let uri = "/api/v1/settings/services/proxy";
+        let (status, proxy) = send(&app, "PUT", uri, &admin, Some(values)).await;
+        assert_eq!(status, StatusCode::OK, "{proxy}");
+        let password = proxy["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == "MELETE_PROXY_PASSWORD")
+            .unwrap();
+        assert_eq!(
+            (&password["set"], &password["value"]),
+            (&json!(true), &Value::Null)
+        );
+        assert_eq!(proxy["on"], json!(true));
+        let (_, all) = send(&app, "GET", "/api/v1/settings/services", &admin, None).await;
+        for said in [&tested, &proxy, &all] {
+            assert!(!said.to_string().contains("the-proxy-password"), "{said}");
+        }
+        assert!(!tested.to_string().contains("alice"));
+
+        // Without a proxy, nothing can be switched on to go through one.
+        let cleared = json!({"values": {"MELETE_PROXY_HOST": null, "MELETE_PROXY_PORT": null}});
+        let (status, said) = send(&app, "PUT", uri, &admin, Some(cleared)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error = said["error"].as_str().unwrap();
+        assert!(
+            error.contains("MELETE_PROXY_TMDB is on, but no proxy is set"),
+            "{error}"
+        );
+    }
 }

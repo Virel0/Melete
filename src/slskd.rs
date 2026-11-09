@@ -99,7 +99,7 @@ impl Client {
     ///
     /// Fails only when the HTTP client can't be built.
     pub fn new(base: &str, key: Secret) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Slskd)?
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("Melete/", env!("CARGO_PKG_VERSION")))

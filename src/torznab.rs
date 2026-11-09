@@ -193,7 +193,7 @@ impl Client {
     ///
     /// When the HTTP client can't be built (no TLS backend).
     pub fn new() -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder_through(false)?
             .timeout(Duration::from_secs(30))
             // The key is in the URL; a redirect would hand it to wherever it points.
             .redirect(reqwest::redirect::Policy::none())

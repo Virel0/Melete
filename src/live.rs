@@ -1,5 +1,6 @@
 //! Melete's outside services, rebuilt in place when their settings change:
-//! TMDB, MusicBrainz, slskd, Deluge and the seedbox, FlareSolverr and lyrics, the background
+//! TMDB, MusicBrainz, slskd, Deluge and the seedbox, FlareSolverr and lyrics, the proxy they
+//! may go through, the background
 //! work that needs them, and the API that's handed them. A change builds the new clients first
 //! (keeping things as they are when one can't be made), then stops the old background work,
 //! starts the new and swaps the API over. Requests under way finish with what they began with.
@@ -339,6 +340,8 @@ impl Live {
     pub fn start(fixed: Fixed, config: &Config) -> anyhow::Result<Arc<Live>> {
         let (reload, mut asked) = mpsc::channel(4);
         let kept = api::Kept::default();
+        // Before any client is built, so none goes direct that shouldn't.
+        crate::proxy::apply(config.proxy.clone());
         let built = build(&fixed, &kept, config)?;
         let api = router(&fixed, &kept, &built, &reload)?;
         let tasks = spawn(&fixed, &built);
@@ -373,8 +376,22 @@ impl Live {
     pub async fn rebuild(&self) -> anyhow::Result<()> {
         let mut tasks = self.tasks.lock().await;
         let config = crate::settings::load(&self.fixed.pool).await?;
-        let built = build(&self.fixed, &self.kept, &config)?;
-        let api = router(&self.fixed, &self.kept, &built, &self.reload)?;
+        // The proxy's setup first, for the clients built now and those made per request; put
+        // back when the new ones can't be made, as everything else stays as it was then.
+        let before = crate::proxy::apply(config.proxy.clone());
+        let made = build(&self.fixed, &self.kept, &config).and_then(|built| {
+            Ok((
+                router(&self.fixed, &self.kept, &built, &self.reload)?,
+                built,
+            ))
+        });
+        let (api, built) = match made {
+            Ok(made) => made,
+            Err(err) => {
+                crate::proxy::restore(before);
+                return Err(err);
+            }
+        };
         for task in tasks.iter() {
             task.abort();
         }

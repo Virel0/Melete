@@ -47,7 +47,7 @@ impl Client {
 
     /// A client that sends its requests to `base` instead of IMDb, for tests.
     pub fn with_base(base: String) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Lists)?
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))

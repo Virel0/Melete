@@ -143,7 +143,7 @@ impl Client {
                 "MELETE_DELUGE_URL must be https:// unless Deluge is on the local network"
             );
         }
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder(crate::proxy::Service::Deluge)?
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("melete/", env!("CARGO_PKG_VERSION")))

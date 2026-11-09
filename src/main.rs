@@ -72,6 +72,7 @@ mod plays;
 mod probe;
 mod profiles;
 mod progress;
+mod proxy;
 mod quick_connect;
 mod ratings;
 mod release;

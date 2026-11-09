@@ -22,7 +22,7 @@ pub struct Fetcher {
 impl Fetcher {
     /// A fetcher whose requests give up after 60 seconds and don't follow redirects by themselves.
     pub fn new() -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::proxy::builder_through(false)?
             .timeout(Duration::from_secs(60))
             // Followed by hand: a redirect may point at a magnet link.
             .redirect(reqwest::redirect::Policy::none())

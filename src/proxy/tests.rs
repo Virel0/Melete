@@ -1,0 +1,349 @@
+use std::net::SocketAddr;
+
+use super::testing::{self, Log, with};
+use super::*;
+
+/// A setup sending `through` to `proxy`.
+fn setup(proxy: Proxy, through: &[Service]) -> Setup {
+    Setup {
+        at: Some(proxy),
+        through: through.to_vec(),
+    }
+}
+
+/// Asks `http://outside.example:<port>/hello` with a client from `builder`, the name taken to
+/// mean `site` when the client goes direct; what came back, or the whole error.
+async fn ask(
+    builder: anyhow::Result<reqwest::ClientBuilder>,
+    site: SocketAddr,
+) -> Result<String, String> {
+    let http = builder
+        .unwrap()
+        .resolve("outside.example", site)
+        .build()
+        .unwrap();
+    let url = format!("http://outside.example:{}/hello", site.port());
+    match http.get(url).send().await {
+        Ok(answer) => Ok(answer.text().await.unwrap()),
+        Err(err) => Err(chain(&err)),
+    }
+}
+
+/// An error with every cause behind it.
+fn chain(err: &(dyn std::error::Error + 'static)) -> String {
+    std::iter::successors(Some(err), |e| e.source())
+        .map(|e| e.to_string())
+        .collect::<Vec<_>>()
+        .join(": ")
+}
+
+fn asked(log: &Log) -> Vec<String> {
+    log.lock().unwrap().requests.clone()
+}
+
+#[tokio::test]
+async fn chosen_services_go_through_the_proxy_and_others_go_direct() {
+    let (proxy_at, proxy_log) = testing::http_proxy("from the proxy").await;
+    let (site, site_log) = testing::site("from the site").await;
+    let chosen = setup(
+        testing::proxy(Kind::Http, proxy_at),
+        &[Service::Tmdb, Service::Slskd],
+    );
+    let ((tmdb, slskd, musicbrainz, indexer), _) = with(chosen, async {
+        (
+            ask(builder(Service::Tmdb), site).await,
+            ask(builder(Service::Slskd), site).await,
+            ask(builder(Service::MusicBrainz), site).await,
+            ask(builder_through(false), site).await,
+        )
+    })
+    .await;
+    assert_eq!(tmdb.unwrap(), "from the proxy");
+    assert_eq!(
+        slskd.unwrap(),
+        "from the proxy",
+        "a local service can be chosen too"
+    );
+    assert_eq!(musicbrainz.unwrap(), "from the site");
+    assert_eq!(indexer.unwrap(), "from the site");
+    let through = format!("GET http://outside.example:{}/hello HTTP/1.1", site.port());
+    assert_eq!(asked(&proxy_log), [through.clone(), through]);
+    assert_eq!(asked(&site_log).len(), 2, "the rest went direct");
+}
+
+#[tokio::test]
+async fn the_services_own_clients_follow_the_choice() {
+    let (proxy_at, proxy_log) = testing::http_proxy("[]").await;
+    let (site, site_log) = testing::site("{}").await;
+    let chosen = setup(testing::proxy(Kind::Http, proxy_at), &[Service::Lyrics]);
+    with(chosen, async {
+        // LRCLIB is sent through the proxy, at a name only the proxy is asked about.
+        let lrclib = crate::lrclib::Client::with_base("http://lrclib.example".into()).unwrap();
+        let track = crate::lrclib::Track {
+            title: "Song",
+            artist: "Band",
+            album: "Album",
+            seconds: 200,
+        };
+        let _ = lrclib.lyrics(&track).await;
+        // MusicBrainz isn't.
+        let base = format!("http://{site}");
+        let mb =
+            crate::musicbrainz::Client::with_base(base, Default::default(), Default::default())
+                .unwrap();
+        let _ = mb.artist("89ad4ac3-39f7-470e-963a-56509c546377").await;
+    })
+    .await;
+    let through = asked(&proxy_log);
+    assert_eq!(through.len(), 1, "{through:?}");
+    assert!(
+        through[0].starts_with("GET http://lrclib.example/api/get?"),
+        "{through:?}"
+    );
+    let direct = asked(&site_log);
+    assert_eq!(direct.len(), 1, "{direct:?}");
+    assert!(direct[0].starts_with("GET /"), "{direct:?}");
+}
+
+#[tokio::test]
+async fn a_down_proxy_fails_closed_naming_it() {
+    let gone = testing::nothing_at().await;
+    let (site, site_log) = testing::site("from the site").await;
+    let mut proxy = testing::proxy(Kind::Socks5, gone);
+    proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+    let ((failed, finding), applied) = with(setup(proxy, &[Service::Tmdb]), async {
+        (ask(builder(Service::Tmdb), site).await, finding())
+    })
+    .await;
+    let failed = failed.unwrap_err();
+    assert!(
+        failed.contains(&format!("The proxy at socks5h://{gone} doesn't answer")),
+        "{failed}"
+    );
+    assert!(
+        !failed.contains("alice") && !failed.contains("the-proxy-password"),
+        "{failed}"
+    );
+    assert!(asked(&site_log).is_empty(), "nothing went direct");
+    assert_eq!(
+        applied.status.down().unwrap().1,
+        format!("socks5h://{gone}")
+    );
+    let finding = finding.unwrap();
+    assert_eq!(finding.code, "proxy_down");
+    assert!(
+        finding.message.contains(&format!("socks5h://{gone}")),
+        "{}",
+        finding.message
+    );
+}
+
+#[tokio::test]
+async fn set_to_use_a_proxy_with_none_set_sends_nothing() {
+    let (site, site_log) = testing::site("from the site").await;
+    let (failed, _) = with(Setup::default(), async {
+        ask(builder_through(true), site).await
+    })
+    .await;
+    assert!(
+        failed
+            .unwrap_err()
+            .contains("no proxy is set, so nothing was sent")
+    );
+    assert!(asked(&site_log).is_empty());
+}
+
+#[tokio::test]
+async fn a_proxy_that_answers_again_is_up() {
+    let (proxy_at, _) = testing::http_proxy("ok").await;
+    let (site, _) = testing::site("from the site").await;
+    let (_, applied) = with(
+        setup(testing::proxy(Kind::Http, proxy_at), &[Service::Tmdb]),
+        async {
+            current()
+                .status
+                .failed(&Unreachable::Down("http://somewhere:1".into()));
+            assert!(finding().is_some());
+            ask(builder(Service::Tmdb), site).await.unwrap();
+            assert!(finding().is_none());
+        },
+    )
+    .await;
+    assert!(applied.status.down().is_none());
+}
+
+#[tokio::test]
+async fn socks5_sends_the_name_not_an_address() {
+    let (proxy_at, log) = testing::socks5(None, "through socks").await;
+    let chosen = setup(testing::proxy(Kind::Socks5, proxy_at), &[Service::Tmdb]);
+    let (answer, _) = with(chosen, async {
+        // A name that doesn't resolve here: only the proxy can look it up.
+        let http = builder(Service::Tmdb).unwrap().build().unwrap();
+        http.get("http://tmdb.example:8080/3/configuration")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    })
+    .await;
+    assert_eq!(answer, "through socks");
+    let seen = log.lock().unwrap();
+    assert_eq!(seen.socks, [(3, "tmdb.example".to_owned(), 8080)]);
+    assert_eq!(seen.requests, ["GET /3/configuration HTTP/1.1"]);
+}
+
+#[tokio::test]
+async fn no_secret_in_answers_logs_or_errors() {
+    let log = crate::logging::testing::capture("info");
+    // The right login goes to the proxy, and only there.
+    let (proxy_at, seen) = testing::socks5(Some(("alice", "the-proxy-password")), "ok").await;
+    let mut proxy = testing::proxy(Kind::Socks5, proxy_at);
+    proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+    let (site, _) = testing::site("from the site").await;
+    let (answer, _) = with(setup(proxy.clone(), &[Service::Tmdb]), async {
+        ask(builder(Service::Tmdb), site).await
+    })
+    .await;
+    assert_eq!(answer.unwrap(), "ok");
+    assert_eq!(
+        seen.lock().unwrap().logins,
+        [("alice".to_owned(), "the-proxy-password".to_owned())]
+    );
+
+    // One the proxy turns down fails, and no word of it says what the login was.
+    let (strict_at, _) = testing::socks5(Some(("alice", "another")), "ok").await;
+    let mut strict = testing::proxy(Kind::Socks5, strict_at);
+    strict.login = proxy.login.clone();
+    let (refused, _) = with(setup(strict.clone(), &[Service::Tmdb]), async {
+        ask(builder(Service::Tmdb), site).await
+    })
+    .await;
+    let refused = refused.unwrap_err();
+    assert!(
+        refused.contains(&format!("The proxy at socks5h://{strict_at} answered")),
+        "{refused}"
+    );
+    let tested = test(&strict, "http://echo.example/").await.unwrap_err();
+
+    let config = Config::from_env_and(|name| match name {
+        "MELETE_PROXY_HOST" => Some("192.168.1.10".into()),
+        "MELETE_PROXY_PORT" => Some("1080".into()),
+        "MELETE_PROXY_USERNAME" => Some("alice".into()),
+        "MELETE_PROXY_PASSWORD" => Some("the-proxy-password".into()),
+        _ => None,
+    })
+    .unwrap();
+    let debug = format!("{config:?} {strict:?}");
+    for said in [&refused, &tested, &debug, &log.written.text()] {
+        assert!(!said.contains("the-proxy-password"), "{said}");
+    }
+    assert!(
+        !refused.contains("alice") && !tested.contains("alice"),
+        "{refused} {tested}"
+    );
+    assert!(
+        log.written.text().contains("The proxy at"),
+        "the failure is logged"
+    );
+}
+
+#[tokio::test]
+async fn the_test_says_what_address_the_outside_world_sees() {
+    let (proxy_at, log) = testing::http_proxy("203.0.113.7\n").await;
+    let said = test(
+        &testing::proxy(Kind::Http, proxy_at),
+        "http://echo.example/",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        said,
+        "The proxy answered. The outside world sees 203.0.113.7, as echo.example saw it."
+    );
+    assert_eq!(asked(&log), ["GET http://echo.example/ HTTP/1.1"]);
+
+    let gone = testing::nothing_at().await;
+    let down = test(&testing::proxy(Kind::Http, gone), "http://echo.example/")
+        .await
+        .unwrap_err();
+    assert_eq!(
+        down,
+        format!(
+            "The proxy at http://{gone} doesn't answer. Check its host, port and type, and that it's running."
+        )
+    );
+    let (odd_at, _) = testing::http_proxy("<html>").await;
+    let odd = test(&testing::proxy(Kind::Http, odd_at), "http://echo.example/").await;
+    assert!(odd.unwrap_err().contains("isn't an address"));
+}
+
+/// The setup these settings make, or why they're refused.
+fn read(pairs: &[(&str, &str)]) -> Result<Setup, String> {
+    Setup::from_lookup(&|name: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.to_string())
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[test]
+fn reads_the_settings_and_refuses_what_would_go_direct() {
+    let none = read(&[]).unwrap();
+    assert!(
+        none.at.is_none() && none.through.is_empty(),
+        "nothing by default"
+    );
+    let set = read(&[
+        ("MELETE_PROXY_HOST", "192.168.1.10"),
+        ("MELETE_PROXY_PORT", "1080"),
+        ("MELETE_PROXY_TMDB", "on"),
+        ("MELETE_PROXY_SLSKD", "off"),
+    ])
+    .unwrap();
+    assert_eq!(set.at.unwrap().address(), "socks5h://192.168.1.10:1080");
+    assert_eq!(set.through, [Service::Tmdb]);
+    let refused = read(&[("MELETE_PROXY_TMDB", "on")]).unwrap_err();
+    assert!(refused.contains("no proxy is set"), "{refused}");
+    for host in ["socks5://x", "a:1", "a/b", "user@a", "a b", "[nope]"] {
+        let refused = read(&[("MELETE_PROXY_HOST", host), ("MELETE_PROXY_PORT", "1")]);
+        assert!(refused.is_err(), "{host}");
+    }
+    assert!(read(&[("MELETE_PROXY_HOST", "[::1]"), ("MELETE_PROXY_PORT", "1")]).is_ok());
+    assert!(
+        read(&[("MELETE_PROXY_HOST", "a")]).is_err(),
+        "a host needs a port"
+    );
+    let no_user = read(&[
+        ("MELETE_PROXY_HOST", "a"),
+        ("MELETE_PROXY_PORT", "1"),
+        ("MELETE_PROXY_PASSWORD", "pw"),
+    ]);
+    assert!(no_user.unwrap_err().contains("needs MELETE_PROXY_USERNAME"));
+    let kind = read(&[
+        ("MELETE_PROXY_HOST", "a"),
+        ("MELETE_PROXY_PORT", "1"),
+        ("MELETE_PROXY_TYPE", "https"),
+    ]);
+    assert_eq!(kind.unwrap().at.unwrap().address(), "https://a:1");
+}
+
+#[test]
+fn every_service_has_its_switch_in_the_settings() {
+    let proxy = crate::settings::SERVICES
+        .iter()
+        .find(|s| s.key == "proxy")
+        .unwrap();
+    for service in Service::ALL {
+        assert!(
+            proxy.fields.iter().any(|f| f.name == service.setting()
+                && f.input == crate::settings::Input::Toggle { on: "on" }),
+            "{service:?}"
+        );
+    }
+}
+
+use crate::config::Config;
