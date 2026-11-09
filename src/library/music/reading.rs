@@ -5,38 +5,56 @@ use std::sync::PoisonError;
 
 use super::*;
 
-/// Each album folder's cover image and motion cover, by name. A folder that can't be read just
-/// has none; the library's root isn't an album's folder.
+/// Each album folder's cover image and motion cover, by name, and the artist's picture in the
+/// folder above it. A folder that can't be read just has none; the library's root isn't an
+/// album's folder, nor an artist's.
 pub(super) fn find_artwork(root: &Path, folders: &[String]) -> HashMap<String, Artwork> {
     let mut found = HashMap::new();
+    // A parent folder is read once, however many albums it holds.
+    let mut artists: HashMap<&str, Option<String>> = HashMap::new();
     for folder in folders.iter().filter(|f| !f.is_empty()) {
-        let Ok(entries) = std::fs::read_dir(root.join(folder)) else {
-            continue;
-        };
-        let names: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
-        let pick = |stems: &[&str], extensions: &[&str]| {
-            stems.iter().find_map(|stem| {
-                names.iter().find(|name| {
-                    let lower = name.to_lowercase();
-                    lower
-                        .rsplit_once('.')
-                        .is_some_and(|(s, e)| s == *stem && extensions.contains(&e))
-                })
-            })
-        };
+        let artist = folder.rsplit_once('/').and_then(|(parent, _)| {
+            let picture = artists.entry(parent).or_insert_with(|| {
+                let names = file_names(&root.join(parent));
+                pick(&names, ARTIST_NAMES, ARTIST_EXTENSIONS).map(|n| format!("{parent}/{n}"))
+            });
+            picture.clone()
+        });
+        let names = file_names(&root.join(folder));
         let artwork = Artwork {
-            cover: pick(COVER_NAMES, IMAGE_EXTENSIONS).map(|n| format!("{folder}/{n}")),
-            motion: pick(MOTION_NAMES, VIDEO_EXTENSIONS).map(|n| format!("{folder}/{n}")),
+            cover: pick(&names, COVER_NAMES, IMAGE_EXTENSIONS).map(|n| format!("{folder}/{n}")),
+            motion: pick(&names, MOTION_NAMES, VIDEO_EXTENSIONS).map(|n| format!("{folder}/{n}")),
+            artist,
         };
         if artwork != Artwork::default() {
             found.insert(folder.clone(), artwork);
         }
     }
     found
+}
+
+/// The names of the files in `dir`; none when it can't be read.
+fn file_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect()
+}
+
+/// The first of `names` with one of `stems` (best first) and one of `extensions`, case aside.
+fn pick<'a>(names: &'a [String], stems: &[&str], extensions: &[&str]) -> Option<&'a String> {
+    stems.iter().find_map(|stem| {
+        names.iter().find(|name| {
+            let lower = name.to_lowercase();
+            lower
+                .rsplit_once('.')
+                .is_some_and(|(s, e)| s == *stem && extensions.contains(&e))
+        })
+    })
 }
 
 /// Files a scan's summary of tag problems names.

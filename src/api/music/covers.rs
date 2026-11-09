@@ -95,7 +95,7 @@ pub(super) fn cover_size(asked: Option<u32>) -> Result<Option<(u32, &'static str
 
 /// An album's cover as found: a file in its folder, or bytes from a track's tags or the Cover
 /// Art Archive (cached). Each with a name for what it is, which changes when the cover does.
-enum Found {
+pub(super) enum Found {
     File { path: PathBuf, name: String },
     Bytes { bytes: Vec<u8>, name: String },
 }
@@ -121,9 +121,22 @@ pub(super) async fn cover(
     sized(&state, found, size).await
 }
 
+/// A file as found, named for `key` and the file's size and time, so the name changes when the
+/// file does.
+pub(super) async fn file_found(path: PathBuf, key: String) -> Found {
+    let stamp = tokio::fs::metadata(&path)
+        .await
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))
+        .map(|(len, at)| format!("{len}:{at:?}"))
+        .unwrap_or_default();
+    let name = format!("{key}:{stamp}");
+    Found::File { path, name }
+}
+
 /// The cover at `size` pixels wide at most (never larger than it is), as a JPEG made once and
 /// kept beside the other cached covers.
-async fn sized(
+pub(super) async fn sized(
     state: &MusicState,
     found: Found,
     (width, label): (u32, &'static str),
@@ -174,14 +187,7 @@ async fn find_cover(state: &MusicState, id: i64) -> Result<Found, ApiError> {
     let row = cover_row(&state.pool, id).await?;
     if let Some(file) = &row.cover_file {
         let path = resolve(&row.root, file).await?;
-        let stamp = tokio::fs::metadata(&path)
-            .await
-            .ok()
-            .and_then(|m| Some((m.len(), m.modified().ok()?)))
-            .map(|(len, at)| format!("{len}:{at:?}"))
-            .unwrap_or_default();
-        let name = format!("file:{id}:{file}:{stamp}");
-        return Ok(Found::File { path, name });
+        return Ok(file_found(path, format!("file:{id}:{file}")).await);
     }
     // A picture in a track's tags, pulled out once per version of that file.
     let tagged: Option<(String, i64, i64)> = sqlx::query_as(
