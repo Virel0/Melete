@@ -51,28 +51,21 @@ pub(super) async fn plan(
         }
         paths.push((file, parts));
     }
-    // An album keeps its disc folders: a track goes in its folder below the one all the tracks
-    // share. Anything else goes straight in the title's folder.
-    let shared: Option<&[&str]> = row.wanted_album_id.map(|_| {
-        paths
-            .iter()
-            .filter(|(_, parts)| is_track(parts))
-            .map(|(_, parts)| &parts[..parts.len() - 1])
-            .reduce(|shared, folder| {
-                let same = shared
-                    .iter()
-                    .zip(folder)
-                    .take_while(|(a, b)| a == b)
-                    .count();
-                &shared[..same]
-            })
-            .unwrap_or_default()
-    });
+    let shared = shared_folder(row, &paths);
     let film = film(row, &paths);
+    let only = match taken(pool, row).await? {
+        Ok(only) => only,
+        Err(stop) => return Ok(Err(stop)),
+    };
     let mut planned: Vec<Planned> = Vec::new();
     for (file, parts) in &paths {
         let (folders, name) = parts.split_at(parts.len() - 1);
         let name = name[0];
+        if let Some(only) = &only
+            && !only.holds(pool, parts).await?
+        {
+            continue;
+        }
         let folder = match shared {
             None if wanted_file(parts) && is_extra(parts) && film != Some(file.path.as_str()) => {
                 EXTRAS.to_owned()
@@ -98,7 +91,7 @@ pub(super) async fn plan(
             name: name.to_owned(),
         });
     }
-    if let Some(stop) = nothing_to_import(row, &planned, shared.is_some()) {
+    if let Some(stop) = nothing_to_import(row, &planned, shared.is_some(), only.as_ref()) {
         return Ok(Err(stop));
     }
     Ok(Ok(Plan {
@@ -106,6 +99,86 @@ pub(super) async fn plan(
         dir,
         files: planned,
     }))
+}
+
+/// An album keeps its disc folders: a track goes in its folder below the one all the tracks
+/// share, which this is. Anything else goes straight in the title's folder (None).
+fn shared_folder<'a>(
+    row: &Row,
+    paths: &'a [(&TorrentFile, Vec<&'a str>)],
+) -> Option<&'a [&'a str]> {
+    row.wanted_album_id.map(|_| {
+        paths
+            .iter()
+            .filter(|(_, parts)| is_track(parts))
+            .map(|(_, parts)| &parts[..parts.len() - 1])
+            .reduce(|shared, folder| {
+                let same = shared
+                    .iter()
+                    .zip(folder)
+                    .take_while(|(a, b)| a == b)
+                    .count();
+                &shared[..same]
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// The episodes of one season a season pack was taken for, and the series they're of.
+struct Taken {
+    wanted: crate::search::Wanted,
+    season: i64,
+    episodes: Vec<i64>,
+}
+
+/// What a season pack taken in part is for; None for any other download, all of whose files
+/// are brought home.
+async fn taken(pool: &SqlitePool, row: &Row) -> anyhow::Result<Result<Option<Taken>, Stop>> {
+    let Some(episodes) = row.episodes.as_deref() else {
+        return Ok(Ok(None));
+    };
+    let episodes: Vec<i64> = serde_json::from_str(episodes)?;
+    let target = row.target();
+    let wanted = match target {
+        Some(target @ Target::Series { .. }) => crate::search::load_wanted(pool, target).await?,
+        _ => None,
+    };
+    let (Some(wanted), Some(Target::Series { season, .. })) = (wanted, target) else {
+        return Ok(Err(Stop::Fail(
+            "it was taken for some episodes of a series that isn't wanted any more".into(),
+        )));
+    };
+    Ok(Ok(Some(Taken {
+        wanted,
+        season,
+        episodes,
+    })))
+}
+
+impl Taken {
+    /// Whether a file is one of the episodes taken, for certain: its own name gives the season
+    /// and episodes (or numbers from the first episode that map to them), every one of them
+    /// taken. Extras, anything in an extras folder whatever its name, and anything else stay
+    /// behind.
+    async fn holds(&self, pool: &SqlitePool, parts: &[&str]) -> anyhow::Result<bool> {
+        let Some((name, folders)) = parts.split_last() else {
+            return Ok(false);
+        };
+        if is_extra(parts) || in_extras_folder(folders) {
+            return Ok(false);
+        }
+        let named = crate::release::parse(name).episodes;
+        Ok(
+            match crate::search::numbered_in_order(pool, &self.wanted, &named).await? {
+                Ok(crate::release::Episodes::Standard { season, episodes }) => {
+                    season == self.season
+                        && !episodes.is_empty()
+                        && episodes.iter().all(|e| self.episodes.contains(e))
+                }
+                _ => false,
+            },
+        )
+    }
 }
 
 /// A movie's largest video, which is the film whatever its name says ("Trailer Park…").
@@ -118,8 +191,24 @@ fn film<'a>(row: &Row, paths: &[(&'a TorrentFile, Vec<&str>)]) -> Option<&'a str
         .map(|(file, _)| file.path.as_str())
 }
 
-/// Why a plan has nothing to import: no audio for an album, no video, or only extras.
-fn nothing_to_import(row: &Row, planned: &[Planned], album: bool) -> Option<Stop> {
+/// Why a plan has nothing to import: no audio for an album, no video, only extras, or none of
+/// the episodes a season pack was taken for.
+fn nothing_to_import(
+    row: &Row,
+    planned: &[Planned],
+    album: bool,
+    only: Option<&Taken>,
+) -> Option<Stop> {
+    if let Some(only) = only
+        && !planned.iter().any(|p| has_extension(&p.name, VIDEO))
+    {
+        return Some(Stop::Fail(format!(
+            "none of its files can be told to be one of the episodes it was taken for ({} of \
+             season {})",
+            crate::rss::numbers(&only.episodes),
+            only.season
+        )));
+    }
     let (needed, kind) = if album {
         (AUDIO_EXTENSIONS, "audio")
     } else {

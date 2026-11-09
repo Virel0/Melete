@@ -158,12 +158,14 @@ pub(super) async fn run(
         // It went out to the indexers: the next waits its turn. A refused one asked no one.
         next_search = Instant::now() + sources.pace;
         counts.searched += 1;
-        let (grabbed, passed_over) =
-            grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
+        let (grabbed, said) = grab_item(pool, sources, &music, grabbing, &item, search_id).await?;
         if grabbed.iter().any(|g| g.download_id.is_some()) {
             counts.grabbed += 1;
+            if let Some(took) = said.took {
+                counts.note(format!("{name}: {took}"));
+            }
         } else if let Some(why) = (grabbed.iter().rev().find_map(|g| g.refused.clone()))
-            .or_else(|| passed_over.into_iter().next())
+            .or_else(|| said.passed_over.into_iter().next())
         {
             counts.note(format!("{name}: not grabbed: {why}"));
         }
@@ -195,7 +197,7 @@ async fn search_item(
 }
 
 /// Grabs the best accepted result of an item's search, when downloads are on for it; with why
-/// results were passed over for what's on disk or on its way, best first.
+/// results were passed over for what's on disk or on its way, and what was taken from a pack.
 async fn grab_item(
     pool: &SqlitePool,
     sources: &Sources,
@@ -203,20 +205,19 @@ async fn grab_item(
     grabbing: bool,
     item: &Item,
     search_id: i64,
-) -> anyhow::Result<(Vec<Grabbed>, Vec<String>)> {
+) -> anyhow::Result<(Vec<Grabbed>, crate::rss::Said)> {
     let mut grabbed: Vec<Grabbed> = Vec::new();
-    let mut passed_over = Vec::new();
+    let mut said = crate::rss::Said::default();
     match (item, item.target(), &sources.pipeline) {
         (Item::Album { .. }, ..) if grabbing => {
             artist_search::grab_best(pool, music, search_id, &mut grabbed).await?;
         }
         (_, Some(target), Some(pipeline)) => {
-            passed_over =
-                crate::rss::grab_for(pool, pipeline, target, search_id, &mut grabbed).await?;
+            said = crate::rss::grab_for(pool, pipeline, target, search_id, &mut grabbed).await?;
         }
         _ => {}
     }
-    Ok((grabbed, passed_over))
+    Ok((grabbed, said))
 }
 
 /// Leaves the indexers that said in this search they reached their limit out of the rest of

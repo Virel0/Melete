@@ -23,6 +23,25 @@ pub async fn grab(
     fetcher: &Fetcher,
     release_id: i64,
 ) -> anyhow::Result<Result<Download, Refused>> {
+    grab_only(pool, deluge, fetcher, release_id, None).await
+}
+
+/// The episodes of its season a season pack is taken for, and the files their copies replace.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Only<'a> {
+    pub(crate) episodes: &'a [i64],
+    pub(crate) replaces: &'a [crate::upgrades::Replaced],
+}
+
+/// Like [`grab`], for only some of a season pack's episodes when `only` says which: only their
+/// files are brought home, and only the files given are replaced.
+pub(crate) async fn grab_only(
+    pool: &SqlitePool,
+    deluge: &deluge::Client,
+    fetcher: &Fetcher,
+    release_id: i64,
+    only: Option<Only<'_>>,
+) -> anyhow::Result<Result<Download, Refused>> {
     // No series changes episode order between checking the result was searched for in the order
     // it follows and recording the download with the season and episode it was searched as.
     let _no_switching = crate::episode_order::SWITCHING.read().await;
@@ -50,7 +69,7 @@ pub async fn grab(
         Ok(added) => added,
         Err(refused) => return Ok(Err(refused)),
     };
-    let id = insert_download(pool, &row, &hash, &message).await?;
+    let id = insert_download(pool, &row, &hash, &message, only).await?;
     // Another grab of the same torrent got there first.
     let Some(id) = id else {
         let id = existing(pool, &hash).await?.unwrap_or_default();
@@ -180,21 +199,31 @@ async fn insert_download(
     row: &ReleaseRow,
     hash: &str,
     message: &Option<String>,
+    only: Option<Only<'_>>,
 ) -> anyhow::Result<Option<i64>> {
     // What it would replace in the library, should it be an upgrade.
-    let replaces = crate::upgrades::replaced_by(
-        pool,
-        row.wanted_movie_id,
-        row.wanted_series_id,
-        row.season,
-        &row.title,
-    )
-    .await?;
+    let replaces = match only {
+        Some(only) => only.replaces.to_vec(),
+        None => {
+            crate::upgrades::replaced_by(
+                pool,
+                row.wanted_movie_id,
+                row.wanted_series_id,
+                row.season,
+                &row.title,
+            )
+            .await?
+        }
+    };
+    let episodes = only
+        .map(|o| serde_json::to_string(o.episodes))
+        .transpose()?;
     let now = unix_now();
     let id: Option<i64> = sqlx::query_scalar(
         "INSERT INTO downloads (infohash, title, wanted_movie_id, wanted_series_id, wanted_album_id,
-             season, episode, decision, state, message, added_at, updated_at, replaces, added_here)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?, ?)
+             season, episode, decision, state, message, added_at, updated_at, replaces, added_here,
+             episodes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?, ?, ?)
          ON CONFLICT (infohash) DO NOTHING
          RETURNING id",
     )
@@ -211,6 +240,7 @@ async fn insert_download(
     .bind(now)
     .bind(serde_json::to_string(&replaces)?)
     .bind(message.is_none())
+    .bind(episodes)
     .fetch_optional(pool)
     .await?;
     Ok(id)
