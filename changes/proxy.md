@@ -10,4 +10,5 @@
   shows the address the outside world sees, asked of api.ipify.org through the proxy. Changes
   apply without a restart. Each indexer has its own switch in the indexer list, and the
   torrents its results link to are fetched the same way; Uindex's pages go through FlareSolverr,
-  which is handed the proxy, or isn't asked at all. The seedbox's SFTP still goes direct.
+  which (from version 3.2.0) is handed the proxy's address, never a password, or isn't asked
+  at all. The seedbox's SFTP still goes direct.

@@ -10,6 +10,22 @@ use serde_json::{Value, json};
 /// How long FlareSolverr may take over one page; solving a challenge takes seconds.
 const MAX_TIMEOUT_MS: u64 = 60_000;
 
+/// The first FlareSolverr that reads the `proxy` field of a page request: its 3.0.0 rewrite had
+/// no proxy support, and 3.2.0 brought it back ("Support "proxy" param in requests and
+/// sessions", its changelog). An earlier or unknown one isn't handed the proxy.
+pub const PROXY_FROM: &str = "3.2.0";
+
+/// Whether FlareSolverr `version` (such as "v3.3.21" or "3.4.0") is [`PROXY_FROM`] or later.
+pub(crate) fn takes_a_proxy(version: &str) -> bool {
+    let parts: Vec<u32> = version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .map_while(|p| p.parse().ok())
+        .collect();
+    parts.len() >= 2 && (parts[0], parts[1]) >= (3, 2)
+}
+
 /// What answered at FlareSolverr's address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Solver {
@@ -67,11 +83,13 @@ impl Client {
         }
     }
 
-    /// The `proxy` field to send for a page, None to fetch direct. FlareSolverr's browser takes
-    /// an http or socks5 proxy (socks5 has the proxy look names up), with a login for http
-    /// only. One it can't be given is refused, never left out: the page would be fetched from
-    /// the solver's own address. So is a solver that doesn't answer as FlareSolverr itself,
-    /// which may leave the field unread.
+    /// The `proxy` field to send for a page, None to fetch direct. FlareSolverr's browser is
+    /// handed an http or socks5 proxy (socks5 has the proxy look names up), by its address alone.
+    /// One that can't be handed over is refused, never left out, as the page would then be
+    /// fetched from the solver's own address: an HTTPS proxy (the browser takes none), and a
+    /// proxy with a login, whose password would otherwise travel in FlareSolverr's request
+    /// body, and over plain http on the way there. So is a solver that doesn't say it's
+    /// FlareSolverr [`PROXY_FROM`] or later, which may leave the field unread.
     async fn proxy_field(&self) -> Result<Option<Value>, String> {
         use crate::proxy::Kind;
         if !self.through {
@@ -82,27 +100,28 @@ impl Client {
             return Err(crate::proxy::Unreachable::NoProxy.to_string());
         };
         let at = format!("{}:{}", proxy.host, proxy.port);
+        let refused = |why: &str| {
+            Err(format!(
+                "{why}: the proxy at {} isn't handed to it, and nothing was sent; it never goes direct",
+                proxy.address()
+            ))
+        };
         let field = match (proxy.kind, &proxy.login) {
+            (_, Some(_)) => {
+                return refused("FlareSolverr is never given a proxy's password");
+            }
             (Kind::Socks5, None) => json!({ "url": format!("socks5://{at}") }),
             (Kind::Http, None) => json!({ "url": format!("http://{at}") }),
-            (Kind::Http, Some((user, password))) => json!({
-                "url": format!("http://{at}"), "username": user, "password": password.expose(),
-            }),
-            (Kind::Socks5, Some(_)) => {
-                return Err(format!(
-                    "FlareSolverr's browser can't log in to the SOCKS5 proxy at {}, so nothing was sent: it never goes direct",
-                    proxy.address()
-                ));
-            }
-            (Kind::Https, _) => {
-                return Err(format!(
-                    "FlareSolverr's browser can't use the HTTPS proxy at {}, so nothing was sent: it never goes direct",
-                    proxy.address()
-                ));
+            (Kind::Https, None) => {
+                return refused("FlareSolverr's browser can't use an HTTPS proxy");
             }
         };
         match self.ready().await {
-            Ok(Solver::FlareSolverr(_)) => Ok(Some(field)),
+            Ok(Solver::FlareSolverr(Some(version))) if takes_a_proxy(&version) => Ok(Some(field)),
+            Ok(Solver::FlareSolverr(version)) => Err(format!(
+                "FlareSolverr {} may not read the proxy it's handed (it does from {PROXY_FROM}), so nothing was sent through it",
+                version.as_deref().unwrap_or("of an unknown version")
+            )),
             Ok(Solver::Compatible) => Err("the solver at FlareSolverr's address isn't FlareSolverr itself, so it isn't trusted to fetch through the proxy, and nothing was sent".into()),
             Err(why) => Err(why),
         }

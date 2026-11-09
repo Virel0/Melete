@@ -174,10 +174,9 @@ async fn add_torznab(
     State(pool): State<SqlitePool>,
     Json(body): Json<NewTorznab>,
 ) -> Result<(StatusCode, Json<Indexer>), ApiError> {
-    let client = torznab::Client::new()?.through(body.proxy);
-    let id = match indexers::add_torznab(&pool, &client, &body.name, &body.url, &body.api_key)
-        .await?
-    {
+    let client = torznab::Client::new()?;
+    let (name, url, key) = (&body.name, &body.url, &body.api_key);
+    let id = match indexers::add_torznab(&pool, &client, name, url, key, body.proxy).await? {
         Ok(id) => id,
         Err(NotAddedOwn::Invalid(why)) => return Err(ApiError::new(StatusCode::BAD_REQUEST, why)),
         Err(NotAddedOwn::Already(id)) => {
@@ -193,7 +192,6 @@ async fn add_torznab(
             ));
         }
     };
-    set_proxy(&pool, id, body.proxy).await?;
     let indexer = indexers::list(&pool)
         .await?
         .into_iter()

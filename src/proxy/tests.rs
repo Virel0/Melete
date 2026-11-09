@@ -484,40 +484,99 @@ async fn flaresolverr_is_given_the_proxy_or_asked_nothing() {
         "the browser goes through the proxy, and only for an indexer set to"
     );
 
-    // What can't be passed on is refused, and no page is asked for.
-    let mut login = testing::proxy(Kind::Socks5, at);
-    login.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+    // What can't be handed over is refused, and no page is asked for: a proxy with a login (its
+    // password never goes to FlareSolverr), an HTTPS one, none at all, a solver that isn't
+    // FlareSolverr, and a FlareSolverr too old to read the field, or that doesn't say.
+    let with_login = |kind| {
+        let mut proxy = testing::proxy(kind, at);
+        proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+        setup(proxy, &[])
+    };
     let (byparr, _) = start_as(Plays::Byparr, "<html></html>").await;
+    let (old, old_log) = start_as(Plays::FlareSolverr(Some("v3.1.2")), "<html></html>").await;
+    let (unsaid, unsaid_log) = start_as(Plays::FlareSolverr(None), "<html></html>").await;
+    let socks = || setup(testing::proxy(Kind::Socks5, at), &[]);
     for (setup, solver, why) in [
         (
-            setup(login, &[]),
+            with_login(Kind::Socks5),
             url.clone(),
-            "can't log in to the SOCKS5 proxy",
+            "never given a proxy's password",
+        ),
+        (
+            with_login(Kind::Http),
+            url.clone(),
+            "never given a proxy's password",
         ),
         (
             setup(testing::proxy(Kind::Https, at), &[]),
             url.clone(),
-            "can't use the HTTPS proxy",
+            "can't use an HTTPS proxy",
         ),
         (Setup::default(), url.clone(), "no proxy is set"),
-        (
-            setup(testing::proxy(Kind::Socks5, at), &[]),
-            byparr,
-            "isn't FlareSolverr itself",
-        ),
+        (socks(), byparr, "isn't FlareSolverr itself"),
+        (socks(), old, "FlareSolverr v3.1.2 may not read the proxy"),
+        (socks(), unsaid, "of an unknown version"),
     ] {
         let refused = page(setup, true, solver).await.unwrap_err();
         assert!(refused.contains(why), "{refused}");
         assert!(!refused.contains("the-proxy-password"), "{refused}");
     }
     assert_eq!(pages().len(), 3, "nothing more was fetched");
+    for log in [old_log, unsaid_log] {
+        let asked = log.lock().unwrap().clone();
+        assert!(
+            asked.iter().all(|l| l.is_empty()),
+            "only asked what it is: {asked:?}"
+        );
+    }
+    assert!(!log.lock().unwrap().iter().any(|l| l.contains("password")));
+}
 
-    // An HTTP proxy's login goes to FlareSolverr with the page, for its browser to give.
-    let mut http = testing::proxy(Kind::Http, at);
-    http.login = Some(("alice".into(), Secret::new("the-proxy-password")));
-    page(setup(http, &[]), true, url.clone()).await.unwrap();
+#[test]
+fn flaresolverr_reads_the_proxy_from_3_2_0() {
+    for (version, takes) in [
+        ("3.2.0", true),
+        ("v3.3.21", true),
+        ("3.4.0", true),
+        ("4.0", true),
+        ("3.1.2", false),
+        ("v3.0.0", false),
+        ("2.2.10", false),
+        ("", false),
+        ("unknown", false),
+    ] {
+        assert_eq!(
+            crate::flaresolverr::takes_a_proxy(version),
+            takes,
+            "{version}"
+        );
+    }
+}
+
+/// A feed added by hand to go through the proxy is asked what it can do through it, and is
+/// stored going that way from the start: never a moment direct.
+#[tokio::test]
+async fn an_indexer_added_through_the_proxy_never_starts_direct() {
+    let caps = include_str!("../../tests/fixtures/prowlarr/caps.xml");
+    let (proxy_at, log) = testing::http_proxy(caps).await;
+    let pool = crate::db::open_in_memory().await;
+    let (added, _) = with(setup(testing::proxy(Kind::Http, proxy_at), &[]), async {
+        let client = crate::torznab::Client::new().unwrap();
+        let url = "http://tracker.example/api";
+        crate::indexers::add_torznab(&pool, &client, "Mine", url, "", true)
+            .await
+            .unwrap()
+            .unwrap()
+    })
+    .await;
+    let proxy: bool = sqlx::query_scalar("SELECT proxy FROM indexers WHERE id = ?")
+        .bind(added)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(proxy, "stored through the proxy by the insert itself");
     assert_eq!(
-        pages()[3],
-        r#"proxy {"password":"the-proxy-password","url":"http://192.168.1.10:1080","username":"alice"}"#
+        asked(&log),
+        ["GET http://tracker.example/api?t=caps HTTP/1.1"]
     );
 }

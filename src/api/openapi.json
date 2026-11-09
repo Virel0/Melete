@@ -3288,7 +3288,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Send an indexer through the proxy, or direct",
-        "description": "Outlasts imports from Prowlarr; off for every indexer until an admin switches it on. One sent through the proxy is searched, tested and has its results' torrents fetched through the proxy set under Outside services, and fails rather than going direct while that proxy is down or unset; its Uindex pages and refused feeds are fetched by FlareSolverr only when FlareSolverr itself answers and can be handed the proxy (HTTP, or SOCKS5 without a login). For an indexer from Prowlarr, Prowlarr is what reaches the tracker, so its own proxy setting is the one that counts.",
+        "description": "Outlasts imports from Prowlarr; off for every indexer until an admin switches it on. One sent through the proxy is searched, tested and has its results' torrents fetched through the proxy set under Outside services, and fails rather than going direct while that proxy is down or unset; its Uindex pages and refused feeds are fetched by FlareSolverr only when FlareSolverr 3.2.0 or later answers (the first since its 3.0 rewrite to read the proxy it's handed) and the proxy can be handed over by its address alone: HTTP or SOCKS5 without a login, as a password is never sent to FlareSolverr. For an indexer from Prowlarr, Prowlarr is what reaches the tracker, so its own proxy setting is the one that counts.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Indexer id.", "schema": {"type": "integer"}}
         ],

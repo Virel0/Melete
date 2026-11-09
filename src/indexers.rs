@@ -426,8 +426,10 @@ pub async fn add_torznab(
     name: &str,
     url: &str,
     api_key: &str,
+    proxy: bool,
 ) -> anyhow::Result<Result<i64, NotAddedOwn>> {
     let (name, url, api_key) = (name.trim(), url.trim(), api_key.trim());
+    let client = &client.through(proxy);
     if name.is_empty() || name.chars().count() > 100 {
         return Ok(Err(NotAddedOwn::Invalid("the name is 1 to 100 characters")));
     }
@@ -469,8 +471,8 @@ pub async fn add_torznab(
     };
     let id = sqlx::query_scalar(
         "INSERT INTO indexers (name, url, api_key, enabled, categories, movie_search_params,
-             tv_search_params, source, kind, added_at)
-         VALUES (?, ?, ?, 1, ?, ?, ?, 'melete', 'torznab', ?) RETURNING id",
+             tv_search_params, source, kind, added_at, proxy)
+         VALUES (?, ?, ?, 1, ?, ?, ?, 'melete', 'torznab', ?, ?) RETURNING id",
     )
     .bind(name)
     .bind(url)
@@ -483,6 +485,7 @@ pub async fn add_torznab(
     .bind(serde_json::to_string(&caps.movie_search)?)
     .bind(serde_json::to_string(&caps.tv_search)?)
     .bind(unix_now())
+    .bind(proxy)
     .fetch_one(pool)
     .await?;
     Ok(Ok(id))
@@ -529,7 +532,7 @@ mod own_tests {
         let pool = db::open_in_memory().await;
         let client = torznab::Client::new().unwrap();
         let (url, asked) = feed(CAPS).await;
-        let id = add_torznab(&pool, &client, " My Jackett ", &url, "the-key")
+        let id = add_torznab(&pool, &client, " My Jackett ", &url, "the-key", false)
             .await
             .unwrap()
             .unwrap();
@@ -555,7 +558,7 @@ mod own_tests {
             .unwrap();
         assert_eq!(key, "the-key", "kept for searches");
         assert_eq!(
-            add_torznab(&pool, &client, "Again", &url, "k")
+            add_torznab(&pool, &client, "Again", &url, "k", false)
                 .await
                 .unwrap(),
             Err(NotAddedOwn::Already(id))
@@ -570,7 +573,7 @@ mod own_tests {
             .unwrap();
         let client = torznab::Client::new().unwrap();
         let (url, asked) = feed(CAPS).await;
-        let id = add_torznab(&pool, &client, "Mine", &url, "the-key")
+        let id = add_torznab(&pool, &client, "Mine", &url, "the-key", false)
             .await
             .unwrap()
             .unwrap();
@@ -600,7 +603,9 @@ mod own_tests {
         ] {
             assert!(
                 matches!(
-                    add_torznab(&pool, &client, name, url, "k").await.unwrap(),
+                    add_torznab(&pool, &client, name, url, "k", false)
+                        .await
+                        .unwrap(),
                     Err(NotAddedOwn::Invalid(_))
                 ),
                 "{name} {url}"
@@ -608,7 +613,7 @@ mod own_tests {
         }
         let (url, _) =
             feed(r#"<?xml version="1.0"?><error code="100" description="Invalid API Key"/>"#).await;
-        let refused = add_torznab(&pool, &client, "Wrong key", &url, "the-secret-key")
+        let refused = add_torznab(&pool, &client, "Wrong key", &url, "the-secret-key", false)
             .await
             .unwrap();
         let Err(NotAddedOwn::Unanswered(why)) = refused else {
