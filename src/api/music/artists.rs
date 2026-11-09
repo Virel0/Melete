@@ -1,6 +1,9 @@
-//! Artists and genres: the lists and one artist with their albums and the albums they appear on.
+//! Artists and genres: the lists and one artist with their albums and the albums they appear on,
+//! each artist with their portrait.
 
 use super::*;
+use crate::artist_portraits::Credit;
+use crate::library::ARTIST_MBID;
 
 #[derive(Deserialize)]
 pub(super) struct ArtistQuery {
@@ -19,23 +22,36 @@ pub(super) struct ArtistRow {
     pub(super) albums: i64,
     /// Other artists' albums with a track crediting them.
     pub(super) appears_on: i64,
+    /// Whether their albums the user may see give them a picture of their own.
+    pub(super) own_picture: bool,
 }
 
 impl ArtistRow {
-    pub(super) fn to_json(&self) -> Value {
+    /// The artist as the music API shows them, with `commons`, their Commons portrait's credit
+    /// when they have one; a picture of their own comes first, with no credit.
+    pub(super) fn to_json(&self, commons: Option<&Credit>) -> Value {
+        let credit = commons.filter(|_| !self.own_picture);
+        let portrait = (self.own_picture || credit.is_some())
+            .then(|| crate::artist_portraits::library_url(self.id));
         json!({ "id": self.id, "name": self.name, "mb_artist_id": self.mb_artist_id,
-                "albums": self.albums, "appears_on": self.appears_on })
+                "albums": self.albums, "appears_on": self.appears_on,
+                "portrait": portrait, "portrait_credit": credit })
     }
 }
 
-/// An artist's MusicBrainz id: from the tags, else the one most of their matched albums'
-/// releases credit alone.
-pub(super) const ARTIST_MBID: &str = "coalesce(ar.mb_artist_id,
-    (SELECT json_extract(c.artist_credit, '$[0].id') FROM music_albums a2
-     JOIN mb_releases c ON c.id = a2.match_release_id
-     WHERE a2.artist_id = ar.id AND a2.missing_since IS NULL
-       AND json_array_length(c.artist_credit) = 1
-     GROUP BY 1 ORDER BY count(*) DESC LIMIT 1)) AS mb_artist_id";
+/// `rows` as the music API shows them, in order, with their portraits.
+async fn artists_json(pool: &SqlitePool, rows: &[ArtistRow]) -> Result<Vec<Value>, ApiError> {
+    let artists: Vec<&str> = rows
+        .iter()
+        .filter(|r| !r.own_picture)
+        .filter_map(|r| r.mb_artist_id.as_deref())
+        .collect();
+    let credits = crate::artist_portraits::credits(pool, &artists, crate::db::unix_now()).await?;
+    Ok(rows
+        .iter()
+        .map(|r| r.to_json(r.mb_artist_id.as_ref().and_then(|a| credits.get(a))))
+        .collect())
+}
 
 /// Whether album `a3` is one the artist `ar` appears on: present and seen by the user, not
 /// their own, with a present track crediting them.
@@ -54,8 +70,10 @@ fn appears_on(access: &Access) -> String {
 pub(super) fn artist_columns(access: &Access) -> String {
     format!(
         "ar.id, ar.name, {ARTIST_MBID}, count(a.id) AS albums,
-         (SELECT count(*) FROM music_albums a3 WHERE {}) AS appears_on",
-        appears_on(access)
+         (SELECT count(*) FROM music_albums a3 WHERE {}) AS appears_on,
+         EXISTS (SELECT 1 {}) AS own_picture",
+        appears_on(access),
+        crate::artist_portraits::own_picture("ar.id", &access.album_sql("a5"))
     )
 }
 
@@ -109,13 +127,32 @@ pub(in super::super) async fn artists_by_id(
     .bind(serde_json::to_string(&now).unwrap_or_else(|_| "[]".into()))
     .fetch_all(pool)
     .await?;
+    let shown = artists_json(pool, &found).await?;
     Ok(rows
         .iter()
         .filter_map(|(asked, now)| {
-            let row = found.iter().find(|r| r.id == *now)?;
-            Some((*asked, row.to_json()))
+            let at = found.iter().position(|r| r.id == *now)?;
+            Some((*asked, shown[at].clone()))
         })
         .collect())
+}
+
+/// The artist an id stands for now ([`joined`]), when they're in the library now and the user
+/// may see them.
+pub(super) async fn artist_row(
+    pool: &SqlitePool,
+    access: &Access,
+    id: i64,
+) -> Result<Option<ArtistRow>, ApiError> {
+    let id = joined(pool, id).await?;
+    Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {} {} AND ar.id = ? GROUP BY ar.id",
+        artist_columns(access),
+        artist_from(access)
+    )))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?)
 }
 
 pub(super) async fn list_artists(
@@ -153,7 +190,7 @@ pub(super) async fn list_artists(
     .await?;
     Ok(Json(json!({
         "total": total,
-        "items": rows.iter().map(ArtistRow::to_json).collect::<Vec<_>>(),
+        "items": artists_json(&state.pool, &rows).await?,
     })))
 }
 
@@ -163,18 +200,10 @@ pub(super) async fn artist(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
     // An artist whose albums joined another answers as that one; its `id` says which.
-    let id = joined(&state.pool, id).await?;
-    let from = artist_from(&current.access);
-    let row: Option<ArtistRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {} {from} AND ar.id = ? GROUP BY ar.id",
-        artist_columns(&current.access)
-    )))
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?;
-    let Some(row) = row else {
+    let Some(row) = artist_row(&state.pool, &current.access, id).await? else {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "no such artist"));
     };
+    let id = row.id;
     let albums: Vec<AlbumRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {ALBUM_COLUMNS} FROM music_albums a
          LEFT JOIN mb_releases r ON r.id = a.match_release_id
@@ -196,7 +225,9 @@ pub(super) async fn artist(
     .bind(id)
     .fetch_all(&state.pool)
     .await?;
-    let mut body = row.to_json();
+    let mut body = artists_json(&state.pool, std::slice::from_ref(&row))
+        .await?
+        .remove(0);
     let shown = Shown {
         archive: state.coverart.is_some(),
     };
