@@ -7,6 +7,33 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-09
+
+### Added
+
+- Make room lists every action a title can take beside the suggested one, so a title
+  suggested for deleting can be swapped or compressed instead, with what each frees (`options`
+  on each suggestion).
+- Make room acts on several titles at once: tick them (or Choose all), then move them to the
+  trash, swap them, compress them, or do what's suggested for each, from a bar that stays in
+  sight. Its columns sort, by title, suggested action, size or what it frees.
+
+### Fixed
+
+- Importing a playlist without making one no longer asks for songs the library has already:
+  every import looks in the library first, as one that makes a playlist did, so those songs
+  aren't downloaded a second time.
+- Playlist tracks with an ISRC are matched again: MusicBrainz refused the lookup Melete sent
+  for them, so each was retried for two minutes and then listed as "MusicBrainz didn't
+  answer". A request MusicBrainz turns down is now listed at once instead of retried.
+- Exportify's artists joined with semicolons are read as separate artists.
+- Acting on a title on the Make room page no longer sends the page back to the top: the list
+  is drawn again where it is, keeping its order and what's ticked.
+- Artists' portraits keep to about one request a second to Wikidata and Commons, all of them
+  together, and hold back for as long as Wikimedia asks when it answers 429 or 503, instead of
+  asking in bursts. A portrait Wikimedia asked a pause for is asked for again later rather than
+  believed missing for a day.
+
 ## [0.9.0] - 2026-11-09
 
 ### Added
@@ -904,7 +931,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/Virel0/Melete/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Virel0/Melete/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Virel0/Melete/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Virel0/Melete/compare/v0.6.0...v0.7.0

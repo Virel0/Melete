@@ -1,5 +1,0 @@
-Decision: Every request to Wikidata, Commons and Commons' picture hosts (decisions 303 and 326) takes the next free turn, one a second for all of them together; one whose turn is more than 15 seconds away isn't sent. A 429 or 503 holds every request back for as long as its Retry-After says in seconds (a minute when it says nothing, a day at most): a hold of up to 15 seconds is waited out and the request tried once more, a longer one fails it and every request after it until it's over, without sending them. While a long hold lasts, neither searches nor the background run start a lookup, and a portrait the route couldn't fetch for it answers 503 and is asked for again later instead of being believed failed for a day.
-
-Why: Wikimedia limits clients that ask in bursts, and an app opening a page of library artists asks for many pictures at once. Spacing the requests and honouring Retry-After keeps Melete within those limits instead of being refused; refusing a request whose turn is far off keeps a page's requests from waiting a minute or more on the server, and not counting a refusal as a failure keeps a pause from hiding portraits for a day.
-
-Date: 2026-11-09
