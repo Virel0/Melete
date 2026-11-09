@@ -186,3 +186,51 @@ async fn suggestions_come_from_the_library_strongest_first_and_protected_ones_le
         .collect();
     assert_eq!(left, [("series", 1)]);
 }
+
+fn options_of(f: &Facts) -> Vec<(Action, i64)> {
+    suggest(f, NOW, &[])
+        .unwrap()
+        .options
+        .iter()
+        .map(|c| (c.action, c.saves))
+        .collect()
+}
+
+#[test]
+fn a_title_lists_every_action_it_can_take_the_suggested_one_first() {
+    // Not wanted: deleting only, as nothing searches for a smaller release without a profile.
+    assert_eq!(options_of(&film(8)), [(Action::Delete, 8 * GB)]);
+    // Wanted, at 30 GB an hour: a swap for a 6 GB release can be chosen instead.
+    let wanted = Facts {
+        wanted: true,
+        ..film(60)
+    };
+    assert_eq!(
+        options_of(&wanted),
+        [(Action::Delete, 60 * GB), (Action::Swap, 54 * GB)]
+    );
+    // Already smaller than a swap would be: no swap.
+    let small = Facts {
+        wanted: true,
+        ..film(5)
+    };
+    assert_eq!(options_of(&small), [(Action::Delete, 5 * GB)]);
+    // A large H.264 copy suggested for swapping lists compressing and deleting too.
+    let kept = Facts {
+        wanted: true,
+        watchers: 1,
+        last_watched: Some(NOW - 730 * DAY),
+        tmdb_score: Some(7.8),
+        tmdb_votes: Some(5000),
+        codec: Some("h264".into()),
+        ..film(60)
+    };
+    assert_eq!(
+        options_of(&kept),
+        [
+            (Action::Compress, 30 * GB),
+            (Action::Delete, 60 * GB),
+            (Action::Swap, 54 * GB)
+        ]
+    );
+}

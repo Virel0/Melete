@@ -204,6 +204,11 @@ mod tests {
             body["items"][0]["reasons"],
             json!(["never_watched", "untouched"])
         );
+        assert_eq!(
+            body["items"][0]["options"],
+            json!([{ "action": "delete", "saves": 5000 }]),
+            "not wanted: deleting is all it can take"
+        );
         assert_eq!(get(&app, &viewer).await.0, StatusCode::FORBIDDEN);
 
         // Removing one: refused here, as its file was never on disk.
