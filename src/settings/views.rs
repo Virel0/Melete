@@ -118,6 +118,7 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "openrouter" => config.openrouter.is_some(),
         "opensubtitles" => config.opensubtitles.is_some(),
         "proxy" => config.proxy.at.is_some() && !config.proxy.through.is_empty(),
+        "vpn" => config.vpn.is_some(),
         _ => false,
     }
 }

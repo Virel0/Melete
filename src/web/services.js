@@ -5,6 +5,7 @@
 
 import { field, form, group, secret } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
+import { vpnCard } from "/web/vpn-card.js";
 
 // Why a setting given in .env can't be changed here: its variable, and the way back.
 const locked = (f) => ["Locked by ", h("code", {}, f.name), " in .env. Remove that line and restart Melete to change it here."];
@@ -151,6 +152,8 @@ export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
       extra.push(h("div", { class: "form-actions" }, make), shown);
     }
   }
+  // The VPN's state and its start, stop and restart, under its settings.
+  if (s.key === "vpn") extra.push(vpnCard(ctx));
   const id = `service-${s.key}`;
   const why = needed && !needed.on ? h("p", { class: "note", id: `${id}-needs` }, NEEDS_WHY[needed.key] ?? `Needs ${needed.name}, which is off. Set it up above, then this can be turned on.`) : null;
   if (why) blocked(inputs, saving, test, why);

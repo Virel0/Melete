@@ -6,6 +6,7 @@ mod make_room;
 mod musicbrainz;
 mod proxy;
 mod trailers;
+mod vpn;
 
 /// How a setting is entered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -478,4 +479,5 @@ pub const SERVICES: &[Service] = &[
         )],
     },
     proxy::PROXY,
+    vpn::VPN,
 ];

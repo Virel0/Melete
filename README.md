@@ -193,15 +193,21 @@ changed from the web UI.
 ### Optional containers
 
 Each is added through `COMPOSE_FILE` in `.env`, for example
-`COMPOSE_FILE=compose.yaml:compose.soulseek.yaml`, and each needs the folders `.env.example`
+`COMPOSE_FILE=compose.yaml:compose.vpn.yaml:compose.soulseek.yaml`, and each needs the folders `.env.example`
 lists for it:
 
-- `compose.soulseek.yaml`: slskd behind a Gluetun VPN, for Soulseek searches and downloads.
+- `compose.vpn.yaml`: a VPN (Gluetun, WireGuard or OpenVPN) beside Melete. Soulseek and the
+  trailer downloader share its network; Melete's chosen services can go through its HTTP proxy
+  (Settings → Outside services → Proxy), and Settings → Outside services → VPN shows how it is
+  and starts, stops or restarts it through its control server, with a key of Melete's own from
+  the roles file (`gluetun-roles.example.toml`). Melete has no Docker socket and never holds the
+  VPN's own keys.
+- `compose.soulseek.yaml`: slskd behind that VPN, for Soulseek searches and downloads.
   Melete's key for slskd's API needs the ReadWrite role and no more (`role=ReadWrite`, as this
   file sets it): enough to search and download, not to administer slskd. If you run slskd
   some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
-- `compose.trailers.yaml`: the trailer downloader, behind `compose.soulseek.yaml`'s VPN (it
+- `compose.trailers.yaml`: the trailer downloader, behind `compose.vpn.yaml`'s VPN (it
   shares Gluetun's network and won't start without it), converting on an NVIDIA GPU.
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
