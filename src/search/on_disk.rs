@@ -13,7 +13,7 @@ pub(crate) enum OnDisk {
 /// The best file already on disk for a movie, or for episodes `first..=last` of a season, for
 /// upgrade decisions. Season packs aren't compared against files: they replace several at
 /// once.
-pub(super) async fn on_disk(
+pub(crate) async fn on_disk(
     pool: &SqlitePool,
     profile: &Loaded,
     wanted: &Wanted,
