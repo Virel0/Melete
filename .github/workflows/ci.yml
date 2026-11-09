@@ -180,4 +180,9 @@ jobs:
       - name: Audit dependencies
         # Fails on any known vulnerability in Cargo.lock; warnings (unmaintained, yanked) are
         # listed without failing.
-        run: cargo audit --file Cargo.lock
+        # RUSTSEC-2026-0459 (SQLite before 3.54.0 can return uninitialised page-cache memory
+        # when it opens a crafted database with a -wal file of another page size): ignored
+        # until sqlx allows libsqlite3-sys 0.39, as sqlx 0.9.0 takes only < 0.38. Crafting it
+        # means writing to the data folder, or an admin handing Melete a bad file to import or
+        # restore. Remove the ignore with that upgrade.
+        run: cargo audit --file Cargo.lock --ignore RUSTSEC-2026-0459
