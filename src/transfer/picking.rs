@@ -124,20 +124,25 @@ fn shared_folder<'a>(
     })
 }
 
-/// The episodes of one season a season pack was taken for, and the series they're of.
+/// The season a pack is brought home for, and the series it's of: the episodes of it the pack
+/// was taken for, or every episode of it from a pack of several seasons.
 struct Taken {
     wanted: crate::search::Wanted,
     season: i64,
-    episodes: Vec<i64>,
+    /// None: any episode of the season (a pack of several seasons, recorded for this one).
+    episodes: Option<Vec<i64>>,
 }
 
-/// What a season pack taken in part is for; None for any other download, all of whose files
-/// are brought home.
+/// What a season pack taken in part, or a pack of several seasons, is brought home for; None
+/// for any other download, all of whose files are brought home. A pack of several seasons is
+/// recorded for the season it was searched for, and only that season's files come home (each
+/// is checked against that season's runtimes); the rest stay on the seedbox.
 async fn taken(pool: &SqlitePool, row: &Row) -> anyhow::Result<Result<Option<Taken>, Stop>> {
-    let Some(episodes) = row.episodes.as_deref() else {
-        return Ok(Ok(None));
+    let episodes: Option<Vec<i64>> = match row.episodes.as_deref() {
+        Some(episodes) => Some(serde_json::from_str(episodes)?),
+        None if row.wanted_series_id.is_some() && several_seasons(&row.title) => None,
+        None => return Ok(Ok(None)),
     };
-    let episodes: Vec<i64> = serde_json::from_str(episodes)?;
     let target = row.target();
     let wanted = match target {
         Some(target @ Target::Series { .. }) => crate::search::load_wanted(pool, target).await?,
@@ -145,7 +150,7 @@ async fn taken(pool: &SqlitePool, row: &Row) -> anyhow::Result<Result<Option<Tak
     };
     let (Some(wanted), Some(Target::Series { season, .. })) = (wanted, target) else {
         return Ok(Err(Stop::Fail(
-            "it was taken for some episodes of a series that isn't wanted any more".into(),
+            "it was taken for part of a series that isn't wanted any more".into(),
         )));
     };
     Ok(Ok(Some(Taken {
@@ -158,7 +163,7 @@ async fn taken(pool: &SqlitePool, row: &Row) -> anyhow::Result<Result<Option<Tak
 impl Taken {
     /// Whether a file is one of the episodes taken, for certain: its own name gives the season
     /// and episodes (or numbers from the first episode that map to them), every one of them
-    /// taken. Extras, anything in an extras folder whatever its name, and anything else stay
+    /// taken (any, from a pack of several seasons). Extras, anything in an extras folder whatever its name, and anything else stay
     /// behind.
     async fn holds(&self, pool: &SqlitePool, parts: &[&str]) -> anyhow::Result<bool> {
         let Some((name, folders)) = parts.split_last() else {
@@ -173,11 +178,23 @@ impl Taken {
                 Ok(crate::release::Episodes::Standard { season, episodes }) => {
                     season == self.season
                         && !episodes.is_empty()
-                        && episodes.iter().all(|e| self.episodes.contains(e))
+                        && self
+                            .episodes
+                            .as_ref()
+                            .is_none_or(|taken| episodes.iter().all(|e| taken.contains(e)))
                 }
                 _ => false,
             },
         )
+    }
+}
+
+/// Whether a release's name says it holds several seasons ("S01-S03", "Complete Series").
+fn several_seasons(title: &str) -> bool {
+    match crate::release::parse(title).episodes {
+        crate::release::Episodes::Seasons(seasons) => seasons.len() > 1,
+        crate::release::Episodes::CompleteSeries => true,
+        _ => false,
     }
 }
 
@@ -202,12 +219,19 @@ fn nothing_to_import(
     if let Some(only) = only
         && !planned.iter().any(|p| has_extension(&p.name, VIDEO))
     {
-        return Some(Stop::Fail(format!(
-            "none of its files can be told to be one of the episodes it was taken for ({} of \
-             season {})",
-            crate::rss::numbers(&only.episodes),
-            only.season
-        )));
+        return Some(Stop::Fail(match &only.episodes {
+            Some(episodes) => format!(
+                "none of its files can be told to be one of the episodes it was taken for ({} of \
+                 season {})",
+                crate::rss::numbers(episodes),
+                only.season
+            ),
+            None => format!(
+                "it holds several seasons, and none of its files can be told to be an episode of \
+                 season {}, the one it was taken for",
+                only.season
+            ),
+        }));
     }
     let (needed, kind) = if album {
         (AUDIO_EXTENSIONS, "audio")

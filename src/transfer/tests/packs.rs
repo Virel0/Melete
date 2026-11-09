@@ -97,3 +97,113 @@ async fn a_pack_none_of_whose_files_can_be_placed_brings_nothing_home() {
     );
     assert!(!r.local.path().join("shows/Show/Season 02").exists());
 }
+
+/// Names `id`'s release `title`.
+async fn titled(r: &Rig, id: i64, title: &str) {
+    sqlx::query("UPDATE downloads SET title = ? WHERE id = ?")
+        .bind(title)
+        .bind(id)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_pack_of_several_seasons_brings_home_only_the_season_it_was_taken_for() {
+    let r = rig().await;
+    let dir = "Show.S01-S03.1080p.BluRay.x264-GRP";
+    let id = pack(
+        &r,
+        &[
+            (&format!("{dir}/Season 1/Show.S01E01.mkv"), data(100, 1)),
+            (&format!("{dir}/Season 2/Show.S02E01.mkv"), data(100, 2)),
+            (&format!("{dir}/Season 2/Show.S02E02.mkv"), data(100, 3)),
+            (
+                &format!("{dir}/Season 2/Show.S02E02.en.srt"),
+                b"1\n".to_vec(),
+            ),
+            (&format!("{dir}/Season 3/Show.S03E01.mkv"), data(100, 4)),
+            // Which season it's of can't be told.
+            (&format!("{dir}/Bonus.mkv"), data(100, 5)),
+        ],
+        None,
+    )
+    .await;
+    titled(&r, id, dir).await;
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    let (state, ..) = r.state(id).await;
+    assert_eq!(state, "imported");
+    assert_eq!(
+        season_folder(&r),
+        ["Show.S02E01.mkv", "Show.S02E02.en.srt", "Show.S02E02.mkv"]
+    );
+    assert!(!r.local.path().join("shows/Show/Season 01").exists());
+    assert!(!r.local.path().join("shows/Show/Season 03").exists());
+}
+
+#[tokio::test]
+async fn a_pack_of_several_seasons_without_the_season_brings_nothing_home() {
+    let r = rig().await;
+    let dir = "Show.Complete.Series.1080p.BluRay.x264-GRP";
+    let id = pack(
+        &r,
+        &[
+            (&format!("{dir}/Show.S01E01.mkv"), data(100, 1)),
+            (&format!("{dir}/Show.S03E01.mkv"), data(100, 2)),
+        ],
+        None,
+    )
+    .await;
+    titled(&r, id, dir).await;
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    let (state, message, destination, _) = r.state(id).await;
+    assert_eq!((state.as_str(), destination), ("failed", None));
+    assert_eq!(
+        message.as_deref(),
+        Some(
+            "it holds several seasons, and none of its files can be told to be an episode of \
+             season 2, the one it was taken for"
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_pack_of_several_seasons_is_checked_against_its_own_season_only() {
+    let r = rig().await;
+    let show = super::holding::new_show(&r).await;
+    let dir = "New.Show.S01-S02.1080p.WEB-DL-GRP";
+    let files = r.seed(&[
+        (
+            &format!("{dir}/New.Show.S01E01.mkv"),
+            super::verifying::clip(45 * 60),
+        ),
+        (
+            &format!("{dir}/New.Show.S01E02.mkv"),
+            super::verifying::clip(45 * 60),
+        ),
+        // Season 2's runs otherwise; it stays on the seedbox and isn't judged.
+        (
+            &format!("{dir}/New.Show.S02E01.mkv"),
+            super::verifying::clip(20 * 60),
+        ),
+    ]);
+    let id = r
+        .download(None, Some((show, 1)), "/home/user/Completed", &files)
+        .await;
+    titled(&r, id, dir).await;
+
+    transfer(&r.pool, &r.seedbox, Some(&super::verifying::fixes()), id)
+        .await
+        .unwrap();
+
+    let (state, message, ..) = r.state(id).await;
+    assert_eq!(state, "imported", "{message:?}");
+    assert_eq!(
+        super::holding::shows(&r),
+        [
+            ".keep",
+            "New Show/Season 01/New.Show.S01E01.mkv",
+            "New Show/Season 01/New.Show.S01E02.mkv"
+        ]
+    );
+}
