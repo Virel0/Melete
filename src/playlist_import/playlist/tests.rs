@@ -203,3 +203,53 @@ async fn a_song_the_library_has_under_another_name_goes_in_as_its_track_at_once(
         [json!("9"), json!({"pending": null}), json!("9"), json!("2")]
     );
 }
+
+#[tokio::test]
+async fn an_import_without_a_playlist_leaves_out_what_the_library_has_as_its_importer_sees_it() {
+    let pool = db::open_in_memory().await;
+    // Creep is in the music library; a second music library holds nothing.
+    library(
+        &pool,
+        "INSERT INTO libraries (id, name, kind, path) VALUES (5, 'more', 'music', '/more');",
+    )
+    .await;
+    let (mb, _) = testing::start(0).await;
+    let sources = fulfil::Sources::default();
+    let csv = "Track Name,Artist Name(s),Track Duration (ms)\nCreep,Radiohead,238000\n";
+    let alice = crate::auth::testing::user(&pool, "alice", false).await;
+    let made = create(&pool, &alice, "Mix", &parse(csv).unwrap(), None)
+        .await
+        .unwrap();
+    run(&pool, &mb, &sources, made.id).await.unwrap();
+    let view = get(&pool, made.id).await.unwrap().unwrap();
+    assert_eq!(
+        (view.summary.in_library, view.summary.asked),
+        (1, 0),
+        "in the library already, so not asked for"
+    );
+    assert_eq!(view.items[0].state, "in_library");
+    assert_eq!(view.items[0].request_id, None);
+    let requests: i64 = sqlx::query_scalar("SELECT count(*) FROM requests")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(requests, 0);
+
+    // Someone who may see only the other library: Creep is asked for, as one the library lacks
+    // would be, so nothing tells them what the hidden one holds.
+    let bob = crate::auth::testing::user(&pool, "bob", false).await;
+    let only_more = crate::access::Restriction {
+        libraries: Some(vec![5]),
+        max_age: None,
+    };
+    crate::access::set_restriction(&pool, bob.id, Some(&only_more))
+        .await
+        .unwrap();
+    let made = create(&pool, &bob, "Mix", &parse(csv).unwrap(), None)
+        .await
+        .unwrap();
+    run(&pool, &mb, &sources, made.id).await.unwrap();
+    let view = get(&pool, made.id).await.unwrap().unwrap();
+    assert_eq!(view.summary.in_library, 0);
+    assert_ne!(view.items[0].state, "in_library", "{:?}", view.items[0]);
+}

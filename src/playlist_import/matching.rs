@@ -114,8 +114,13 @@ pub async fn recording_for(
     track: &Track,
 ) -> Result<Result<String, String>, musicbrainz::Error> {
     if let Some(isrc) = &track.isrc {
-        // One recording with the code is it; several are told apart by artist and length.
-        let found = mb.isrc(isrc).await?;
+        // One recording with the code is it; several are told apart by artist and length. A
+        // code MusicBrainz won't look up is left for the title to find.
+        let found = match mb.isrc(isrc).await {
+            Ok(found) => found,
+            Err(musicbrainz::Error::Refused(_)) => Vec::new(),
+            Err(err) => return Err(err),
+        };
         if let Some(id) = best(track, &found, false) {
             return Ok(Ok(id));
         }

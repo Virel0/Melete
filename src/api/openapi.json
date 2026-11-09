@@ -4461,7 +4461,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Import a playlist as song requests",
-        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length; for a track with an artist, a close title by that artist when none has its own, searched for by its words once when its title as a phrase finds nothing) and asked for as a song by you, in the background, one import at a time and a track at a time. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
+        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length; for a track with an artist, a close title by that artist when none has its own, searched for by its words once when its title as a phrase finds nothing) and asked for as a song by you, in the background, one import at a time and a track at a time, unless the library has it already: a track found in the libraries you may see (matched as POST /aoide/match matches: its ISRC, else its title, artist and length) isn't asked for, with or without make_playlist, and one only in a library hidden from you is asked for as any other. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewPlaylistImport"}}}
@@ -18961,7 +18961,7 @@
           "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
           "in_library": {
             "type": "integer",
-            "description": "Tracks the library has already, put in the playlist as they are and not asked for. Only an import that makes a playlist looks, so it's 0 for the rest."
+            "description": "Tracks the library has already, in the libraries the importer may see: not asked for, and with a playlist, put in it as they are."
           },
           "playlist_id": {
             "type": ["string", "null"],
@@ -18982,7 +18982,7 @@
           "state": {
             "type": "string",
             "enum": ["pending", "asked", "already", "unmatched", "in_library"],
-            "description": "in_library: the library has it already, so it went into the import's playlist as it is and wasn't asked for (only an import that makes a playlist looks)."
+            "description": "in_library: the library has it already, in the libraries the importer may see, so it wasn't asked for (and went into the import's playlist as it is, when it makes one)."
           },
           "why": {"type": ["string", "null"], "description": "Why it wasn't asked for, when unmatched."},
           "request_id": {
@@ -19028,7 +19028,7 @@
           "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
           "in_library": {
             "type": "integer",
-            "description": "Tracks the library has already, put in the playlist as they are and not asked for. Only an import that makes a playlist looks, so it's 0 for the rest."
+            "description": "Tracks the library has already, in the libraries the importer may see: not asked for, and with a playlist, put in it as they are."
           },
           "playlist_id": {
             "type": ["string", "null"],
@@ -19061,7 +19061,7 @@
           "make_playlist": {
             "type": "boolean",
             "default": false,
-            "description": "Also make an Aoide playlist of it, named as the import is, with every track in it in the file's order. A track the library has already (matched as POST /aoide/match matches) goes in as it is and isn't asked for; any other goes in pending (AoidePendingItem) on its request, or on none when it couldn't be asked for, until its song arrives. Only for users who may see every music library."
+            "description": "Also make an Aoide playlist of it, named as the import is, with every track in it in the file's order. A track the library has already (which an import never asks for) goes in as it is; any other goes in pending (AoidePendingItem) on its request, or on none when it couldn't be asked for, until its song arrives. Only for users who may see every music library."
           }
         },
         "additionalProperties": false

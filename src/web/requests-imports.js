@@ -162,7 +162,7 @@ export async function imports(ctx) {
   return [
     group(
       "Import a playlist",
-      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself. Tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
+      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself. Songs the library has already aren't asked for, and tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
       importForm(ctx, draw),
     ),
     group("Your playlist imports", empty, list),

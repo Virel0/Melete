@@ -2,7 +2,8 @@
 //! the column names other exporters use too) whose every track is matched to a MusicBrainz
 //! recording, by its ISRC first, then by title (or, with an artist, a close one), artist and
 //! length, and asked for as a song by
-//! whoever imported it. Imports run one at a time in the background, a track at a time, as
+//! whoever imported it, unless the library has it already (as the importer may see it, matched
+//! as `/aoide/match` matches). Imports run one at a time in the background, a track at a time, as
 //! MusicBrainz answers one request a second; a track asked for at once (an admin's, or a user's
 //! whose requests go straight through) is fetched before the next is matched. What can't be
 //! matched is listed with why. Importing the same playlist again asks only for what's new.
@@ -110,6 +111,10 @@ mod tests {
             ],
             "a row without a title is skipped"
         );
+        // Exportify now joins several artists with semicolons.
+        let joined =
+            parse("Track Name,Artist Name(s)\nEl Corrido,Dueto A & B;Mariachi C\n").unwrap();
+        assert_eq!(joined[0].artists, ["Dueto A & B", "Mariachi C"]);
         // Another exporter's names, and lengths as m:ss.
         let other = parse("title,artist,duration\nCreep,Radiohead,3:58\n").unwrap();
         assert_eq!(
@@ -390,6 +395,52 @@ mod tests {
         assert_eq!((again.asked, again.already, again.unmatched), (0, 2, 1));
         assert_eq!(list(&pool, Some(alice.id)).await.unwrap().len(), 2);
         assert!(list(&pool, Some(admin.id)).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_track_musicbrainz_turns_down_is_listed_at_once_not_asked_again() {
+        let pool = db::open_in_memory().await;
+        let alice = user(&pool, "alice", false).await;
+        let (mb, log) = testing::start(0).await;
+        let csv = "Track Name,Artist Name(s),ISRC\nUnreadable Song,Radiohead,\n\
+                   Paranoid Android,Radiohead,GBAYE9700245\n";
+        let made = create(&pool, &alice, "Mix", &parse(csv).unwrap(), None)
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        run(&pool, &mb, &fulfil::Sources::default(), made.id)
+            .await
+            .unwrap();
+        assert!(
+            started.elapsed() < RETRY,
+            "not waited on: {:?}",
+            started.elapsed()
+        );
+        let view = get(&pool, made.id).await.unwrap().unwrap();
+        assert_eq!(view.items[0].state, "unmatched");
+        assert_eq!(
+            view.items[0].why.as_deref(),
+            Some("MusicBrainz turned the request down: answered 400 Bad Request")
+        );
+        assert_eq!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .filter(|l| l.to_lowercase().contains("unreadable"))
+                .count(),
+            1,
+            "asked once"
+        );
+        // The ISRC is looked up as MusicBrainz allows, and its answer is the track: no search.
+        assert_eq!(view.items[1].state, "asked");
+        assert!(
+            !log.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.to_lowercase().contains("paranoid")),
+            "{:?}",
+            log.lock().unwrap()
+        );
     }
 
     #[tokio::test]

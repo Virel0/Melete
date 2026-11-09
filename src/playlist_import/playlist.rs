@@ -1,7 +1,6 @@
 //! The Aoide playlist an import fills, when it makes one. Each track goes in as it's handled,
 //! at the end, so the playlist keeps the import's order and fills in while the import runs. A
-//! track the library has already (matched as `/aoide/match` matches) goes in as it is and isn't
-//! asked for; one asked for, or asked for already, goes in pending on its request; one nobody
+//! track the library has already ([`in_library`]) goes in as it is; one asked for, or asked for already, goes in pending on its request; one nobody
 //! could ask for goes in pending on none, with why. Items are written as Melete's own device,
 //! each with an id made from the playlist and the track's place, so a track handled again after
 //! a restart is the same item, not a second one. A pending one whose song is in the library
@@ -14,27 +13,26 @@ use crate::aoide::playlist_edits::{self, EditError, Editor, Holds, NewItem};
 use crate::aoide::writing::{self, MELETE_DEVICE, TrackLink};
 use crate::db::now_ms;
 
-/// The playlist an import fills, and the library its tracks are looked for in.
-pub(super) struct Filling {
-    /// The playlist's id.
-    pub(super) playlist: String,
-    /// Every present track, as matching sees it.
-    pub(super) library: Vec<LibraryTrack>,
-}
-
-/// The playlist import `id` fills, with the library as it is now; none when it makes none.
-pub(super) async fn filling(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<Filling>> {
-    let playlist: Option<String> =
+/// The playlist import `id` fills; none when it makes none.
+pub(super) async fn filling(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<String>> {
+    Ok(
         sqlx::query_scalar("SELECT playlist_id FROM playlist_imports WHERE id = ?")
             .bind(id)
             .fetch_optional(pool)
             .await?
-            .flatten();
-    let Some(playlist) = playlist else {
-        return Ok(None);
-    };
-    let library = crate::aoide::matcher::present_tracks(pool).await?;
-    Ok(Some(Filling { playlist, library }))
+            .flatten(),
+    )
+}
+
+/// The library as `user`, who imported the playlist, may see it now, which its tracks are
+/// looked for in: every present track, or those in the libraries they may see, so a track only
+/// in a library hidden from them is asked for as one the library lacks would be.
+pub(super) async fn library_for(
+    pool: &SqlitePool,
+    user: &User,
+) -> anyhow::Result<Vec<LibraryTrack>> {
+    let access = crate::access::Access::of(pool, user.id, user.is_admin).await?;
+    Ok(crate::aoide::matcher::present_tracks_seen(pool, &access).await?)
 }
 
 /// The library's track for `track`, by the rules `/aoide/match` uses; none when it has none.

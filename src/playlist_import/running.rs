@@ -60,7 +60,8 @@ pub async fn run(
         .execute(pool)
         .await?;
     let filling = filling(pool, id).await?;
-    let matcher = filling.as_ref().map(|f| Matcher::new(&f.library));
+    let library = library_for(pool, &user).await?;
+    let matcher = Matcher::new(&library);
     let pending = pending(pool, id).await?;
     for (position, title, artist, album, isrc, length_ms) in pending {
         // Removed partway: nothing more is asked for.
@@ -81,17 +82,14 @@ pub async fn run(
             length_ms,
             isrc,
         };
-        let found = match &matcher {
-            Some(matcher) => in_library(pool, matcher, &track).await?,
-            None => None,
-        };
-        let handled = match found {
+        // What the library has already isn't asked for, whether or not a playlist is made.
+        let handled = match in_library(pool, &matcher, &track).await? {
             Some(link) => Handled::in_library(link),
             None => ask(pool, mb, &user, &track).await?,
         };
         // Into the playlist first: handled again after a restart, it's the same item.
-        if let Some(filling) = &filling {
-            put_in(pool, user.id, &filling.playlist, position, &track, &handled).await;
+        if let Some(playlist) = &filling {
+            put_in(pool, user.id, playlist, position, &track, &handled).await;
         }
         sqlx::query(
             "UPDATE playlist_import_tracks SET state = ?, why = ?, request_id = ?
@@ -232,6 +230,10 @@ pub(super) async fn ask(
     let recording = loop {
         match recording_for(mb, track).await {
             Ok(found) => break found,
+            // Turned down as asked: asking again would be turned down too.
+            Err(err @ musicbrainz::Error::Refused(_)) => {
+                return Ok(Handled::unmatched(err.to_string()));
+            }
             Err(err) => {
                 tries += 1;
                 if tries == TRIES {
