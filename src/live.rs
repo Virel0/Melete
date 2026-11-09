@@ -67,8 +67,6 @@ struct Built {
     /// LibreTranslate for translating lyrics, when it's set up.
     translator: Option<Arc<libretranslate::Client>>,
     song_albums: bool,
-    /// Gluetun's control server and the server countries to keep there, when some are chosen.
-    vpn: Option<(crate::gluetun::Client, Vec<String>)>,
     oidc: Option<Arc<oidc::Client>>,
     ai: Option<Arc<ai::Client>>,
 }
@@ -164,13 +162,6 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
             None => None,
         },
         song_albums: config.song_albums,
-        vpn: match &config.vpn {
-            Some(vpn) if !vpn.countries.is_empty() => Some((
-                crate::gluetun::Client::new(&vpn.url, vpn.key.clone())?,
-                vpn.countries.clone(),
-            )),
-            _ => None,
-        },
     })
 }
 
@@ -279,13 +270,6 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
         None => tracing::info!(
             "music isn't matched to MusicBrainz, nor playlists imported, nor followed artists looked up; MELETE_MUSICBRAINZ=on turns it on"
         ),
-    }
-    // Applied now, and again after Gluetun restarts and forgets them.
-    if let Some((client, countries)) = &built.vpn {
-        tasks.push(tokio::spawn(crate::gluetun::keep(
-            client.clone(),
-            countries.clone(),
-        )));
     }
     if built.song_albums {
         tracing::info!("a requested song's album is wanted once the song is in");

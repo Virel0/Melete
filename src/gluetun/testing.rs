@@ -1,5 +1,6 @@
 //! A stand-in for Gluetun's control server (v3.41.3's routes and answers), noting what it's
-//! asked; it answers without a key when `open`, as Gluetun's public fallback role does.
+//! asked. Routes can be left open to requests without a key, as Gluetun's public fallback role
+//! leaves them.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,26 +16,20 @@ pub const KEY: &str = "melete-control-key";
 /// What the stand-in is, and was asked.
 #[derive(Debug)]
 pub struct Fake {
-    /// Answers requests without a key.
-    pub open: bool,
+    /// Routes ("METHOD /path") that answer without a key; "*" for every one.
+    pub open: Vec<&'static str>,
     /// Whether the tunnel is up.
     pub running: bool,
     /// Each request, as "METHOD /path" and whether it carried the right key.
     pub asked: Vec<(String, bool)>,
-    /// Each body sent to PUT /v1/vpn/settings.
-    pub settings: Vec<Value>,
-    /// The countries it knows, as its provider's server list names them.
-    pub known: Vec<&'static str>,
 }
 
 impl Default for Fake {
     fn default() -> Fake {
         Fake {
-            open: false,
+            open: Vec::new(),
             running: true,
             asked: Vec::new(),
-            settings: Vec::new(),
-            known: vec!["Netherlands", "Sweden"],
         }
     }
 }
@@ -61,40 +56,32 @@ async fn answer(
     body: String,
 ) -> Response {
     let keyed = headers.get("x-api-key").is_some_and(|k| k == KEY);
+    let route = format!("{method} {}", uri.path());
     let mut fake = fake.lock().unwrap();
-    fake.asked.push((format!("{method} {}", uri.path()), keyed));
-    if !keyed && !fake.open {
+    fake.asked.push((route.clone(), keyed));
+    let open = fake.open.iter().any(|o| *o == "*" || *o == route);
+    if !keyed && !open {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let body: Value = serde_json::from_str(&body).unwrap_or_default();
-    match (method.as_str(), uri.path()) {
-        ("GET", "/v1/vpn/status") => {
+    match route.as_str() {
+        "GET /v1/vpn/status" => {
             let status = if fake.running { "running" } else { "stopped" };
             Json(json!({ "status": status })).into_response()
         }
-        ("PUT", "/v1/vpn/status") => {
-            fake.running = body["status"] == "running";
-            Json(json!({ "outcome": "stopped" })).into_response()
-        }
-        ("GET", "/v1/publicip/ip") => Json(json!({
+        // Gluetun takes "running" or "stopped" and turns anything else down, changing nothing.
+        "PUT /v1/vpn/status" => match body["status"].as_str() {
+            Some(status @ ("running" | "stopped")) => {
+                fake.running = status == "running";
+                Json(json!({ "outcome": status })).into_response()
+            }
+            _ => (StatusCode::BAD_REQUEST, "status is not valid").into_response(),
+        },
+        "GET /v1/publicip/ip" => Json(json!({
             "public_ip": "203.0.113.7", "country": "Netherlands", "city": "Amsterdam"
         }))
         .into_response(),
-        ("GET", "/v1/portforward") => {
-            Json(json!({ "port": 51413, "ports": [51413] })).into_response()
-        }
-        ("PUT", "/v1/vpn/settings") => {
-            let countries = &body["provider"]["server_selection"]["countries"];
-            let known = countries
-                .as_array()
-                .is_some_and(|c| c.iter().all(|c| fake.known.iter().any(|k| c == k)));
-            fake.settings.push(body.clone());
-            if known {
-                "settings updated".into_response()
-            } else {
-                (StatusCode::BAD_REQUEST, "country is not valid").into_response()
-            }
-        }
+        "GET /v1/portforward" => Json(json!({ "port": 51413, "ports": [51413] })).into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }

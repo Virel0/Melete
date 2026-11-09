@@ -187,7 +187,7 @@ mod tests {
         assert!(!started.to_string().contains(testing::KEY));
 
         // One open to anyone is refused, and left as it is.
-        fake.lock().unwrap().open = true;
+        fake.lock().unwrap().open = vec!["*"];
         let (_, open) = send(&app, "GET", "/api/v1/vpn", &admin).await;
         assert!(
             open["trouble"]

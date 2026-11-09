@@ -24,6 +24,9 @@ services:
       HTTPPROXY: "on"
       HTTPPROXY_USER: melete
       HTTPPROXY_PASSWORD: ${MELETE_GLUETUN_PROXY_PASSWORD:?set MELETE_GLUETUN_PROXY_PASSWORD in .env}
+      # No X-Forwarded-For or Via headers naming Melete's address inside compose on plain-http
+      # requests: the sites see the tunnel's address and nothing more.
+      HTTPPROXY_STEALTH: "on"
     volumes:
       # Who may use which control-server route, each with a key of its own
       # (gluetun-roles.example.toml). With it mounted, no route answers without a key.

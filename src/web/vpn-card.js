@@ -22,6 +22,8 @@ function facts(view) {
       h("dd", {}, s.running ? seen : "Nothing: the VPN is stopped"),
       h("dt", {}, "Forwarded port"),
       h("dd", {}, s.forwarded_port ? String(s.forwarded_port) : "None"),
+      h("dt", {}, "Server countries"),
+      h("dd", {}, "As Gluetun's settings file sets them (SERVER_COUNTRIES); not changed from here"),
     ),
   ];
 }

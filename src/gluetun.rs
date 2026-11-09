@@ -1,8 +1,10 @@
 //! Gluetun's control server, for the VPN Melete's chosen services can go through (Gluetun's HTTP
 //! proxy, set under Proxy). Melete reads how the VPN is (running or not, the address the outside
-//! world sees, the forwarded port), starts, stops and restarts it, and keeps the server
-//! countries an admin chose. Its key goes in the `X-API-Key` header and nowhere else. A control
-//! server that answers without a key is refused: anyone on its network could stop the VPN.
+//! world sees, the forwarded port), and starts, stops and restarts it; nothing else. Which
+//! servers it uses (provider, countries, keys) is Gluetun's own settings', which Melete neither
+//! reads nor changes, so its key can't send the tunnel anywhere else. Its key goes in the
+//! `X-API-Key` header and nowhere else. A control server that answers without a key is refused:
+//! anyone on its network could stop the VPN.
 //! What's asked and how it answers is Gluetun v3.41.3's (`internal/server`). Nothing here goes
 //! through the proxy: the control server sits beside Melete.
 
@@ -12,9 +14,6 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::config::Secret;
-
-/// The countries' setting.
-pub const COUNTRIES_SETTING: &str = "MELETE_VPN_COUNTRIES";
 
 /// Gluetun's control server as Melete reaches it, with Melete's key.
 #[derive(Clone)]
@@ -89,20 +88,29 @@ impl Client {
         format!("{}{path}", self.base)
     }
 
-    /// Refused unless the control server wants a key: asked without one, it must turn Melete
-    /// away. A server that answers is open to anyone on its network.
+    /// Refused unless the control server wants a key on every route Melete uses: asked without
+    /// one, it must turn Melete away (401). Starting and stopping is asked with a status Gluetun
+    /// doesn't know, so even a server open to anyone changes nothing; any answer but 401 means
+    /// anyone on its network could stop the VPN.
     async fn closed(&self) -> Result<(), Trouble> {
-        let answer = self
-            .http
-            .get(self.url("/v1/vpn/status"))
-            .send()
-            .await
-            .map_err(|e| Trouble::Unreachable(crate::proxy::said(e)))?;
-        match answer.status().as_u16() {
-            401 | 403 => Ok(()),
-            200..=299 => Err(Trouble::Open),
-            other => Err(Trouble::Unreachable(format!("it answered {other}"))),
+        let probes = [
+            self.http.get(self.url("/v1/vpn/status")),
+            self.http
+                .request(reqwest::Method::PUT, self.url("/v1/vpn/status"))
+                .json(&json!({ "status": "melete-checks-a-key-is-needed" })),
+        ];
+        for probe in probes {
+            let answer = probe
+                .send()
+                .await
+                .map_err(|e| Trouble::Unreachable(crate::proxy::said(e)))?;
+            match answer.status().as_u16() {
+                401 => {}
+                404 => return Err(Trouble::Unreachable("it answered 404".into())),
+                _ => return Err(Trouble::Open),
+            }
         }
+        Ok(())
     }
 
     /// A route's answer as JSON, asked with the key.
@@ -188,33 +196,15 @@ impl Client {
         self.set_running(false).await?;
         self.set_running(true).await
     }
-
-    /// Has Gluetun pick its servers in `countries`, as named in its provider's server list.
-    /// Gluetun merges just that, checks it, and restarts the tunnel when it changed; the same
-    /// again changes nothing, so it's sent again whenever it's checked, as Gluetun forgets it on
-    /// a restart of its own.
-    pub async fn keep_countries(&self, countries: &[String]) -> Result<(), Trouble> {
-        if countries.is_empty() {
-            return Ok(());
-        }
-        self.closed().await?;
-        let body = json!({ "provider": { "server_selection": { "countries": countries } } });
-        self.ask(reqwest::Method::PUT, "/v1/vpn/settings", Some(body))
-            .await
-            .map(|_| ())
-    }
 }
 
-/// Gluetun's control server as set up (`MELETE_VPN_URL` and `MELETE_VPN_KEY`, both or neither),
-/// and the server countries to keep (`MELETE_VPN_COUNTRIES`).
+/// Gluetun's control server as set up (`MELETE_VPN_URL` and `MELETE_VPN_KEY`, both or neither).
 #[derive(Debug, Clone)]
 pub struct Settings {
     /// Its address as Melete reaches it, e.g. http://gluetun:8000.
     pub url: String,
     /// Melete's key, from Gluetun's roles file.
     pub key: Secret,
-    /// The server countries to keep; none leaves Gluetun's own choice.
-    pub countries: Vec<String>,
 }
 
 impl Settings {
@@ -226,12 +216,8 @@ impl Settings {
                 .map(|v| v.trim().to_owned())
                 .filter(|v| !v.is_empty())
         };
-        let countries = countries(set(COUNTRIES_SETTING).as_deref());
         let (url, key) = match (set("MELETE_VPN_URL"), set("MELETE_VPN_KEY")) {
-            (None, None) if countries.is_empty() => return Ok(None),
-            (None, None) => {
-                anyhow::bail!("{COUNTRIES_SETTING} needs MELETE_VPN_URL and MELETE_VPN_KEY")
-            }
+            (None, None) => return Ok(None),
             (Some(url), Some(key)) => (url, key),
             _ => {
                 anyhow::bail!("MELETE_VPN_URL and MELETE_VPN_KEY go together: set both, or neither")
@@ -245,30 +231,7 @@ impl Settings {
         Ok(Some(Settings {
             url: parsed.as_str().trim_end_matches('/').to_owned(),
             key: Secret::new(&key),
-            countries,
         }))
-    }
-}
-
-/// The countries a setting lists, separated by commas.
-pub fn countries(set: Option<&str>) -> Vec<String> {
-    set.unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-/// Keeps the countries chosen, every five minutes, so a restart of Gluetun's own doesn't lose
-/// them.
-pub async fn keep(client: Client, countries: Vec<String>) {
-    let mut every = tokio::time::interval(Duration::from_secs(300));
-    loop {
-        every.tick().await;
-        if let Err(why) = client.keep_countries(&countries).await {
-            tracing::warn!("keeping the VPN's server countries: {why}");
-        }
     }
 }
 

@@ -102,8 +102,7 @@ pub struct Config {
     pub opensubtitles: Option<OpenSubtitles>,
     /// The proxy and the services sent through it (`MELETE_PROXY_*`); none by default.
     pub proxy: crate::proxy::Setup,
-    /// Gluetun's control server and the server countries to keep (`MELETE_VPN_*`); none by
-    /// default.
+    /// Gluetun's control server (`MELETE_VPN_URL`, `MELETE_VPN_KEY`); none by default.
     pub vpn: Option<crate::gluetun::Settings>,
 }
 

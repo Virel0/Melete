@@ -19,38 +19,51 @@ async fn reads_how_the_vpn_is_with_the_key_only() {
         }
     );
     let asked = fake.lock().unwrap().asked.clone();
-    // First without the key, to be sure it's needed; then everything with it.
-    assert_eq!(asked[0], ("GET /v1/vpn/status".to_owned(), false));
-    assert!(asked[1..].iter().all(|(_, keyed)| *keyed), "{asked:?}");
+    // First without the key, on both routes, to be sure it's needed; then all with it.
+    assert_eq!(
+        asked[..2],
+        [
+            ("GET /v1/vpn/status".to_owned(), false),
+            ("PUT /v1/vpn/status".to_owned(), false)
+        ]
+    );
+    assert!(asked[2..].iter().all(|(_, keyed)| *keyed), "{asked:?}");
+    assert!(
+        fake.lock().unwrap().running,
+        "the keyless probe changed nothing"
+    );
     assert_eq!(
         client(&base, "wrong").state().await.unwrap_err(),
         Trouble::KeyRefused
     );
 }
 
+/// A control server open to anyone on any route Melete uses is refused, and nothing is changed:
+/// open on every route, on reading the status only, or on starting and stopping only.
 #[tokio::test]
 async fn a_control_server_that_answers_without_a_key_is_refused() {
-    let (base, fake) = testing::start().await;
-    fake.lock().unwrap().open = true;
-    let c = client(&base, KEY);
-    assert_eq!(c.state().await.unwrap_err(), Trouble::Open);
-    assert_eq!(c.set_running(false).await.unwrap_err(), Trouble::Open);
-    assert_eq!(
-        c.keep_countries(&["Sweden".into()]).await.unwrap_err(),
-        Trouble::Open
-    );
-    let fake = fake.lock().unwrap();
-    assert!(fake.running, "nothing was changed");
-    assert!(fake.settings.is_empty());
-    assert!(
-        fake.asked
-            .iter()
-            .all(|(route, _)| route == "GET /v1/vpn/status")
-    );
+    for open in [
+        vec!["*"],
+        vec!["GET /v1/vpn/status"],
+        vec!["PUT /v1/vpn/status"],
+    ] {
+        let (base, fake) = testing::start().await;
+        fake.lock().unwrap().open = open.clone();
+        let c = client(&base, KEY);
+        assert_eq!(c.state().await.unwrap_err(), Trouble::Open, "{open:?}");
+        assert_eq!(c.set_running(false).await.unwrap_err(), Trouble::Open);
+        let fake = fake.lock().unwrap();
+        assert!(fake.running, "nothing was changed: {open:?}");
+        assert!(
+            fake.asked.iter().all(|(_, keyed)| !keyed),
+            "the key was never sent to it: {:?}",
+            fake.asked
+        );
+    }
 }
 
 #[tokio::test]
-async fn starts_stops_restarts_and_keeps_countries() {
+async fn starts_stops_and_restarts() {
     let (base, fake) = testing::start().await;
     let c = client(&base, KEY);
     c.set_running(false).await.unwrap();
@@ -59,35 +72,17 @@ async fn starts_stops_restarts_and_keeps_countries() {
     assert_eq!((stopped.running, stopped.public_ip), (false, None));
     c.restart().await.unwrap();
     assert!(fake.lock().unwrap().running);
-
-    c.keep_countries(&["Sweden".into()]).await.unwrap();
-    assert_eq!(
-        fake.lock().unwrap().settings,
-        [json!({ "provider": { "server_selection": { "countries": ["Sweden"] } } })]
+    let asked = fake.lock().unwrap().asked.clone();
+    assert!(
+        asked.iter().all(|(route, _)| !route.contains("settings")),
+        "its settings are never read or changed: {asked:?}"
     );
-    let refused = c.keep_countries(&["Atlantis".into()]).await.unwrap_err();
-    assert_eq!(refused, Trouble::Refused("country is not valid".into()));
-    c.keep_countries(&[]).await.unwrap();
-    assert_eq!(
-        fake.lock().unwrap().settings.len(),
-        2,
-        "nothing to keep, nothing sent"
-    );
-}
-
-#[test]
-fn countries_are_read_from_a_list() {
-    assert_eq!(
-        countries(Some(" Netherlands, Sweden ,,")),
-        ["Netherlands", "Sweden"]
-    );
-    assert!(countries(None).is_empty());
 }
 
 #[tokio::test]
 async fn the_key_is_never_in_what_is_said() {
     let (base, fake) = testing::start().await;
-    fake.lock().unwrap().open = true;
+    fake.lock().unwrap().open = vec!["*"];
     let said = client(&base, KEY).state().await.unwrap_err().to_string();
     assert!(!said.contains(KEY), "{said}");
     let gone = client("http://127.0.0.1:9", KEY)
@@ -115,18 +110,13 @@ fn the_control_server_is_set_whole_or_not_at_all() {
     let set = read(&[
         ("MELETE_VPN_URL", "http://gluetun:8000/"),
         ("MELETE_VPN_KEY", "k"),
-        (COUNTRIES_SETTING, "Sweden"),
     ])
     .unwrap()
     .unwrap();
-    assert_eq!(
-        (set.url.as_str(), set.countries),
-        ("http://gluetun:8000", vec!["Sweden".to_owned()])
-    );
+    assert_eq!(set.url, "http://gluetun:8000");
     for refused in [
         &[("MELETE_VPN_URL", "http://gluetun:8000")][..],
         &[("MELETE_VPN_KEY", "k")],
-        &[(COUNTRIES_SETTING, "Sweden")],
         &[("MELETE_VPN_URL", "gluetun:8000"), ("MELETE_VPN_KEY", "k")],
         &[
             ("MELETE_VPN_URL", "http://user:pw@gluetun:8000"),
@@ -136,8 +126,8 @@ fn the_control_server_is_set_whole_or_not_at_all() {
         assert!(read(refused).is_err(), "{refused:?}");
     }
     let debug = format!(
-        "{set:?}",
-        set = read(&[
+        "{:?}",
+        read(&[
             ("MELETE_VPN_URL", "http://g:1"),
             ("MELETE_VPN_KEY", "the-key")
         ])
@@ -163,7 +153,7 @@ async fn the_test_says_how_it_is_and_refuses_an_open_one() {
         "Gluetun answered and took the key; the VPN is running, and the outside world sees 203.0.113.7 (Netherlands). Forwarded port: 51413."
     );
     assert!(said.ok);
-    fake.lock().unwrap().open = true;
+    fake.lock().unwrap().open = vec!["PUT /v1/vpn/status"];
     let open = crate::service_check::check(&pool, "vpn", &config)
         .await
         .unwrap();
