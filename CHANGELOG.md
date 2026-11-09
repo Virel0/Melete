@@ -7,6 +7,98 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-09
+
+### Added
+
+- Portraits for the library's artists. Music artist items gain `portrait`, served from the new
+  `GET /music/artists/{id}/portrait` (at the album covers' sizes), and `portrait_credit`. An
+  artist whose albums all sit in one folder holding artist.jpg, artist.png, folder.jpg or
+  folder.png has that picture, whatever the settings, after the next scan. Otherwise, with
+  artists' portraits on (`MELETE_ARTIST_PORTRAITS`), artists with a MusicBrainz id are looked up
+  on Wikimedia Commons in the background, 20 an hour (the new `artist-portraits` task), and
+  their portraits are kept while they're in the library.
+- A proxy for chosen services, under Settings → Outside services → Proxy: SOCKS5 (names
+  looked up by the proxy), HTTP or HTTPS, with an optional login whose password is only ever
+  said to be set. Each service (TMDB, MusicBrainz, the Cover Art Archive, Wikimedia, LRCLIB,
+  OpenSubtitles, OpenRouter, IMDb and Rotten Tomatoes, LibreTranslate, the identity provider,
+  Deluge, the seedbox's SFTP, Sonarr, Radarr, Lidarr, Prowlarr, slskd and FlareSolverr) goes
+  direct until it's switched on there. One switched on never falls back to going direct: while
+  the proxy is down its requests fail, naming the proxy, and System's status says so
+  (`proxy_down`). Test
+  shows the address the outside world sees, asked of api.ipify.org through the proxy. Changes
+  apply without a restart. Each indexer has its own switch in the indexer list, and the
+  torrents its results link to are fetched the same way; Uindex's pages go through FlareSolverr,
+  which (from version 3.2.0) is handed the proxy's address, never a password, or isn't asked
+  at all. The seedbox's SFTP goes through a SOCKS5 proxy (which looks the name up) or an
+  HTTP or HTTPS one that lets it CONNECT to the SSH port, and `melete seedbox host-key`
+  follows the same switch. A copy from the seedbox already running when the switch changes
+  finishes the way it started; the next one follows it.
+- A VPN beside Melete, `compose.vpn.yaml`: Gluetun with its HTTP proxy on, shared by Soulseek,
+  the trailer downloader and the services sent through the proxy. Settings → Outside services →
+  VPN shows whether it's running, the address the outside world sees and the forwarded port,
+  starts, stops and restarts it. Which provider and servers it uses stays in Gluetun's own
+  settings file (`SERVER_COUNTRIES` and the rest), which Melete never reads or changes. Melete
+  reaches its control server with a key of its own, stored sealed and never shown, and refuses
+  one that answers a request without a key. The VPN's own keys stay with Gluetun, and its
+  proxy adds no header naming Melete's address.
+
+### Changed
+
+- When Search all missing finds no pack to grab for a season, it searches for each of the
+  season's missing episodes on its own, at the run's pace, and says so in its notes.
+- A season pack is grabbed for a season that's partly on disk or on its way, for the episodes
+  that are missing and those it's a real upgrade of, judged file by file. Its other episodes are
+  left out, so better files on disk stay where they are, and only the chosen episodes' files are
+  brought home. Search all missing says what it took ("took episodes 6, 7 from a pack; kept 1–5
+  on disk").
+- Gluetun moved from `compose.soulseek.yaml` to `compose.vpn.yaml`, with a roles file giving
+  slskd and Melete a control-server key each (`gluetun-roles.example.toml`). To upgrade, add
+  `compose.vpn.yaml` to `COMPOSE_FILE` before `compose.soulseek.yaml` or
+  `compose.trailers.yaml`, and set `MELETE_GLUETUN_PROXY_PASSWORD` and
+  `MELETE_GLUETUN_ROLES_FILE` in `.env`, with slskd's role keyed by `MELETE_GLUETUN_CONTROL_KEY`.
+  The example roles file has empty keys, and Gluetun won't start until each role has one.
+  Gluetun's proxy logs a login it turns down, password included, so when changing
+  `MELETE_GLUETUN_PROXY_PASSWORD`, change it in Melete's Proxy settings first.
+
+### Fixed
+
+- A missing episode numbered from the first episode ("Some Anime - 31") is grabbed when other
+  episodes of its season are on disk or on their way. Before, the grab took it for a pack of the
+  whole season and passed it over without saying why. One that can't be matched to an episode
+  isn't grabbed.
+- An upgrade numbered from the first episode replaces only its own episode's file, which goes to
+  the trash once the upgrade is in, as other upgrades' files do.
+- Search all missing and cutoff runs say why a result was passed over for what's on disk or on
+  its way ("Title, season 2 episode 6: not grabbed: it's on disk already, and this release
+  wouldn't replace exactly the files there").
+- Artists' portraits in music request searches appear again: Commons now gives resized
+  pictures on thumb.wikimedia.org, which Melete took for no picture at all, keeping every
+  artist as having none for a week. Those are forgotten on upgrade and looked up again.
+- A pack of several seasons ("Show.S01-S03") grabbed for one season brings home that season's
+  files, checked against its episodes, instead of being held back as another title for its other
+  seasons' files. The other seasons' files stay on the seedbox, and those seasons are searched on
+  their own.
+- The running-time check judges a file named with numbers from the first episode
+  ("Some Anime - 29") against its own episode, instead of holding back a pack of such files or
+  not checking a lone one.
+- Series due for a TMDB refresh are fetched again every hour between scans: a new episode TMDB
+  hasn't named yet (every 6 hours), a wanted series still airing (daily) or a stale entry. A
+  scan schedule of once a day no longer holds a new episode's title back until the next scan.
+  Nothing is scanned or matched in between, and only the series' TMDB ids are sent.
+
+### Security
+
+- Pictures of things not in the library are served only to the people a search or discovery
+  answer listed them for: posters of titles not in the library, covers of music not in the
+  library, and artists' portraits. Before, anyone signed in could ask for one and tell from the
+  answer whether someone else in the household had searched for it lately. Pictures listed
+  before the upgrade show again once searched for. Another's request's poster is no longer served
+  to someone who didn't ask for it either, and search results no longer change with what others
+  looked at.
+- The cap of 2000 such pictures of each kind is kept as soon as a search goes past it, instead of
+  at the next housekeeping, so a burst of searches can't make Melete fetch and keep more.
+
 ## [0.8.0] - 2026-11-08
 
 ### Added
@@ -812,7 +904,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Virel0/Melete/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Virel0/Melete/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Virel0/Melete/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Virel0/Melete/compare/v0.5.0...v0.6.0
