@@ -64,6 +64,18 @@ pub(crate) async fn housekeeping(
     .await;
 }
 
+/// Forgets pictures of things not in the library as soon as a listing takes a kind over its
+/// most kept ([`crate::picture_listings::PRUNE`]), rather than at the next housekeeping.
+pub(crate) async fn forget_pictures_when_over(
+    pool: sqlx::SqlitePool,
+    artwork_dir: std::path::PathBuf,
+) {
+    loop {
+        crate::picture_listings::PRUNE.notified().await;
+        forget_pictures(&pool, &artwork_dir, crate::db::unix_now()).await;
+    }
+}
+
 /// Matches new music albums to MusicBrainz, woken after each scan.
 pub(crate) async fn match_music(pool: sqlx::SqlitePool, mb: Arc<musicbrainz::Client>) {
     jobs::repeat_task("music-matching", jobs::EVERY, &jobs::MUSIC, || async {

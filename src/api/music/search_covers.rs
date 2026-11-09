@@ -10,18 +10,20 @@ fn no_such_cover() -> ApiError {
 
 pub(super) async fn release_group_cover(
     State(state): State<MusicState>,
+    Extension(current): Extension<CurrentUser>,
     Path(group): Path<String>,
     Query(query): Query<CoverQuery>,
 ) -> Result<Response, ApiError> {
     let size = cover_size(query.size)?;
     let now = crate::db::unix_now();
     // The archive is there only with MusicBrainz on; the id names a folder, and only a real
-    // MusicBrainz id (hex and dashes) is servable. Served alike to everyone signed in: an album
-    // in a library hidden from someone is, to them, like any album not in the library.
+    // MusicBrainz id (hex and dashes) is servable. Served only to those a search listed it for:
+    // an album in a library hidden from someone is, to them, like any album not in the library,
+    // and nobody learns from it what someone else searched for.
     let Some(coverart) = &state.coverart else {
         return Err(no_such_cover());
     };
-    if !crate::search_covers::servable(&state.pool, &group, now).await? {
+    if !crate::search_covers::servable(&state.pool, &group, current.user.id, now).await? {
         return Err(no_such_cover());
     }
     let dir = crate::search_covers::folder(&state.covers, &group);

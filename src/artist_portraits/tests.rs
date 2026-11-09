@@ -26,6 +26,8 @@ async fn turn(pool: &SqlitePool, on: bool) {
 
 struct Rig {
     pool: SqlitePool,
+    /// The user searches list portraits for.
+    me: i64,
     mb: musicbrainz::Client,
     mb_log: Arc<Mutex<Vec<String>>>,
     wiki: wikimedia::Client,
@@ -36,8 +38,10 @@ async fn rig() -> Rig {
     let pool = db::open_in_memory().await;
     let (mb, mb_log) = crate::musicbrainz::testing::start(0).await;
     let (wiki, wiki_log) = commons::start().await;
+    let me = crate::auth::testing::user(&pool, "alice", false).await.id;
     Rig {
         pool,
+        me,
         mb,
         mb_log,
         wiki,
@@ -51,7 +55,7 @@ impl Rig {
             musicbrainz: &self.mb,
             wikimedia: &self.wiki,
         };
-        offer(&self.pool, &services, Some(artist), lookups, now)
+        offer(&self.pool, &services, Some(artist), lookups, self.me, now)
             .await
             .unwrap()
     }
@@ -118,7 +122,7 @@ async fn a_portrait_is_found_once_with_its_credit_then_kept() {
         ["wikidata Q44190", "commons File:Radiohead in concert.jpg"],
         "the item's id and the file's name; the picture waits to be asked for"
     );
-    let picture = servable(&r.pool, RADIOHEAD, NOW).await.unwrap();
+    let picture = servable(&r.pool, RADIOHEAD, r.me, NOW).await.unwrap();
     assert!(picture.unwrap().ends_with("/thumb/500px.jpg"));
 
     // The next search asks nothing, and needs no lookup.
@@ -148,7 +152,12 @@ async fn an_artist_without_one_is_believed_a_while_and_a_failed_lookup_is_kept_n
         (2, 0),
         "asked once each; no Wikidata link, no item asked for"
     );
-    assert!(servable(&r.pool, TRIBUTE_ACT, NOW).await.unwrap().is_none());
+    assert!(
+        servable(&r.pool, TRIBUTE_ACT, r.me, NOW)
+            .await
+            .unwrap()
+            .is_none()
+    );
     r.offer(TRIBUTE_ACT, &mut lookups, NOW + NONE_FOR + 1).await;
     assert_eq!(r.asked(), (3, 0), "asked again a week later");
 
@@ -160,7 +169,7 @@ async fn an_artist_without_one_is_believed_a_while_and_a_failed_lookup_is_kept_n
         wikimedia: &dead,
     };
     for _ in 0..2 {
-        let offered = offer(&r.pool, &services, Some(RADIOHEAD), &mut lookups, NOW)
+        let offered = offer(&r.pool, &services, Some(RADIOHEAD), &mut lookups, r.me, NOW)
             .await
             .unwrap();
         assert_eq!(offered, None);
@@ -177,14 +186,19 @@ async fn a_picture_commons_failed_to_give_is_neither_offered_nor_served_for_a_da
     failed(&r.pool, RADIOHEAD, NOW).await.unwrap();
     assert_eq!(r.offer(RADIOHEAD, &mut lookups, NOW + 60).await, None);
     assert!(
-        servable(&r.pool, RADIOHEAD, NOW + 60)
+        servable(&r.pool, RADIOHEAD, r.me, NOW + 60)
             .await
             .unwrap()
             .is_none()
     );
     let later = NOW + FAIL_FOR + 1;
     assert!(r.offer(RADIOHEAD, &mut lookups, later).await.is_some());
-    assert!(servable(&r.pool, RADIOHEAD, later).await.unwrap().is_some());
+    assert!(
+        servable(&r.pool, RADIOHEAD, r.me, later)
+            .await
+            .unwrap()
+            .is_some()
+    );
     assert_eq!(r.asked().0, 1, "the failure needed no lookup again");
 }
 
@@ -216,9 +230,14 @@ async fn served_for_thirty_days_while_on_then_forgotten_with_their_files() {
     assert_eq!(prune(&r.pool, dir.path(), NOW).await.unwrap(), 1);
     assert!(!folder(dir.path(), TRIBUTE_ACT).exists());
     assert!(folder(dir.path(), RADIOHEAD).exists());
-    assert!(servable(&r.pool, RADIOHEAD, NOW).await.unwrap().is_some());
     assert!(
-        servable(&r.pool, RADIOHEAD, NOW + SERVED_FOR)
+        servable(&r.pool, RADIOHEAD, r.me, NOW)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        servable(&r.pool, RADIOHEAD, r.me, NOW + SERVED_FOR)
             .await
             .unwrap()
             .is_none(),
@@ -226,7 +245,12 @@ async fn served_for_thirty_days_while_on_then_forgotten_with_their_files() {
     );
 
     turn(&r.pool, false).await;
-    assert!(servable(&r.pool, RADIOHEAD, NOW).await.unwrap().is_none());
+    assert!(
+        servable(&r.pool, RADIOHEAD, r.me, NOW)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         prune(&r.pool, dir.path(), NOW).await.unwrap(),
         1,
@@ -347,7 +371,10 @@ async fn the_librarys_artists_are_looked_up_in_the_background_a_few_a_run() {
             .is_some()
     );
     assert!(
-        servable(&r.pool, RADIOHEAD, NOW).await.unwrap().is_none(),
+        servable(&r.pool, RADIOHEAD, r.me, NOW)
+            .await
+            .unwrap()
+            .is_none(),
         "a lookup for the library isn't a search listing it"
     );
 

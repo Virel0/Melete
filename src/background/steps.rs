@@ -144,6 +144,26 @@ pub(super) async fn forget_old(pool: &sqlx::SqlitePool, artwork_dir: &std::path:
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    forget_pictures(pool, artwork_dir, now).await;
+    match diagnostics::prune(pool, now).await {
+        Ok(deleted) if deleted > 0 => {
+            tracing::info!(deleted, "deleted old diagnostics reports")
+        }
+        Ok(_) => {}
+        Err(err) => tracing::warn!(
+            error = format!("{err:#}"),
+            "couldn't delete old diagnostics reports"
+        ),
+    }
+}
+
+/// Forgets the pictures of things not in the library past their time or beyond their most
+/// kept, with their files, and who they were listed for past 30 days.
+pub(crate) async fn forget_pictures(
+    pool: &sqlx::SqlitePool,
+    artwork_dir: &std::path::Path,
+    now: i64,
+) {
     match discover_posters::prune(pool, artwork_dir, now).await {
         Ok(forgotten) if forgotten > 0 => {
             tracing::info!(forgotten, "forgot posters of titles not in the library")
@@ -173,14 +193,12 @@ pub(super) async fn forget_old(pool: &sqlx::SqlitePool, artwork_dir: &std::path:
             "couldn't forget artists' portraits"
         ),
     }
-    match diagnostics::prune(pool, now).await {
-        Ok(deleted) if deleted > 0 => {
-            tracing::info!(deleted, "deleted old diagnostics reports")
-        }
-        Ok(_) => {}
-        Err(err) => tracing::warn!(
+    // Every kind serves for the same 30 days.
+    let before = now - crate::discover_posters::SERVED_FOR;
+    if let Err(err) = crate::picture_listings::forget_older(pool, before).await {
+        tracing::warn!(
             error = format!("{err:#}"),
-            "couldn't delete old diagnostics reports"
-        ),
+            "couldn't forget who pictures were listed for"
+        );
     }
 }

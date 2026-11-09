@@ -186,10 +186,9 @@ async fn shown_to(pool: &SqlitePool, current: &CurrentUser, file: &str) -> Resul
     if titles {
         return Ok(true);
     }
-    Ok(
-        !in_library
-            && crate::discover_posters::servable_to(pool, access, &path, unix_now()).await?,
-    )
+    Ok(!in_library
+        && crate::discover_posters::servable_to(pool, access, current.user.id, &path, unix_now())
+            .await?)
 }
 
 /// The content type for a TMDB image file name, or `None` if the name is not one. The name

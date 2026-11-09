@@ -99,10 +99,13 @@ async fn items(
 
 /// A trending pick not in the library as the answer gives it: by kind and TMDB id, with no id
 /// in the library, its poster only when the artwork route would serve it.
-async fn requestable_item(pool: &SqlitePool, pick: &Requestable) -> Result<Value, ApiError> {
-    let poster =
-        crate::api::discover::poster(pool, pick.poster_path.as_deref(), pick.series, pick.tmdb_id)
-            .await?;
+async fn requestable_item(
+    pool: &SqlitePool,
+    me: i64,
+    pick: &Requestable,
+) -> Result<Value, ApiError> {
+    let path = pick.poster_path.as_deref();
+    let poster = crate::api::discover::poster(pool, path, pick.series, pick.tmdb_id, me).await?;
     Ok(json!({
         "kind": if pick.series { "series" } else { "movie" }, "id": null,
         "tmdb_id": pick.tmdb_id, "requestable": true, "title": pick.title, "year": pick.year,
@@ -124,7 +127,7 @@ async fn ranked_items(
                 let titles = [(title_ref(p.title), Some(p.reason.clone()))];
                 out.extend(items(pool, me, access, &titles).await?);
             }
-            Ranked::Requestable(r) => out.push(requestable_item(pool, r).await?),
+            Ranked::Requestable(r) => out.push(requestable_item(pool, me, r).await?),
         }
     }
     Ok(out)

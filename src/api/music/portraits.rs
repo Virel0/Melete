@@ -55,18 +55,21 @@ pub(super) async fn library_portrait(
 
 pub(super) async fn artist_portrait(
     State(state): State<MusicState>,
+    Extension(current): Extension<CurrentUser>,
     Path(artist): Path<String>,
     Query(query): Query<CoverQuery>,
 ) -> Result<Response, ApiError> {
     let size = cover_size(query.size)?;
     let now = crate::db::unix_now();
     // Commons is there only with MusicBrainz on; the id names a folder, and only a real
-    // MusicBrainz id (hex and dashes) is servable. Served alike to everyone signed in: an
-    // artist only in libraries hidden from someone is, to them, like any other.
+    // MusicBrainz id (hex and dashes) is servable. Served only to those a search listed it for:
+    // an artist only in libraries hidden from someone is, to them, like any other, and nobody
+    // learns from it what someone else searched for.
     let Some(wikimedia) = &state.wikimedia else {
         return Err(no_portrait());
     };
-    let picture = crate::artist_portraits::servable(&state.pool, &artist, now).await?;
+    let user = current.user.id;
+    let picture = crate::artist_portraits::servable(&state.pool, &artist, user, now).await?;
     let Some(picture) = picture else {
         return Err(no_portrait());
     };
