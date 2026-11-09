@@ -229,7 +229,7 @@ where
 }
 
 /// Whether anything takes a connection at the proxy's address, within 5 seconds.
-async fn answers(host: &str, port: u16) -> bool {
+pub(super) async fn answers(host: &str, port: u16) -> bool {
     let knock = tokio::net::TcpStream::connect((host, port));
     matches!(
         tokio::time::timeout(Duration::from_secs(5), knock).await,

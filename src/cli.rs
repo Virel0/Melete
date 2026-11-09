@@ -1,7 +1,7 @@
 //! The account, import, backup and restore commands, run inside the container: `docker exec melete melete …`
 //! (a restore with Melete stopped, through `docker compose run`).
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 
 use crate::{aoide, auth, backup, two_factor};
 
@@ -17,9 +17,48 @@ pub(crate) const USAGE: &str = "usage:
   melete secrets clear                    with Melete stopped, clear the stored secrets the data folder's
                                           secrets.key can't open (services' settings, indexers' keys, search links), to
                                           enter them again
-  melete seedbox host-key <host> [port]   show the key a seedbox presents, to pin it (sends nothing)
+  melete seedbox host-key <host> [port]   show the key a seedbox presents, to pin it (sends nothing; through
+                                          the proxy when the seedbox's SFTP is set to go through it)
   melete import aoide <aoide-sync.db> [--user <jellyfin-id>=<name>]... [--skip-user <jellyfin-id>]... [--apply]
                                           import the Jellyfin aoide-sidecar's sync data (a dry run without --apply)";
+
+/// The proxy's setup for a command that reaches outside (the seedbox's host key): the
+/// environment's, with what the web UI saved where it's silent, so one set to go through the
+/// proxy doesn't go direct. The database is only read, and needn't exist yet.
+pub(crate) async fn proxy_setup() -> anyhow::Result<crate::proxy::Setup> {
+    let env = |name: &str| std::env::var(name).ok();
+    proxy_setup_in(&crate::config::Config::data_dir_from_env(), &env).await
+}
+
+/// [`proxy_setup`] with the database in `data_dir` and `env` for the environment.
+async fn proxy_setup_in(
+    data_dir: &std::path::Path,
+    env: &(dyn Fn(&str) -> Option<String> + Sync),
+) -> anyhow::Result<crate::proxy::Setup> {
+    let path = data_dir.join("melete.db");
+    if !path.exists() {
+        return crate::proxy::Setup::from_lookup(&env);
+    }
+    crate::secrets::startup::load_existing(data_dir)?;
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&path)
+        .read_only(true);
+    let pool = sqlx::SqlitePool::connect_with(options)
+        .await
+        .with_context(|| format!("opening {} to read the proxy's settings", path.display()))?;
+    proxy_setup_from(&pool, env).await
+}
+
+/// [`proxy_setup`] with the settings saved in `pool` and `env` for the environment.
+async fn proxy_setup_from(
+    pool: &sqlx::SqlitePool,
+    env: &(dyn Fn(&str) -> Option<String> + Sync),
+) -> anyhow::Result<crate::proxy::Setup> {
+    let stored = crate::settings::stored(pool)
+        .await
+        .context("reading the proxy's settings")?;
+    crate::proxy::Setup::from_lookup(&crate::settings::lookup(&stored, env))
+}
 
 /// Account commands, run inside the container: `docker exec melete melete user add <name> --admin`.
 pub(crate) async fn run_command(pool: &sqlx::SqlitePool, args: &[String]) -> anyhow::Result<()> {

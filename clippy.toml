@@ -12,6 +12,8 @@ disallowed-methods = [
     { path = "reqwest::ClientBuilder::proxy", reason = "the proxy is crate::proxy's to set" },
     { path = "reqwest::ClientBuilder::no_proxy", reason = "the proxy is crate::proxy's to set" },
     { path = "reqwest::get", reason = "start HTTP clients with crate::proxy::Http" },
+    # The seedbox's SSH goes over crate::proxy::stream::connect, which follows its switch.
+    { path = "russh::client::connect", reason = "connect over crate::proxy::stream::connect" },
 ]
 # Naming the types catches what the methods above can't: Client::default(), a field of a
 # #[derive(Default)] struct, an alias.

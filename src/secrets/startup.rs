@@ -43,6 +43,17 @@ impl Unreadables {
     }
 }
 
+/// Loads the key in `data_dir` when there is one, for a command that only reads: nothing is
+/// made, checked or sealed. Without one, a sealed secret says so when it's read.
+pub fn load_existing(data_dir: &Path) -> anyhow::Result<()> {
+    let path = data_dir.join(super::KEY_FILE);
+    match key_file::read(&path)? {
+        Found::Key(key) => super::install(key),
+        Found::Missing => Ok(()),
+        Found::Garbled => bail!("{} isn't a key Melete made", path.display()),
+    }
+}
+
 /// Reads the key in `data_dir` (made there when there's none and nothing is sealed), checks
 /// every stored secret opens with it, and seals the plain ones of a database not switched yet,
 /// then those of the backup copies. Fails, saying which secrets and how to recover, when one

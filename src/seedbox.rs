@@ -89,6 +89,13 @@ fn ssh_config() -> Arc<client::Config> {
     })
 }
 
+/// An SSH connection to `host` and `port`, the way the seedbox's proxy switch says: direct, or
+/// only ever through the proxy.
+async fn open(host: &str, port: u16, pin: Pin) -> Result<client::Handle<Pin>, russh::Error> {
+    let stream = crate::proxy::stream::connect(crate::proxy::Service::Seedbox, host, port).await?;
+    client::connect_stream(ssh_config(), stream, pin).await
+}
+
 /// Connects without credentials and returns the key the server presents; the connection is
 /// dropped right after.
 pub async fn host_key(host: &str, port: u16) -> Result<String, Error> {
@@ -97,11 +104,7 @@ pub async fn host_key(host: &str, port: u16) -> Result<String, Error> {
         pinned: None,
         presented: presented.clone(),
     };
-    let connected = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        client::connect(ssh_config(), (host, port), pin),
-    )
-    .await;
+    let connected = tokio::time::timeout(CONNECT_TIMEOUT, open(host, port, pin)).await;
     if let Some(key) = presented
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -175,10 +178,11 @@ impl Seedbox {
             pinned: Some(self.settings.host_key.clone()),
             presented: presented.clone(),
         };
-        let address = (self.settings.host.as_str(), self.settings.port);
-        let connected =
-            tokio::time::timeout(CONNECT_TIMEOUT, client::connect(ssh_config(), address, pin))
-                .await;
+        let connected = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            open(&self.settings.host, self.settings.port, pin),
+        )
+        .await;
         let mut handle = match connected {
             Err(_) => return Err(Error::Unreachable("timed out".into())),
             Ok(Ok(handle)) => handle,
@@ -307,6 +311,11 @@ pub mod testing {
     }
 
     pub async fn start(root: &Path) -> Running {
+        start_at(root, "127.0.0.1:0").await
+    }
+
+    /// [`start`], listening at `bind` (e.g. "[::1]:0").
+    pub async fn start_at(root: &Path, bind: &str) -> Running {
         let key = host_key(7);
         let fingerprint = key.public_key().fingerprint(HashAlg::Sha256).to_string();
         let config = Arc::new(russh::server::Config {
@@ -320,7 +329,7 @@ pub mod testing {
             root: root.to_path_buf(),
             passwords: passwords.clone(),
         };
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind(bind).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move { server.run_on_socket(config, &listener).await });
         Running {

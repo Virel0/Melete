@@ -152,3 +152,72 @@ fn reset_takes_one_second_factor_flag_at_most() {
         assert_eq!(SecondFactor::from_flags(bad), None);
     }
 }
+
+#[tokio::test]
+async fn the_host_key_command_follows_the_proxy_saved_in_the_web_ui() {
+    let pool = db::open_in_memory().await;
+    let none = |_: &str| None;
+    let values: std::collections::HashMap<String, Option<String>> = [
+        ("MELETE_PROXY_HOST", "192.168.1.10"),
+        ("MELETE_PROXY_PORT", "1080"),
+        ("MELETE_PROXY_USERNAME", "alice"),
+        ("MELETE_PROXY_PASSWORD", "a-password"),
+        ("MELETE_PROXY_SEEDBOX", "on"),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), Some(value.to_owned())))
+    .collect();
+    crate::settings::save(&pool, "proxy", &values, &none)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let setup = proxy_setup_from(&pool, &none).await.unwrap();
+    assert!(setup.uses(crate::proxy::Service::Seedbox));
+    let proxy = setup.at.unwrap();
+    assert_eq!(proxy.address(), "socks5h://192.168.1.10:1080");
+    let (user, password) = proxy.login.unwrap();
+    assert_eq!((user.as_str(), password.expose()), ("alice", "a-password"));
+
+    // The environment wins where it's set, as for the server.
+    let off = |name: &str| (name == "MELETE_PROXY_SEEDBOX").then(|| "off".to_owned());
+    let setup = proxy_setup_from(&pool, &off).await.unwrap();
+    assert!(!setup.uses(crate::proxy::Service::Seedbox));
+}
+
+#[tokio::test]
+async fn the_host_key_command_reads_the_database_without_changing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let only = |name: &str| match name {
+        "MELETE_PROXY_HOST" => Some("192.168.1.10".to_owned()),
+        "MELETE_PROXY_PORT" => Some("1080".to_owned()),
+        "MELETE_PROXY_SEEDBOX" => Some("on".to_owned()),
+        _ => None,
+    };
+    // No database yet: the environment's setup, and nothing is made.
+    let setup = proxy_setup_in(dir.path(), &only).await.unwrap();
+    assert!(setup.uses(crate::proxy::Service::Seedbox));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+    let pool = db::open(dir.path()).await.unwrap();
+    let none = |_: &str| None;
+    let values: std::collections::HashMap<String, Option<String>> = [
+        ("MELETE_PROXY_HOST", "192.168.1.10"),
+        ("MELETE_PROXY_PORT", "1080"),
+        ("MELETE_PROXY_SEEDBOX", "on"),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), Some(value.to_owned())))
+    .collect();
+    crate::settings::save(&pool, "proxy", &values, &none)
+        .await
+        .unwrap()
+        .unwrap();
+    pool.close().await;
+    let before = std::fs::read(dir.path().join("melete.db")).unwrap();
+
+    let setup = proxy_setup_in(dir.path(), &none).await.unwrap();
+    assert!(setup.uses(crate::proxy::Service::Seedbox));
+    assert_eq!(std::fs::read(dir.path().join("melete.db")).unwrap(), before);
+    assert!(!dir.path().join(crate::secrets::KEY_FILE).exists());
+}
