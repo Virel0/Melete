@@ -1,10 +1,11 @@
 //! Wikidata and Wikimedia Commons, for artists' portraits in music searches and the library's
 //! artists, on only with `MELETE_ARTIST_PORTRAITS` (and MusicBrainz). Wikidata is asked for one
 //! item's image (its P18 statement) by the item's id, Commons for that file's picture at one
-//! width with its author and licence by the file's name, and upload.wikimedia.org for the
-//! picture itself; nothing else is sent. Every request goes over https to those hosts only,
-//! redirects included, with Melete's usual User-Agent (no contact, though Wikimedia's policy
-//! asks for one: a contact would name the household), a timeout and a size cap.
+//! width with its author and licence by the file's name, and the picture host Commons names
+//! (upload.wikimedia.org or thumb.wikimedia.org) for the picture itself; nothing else is sent.
+//! Every request goes over https to those hosts only, redirects included, with Melete's usual
+//! User-Agent (no contact, though Wikimedia's policy asks for one: a contact would name the
+//! household), a timeout and a size cap.
 
 use std::time::Duration;
 
@@ -34,7 +35,8 @@ pub struct Client {
 /// A picture on Commons, with what its licence asks to be shown with it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Picture {
-    /// The picture at [`WIDTH`] pixels wide (or less when it's smaller), on upload.wikimedia.org.
+    /// The picture at [`WIDTH`] pixels wide (or less when it's smaller), on one of
+    /// [`PICTURE_HOSTS`].
     pub url: String,
     /// The file's page on Commons.
     pub page: Option<String>,
@@ -51,8 +53,20 @@ fn allowed(url: &reqwest::Url) -> bool {
     url.scheme() == "https"
         && matches!(
             url.host_str().unwrap_or_default(),
-            "www.wikidata.org" | "commons.wikimedia.org" | "upload.wikimedia.org"
+            "www.wikidata.org"
+                | "commons.wikimedia.org"
+                | "upload.wikimedia.org"
+                | "thumb.wikimedia.org"
         )
+}
+
+/// The hosts Commons serves pictures from: originals on upload.wikimedia.org, and resized
+/// copies on thumb.wikimedia.org (on upload.wikimedia.org before Commons moved them).
+const PICTURE_HOSTS: [&str; 2] = ["upload.wikimedia.org", "thumb.wikimedia.org"];
+
+/// Whether `url` is a picture on Commons' picture hosts, over https.
+fn is_picture(url: &reqwest::Url) -> bool {
+    allowed(url) && PICTURE_HOSTS.contains(&url.host_str().unwrap_or_default())
 }
 
 /// A Wikidata item's id: Q and a number.
@@ -223,7 +237,7 @@ impl Client {
     }
 
     /// The Commons file `name` at [`WIDTH`] pixels, with its author and licence. None when
-    /// Commons has no such file, or its picture isn't on upload.wikimedia.org.
+    /// Commons has no such file, or its picture isn't on one of [`PICTURE_HOSTS`].
     pub async fn picture(&self, name: &str) -> anyhow::Result<Option<Picture>> {
         anyhow::ensure!(
             !name.is_empty()
@@ -256,10 +270,9 @@ impl Client {
             return Ok(None);
         };
         let ok = |url: &str| reqwest::Url::parse(url).is_ok_and(|u| self.any_host || allowed(&u));
-        let Some(url) = info
-            .thumburl
-            .filter(|u| ok(u) && (self.any_host || u.starts_with("https://upload.wikimedia.org/")))
-        else {
+        let picture =
+            |u: &str| reqwest::Url::parse(u).is_ok_and(|u| self.any_host || is_picture(&u));
+        let Some(url) = info.thumburl.filter(|u| picture(u)) else {
             return Ok(None);
         };
         let meta = |key: &str| {
@@ -284,8 +297,8 @@ impl Client {
         let url =
             reqwest::Url::parse(url).map_err(|_| anyhow::anyhow!("not a picture's address"))?;
         anyhow::ensure!(
-            self.any_host || url.host_str() == Some("upload.wikimedia.org") && allowed(&url),
-            "a picture not on upload.wikimedia.org"
+            self.any_host || is_picture(&url),
+            "a picture not on Wikimedia's picture hosts"
         );
         let (bytes, content_type) = self.get(url, MAX_PICTURE, "Wikimedia").await?;
         anyhow::ensure!(

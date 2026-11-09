@@ -1,7 +1,7 @@
 //! Artists' portraits: for music search results, the picture a search found on Wikimedia
 //! Commons, and for the library's artists, a picture of their own beside their albums, else
 //! Commons'. Served only on [`crate::artist_portraits`]' terms, Commons' fetched once from
-//! upload.wikimedia.org and kept, at the sizes album covers come in.
+//! Commons' picture hosts and kept, at the sizes album covers come in.
 
 use super::*;
 
@@ -109,7 +109,7 @@ async fn commons(
     image(jpeg)
 }
 
-/// The picture from upload.wikimedia.org. When it fails, or isn't an image, that's noted, so it
+/// The picture from Commons' picture hosts. When it fails, or isn't an image, that's noted, so it
 /// isn't offered or asked for again for a while. Why a fetch failed is logged, never sent.
 async fn fetch(
     pool: &SqlitePool,

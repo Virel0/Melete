@@ -14,6 +14,7 @@ use sqlx::SqlitePool;
 
 use crate::db::unix_now;
 use crate::release::{self, Episodes};
+use crate::search::{self, Target};
 
 mod compressed;
 mod removing;
@@ -58,7 +59,8 @@ pub struct Replaced {
 /// The files a release grabbed for a wanted title would replace: the movie's one file in its
 /// adopted folder, or the files of the episodes it covers, each wholly inside them. Nothing
 /// when it's unclear (several files for a movie, a file reaching past the release's episodes,
-/// a season pack), so nothing is ever replaced by guesswork.
+/// a season pack, a release numbered from the first episode that can't be mapped to episodes),
+/// so nothing is ever replaced by guesswork.
 pub async fn replaced_by(
     pool: &SqlitePool,
     wanted_movie_id: Option<i64>,
@@ -81,19 +83,9 @@ pub async fn replaced_by(
     let (Some(id), Some(season)) = (wanted_series_id, season) else {
         return Ok(Vec::new());
     };
-    let Episodes::Standard {
-        season: s,
-        episodes,
-    } = release::parse(title).episodes
-    else {
+    let Some((first, last)) = episodes_in(pool, id, season, title).await? else {
         return Ok(Vec::new());
     };
-    let (Some(&first), Some(&last)) = (episodes.iter().min(), episodes.iter().max()) else {
-        return Ok(Vec::new());
-    };
-    if s != season {
-        return Ok(Vec::new());
-    }
     let files: Vec<Replaced> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "{COLUMNS} JOIN wanted_series w ON w.series_id = f.series_id
          WHERE w.id = ? AND f.season = ? AND f.missing_since IS NULL
@@ -127,6 +119,38 @@ pub async fn replaced_by(
     } else {
         Vec::new()
     })
+}
+
+/// The first and last episode of `season` a release grabbed for a wanted series covers, one
+/// numbered from the first episode as the episodes it maps to; None when it isn't single or
+/// multi-episodes of that season, or can't be mapped.
+async fn episodes_in(
+    pool: &SqlitePool,
+    wanted_series_id: i64,
+    season: i64,
+    title: &str,
+) -> anyhow::Result<Option<(i64, i64)>> {
+    let target = Target::Series {
+        id: wanted_series_id,
+        season,
+        episode: None,
+    };
+    let Some(wanted) = search::load_wanted(pool, target).await? else {
+        return Ok(None);
+    };
+    let named = release::parse(title).episodes;
+    let Ok(Episodes::Standard {
+        season: s,
+        episodes,
+    }) = search::numbered_in_order(pool, &wanted, &named).await?
+    else {
+        return Ok(None);
+    };
+    let (first, last) = (episodes.iter().min(), episodes.iter().max());
+    Ok(first
+        .zip(last)
+        .filter(|_| s == season)
+        .map(|(f, l)| (*f, *l)))
 }
 
 /// A path inside a library, as stored: relative, with no way out of it.

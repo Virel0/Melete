@@ -73,16 +73,13 @@ async fn replace(
     sources: &crate::fulfil::Sources,
     download: &Stalled,
 ) -> anyhow::Result<bool> {
-    let hours = STALLED_AFTER / 3600;
     let set_aside_at = unix_now();
     // Failed for now, so the search doesn't count it as on its way.
     let set_aside = sqlx::query(
         "UPDATE downloads SET state = 'failed', message = ?, updated_at = ?
          WHERE id = ? AND state = 'downloading'",
     )
-    .bind(format!(
-        "no progress for {hours} hours; searching for another release"
-    ))
+    .bind(setting_aside())
     .bind(set_aside_at)
     .bind(download.id)
     .execute(pool)
@@ -114,6 +111,32 @@ async fn replace(
             Ok(false)
         }
     }
+}
+
+/// A stalled torrent's message while it's set aside and its title searched for again.
+fn setting_aside() -> String {
+    format!(
+        "no progress for {} hours; searching for another release",
+        STALLED_AFTER / 3600
+    )
+}
+
+/// Whether a download of the wanted series' season is set aside for stalling right now: failed
+/// while its title is searched for again, it goes on downloading when nothing else is found.
+pub(crate) async fn set_aside_in(
+    pool: &SqlitePool,
+    wanted_series_id: i64,
+    season: i64,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM downloads WHERE wanted_series_id = ? AND season = ?
+                        AND state = 'failed' AND message = ?)",
+    )
+    .bind(wanted_series_id)
+    .bind(season)
+    .bind(setting_aside())
+    .fetch_one(pool)
+    .await
 }
 
 /// Another release was grabbed: the stalled torrent goes from Deluge with its data, and stays

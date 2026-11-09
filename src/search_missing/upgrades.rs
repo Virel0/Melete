@@ -248,4 +248,67 @@ mod tests {
                 .unwrap();
         assert_eq!(searched, [(frieren, 1, Some(1))]);
     }
+
+    #[tokio::test]
+    async fn an_upgrade_numbered_from_the_first_episode_replaces_only_its_episode() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        crate::episode_order::testing::some_anime_in_seasons(&pool).await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a');
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                     match_tmdb_id)
+                 VALUES (3, 1, 'Some Anime', 'Some Anime', 1, 100);
+             INSERT INTO wanted_series (id, tvdb_id, tmdb_id, title, monitored, series_type,
+                     quality_profile, source, added_at, series_id, original_language)
+                 VALUES (1, 200, 100, 'Some Anime', 1, 'anime', '4K Preferred', 'sonarr', 0, 3,
+                     'en');
+             INSERT INTO wanted_seasons (wanted_series_id, season, monitored) VALUES (1, 2, 1);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // S02E06 is below the cutoff; S02E07, beside it, reaches it.
+        let folder = ("series_id", 3);
+        let six = "Some Anime/Some.Anime.S02E06.720p.HDTV.x264-GRP.mkv";
+        file(&pool, folder, six, Some((2, 6))).await;
+        let seven = "Some Anime/Some.Anime.S02E07.2160p.BluRay.REMUX.HEVC-GRP.mkv";
+        file(&pool, folder, seven, Some((2, 7))).await;
+        let feed = indexer(&pool, "[5000]").await;
+        // The 30th episode is the group's S02E06.
+        let thirty = "[SubsPlease] Some Anime - 30 (1080p) [ABCD1234].mkv";
+        feed.lock().unwrap().0 = releases(&[(thirty, "")]);
+        let (url, _fake) = deluge::testing::start().await;
+        let pipeline = Arc::new(Pipeline {
+            deluge: deluge::Client::new(&url, Secret::for_tests("pw")).unwrap(),
+            fetcher: Fetcher::new().unwrap(),
+            seedbox: None,
+        });
+
+        let run = start_for(
+            &pool,
+            sources(Some(pipeline)),
+            Area::Series,
+            Goal::CutoffUnmet,
+            who,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let run = finished(&pool, run.id).await;
+        assert_eq!(
+            (run.state.as_str(), run.total, run.searched, run.grabbed),
+            ("done", 1, 1, 1),
+            "{run:?}"
+        );
+        let (title, episode, replaces): (String, Option<i64>, String) =
+            sqlx::query_as("SELECT title, episode, replaces FROM downloads")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!((title.as_str(), episode), (thirty, Some(6)));
+        let replaces: Vec<crate::upgrades::Replaced> = serde_json::from_str(&replaces).unwrap();
+        let replaced: Vec<&str> = replaces.iter().map(|r| r.rel_path.as_str()).collect();
+        assert_eq!(replaced, [six]);
+    }
 }

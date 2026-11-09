@@ -219,7 +219,7 @@ pub async fn offer(
     Ok(credit.map(|credit| (url(artist), credit)))
 }
 
-/// The picture's address on upload.wikimedia.org, when the portrait route may fetch and serve
+/// The picture's address on Commons' picture hosts, when the portrait route may fetch and serve
 /// `artist`'s portrait: the setting on, listed in the last 30 days, with a portrait, and not
 /// failed in the last day.
 pub async fn servable(pool: &SqlitePool, artist: &str, now: i64) -> anyhow::Result<Option<String>> {

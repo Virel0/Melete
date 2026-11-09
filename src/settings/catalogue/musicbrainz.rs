@@ -23,7 +23,7 @@ pub(super) const MUSICBRAINZ: Service = Service {
         field(
             "MELETE_ARTIST_PORTRAITS",
             "Show artists' portraits",
-            "In searches for music to request and for the library's artists, from Wikimedia Commons, with their author and licence. The artist's MusicBrainz id goes to MusicBrainz for its Wikidata link, that item's id to wikidata.org for its image, and the image's file name to commons.wikimedia.org and upload.wikimedia.org, which see the server's address. The library's artists are looked up in the background, 20 an hour; one with artist.jpg or folder.jpg in the folder above their albums has that picture instead and isn't looked up. The portrait is fetched once and cached: those a search showed for 30 days, 2000 at most, and the library's artists while they're in it. Needs MusicBrainz matching on.",
+            "In searches for music to request and for the library's artists, from Wikimedia Commons, with their author and licence. The artist's MusicBrainz id goes to MusicBrainz for its Wikidata link, that item's id to wikidata.org for its image, and the image's file name to commons.wikimedia.org and its picture hosts (upload.wikimedia.org, thumb.wikimedia.org), which see the server's address. The library's artists are looked up in the background, 20 an hour; one with artist.jpg or folder.jpg in the folder above their albums has that picture instead and isn't looked up. The portrait is fetched once and cached: those a search showed for 30 days, 2000 at most, and the library's artists while they're in it. Needs MusicBrainz matching on.",
             Input::Toggle { on: "on" },
         ),
     ],
