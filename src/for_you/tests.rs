@@ -435,3 +435,116 @@ fn each_kind_gets_half_first_and_the_rest_goes_to_the_best() {
     assert_eq!(ranked.iter().filter(|i| i.song.is_some()).count(), 5);
     assert_eq!(ranked.len(), 35);
 }
+
+#[tokio::test]
+async fn deleting_a_listen_forgets_the_list_it_came_from() {
+    let w = world().await;
+    made(&w, w.alice, &everything()).await;
+    let play: i64 = sqlx::query_scalar("SELECT max(id) FROM music_plays WHERE user_id = ?")
+        .bind(w.alice)
+        .fetch_one(&w.pool)
+        .await
+        .unwrap();
+    crate::plays::forget(&w.pool, w.alice, crate::plays::Forget::One(play))
+        .await
+        .unwrap();
+    let served = for_listener(&w.pool, w.alice, &everything(), NOW)
+        .await
+        .unwrap();
+    assert_eq!(
+        (served.state, served.items.len()),
+        (State::Waiting, 0),
+        "made again from what's left, not served as it was"
+    );
+    // Bob's is untouched.
+    made(&w, w.bob, &everything()).await;
+    crate::plays::forget(&w.pool, w.alice, crate::plays::Forget::Between(None, None))
+        .await
+        .unwrap();
+    let bobs = for_listener(&w.pool, w.bob, &everything(), NOW)
+        .await
+        .unwrap();
+    assert_eq!(bobs.state, State::Ready);
+}
+
+#[tokio::test]
+async fn a_listen_finished_since_counts_as_a_change() {
+    let w = world().await;
+    let before = plays_now(&w.pool, w.alice).await.unwrap();
+    // The same listen, finished now: no new row, the same last id.
+    play(&w.pool, w.alice, 4, 5, true, 1).await;
+    assert_ne!(plays_now(&w.pool, w.alice).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn lists_that_keep_failing_wait_behind_the_others() {
+    let w = world().await;
+    let made_at = NOW - REMAKE_AFTER - 1;
+    // Both made long ago and due; Alice's was tried (and failed) more lately than Bob's.
+    for (user, tried) in [(w.alice, NOW - TRY_EVERY - 1), (w.bob, NOW - 3 * TRY_EVERY)] {
+        sqlx::query(
+            "INSERT INTO for_you (user_id, plays, items, made_at, tried_at)
+             VALUES (?, 'old', '[]', ?, ?)",
+        )
+        .bind(user)
+        .bind(made_at)
+        .bind(tried)
+        .execute(&w.pool)
+        .await
+        .unwrap();
+    }
+    let order: Vec<i64> = due(&w.pool, NOW)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|(user, _)| user)
+        .collect();
+    assert_eq!(
+        order,
+        [w.bob, w.alice],
+        "the longest since it was tried first"
+    );
+}
+
+#[tokio::test]
+async fn a_song_that_came_in_as_another_recording_leaves_the_list() {
+    let w = world().await;
+    let items = made(&w, w.alice, &everything()).await;
+    let song = items
+        .iter()
+        .find_map(|i| i.song.clone().filter(|s| !s.mb_artist_ids.is_empty()))
+        .expect("a song to request, with its artists");
+    // Its artist joins the library with it.
+    sqlx::query(
+        "INSERT INTO music_artists (id, key, name, mb_artist_id) VALUES (40, 'new', 'New', ?)",
+    )
+    .bind(&song.mb_artist_ids[0])
+    .execute(&w.pool)
+    .await
+    .unwrap();
+    let artist = 40;
+    // In now, tagged with another recording of it, its title as the library writes it.
+    sqlx::query(
+        "INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at,
+             first_seen_generation, seen_generation, album_id, tagged, title, artist, genres,
+             mb_recording_id) VALUES (40, 1, 'p/40', 1, 1, 1, 1, 1, 1, ?, 'x', '[]', ?);
+         INSERT INTO music_track_artists (track_id, position, artist_id, name)
+             VALUES (40, 0, ?, 'x');",
+    )
+    .bind(song.title.to_uppercase())
+    .bind(id(999))
+    .bind(artist)
+    .execute(&w.pool)
+    .await
+    .unwrap();
+    let served = for_listener(&w.pool, w.alice, &everything(), NOW)
+        .await
+        .unwrap();
+    assert!(
+        served.items.iter().all(|i| i
+            .song
+            .as_ref()
+            .is_none_or(|s| s.mb_recording_id != song.mb_recording_id)),
+        "it's in the library now"
+    );
+}

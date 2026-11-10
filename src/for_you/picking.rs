@@ -460,11 +460,30 @@ pub(super) async fn still_there(
         .filter_map(|i| Some(i.song.as_ref()?.mb_recording_id.clone()))
         .collect();
     let arrived = by_recording(pool, access, &songs).await?;
+    // Or arrived as another recording: one of its artists' tracks with its title, folded, as
+    // a list counts one owned.
+    let credited: HashSet<&str> = items
+        .iter()
+        .filter_map(|i| i.song.as_ref())
+        .flat_map(|s| s.mb_artist_ids.iter().map(String::as_str))
+        .collect();
+    let titled: HashSet<(String, String)> = by_artists(pool, access, &credited)
+        .await?
+        .into_iter()
+        .map(|(_, title, artist)| (artist, fold(&title)))
+        .collect();
+    let came = |song: &crate::for_you::Song| {
+        arrived.contains_key(&song.mb_recording_id)
+            || song
+                .mb_artist_ids
+                .iter()
+                .any(|a| titled.contains(&(a.clone(), fold(&song.title))))
+    };
     Ok(items
         .into_iter()
         .filter(|i| match (&i.track_id, &i.song) {
             (Some(track), _) => present.contains(track) && !left_out.contains(track),
-            (None, Some(song)) => !arrived.contains_key(&song.mb_recording_id),
+            (None, Some(song)) => !came(song),
             (None, None) => false,
         })
         .collect())

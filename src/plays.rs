@@ -300,6 +300,14 @@ pub async fn forget(pool: &SqlitePool, user_id: i64, which: Forget) -> sqlx::Res
         .execute(&mut *tx)
         .await?
         .rows_affected();
+    // Their For You list goes too: it may say "because you listened to" a deleted listen. It's
+    // made again from what's left.
+    if deleted > 0 {
+        sqlx::query("DELETE FROM for_you WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(deleted)
 }

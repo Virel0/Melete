@@ -216,21 +216,9 @@ fn spawn_downloads(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<
     }
 }
 
-/// Starts the background work the services need, saying what's on and off.
-fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
-    let pool = &fixed.pool;
-    let mut tasks = Vec::new();
-    if built.tmdb.is_none() {
-        tracing::warn!("MELETE_TMDB_TOKEN is not set; skipping metadata");
-    }
-    if built.flaresolverr.is_some() {
-        tracing::info!("FlareSolverr is set; Uindex can be searched");
-    }
-    if built.fixes.lyrics.is_some() {
-        tracing::info!(
-            "imported albums, and tracks without lyrics of their own, get lyrics from LRCLIB"
-        );
-    }
+/// Starts what fetches songs and albums from Soulseek, and songs from YouTube when Soulseek
+/// can't give them.
+fn spawn_songs(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<()>>) {
     if let Some(client) = &built.slskd {
         tracing::info!("album searches also ask Soulseek through slskd");
         tasks.push(tokio::spawn(soulseek_downloads::follow(
@@ -262,6 +250,24 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
             built.fixes.clone(),
         )));
     }
+}
+
+/// Starts the background work the services need, saying what's on and off.
+fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
+    let pool = &fixed.pool;
+    let mut tasks = Vec::new();
+    if built.tmdb.is_none() {
+        tracing::warn!("MELETE_TMDB_TOKEN is not set; skipping metadata");
+    }
+    if built.flaresolverr.is_some() {
+        tracing::info!("FlareSolverr is set; Uindex can be searched");
+    }
+    if built.fixes.lyrics.is_some() {
+        tracing::info!(
+            "imported albums, and tracks without lyrics of their own, get lyrics from LRCLIB"
+        );
+    }
+    spawn_songs(pool, built, &mut tasks);
     spawn_downloads(pool, built, &mut tasks);
     tasks.push(tokio::spawn(rss::run(
         pool.clone(),

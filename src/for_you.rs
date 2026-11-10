@@ -118,11 +118,35 @@ pub struct Served {
 }
 
 /// SQL for a listener's plays as a list's `plays` notes them, for the user whose id is `user`
-/// (an SQL expression): how many, and the last one's id.
+/// (an SQL expression): how many, the last one's id, and how many they finished, so one
+/// finished since, as well as one added, makes the list due. (Deleting plays forgets the list.)
 fn plays_key(user: &str) -> String {
     format!(
-        "(SELECT count(*) || ':' || coalesce(max(id), 0) FROM music_plays WHERE user_id = {user})"
+        "(SELECT count(*) || ':' || coalesce(max(id), 0) || ':' || coalesce(sum(completed), 0)
+          FROM music_plays WHERE user_id = {user})"
     )
+}
+
+/// The listeners whose lists are due, [`PER_RUN`] at most: with a finished play in the seed
+/// window, and never made, or a day old with their plays changed, and not tried within the
+/// hour; never made first, then the longest since they were tried, so lists that keep failing
+/// don't hold everyone else's back. Each with whether they're an admin.
+async fn due(pool: &SqlitePool, now: i64) -> sqlx::Result<Vec<(i64, bool)>> {
+    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT u.id, u.is_admin FROM users u LEFT JOIN for_you f ON f.user_id = u.id
+         WHERE EXISTS (SELECT 1 FROM music_plays p WHERE p.user_id = u.id AND p.completed = 1
+                 AND p.started_at >= ?1)
+           AND (f.user_id IS NULL OR (f.tried_at <= ?2 AND (f.made_at IS NULL
+                 OR (f.made_at <= ?3 AND f.plays != {}))))
+         ORDER BY f.made_at IS NOT NULL, coalesce(f.tried_at, 0), u.id LIMIT ?4",
+        plays_key("u.id")
+    )))
+    .bind(now * 1000 - SEED_WINDOW_MS)
+    .bind(now - TRY_EVERY)
+    .bind(now - REMAKE_AFTER)
+    .bind(i64::try_from(PER_RUN).unwrap_or(1))
+    .fetch_all(pool)
+    .await
 }
 
 /// `user`'s plays as a list notes them ([`plays_key`]).
@@ -211,21 +235,7 @@ pub async fn make_due(
     }
     crate::plays::catch_up(pool).await?;
     asking::forget_old(pool, now).await?;
-    let due: Vec<(i64, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT u.id, u.is_admin FROM users u LEFT JOIN for_you f ON f.user_id = u.id
-         WHERE EXISTS (SELECT 1 FROM music_plays p WHERE p.user_id = u.id AND p.completed = 1
-                 AND p.started_at >= ?1)
-           AND (f.user_id IS NULL OR (f.tried_at <= ?2 AND (f.made_at IS NULL
-                 OR (f.made_at <= ?3 AND f.plays != {}))))
-         ORDER BY f.made_at IS NOT NULL, f.made_at, u.id LIMIT ?4",
-        plays_key("u.id")
-    )))
-    .bind(now * 1000 - SEED_WINDOW_MS)
-    .bind(now - TRY_EVERY)
-    .bind(now - REMAKE_AFTER)
-    .bind(i64::try_from(PER_RUN).unwrap_or(1))
-    .fetch_all(pool)
-    .await?;
+    let due = due(pool, now).await?;
     let mut made = Made::default();
     for (user, is_admin) in due {
         // ListenBrainz asked for a long pause: the next run carries on.
