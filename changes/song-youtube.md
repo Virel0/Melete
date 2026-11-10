@@ -9,3 +9,9 @@
 ### Changed
 
 - A song Soulseek was searched for without a fit says so, instead of "waiting for a search".
+
+### Fixed
+
+- A trailer blocked in the VPN's country, or on a channel that refuses VPNs, counts as not on
+  YouTube instead of failing three times: the downloader kept yt-dlp's last line, a hint
+  printed after the error, so the reason was lost and the block went unrecognised.

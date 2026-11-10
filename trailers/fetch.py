@@ -46,8 +46,19 @@ HEIGHTS = (720, 1080, 2160)
 SEARCH_RESULTS = 10
 MAX_QUERY = 200
 # What YouTube says when the video can't be had at all, as opposed to a failure worth retrying.
-GONE = ("Video unavailable", "Private video", "This video has been removed", "not available in your country",
-        "Sign in to confirm your age", "members-only")
+GONE = ("Video unavailable", "Private video", "This video has been removed", "available in your country",
+        "Sign in to confirm your age", "members-only", "Unavailable with a VPN or proxy",
+        "regionally-restricted")
+
+
+def failure(result):
+    """Why yt-dlp failed: its last ERROR line, not a hint it printed after it (such as "You
+    might want to use a VPN or a proxy server" after a video blocked in this country)."""
+    said = (result.stderr or result.stdout).strip().splitlines()
+    errors = [line for line in said if line.startswith("ERROR:")]
+    if errors:
+        return errors[-1][:300]
+    return (said[-1] if said else f"yt-dlp ended with {result.returncode}")[:300]
 
 
 def log(message):
@@ -83,9 +94,7 @@ def download(video_id, max_height, work):
          "--merge-output-format", "mkv", "--output", template, url],
         capture_output=True, text=True)
     if result.returncode != 0:
-        said = (result.stderr or result.stdout).strip().splitlines()
-        reason = said[-1] if said else f"yt-dlp ended with {result.returncode}"
-        return None, reason[:300]
+        return None, failure(result)
     found = [f for f in os.listdir(work) if f.startswith("source.")]
     if not found:
         return None, "yt-dlp left no file"
@@ -145,8 +154,7 @@ def song_search(job, job_id):
          f"ytsearch{SEARCH_RESULTS}:{query}"],
         capture_output=True, text=True)
     if result.returncode != 0:
-        said = (result.stderr or result.stdout).strip().splitlines()
-        raise RuntimeError((said[-1] if said else f"yt-dlp ended with {result.returncode}")[:300])
+        raise RuntimeError(failure(result))
     found = json.loads(result.stdout or "{}")
     results = []
     for entry in found.get("entries") or []:
@@ -173,8 +181,7 @@ def song(job, job_id):
              "--output", os.path.join(scratch, "source.%(ext)s"), SOURCE.format(id=video_id)],
             capture_output=True, text=True)
         if result.returncode != 0:
-            said = (result.stderr or result.stdout).strip().splitlines()
-            reason = (said[-1] if said else f"yt-dlp ended with {result.returncode}")[:300]
+            reason = failure(result)
             if any(g.lower() in reason.lower() for g in GONE):
                 return {"id": job_id, "ok": True, "unavailable": reason}
             raise RuntimeError(reason)
