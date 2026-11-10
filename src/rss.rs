@@ -33,6 +33,7 @@ use crate::torznab;
 
 mod asking;
 mod deciding;
+mod episodes;
 mod grabbing;
 mod matching;
 mod packs;

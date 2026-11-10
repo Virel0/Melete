@@ -8,6 +8,9 @@ import { SignedOut, announce, api, h, number, plural, size } from "/web/lib.js";
 import { stateLabel } from "/web/page-parts.js";
 import { tryLink } from "/web/release-try.js";
 
+// What the server says of a single episode a season's search found (`search::SINGLE_EPISODES`).
+const SINGLE_EPISODES = "it's single episodes; this searched for a season";
+
 // What a search for `what` asks: `path` and `body` for POST, `label` for the words.
 // Search: the best accepted, not blocklisted result is grabbed; says what happened in `said`.
 export async function searchAndGrab(ctx, ask, said) {
@@ -92,7 +95,15 @@ export function results(ctx, search, label) {
 function releaseRow(ctx, r, names, profileId) {
   const d = r.decision;
   const cell = (label, content, cls) => h("td", { "data-label": label, class: cls }, content);
-  const why = r.accepted ? null : h("p", { class: "why" }, `Can't be grabbed: ${(d.rejections ?? d.reasons ?? []).join("; ") || "turned down"}. `, tryLink(r, profileId));
+  const reasons = d.rejections ?? d.reasons ?? [];
+  // Single episodes of the season searched for, refused for nothing else: taken one by one for
+  // the season's missing episodes when no pack of it is grabbed.
+  const asEpisode = reasons.length === 1 && reasons[0] === SINGLE_EPISODES;
+  const why = r.accepted
+    ? null
+    : asEpisode
+      ? h("p", { class: "note" }, "Not a pack: taken for its episode when no pack of the season is grabbed and the episode is missing.")
+      : h("p", { class: "why" }, `Can't be grabbed: ${reasons.join("; ") || "turned down"}. `, tryLink(r, profileId));
   const formats = d.formats?.length ? h("p", { class: "note" }, `Formats: ${d.formats.map((f) => `${f.name} ${f.score > 0 ? "+" : ""}${f.score}`).join(", ")}.`) : null;
   const actions = releaseActions(ctx, r);
   return h(

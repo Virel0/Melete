@@ -1426,3 +1426,10 @@ async fn a_search_can_turn_down_the_group_whose_copy_has_no_styled_subtitles() {
         ]
     );
 }
+
+/// The web tells a single episode a season's search found by the server's own words for it.
+#[test]
+fn the_web_knows_the_single_episodes_refusal_word_for_word() {
+    let web = include_str!("../web/manage-search.js");
+    assert!(web.contains(&format!("\"{SINGLE_EPISODES}\"")));
+}

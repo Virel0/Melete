@@ -538,6 +538,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_season_found_only_as_single_episodes_is_taken_episode_by_episode() {
+        let pool = setup().await;
+        let frieren = want_frieren(&pool, None).await;
+        // TMDB lists season 1's first three episodes, aired.
+        sqlx::raw_sql(
+            "INSERT INTO tmdb_series (tmdb_id, tvdb_id, name, fetched_at) VALUES (209867, 424536, 'Frieren', 0);
+             INSERT INTO tmdb_episodes (series_tmdb_id, season, episode, tmdb_id, air_date) VALUES
+                 (209867, 1, 1, 1, '2023-09-29'), (209867, 1, 2, 2, '2023-09-29'),
+                 (209867, 1, 3, 3, '2023-10-06');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let request = approved(&pool, "series", "wanted_series_id", frieren, Some(1)).await;
+        let feed = indexer(&pool, "[5000]").await;
+        // No pack of season 1: its episodes one by one, the first twice, and one of season 2.
+        feed.lock().unwrap().0 = releases(&[
+            (
+                "Frieren.Beyond.Journeys.End.S01E01.1080p.WEB-DL.x264-GRP",
+                "",
+            ),
+            (
+                "Frieren.Beyond.Journeys.End.S01E01.720p.WEB-DL.x264-GRP",
+                "",
+            ),
+            (
+                "Frieren.Beyond.Journeys.End.S01E02.1080p.WEB-DL.x264-GRP",
+                "",
+            ),
+            (
+                "Frieren.Beyond.Journeys.End.S01E03.1080p.WEB-DL.x264-GRP",
+                "",
+            ),
+            (
+                "Frieren.Beyond.Journeys.End.S02E01.1080p.WEB-DL.x264-GRP",
+                "",
+            ),
+        ]);
+        let (sources, deluge) = torrents().await;
+        run(&pool, &sources, request).await.unwrap();
+        let taken: Vec<(String, Option<i64>, Option<i64>)> =
+            sqlx::query_as("SELECT title, season, episode FROM downloads ORDER BY episode")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            taken,
+            [
+                (
+                    "Frieren.Beyond.Journeys.End.S01E01.1080p.WEB-DL.x264-GRP".into(),
+                    Some(1),
+                    Some(1)
+                ),
+                (
+                    "Frieren.Beyond.Journeys.End.S01E02.1080p.WEB-DL.x264-GRP".into(),
+                    Some(1),
+                    Some(2)
+                ),
+                (
+                    "Frieren.Beyond.Journeys.End.S01E03.1080p.WEB-DL.x264-GRP".into(),
+                    Some(1),
+                    Some(3)
+                ),
+            ],
+            "the best of each missing episode, each as its own"
+        );
+        assert_eq!(deluge.lock().unwrap().torrents.len(), 3);
+        // Searched again: all on their way, nothing more.
+        run(&pool, &sources, request).await.unwrap();
+        assert_eq!(deluge.lock().unwrap().torrents.len(), 3);
+    }
+
+    #[tokio::test]
     async fn a_song_is_searched_for_on_soulseek_and_grabbed() {
         let pool = db::open_in_memory().await;
         let preset = crate::music_profiles::lossless(&pool).await.unwrap();

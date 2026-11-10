@@ -48,13 +48,39 @@ pub(crate) async fn grab_only(
     release_id: i64,
     only: Option<Only<'_>>,
 ) -> anyhow::Result<Result<Download, Refused>> {
+    grab_with(pool, deluge, fetcher, release_id, only, None).await
+}
+
+/// Like [`grab`], for a single episode a season's search found, recorded as `episode`'s (its
+/// first, for one of several) rather than the season's.
+pub(crate) async fn grab_episode(
+    pool: &SqlitePool,
+    deluge: &deluge::Client,
+    fetcher: &Fetcher,
+    release_id: i64,
+    episode: i64,
+) -> anyhow::Result<Result<Download, Refused>> {
+    grab_with(pool, deluge, fetcher, release_id, None, Some(episode)).await
+}
+
+async fn grab_with(
+    pool: &SqlitePool,
+    deluge: &deluge::Client,
+    fetcher: &Fetcher,
+    release_id: i64,
+    only: Option<Only<'_>>,
+    episode: Option<i64>,
+) -> anyhow::Result<Result<Download, Refused>> {
     // No series changes episode order between checking the result was searched for in the order
     // it follows and recording the download with the season and episode it was searched as.
     let _no_switching = crate::episode_order::SWITCHING.read().await;
-    let row = match grabbable(pool, release_id).await? {
+    let mut row = match grabbable(pool, release_id, episode.is_some()).await? {
         Ok(row) => row,
         Err(refused) => return Ok(Err(refused)),
     };
+    if episode.is_some() {
+        row.episode = episode;
+    }
     let Some(link) = row.download_url.as_deref() else {
         return Ok(Err(Refused::NoLink));
     };
@@ -90,10 +116,20 @@ pub(crate) async fn grab_only(
     })?))
 }
 
-/// The search result, when it's accepted, from an indexer and not blocklisted by its title.
+/// Whether a decision's only refusal is that it's single episodes of the season searched for:
+/// as its episode's, it's accepted.
+pub(crate) fn single_episodes_only(decision: &serde_json::Value) -> bool {
+    decision["rejections"]
+        .as_array()
+        .is_some_and(|r| r.len() == 1 && r[0] == crate::search::SINGLE_EPISODES)
+}
+
+/// The search result, when it's accepted (or, `as_episode`, refused only for being single
+/// episodes of a season searched for), from an indexer and not blocklisted by its title.
 async fn grabbable(
     pool: &SqlitePool,
     release_id: i64,
+    as_episode: bool,
 ) -> anyhow::Result<Result<ReleaseRow, Refused>> {
     let row: Option<ReleaseRow> = sqlx::query_as(
         "SELECT d.title, d.download_url, d.accepted, d.decision, s.wanted_movie_id,
@@ -109,8 +145,8 @@ async fn grabbable(
     let Some(row) = row else {
         return Ok(Err(Refused::NoRelease));
     };
-    if !row.accepted {
-        let decision: serde_json::Value = serde_json::from_str(&row.decision)?;
+    let decision: serde_json::Value = serde_json::from_str(&row.decision)?;
+    if !row.accepted && !(as_episode && single_episodes_only(&decision)) {
         // A video decision's rejections, or an album decision's reasons.
         let why = decision["rejections"][0]
             .as_str()
