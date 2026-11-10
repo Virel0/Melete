@@ -73,12 +73,61 @@ fn unaccented(c: char) -> char {
         .unwrap_or(c)
 }
 
-/// Letters and digits only, lowercase, unaccented, single-spaced, with "&", "y", "et" and the
-/// like read as "and".
+/// A Cyrillic letter as Latin letters, as names are commonly written in them ("Мураками" is
+/// "Murakami"); any other letter as it is.
+fn latin(c: char) -> String {
+    const CYRILLIC: [(char, &str); 37] = [
+        ('а', "a"),
+        ('б', "b"),
+        ('в', "v"),
+        ('г', "g"),
+        ('д', "d"),
+        ('е', "e"),
+        ('ё', "e"),
+        ('ж', "zh"),
+        ('з', "z"),
+        ('и', "i"),
+        ('й', "y"),
+        ('к', "k"),
+        ('л', "l"),
+        ('м', "m"),
+        ('н', "n"),
+        ('о', "o"),
+        ('п', "p"),
+        ('р', "r"),
+        ('с', "s"),
+        ('т', "t"),
+        ('у', "u"),
+        ('ф', "f"),
+        ('х', "kh"),
+        ('ц', "ts"),
+        ('ч', "ch"),
+        ('ш', "sh"),
+        ('щ', "shch"),
+        ('ъ', ""),
+        ('ы', "y"),
+        ('ь', ""),
+        ('э', "e"),
+        ('ю', "yu"),
+        ('я', "ya"),
+        ('і', "i"),
+        ('ї', "yi"),
+        ('є', "ye"),
+        ('ґ', "g"),
+    ];
+    CYRILLIC
+        .iter()
+        .find(|(from, _)| *from == c)
+        .map_or_else(|| c.to_string(), |(_, to)| (*to).to_owned())
+}
+
+/// Letters and digits only, lowercase, unaccented, Cyrillic as Latin letters, single-spaced,
+/// with "&", "y", "et" and the like read as "and".
 pub fn plain(text: &str) -> String {
     text.to_lowercase()
         .chars()
         .map(unaccented)
+        .map(latin)
         .collect::<String>()
         .replace('&', " and ")
         .split(|c: char| !c.is_alphanumeric())
@@ -138,10 +187,19 @@ fn core_title(title: &str) -> String {
     }
 }
 
-/// Whether the artist is named in `text`: their whole name, or the first of several credited
-/// ("Dueto Sol and Luna" for "Dueto Sol & Luna with Mariachi") when it's more than a short word.
+/// A name without a leading article ("the red army choir" is "red army choir").
+fn without_article(name: &str) -> &str {
+    match name.split_once(' ') {
+        Some((first, rest)) if ARTICLES.contains(&first) => rest,
+        _ => name,
+    }
+}
+
+/// Whether the artist is named in `text`: their whole name, with or without its leading article
+/// ("Red Army Choir" for "The Red Army Choir"), or the first of several credited ("Dueto Sol
+/// and Luna" for "Dueto Sol & Luna with Mariachi") when it's more than a short word.
 fn names_artist(text: &str, artist: &str) -> bool {
-    if has(text, artist) {
+    if has(text, artist) || has(text, without_article(artist)) {
         return true;
     }
     let first = [" and ", " with ", " con ", " feat ", " ft ", " x "]
@@ -176,21 +234,60 @@ fn rank(song: &Song<'_>, found: &Found, theirs: bool) -> (u8, i64) {
     (channel, -gap)
 }
 
-/// How well a result fits, best highest; None when it isn't the song: its title, by the
-/// artist (named in the title, or theirs is the channel), no other version, its length.
-fn fit(song: &Song<'_>, found: &Found) -> Option<(u8, i64)> {
+/// What keeps a result from being the song, in words: its title, its artist (named in the
+/// title, or theirs is the channel), another version, its length. None when it is the song.
+pub fn misses(song: &Song<'_>, found: &Found) -> Vec<String> {
     let title = plain(&found.title);
     let artist = plain(song.artist);
     let wanted = core_title(song.title);
-    if wanted.is_empty() || artist.is_empty() || !has(&title, &wanted) {
-        return None;
+    let mut misses = Vec::new();
+    if wanted.is_empty() || !has(&title, &wanted) {
+        misses.push("its title isn't the song's".to_owned());
     }
+    if artist.is_empty() || !(theirs(found, &artist) || names_artist(&title, &artist)) {
+        misses.push("it doesn't name the artist".to_owned());
+    }
+    if other_version(&title, &plain(song.title)) {
+        misses.push("it's another version".to_owned());
+    }
+    if !length_fits(song.length_seconds, found.duration) {
+        misses.push(match (found.duration, song.length_seconds) {
+            (Some(d), Some(s)) => format!("it runs {}, the song {}", minutes(d), minutes(s as f64)),
+            (None, _) => "YouTube gives no length".to_owned(),
+            (Some(d), None) => format!("it runs {}, too long for a song", minutes(d)),
+        });
+    }
+    misses
+}
+
+/// Seconds as m:ss.
+fn minutes(seconds: f64) -> String {
+    let s = seconds.round() as i64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// Whether the channel is the artist's own.
+fn theirs(found: &Found, artist: &str) -> bool {
     let channel = channel_name(&found.channel);
-    let theirs = channel == artist || (!channel.is_empty() && names_artist(&channel, &artist));
-    let fits = (theirs || names_artist(&title, &artist))
-        && !other_version(&title, &plain(song.title))
-        && length_fits(song.length_seconds, found.duration);
-    fits.then(|| rank(song, found, theirs))
+    channel == artist
+        || without_article(&channel) == without_article(artist)
+        || (!channel.is_empty() && names_artist(&channel, artist))
+}
+
+/// How well a result fits, best highest; None when it isn't the song ([`misses`]).
+fn fit(song: &Song<'_>, found: &Found) -> Option<(u8, i64)> {
+    misses(song, found)
+        .is_empty()
+        .then(|| rank(song, found, theirs(found, &plain(song.artist))))
+}
+
+/// The result that came closest to being the song, and what it missed; None when there were
+/// no results.
+pub fn closest<'a>(song: &Song<'_>, found: &'a [Found]) -> Option<(&'a Found, Vec<String>)> {
+    found
+        .iter()
+        .map(|f| (f, misses(song, f)))
+        .min_by_key(|(_, misses)| misses.len())
 }
 
 /// Every result that is the song, the best fitting first (YouTube's order among equals).
