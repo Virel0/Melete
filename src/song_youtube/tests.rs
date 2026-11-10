@@ -493,3 +493,103 @@ async fn a_video_blocked_here_gives_way_to_the_next_that_fits() {
             .starts_with("no other video that fits is left")
     );
 }
+
+#[test]
+fn an_artist_matches_with_or_without_the_and_in_cyrillic_as_in_latin() {
+    // Asked for as "The Harbour Choir"; the upload leaves "The" out, on someone else's channel.
+    let wanted = song("To Serve the Coast", "The Harbour Choir", Some(200));
+    let upload = [found(
+        "aaaaaaaaaaa",
+        "Harbour Choir - To Serve the Coast",
+        "Collector",
+        204.0,
+    )];
+    assert!(choose(&wanted, &upload).is_some());
+    // Asked for in Latin letters; the video is titled in Cyrillic, and the other way round.
+    let latin = song("Utro", "Volna", Some(180));
+    let cyrillic = [found("bbbbbbbbbbb", "Волна - Утро", "Волна", 181.0)];
+    assert!(choose(&latin, &cyrillic).is_some());
+    let asked = song("Утро", "Волна", Some(180));
+    let titled = [found("ccccccccccc", "Volna - Utro", "Volna - Topic", 179.0)];
+    assert!(choose(&asked, &titled).is_some());
+}
+
+#[test]
+fn the_closest_result_says_what_it_missed() {
+    let wanted = song("To Serve the Coast", "The Harbour Choir", Some(200));
+    let results = [
+        found("aaaaaaaaaaa", "Something else", "Other", 200.0),
+        found(
+            "bbbbbbbbbbb",
+            "Harbour Choir - To Serve the Coast",
+            "Collector",
+            260.0,
+        ),
+    ];
+    assert!(choose(&wanted, &results).is_none());
+    let (near, misses) = choosing::closest(&wanted, &results).unwrap();
+    assert_eq!(near.id, "bbbbbbbbbbb");
+    assert_eq!(misses, ["it runs 4:20, the song 3:20"]);
+}
+
+#[tokio::test]
+async fn none_fitting_names_the_closest_and_a_failed_download_gives_way_to_the_next() {
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    answer(
+        jobs.path(),
+        "song-2-search",
+        json!({"id": "song-2-search", "ok": true, "results": [
+            {"id": "aaaaaaaaaaa", "title": "Río Bravo", "channel": "Dueto Sol & Luna", "duration": 3},
+            {"id": "ccccccccccc", "title": "Dueto Sol y Luna - Río Bravo", "channel": "Fan", "duration": 3},
+        ]}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 30).await.unwrap();
+    std::fs::remove_file(jobs.path().join("queue/song-2-audio.json")).unwrap();
+    // YouTube refuses the first's download: the second is asked for at once.
+    answer(
+        jobs.path(),
+        "song-2-audio",
+        json!({"id": "song-2-audio", "ok": false,
+               "error": "RuntimeError: ERROR: unable to download video data: HTTP Error 403: Forbidden"}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 60).await.unwrap();
+    assert_eq!(
+        job(jobs.path(), "song-2-audio").unwrap()["video"],
+        "ccccccccccc"
+    );
+    std::fs::remove_file(jobs.path().join("queue/song-2-audio.json")).unwrap();
+    // That one refused too, with none left: tried again later, as a failure.
+    answer(
+        jobs.path(),
+        "song-2-audio",
+        json!({"id": "song-2-audio", "ok": false, "error": "HTTP Error 403: Forbidden"}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 90).await.unwrap();
+    assert_eq!(state(&pool).await.unwrap().0, "failed");
+
+    // A song none of whose results fit says which came closest, and why not.
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    answer(
+        jobs.path(),
+        "song-2-search",
+        json!({"id": "song-2-search", "ok": true, "results": [
+            {"id": "aaaaaaaaaaa", "title": "Río Bravo (live)", "channel": "Dueto Sol & Luna", "duration": 3},
+        ]}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 30).await.unwrap();
+    let (state, message) = state(&pool).await.unwrap();
+    assert_eq!(state, "none");
+    assert!(
+        message
+            .as_deref()
+            .unwrap()
+            .ends_with("the closest, “Río Bravo (live)” on Dueto Sol & Luna, it's another version"),
+        "{message:?}"
+    );
+}
