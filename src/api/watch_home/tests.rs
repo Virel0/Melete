@@ -382,7 +382,7 @@ fn the_hero_puts_whats_for_you_and_whats_new_first_turn_about_and_whats_watched_
         150,
     )];
     let watching = [entry(true, 30), entry(true, 31), entry(true, 32)];
-    let hero = hero_picks(&watching, &picked, &rated, [&shows, &[], &movies]);
+    let hero = hero::picks(&watching, &picked, &rated, [&shows, &[], &movies]);
     assert_eq!(
         hero_titles(&hero),
         [
@@ -402,13 +402,13 @@ fn the_hero_puts_whats_for_you_and_whats_new_first_turn_about_and_whats_watched_
         "ten for you and new, turn about (movie 3 once), then what's being watched"
     );
     // Without AI picks: highly rated titles not started stand in.
-    let hero = hero_picks(&watching, &[], &rated, [&shows, &[], &movies]);
+    let hero = hero::picks(&watching, &[], &rated, [&shows, &[], &movies]);
     assert_eq!(
         &hero_titles(&hero)[..3],
         ["movie:90", "series:21", "series:22"]
     );
     // Little new and nothing for them: what's being watched fills the rest.
-    let hero = hero_picks(&watching, &[], &[], [&shows[..1], &[], &[]]);
+    let hero = hero::picks(&watching, &[], &[], [&shows[..1], &[], &[]]);
     assert_eq!(
         hero_titles(&hero),
         ["series:21", "series:30", "series:31", "series:32"]
