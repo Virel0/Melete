@@ -94,6 +94,7 @@ pub(super) async fn grab_best(
     .await?;
     fewer_seasons_first(&mut best);
     best.truncate(GRAB_TRIES as usize);
+    let before = grabbed.len();
     for (release_id, title, decision) in best {
         // Accepted against a file there means better than it, below the cutoff.
         let decision: serde_json::Value = serde_json::from_str(&decision)?;
@@ -145,6 +146,26 @@ pub(super) async fn grab_best(
         if !try_next {
             break;
         }
+    }
+    // No pack of the season grabbed: the single episodes the search found, for those missing.
+    let took_pack = grabbed[before..].iter().any(|g| g.download_id.is_some());
+    if let Target::Series {
+        id,
+        season,
+        episode: None,
+    } = target
+        && !took_pack
+    {
+        super::episodes::one_by_one(
+            pool,
+            pipeline,
+            (id, season),
+            wanted,
+            search_id,
+            grabbed,
+            &mut said,
+        )
+        .await?;
     }
     Ok(said)
 }

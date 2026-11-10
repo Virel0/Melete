@@ -91,7 +91,9 @@ async fn a_song_is_searched_again_a_day_apart_three_times_at_most() {
     let pool = song(AFTER + 1).await;
     // Soulseek has nothing for it, every time.
     let (sources, seen) = sources(&[]).await;
-    let mut at = *NOW;
+    // From the clock now, not NOW: the searches the runs make are stamped with it, and NOW may
+    // be from long before this test began, when other tests in the run first read it.
+    let mut at = unix_now();
     for time in 1..=TIMES {
         assert_eq!(
             run(&pool, &sources, at).await.unwrap(),
@@ -105,7 +107,7 @@ async fn a_song_is_searched_again_a_day_apart_three_times_at_most() {
                 .unwrap()
                 .is_empty()
         );
-        at += AFTER + 1;
+        at += AFTER + 60;
     }
     assert!(
         run(&pool, &sources, at).await.unwrap().is_empty(),

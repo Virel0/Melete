@@ -341,6 +341,11 @@ pub(super) async fn other_film(
         .map(|r| r.title))
 }
 
+/// Why a single episode of a season isn't taken by a search for the season. When nothing else
+/// stands in its way and no pack is grabbed, it's taken for its episode instead
+/// (`rss::one_by_one`).
+pub(crate) const SINGLE_EPISODES: &str = "it's single episodes; this searched for a season";
+
 /// Why a release isn't the wanted title, or isn't what was searched for.
 pub(crate) fn mismatch(release: &Release, wanted: &Wanted, target: Target) -> Option<String> {
     let title = comparable(&release.title);
@@ -401,7 +406,7 @@ pub(crate) fn mismatch(release: &Release, wanted: &Wanted, target: Target) -> Op
             Episodes::Seasons(seasons),
         ) => (!seasons.contains(&season)).then(|| format!("it doesn't hold season {season}")),
         (Target::Series { episode: None, .. }, Episodes::Standard { .. }) => {
-            Some("it's single episodes; this searched for a season".into())
+            Some(SINGLE_EPISODES.into())
         }
         (Target::Series { episode: None, .. }, Episodes::CompleteSeries) => {
             Some("it's the complete series; this searched for one season".into())
