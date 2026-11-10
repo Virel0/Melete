@@ -11,8 +11,9 @@
 //! jobs already queued are still taken when they're turned off. One title at a time, newest
 //! first, and only while no video is being transcoded and no music is being split into parts. A
 //! trailer is at most the quality set (`MELETE_TRAILER_QUALITY`), and made again when the
-//! trailer chosen for the title changes or the quality set does. YouTube not having it is kept
-//! as such until the trailer chosen changes; a failure is tried again a day later, three times
+//! trailer chosen for the title changes or the quality set does. YouTube not having it here
+//! (removed, or blocked in this country or to VPNs) passes its video over, so the title's next
+//! is tried, and is kept as such when there's no other; a failure is tried again a day later, three times
 //! at most. A title that leaves the library, or gets a trailer in its folder, loses the one
 //! downloaded here.
 
@@ -29,6 +30,7 @@ use crate::metadata::{Trailer, chosen, languages};
 use crate::transcode::Transcoder;
 
 mod answers;
+pub mod levels;
 
 /// A plain file name from the downloader: nothing that leaves the folder it's in.
 pub(crate) use answers::plain as plain_name;
@@ -118,8 +120,14 @@ impl Title {
     }
 }
 
-/// Works for as long as the server runs: reads answers, tidies, and queues the next title.
-pub async fn work(pool: SqlitePool, folders: Folders, transcoder: Arc<Transcoder>) {
+/// Works for as long as the server runs: reads answers, tidies, queues the next title, and
+/// levels the sound of a few trailers not levelled yet ([`levels`]).
+pub async fn work(
+    pool: SqlitePool,
+    folders: Folders,
+    transcoder: Arc<Transcoder>,
+    ffmpeg: PathBuf,
+) {
     for dir in [
         folders.jobs.join("queue"),
         folders.jobs.join("done"),
@@ -141,6 +149,16 @@ pub async fn work(pool: SqlitePool, folders: Folders, transcoder: Arc<Transcoder
             tracing::warn!(
                 error = format!("{err:#}"),
                 "downloading trailers stopped for now"
+            );
+        }
+        // Their sound levelled, a few at a time, while nothing is converted for someone
+        // watching; those kept from before downloads were turned off too.
+        if !transcoder.busy()
+            && let Err(err) = levels::level_some(&pool, &folders, &ffmpeg).await
+        {
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "levelling trailers' sound stopped for now"
             );
         }
         if let Ok(c) = coverage(&pool).await {
@@ -169,6 +187,8 @@ struct Candidate {
     state: Option<String>,
     attempts: Option<i64>,
     finished_at: Option<i64>,
+    /// Videos YouTube wouldn't give here, as a JSON array; null when never asked.
+    passed_over: Option<String>,
 }
 
 impl Candidate {
@@ -182,8 +202,18 @@ impl Candidate {
 
     /// The trailer this title should have now, at most `quality` high, when it's due another
     /// try: never asked for, a different trailer or quality wanted, or failed and its wait over.
+    /// Videos YouTube wouldn't give here are passed over, so the next of the title's is tried.
     fn due(&self, language: &str, quality: i64, now: i64) -> Option<String> {
-        let trailers: Vec<Trailer> = serde_json::from_str(&self.videos).ok()?;
+        let passed_over: Vec<String> = self
+            .passed_over
+            .as_deref()
+            .and_then(|p| serde_json::from_str(p).ok())
+            .unwrap_or_default();
+        let trailers: Vec<Trailer> = serde_json::from_str::<Vec<Trailer>>(&self.videos)
+            .ok()?
+            .into_iter()
+            .filter(|t| !passed_over.contains(&t.key))
+            .collect();
         let wanted = chosen(
             &trailers,
             &languages(self.original_language.as_deref(), language),
@@ -231,7 +261,7 @@ pub async fn step(
     // Newest first: movies and series by when their latest file came into the library.
     let candidates: Vec<Candidate> = sqlx::query_as(
         "SELECT x.id AS movie_id, NULL AS series_id, t.videos, t.original_language,
-             d.video, d.max_height, d.state, d.attempts, d.finished_at,
+             d.video, d.max_height, d.state, d.attempts, d.finished_at, d.passed_over,
              (SELECT max(coalesce(f.added_at, f.modified_at)) FROM media_files f
                  WHERE f.movie_id = x.id) AS added
          FROM movies x JOIN tmdb_movies t ON t.tmdb_id = x.match_tmdb_id
@@ -241,7 +271,7 @@ pub async fn step(
                AND e.kind = 'trailer' AND e.missing_since IS NULL)
          UNION ALL
          SELECT NULL, x.id, t.videos, t.original_language,
-             d.video, d.max_height, d.state, d.attempts, d.finished_at,
+             d.video, d.max_height, d.state, d.attempts, d.finished_at, d.passed_over,
              (SELECT max(coalesce(f.added_at, f.modified_at)) FROM media_files f
                  WHERE f.series_id = x.id)
          FROM series x JOIN tmdb_series t ON t.tmdb_id = x.match_tmdb_id

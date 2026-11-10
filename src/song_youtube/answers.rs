@@ -83,13 +83,9 @@ async fn record(
         return fail(pool, job, &why, now).await;
     }
     if let Some(why) = answer.unavailable {
-        return none(
-            pool,
-            song.id,
-            &format!("YouTube doesn't have it: {why}"),
-            now,
-        )
-        .await;
+        // Removed, or blocked here: the next video that fits, if there's one.
+        let why = format!("YouTube won't give it here: {why}");
+        return next_video(pool, jobs, song.id, &why, now).await;
     }
     match job {
         Job::Search(_) => chosen(pool, jobs, &song, &answer.results, now).await,
@@ -101,13 +97,8 @@ async fn record(
                 let said = answer
                     .duration
                     .map_or("unknown".into(), |d| format!("{d:.0} s"));
-                return none(
-                    pool,
-                    song.id,
-                    &format!("the audio YouTube gave is {said} long, not the song's length"),
-                    now,
-                )
-                .await;
+                let why = format!("the audio YouTube gave is {said} long, not the song's length");
+                return next_video(pool, jobs, song.id, &why, now).await;
             }
             let file = jobs.join("done").join(name);
             match import(pool, fixes, &song, &file).await {
@@ -134,32 +125,73 @@ async fn chosen(
             .await?;
         return Ok(());
     }
-    let Some(video) = choosing::choose(&song.song(), results) else {
+    let fitting = choosing::ranked(&song.song(), results);
+    let Some((video, others)) = fitting.split_first() else {
         let why = format!(
             "none of YouTube's {} results has its title, artist and length",
             results.len()
         );
         return none(pool, song.id, &why, now).await;
     };
+    download(pool, jobs, song.id, video, others, "searching", now).await
+}
+
+/// Asks for `video`'s audio, keeping `others` (the fitting results not tried yet, best first)
+/// for when it can't be used; only while the song's try is in `state`.
+async fn download(
+    pool: &SqlitePool,
+    jobs: &Path,
+    song: i64,
+    video: &Found,
+    others: &[&Found],
+    state: &str,
+    now: i64,
+) -> anyhow::Result<()> {
     sqlx::query(
         "UPDATE song_youtube SET state = 'downloading', video = ?, video_title = ?, channel = ?,
-             duration_seconds = ?, message = NULL, updated_at = ?
-         WHERE wanted_song_id = ? AND state = 'searching'",
+             duration_seconds = ?, others = ?, message = NULL, updated_at = ?
+         WHERE wanted_song_id = ? AND state = ?",
     )
     .bind(&video.id)
     .bind(&video.title)
     .bind(&video.channel)
     .bind(video.duration)
+    .bind(serde_json::to_string(others)?)
     .bind(now)
-    .bind(song.id)
+    .bind(song)
+    .bind(state)
     .execute(pool)
     .await?;
-    let job = Job::Audio(song.id);
+    let job = Job::Audio(song);
     write_job(
         jobs,
         job,
         &json!({ "id": job.name(), "kind": "song", "video": video.id }),
     )
+}
+
+/// The chosen video can't be used (`why`): the next that fits is asked for, or, when none is
+/// left, no video is had.
+async fn next_video(
+    pool: &SqlitePool,
+    jobs: &Path,
+    song: i64,
+    why: &str,
+    now: i64,
+) -> anyhow::Result<()> {
+    let others: String =
+        sqlx::query_scalar("SELECT others FROM song_youtube WHERE wanted_song_id = ?")
+            .bind(song)
+            .fetch_one(pool)
+            .await?;
+    let others: Vec<Found> = serde_json::from_str(&others).unwrap_or_default();
+    let Some((video, rest)) = others.split_first() else {
+        let why = format!("no other video that fits is left; the last: {why}");
+        return none(pool, song, &why, now).await;
+    };
+    let rest: Vec<&Found> = rest.iter().collect();
+    tracing::info!(song, why, "trying the next YouTube video that fits");
+    download(pool, jobs, song, video, &rest, "downloading", now).await
 }
 
 async fn none(pool: &SqlitePool, song: i64, why: &str, now: i64) -> anyhow::Result<()> {

@@ -223,6 +223,7 @@ async fn queue_search(
          VALUES (?1, 'searching', ?2, ?2)
          ON CONFLICT (wanted_song_id) DO UPDATE SET state = 'searching', video = NULL,
              video_title = NULL, channel = NULL, duration_seconds = NULL, message = NULL,
+             others = '[]',
              attempts = CASE WHEN song_youtube.state = 'failed' THEN song_youtube.attempts
                  ELSE 0 END,
              started_at = ?2, updated_at = ?2",

@@ -134,7 +134,7 @@ async fn record(
             sqlx::query(
                 "UPDATE downloaded_trailers SET state = 'done', file = ?, height = ?,
                      duration_seconds = ?, reason = NULL, attempts = 0, finished_at = ?,
-                     size = ?, modified_at = ?
+                     size = ?, modified_at = ?, levelled_at = NULL, level_note = NULL
                  WHERE movie_id IS ? AND series_id IS ? AND state = 'queued'",
             )
             .bind(&file)
@@ -151,7 +151,10 @@ async fn record(
         Ok((None, unavailable)) => {
             sqlx::query(
                 "UPDATE downloaded_trailers SET state = 'unavailable', reason = ?, attempts = 0,
-                     finished_at = ?
+                     finished_at = ?,
+                     passed_over = CASE
+                         WHEN EXISTS (SELECT 1 FROM json_each(passed_over) WHERE value = video)
+                         THEN passed_over ELSE json_insert(passed_over, '$[#]', video) END
                  WHERE movie_id IS ? AND series_id IS ? AND state = 'queued'",
             )
             .bind(
@@ -186,7 +189,7 @@ async fn record(
 }
 
 /// A file's size and when it was last changed, in Unix seconds; zeros when it can't be read.
-fn stamp(path: &Path) -> (i64, i64) {
+pub(super) fn stamp(path: &Path) -> (i64, i64) {
     std::fs::metadata(path)
         .ok()
         .and_then(|m| Some((m.len(), m.modified().ok()?)))

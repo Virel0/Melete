@@ -12,6 +12,11 @@ fn found(id: &str, title: &str, channel: &str, duration: f64) -> Found {
     }
 }
 
+/// The result chosen: the best fitting.
+fn choose<'a>(song: &Song<'_>, found: &'a [Found]) -> Option<&'a Found> {
+    choosing::ranked(song, found).into_iter().next()
+}
+
 fn song<'a>(title: &'a str, artist: &'a str, length: Option<i64>) -> Song<'a> {
     Song {
         title,
@@ -67,16 +72,10 @@ fn a_video_is_the_song_only_with_its_title_artist_and_length() {
             179.0,
         ),
     ];
-    assert_eq!(
-        choosing::choose(&wanted, &results).unwrap().id,
-        "fffffffffff"
-    );
+    assert_eq!(choose(&wanted, &results).unwrap().id, "fffffffffff");
     // Without their channel's, the upload naming them ("y" for "&") is it; without that, none.
-    assert_eq!(
-        choosing::choose(&wanted, &results[..5]).unwrap().id,
-        "eeeeeeeeeee"
-    );
-    assert_eq!(choosing::choose(&wanted, &results[..4]), None);
+    assert_eq!(choose(&wanted, &results[..5]).unwrap().id, "eeeeeeeeeee");
+    assert_eq!(choose(&wanted, &results[..4]), None);
     // As an old record's transfer is often titled: the duo first of several credited, their
     // name unaccented with "y", the title without its article or its bracketed translation,
     // the label's catalogue number after it, on a collector's channel, eight seconds longer.
@@ -99,10 +98,7 @@ fn a_video_is_the_song_only_with_its_title_artist_and_length() {
             205.0,
         ),
     ];
-    assert_eq!(
-        choosing::choose(&credited, &transfer).unwrap().id,
-        "mmmmmmmmmmm"
-    );
+    assert_eq!(choose(&credited, &transfer).unwrap().id, "mmmmmmmmmmm");
     // The artist's "- Topic" channel (YouTube's copy of the release) beats their own.
     let topic = found(
         "ggggggggggg",
@@ -111,7 +107,7 @@ fn a_video_is_the_song_only_with_its_title_artist_and_length() {
         184.0,
     );
     let both = [results[5].clone(), topic];
-    assert_eq!(choosing::choose(&wanted, &both).unwrap().id, "ggggggggggg");
+    assert_eq!(choose(&wanted, &both).unwrap().id, "ggggggggggg");
     // A version the song's own title asks for is fine.
     let live = song("Creep (Live)", "Radiohead", None);
     let live_video = [found(
@@ -120,18 +116,18 @@ fn a_video_is_the_song_only_with_its_title_artist_and_length() {
         "Radiohead",
         260.0,
     )];
-    assert!(choosing::choose(&live, &live_video).is_some());
+    assert!(choose(&live, &live_video).is_some());
     // A song of unknown length: nothing longer than a quarter of an hour, nor of no length.
     let unknown = song("Creep", "Radiohead", None);
     let long = [found("iiiiiiiiiii", "Radiohead - Creep", "x", 3600.0)];
-    assert_eq!(choosing::choose(&unknown, &long), None);
+    assert_eq!(choose(&unknown, &long), None);
     let mut no_length = found("jjjjjjjjjjj", "Radiohead - Creep", "x", 0.0);
     no_length.duration = None;
-    assert_eq!(choosing::choose(&unknown, &[no_length]), None);
+    assert_eq!(choose(&unknown, &[no_length]), None);
     // A featured artist in the song's title isn't needed in the video's.
     let feat = song("Lovely (feat. Someone)", "Radiohead", Some(200));
     let plain = [found("kkkkkkkkkkk", "Radiohead - Lovely", "x", 201.0)];
-    assert!(choosing::choose(&feat, &plain).is_some());
+    assert!(choose(&feat, &plain).is_some());
 }
 
 /// A music library in `music`, the setting on, and wanted song 2 (three seconds long), which
@@ -444,4 +440,56 @@ async fn turned_off_while_searching_nothing_more_goes_to_youtube() {
         "no download asked for"
     );
     assert_eq!(state(&pool).await, None, "as if never tried");
+}
+
+#[tokio::test]
+async fn a_video_blocked_here_gives_way_to_the_next_that_fits() {
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    answer(
+        jobs.path(),
+        "song-2-search",
+        json!({"id": "song-2-search", "ok": true, "results": [
+            {"id": "aaaaaaaaaaa", "title": "Río Bravo", "channel": "Dueto Sol & Luna", "duration": 3},
+            {"id": "ccccccccccc", "title": "Dueto Sol y Luna - Río Bravo", "channel": "Fan", "duration": 3},
+            {"id": "ddddddddddd", "title": "Something else", "channel": "Fan", "duration": 3},
+        ]}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 30).await.unwrap();
+    assert_eq!(
+        job(jobs.path(), "song-2-audio").unwrap()["video"],
+        "aaaaaaaaaaa"
+    );
+    std::fs::remove_file(jobs.path().join("queue/song-2-audio.json")).unwrap();
+    // Blocked here: the next that fits is asked for, and the one that doesn't never is.
+    answer(
+        jobs.path(),
+        "song-2-audio",
+        json!({"id": "song-2-audio", "ok": true,
+               "unavailable": "ERROR: [youtube] aaaaaaaaaaa: not made this video available in your country"}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 60).await.unwrap();
+    assert_eq!(
+        job(jobs.path(), "song-2-audio").unwrap()["video"],
+        "ccccccccccc"
+    );
+    assert_eq!(progress(&pool).await.step, Step::Downloading);
+    std::fs::remove_file(jobs.path().join("queue/song-2-audio.json")).unwrap();
+    // That one blocked too: nothing that fits is left.
+    answer(
+        jobs.path(),
+        "song-2-audio",
+        json!({"id": "song-2-audio", "ok": true, "unavailable": "ERROR: Video unavailable"}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 90).await.unwrap();
+    assert!(job(jobs.path(), "song-2-audio").is_none());
+    let (state, message) = state(&pool).await.unwrap();
+    assert_eq!(state, "none");
+    assert!(
+        message
+            .unwrap()
+            .starts_with("no other video that fits is left")
+    );
 }
