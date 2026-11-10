@@ -318,3 +318,47 @@ async fn the_track_a_requests_own_download_brought_fills_its_items_whatever_its_
         (crate::progress::Step::InLibrary, Some(1))
     );
 }
+
+#[tokio::test]
+async fn a_song_fetched_from_youtube_fills_its_items() {
+    let pool = crate::db::open_in_memory().await;
+    let owner = user(&pool, "owner").await;
+    // Asked for by name (no recording), fetched from YouTube into Singles; another only being
+    // fetched still.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+         INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+             VALUES (1, 1, 'k', 'Singles', 'Duo', 'Duo/Singles', 1);
+         INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at, first_seen_generation,
+             seen_generation, album_id, tagged, title, artist, genres, duration_seconds)
+             VALUES (7, 1, 'Duo/Singles/Song.opus', 1, 1, 1, 1, 1, 1, 'Song', 'Duo', '[]', 128.0);
+         INSERT INTO wanted_songs (id, title, artist, library_id, source, added_at)
+             VALUES (2, 'Song', 'Duo', 1, 'manual', 0), (3, 'Other', 'Duo', 1, 'manual', 0);
+         INSERT INTO song_youtube (wanted_song_id, state, video, placed, started_at, updated_at)
+             VALUES (2, 'imported', 'aaaaaaaaaaa', 'Duo/Singles/Song.opus', 0, 0),
+                    (3, 'downloading', 'bbbbbbbbbbb', NULL, 0, 0);
+         INSERT INTO requests (id, user_id, kind, title, state, created_at, decided_at,
+             wanted_song_id)
+             VALUES (10, {owner}, 'song', 'Song', 'approved', 0, 0, 2),
+                    (11, {owner}, 'song', 'Other', 'approved', 0, 0, 3);"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let list = json!({"id": "P", "name": "Mix", "isSmart": false, "sortIndex": "V",
+                      "updatedAt": 1, "deleted": false, "originDevice": "phone"});
+    push(&pool, owner, "p", "upsert", "playlists", list).await;
+    for (id, request, position) in [("a", 10, "a0"), ("b", 11, "a1")] {
+        let item = pending_item(id, Some(request), position, 10);
+        push(&pool, owner, id, "upsert", "playlist_items", item).await;
+    }
+    assert_eq!(resolve(&pool, None).await.unwrap(), 1, "only a");
+    let held = playlists::visible(&pool, owner).await.unwrap();
+    let rows: HashMap<&str, &Row> = held[0]
+        .items
+        .iter()
+        .map(|i| (i["id"].as_str().unwrap(), i))
+        .collect();
+    assert_eq!(rows["a"]["jellyfinId"], "7");
+    assert!(Pending::of(rows["b"]).is_some(), "b still waits");
+}

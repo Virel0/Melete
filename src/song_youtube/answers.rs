@@ -80,6 +80,12 @@ async fn record(
         let why = answer
             .error
             .unwrap_or_else(|| "the downloader gave no reason".into());
+        // The video wouldn't come down (YouTube refused it, say): the next that fits, when
+        // there's one; else it's tried again later.
+        if matches!(job, Job::Audio(_)) && has_others(pool, song.id).await? {
+            let why = format!("the video wouldn't download: {why}");
+            return next_video(pool, jobs, song.id, &why, now).await;
+        }
         return fail(pool, job, &why, now).await;
     }
     if let Some(why) = answer.unavailable {
@@ -130,10 +136,23 @@ async fn chosen(
     }
     let fitting = choosing::ranked(&song.song(), results);
     let Some((video, others)) = fitting.split_first() else {
-        let why = format!(
+        let mut why = format!(
             "none of YouTube's {} results has its title, artist and length",
             results.len()
         );
+        // What nearly was, so whoever looks can tell why (and fetch it by hand if it is).
+        if let Some((near, misses)) = choosing::closest(&song.song(), results) {
+            why.push_str(&format!(
+                "; the closest, “{}” on {}, {}",
+                near.title,
+                if near.channel.is_empty() {
+                    "YouTube"
+                } else {
+                    &near.channel
+                },
+                misses.join(", and ")
+            ));
+        }
         return none(pool, song.id, &why, now).await;
     };
     download(pool, jobs, song.id, video, others, "searching", now).await
@@ -171,6 +190,18 @@ async fn download(
         job,
         &json!({ "id": job.name(), "kind": "song", "video": video.id }),
     )
+}
+
+/// Whether the song's try has fitting videos left to try.
+async fn has_others(pool: &SqlitePool, song: i64) -> anyhow::Result<bool> {
+    let others: Option<String> =
+        sqlx::query_scalar("SELECT others FROM song_youtube WHERE wanted_song_id = ?")
+            .bind(song)
+            .fetch_optional(pool)
+            .await?;
+    Ok(others
+        .and_then(|o| serde_json::from_str::<Vec<Found>>(&o).ok())
+        .is_some_and(|o| !o.is_empty()))
 }
 
 /// The chosen video can't be used (`why`): the next that fits is asked for, or, when none is
