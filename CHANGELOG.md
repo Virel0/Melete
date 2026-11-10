@@ -7,6 +7,58 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-10
+
+### Added
+
+- For You: songs for each listener from their own plays, some in the library to play and some
+  not, to request, each saying which of their songs or artists it came from
+  (`GET /api/v1/music/for-you`). Made in the background from ListenBrainz, which is sent only
+  MusicBrainz ids; off by default (Settings → Outside services → MusicBrainz → For You from
+  ListenBrainz, with MusicBrainz on). ListenBrainz can go through the proxy.
+- Songs from YouTube as a last resort (`MELETE_SONG_YOUTUBE`, off by default, with the trailer
+  downloader): a song someone asked for that Soulseek found nothing for, or whose Soulseek
+  downloads all failed, is looked for on YouTube and fetched when a video's title, artist and
+  length all fit, never a cover, remix or sped-up version. Songs already wanted are tried too,
+  the newest first. Their audio is YouTube's, lossy, as it comes.
+- Soulseek is searched again, a day on, for a wanted song it had nothing for or whose Soulseek
+  downloads all failed, and for a monitored album whose Soulseek downloads all failed: three
+  times at most, passing over the users it already failed with.
+- Downloaded trailers play at the same loudness: each one's sound is levelled once, to about
+  where films are mixed (−24 LUFS, peaks under −2 dBTP), its picture untouched, so a trailer is
+  no louder than the film after it whatever its age or studio. Trailers downloaded before are
+  levelled too, a few at a time while nothing is converted for someone watching.
+
+### Changed
+
+- The Watch home's hero puts what's for you (your AI picks, else highly rated titles you
+  haven't started) and the newest titles first, turn about, and what you're partway through
+  after them, instead of the other way round; it holds up to 12 picks, not 8.
+- A playlist track MusicBrainz has no recording for, or turns down, is asked for by its title and
+  artist instead of being left out, so Soulseek (and YouTube, when that's on) can still find it.
+  Tracks earlier imports left out are handled again when Melete starts, and their playlist items
+  wait on their new requests.
+- A trailer YouTube won't give from here (removed, or blocked in the VPN's country or to VPNs)
+  moves on to the title's next video on TMDB, and a song's chosen video that's blocked, or
+  isn't the song's length, gives way to the next one that fits. Trailers that already failed
+  for being blocked are moved on too.
+- A song Soulseek was searched for without a fit says so, instead of "waiting for a search".
+- A failed Soulseek download now gets up to five downloads per search (the first included),
+  each from another user, instead of three.
+- Of releases as good as each other, a season's own pack is grabbed before a pack of several.
+
+### Fixed
+
+- A trailer blocked in the VPN's country, or on a channel that refuses VPNs, counts as not on
+  YouTube instead of failing three times: the downloader kept yt-dlp's last line, a hint
+  printed after the error, so the reason was lost and the block went unrecognised.
+- A pack of several seasons ("S01-S07") grabbed for one season brings home every monitored
+  season it holds missing episodes of, one season after another, each into its own folder and
+  checked against its own episodes, instead of only the season it was grabbed for. While it
+  downloads those seasons count as on their way, so their searches don't grab another pack.
+  Packs brought home for one season before, whose files are still on the seedbox, are opened
+  again for the seasons still missing.
+
 ## [0.9.1] - 2026-11-09
 
 ### Added
@@ -931,7 +983,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/Virel0/Melete/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Virel0/Melete/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Virel0/Melete/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Virel0/Melete/compare/v0.7.0...v0.8.0
