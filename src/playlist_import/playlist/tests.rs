@@ -88,15 +88,15 @@ async fn an_import_makes_a_playlist_of_every_track_in_order_and_swaps_arrivals_i
     let s = &view.summary;
     assert_eq!(
         (s.asked, s.already, s.unmatched, s.in_library),
-        (1, 1, 1, 1)
+        (2, 1, 0, 1)
     );
     assert_eq!(
         s.message.as_deref(),
-        Some(
-            "1 asked for, 1 in the library already, 1 asked for already, 1 not found on MusicBrainz"
-        )
+        Some("2 asked for, 1 in the library already, 1 asked for already")
     );
     let asked = view.items[0].request_id.unwrap();
+    // MusicBrainz has no recording that fits Karma Police: asked for by name.
+    let by_name = view.items[1].request_id.unwrap();
     assert_eq!(view.items[3].state, "in_library");
     assert_eq!(view.items[3].request_id, None, "not asked for");
     let held = items(&pool, alice.id).await;
@@ -104,22 +104,21 @@ async fn an_import_makes_a_playlist_of_every_track_in_order_and_swaps_arrivals_i
         holds(&held),
         [
             json!({"pending": asked}),
-            json!({"pending": null}),
+            json!({"pending": by_name}),
             json!({"pending": asked}),
             json!("2"),
         ],
         "in the import's order"
     );
-    let unmatched = Pending::of(&held[1]).unwrap();
+    let karma = Pending::of(&held[1]).unwrap();
     assert_eq!(
         (
-            unmatched.title.as_str(),
-            unmatched.artist.as_deref(),
-            unmatched.duration_ms
+            karma.title.as_str(),
+            karma.artist.as_deref(),
+            karma.duration_ms
         ),
         ("Karma Police", Some("Radiohead"), Some(264_000))
     );
-    assert!(unmatched.why.is_some(), "it says why");
     assert_eq!(held[0]["originDevice"], "melete");
 
     // Cut off by a restart and taken up again, a track handled twice is the same item.
@@ -151,7 +150,12 @@ async fn an_import_makes_a_playlist_of_every_track_in_order_and_swaps_arrivals_i
     let held = items(&pool, alice.id).await;
     assert_eq!(
         holds(&held),
-        [json!("9"), json!({"pending": null}), json!("9"), json!("2")]
+        [
+            json!("9"),
+            json!({"pending": by_name}),
+            json!("9"),
+            json!("2")
+        ]
     );
     assert_eq!(places(&held), places(&before));
     assert_eq!(pending::resolve(&pool, Some(&playlist)).await.unwrap(), 0);
@@ -198,9 +202,19 @@ async fn a_song_the_library_has_under_another_name_goes_in_as_its_track_at_once(
     let pool = db::open_in_memory().await;
     library(&pool, &arrival()).await;
     let (alice, _, _) = import(&pool).await;
+    // Karma Police, which MusicBrainz can't tell, waits on its request by name.
+    let karma: i64 = sqlx::query_scalar("SELECT id FROM requests WHERE title = 'Karma Police'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         holds(&items(&pool, alice.id).await),
-        [json!("9"), json!({"pending": null}), json!("9"), json!("2")]
+        [
+            json!("9"),
+            json!({"pending": karma}),
+            json!("9"),
+            json!("2")
+        ]
     );
 }
 
@@ -252,4 +266,75 @@ async fn an_import_without_a_playlist_leaves_out_what_the_library_has_as_its_imp
     let view = get(&pool, made.id).await.unwrap().unwrap();
     assert_eq!(view.summary.in_library, 0);
     assert_ne!(view.items[0].state, "in_library", "{:?}", view.items[0]);
+}
+
+#[tokio::test]
+async fn a_track_left_unmatched_before_is_asked_for_by_name_in_its_place() {
+    let pool = db::open_in_memory().await;
+    library(&pool, "").await;
+    let alice = crate::auth::testing::user(&pool, "alice", false).await;
+    let editor = Editor {
+        user_id: alice.id,
+        device: "token-1",
+        now: 1,
+    };
+    let playlist = playlist_edits::create(&pool, &editor, "Road trip", None)
+        .await
+        .unwrap();
+    // As an import before asking by name left it: unmatched, its item pending on nothing.
+    let csv = "Track Name,Artist Name(s)\nCreep,Radiohead\nKarma Police,\n";
+    let made = create(
+        &pool,
+        &alice,
+        "Road trip",
+        &parse(csv).unwrap(),
+        Some(&playlist),
+    )
+    .await
+    .unwrap();
+    let (mb, _) = testing::start(0).await;
+    run(&pool, &mb, &fulfil::Sources::default(), made.id)
+        .await
+        .unwrap();
+    let before = items(&pool, alice.id).await;
+    assert_eq!(holds(&before), [json!("2"), json!({"pending": null})]);
+
+    // What the update does to such tracks (its migration): handled again, here with the artist
+    // the earlier import couldn't use.
+    sqlx::query(
+        "UPDATE playlist_import_tracks SET artist = 'Radiohead' WHERE import_id = ?1 AND position = 2;
+         UPDATE playlist_import_tracks SET state = 'pending', why = NULL, request_id = NULL
+         WHERE state = 'unmatched';
+         UPDATE playlist_imports SET state = 'queued', message = NULL, finished_at = NULL
+         WHERE id IN (SELECT import_id FROM playlist_import_tracks WHERE state = 'pending');",
+    )
+    .bind(made.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    run(&pool, &mb, &fulfil::Sources::default(), made.id)
+        .await
+        .unwrap();
+    let karma: i64 = sqlx::query_scalar("SELECT id FROM requests WHERE title = 'Karma Police'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let after = items(&pool, alice.id).await;
+    assert_eq!(
+        holds(&after),
+        [json!("2"), json!({"pending": karma})],
+        "the same item, now waiting on its request, not a second one"
+    );
+    assert_eq!(after[1]["id"], before[1]["id"]);
+    assert_eq!(after[1]["position"], before[1]["position"]);
+    let summary = summary(&pool, made.id).await.unwrap().unwrap();
+    assert_eq!(
+        (
+            summary.state.as_str(),
+            summary.asked,
+            summary.unmatched,
+            summary.in_library
+        ),
+        ("done", 1, 0, 1)
+    );
 }

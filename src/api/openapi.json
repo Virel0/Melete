@@ -4461,7 +4461,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "full",
         "summary": "Import a playlist as song requests",
-        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length; for a track with an artist, a close title by that artist when none has its own, searched for by its words once when its title as a phrase finds nothing) and asked for as a song by you, in the background, one import at a time and a track at a time, unless the library has it already: a track found in the libraries you may see (matched as POST /aoide/match matches: its ISRC, else its title, artist and length) isn't asked for, with or without make_playlist, and one only in a library hidden from you is asked for as any other. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
+        "description": "Each track is matched to a MusicBrainz recording (its ISRC first, then title, artist and length; for a track with an artist, a close title by that artist when none has its own, searched for by its words once when its title as a phrase finds nothing) and asked for as a song by you, in the background, one import at a time and a track at a time, unless the library has it already: a track found in the libraries you may see (matched as POST /aoide/match matches: its ISRC, else its title, artist and length) isn't asked for, with or without make_playlist, and one only in a library hidden from you is asked for as any other. A track with an artist that no recording fits, or that MusicBrainz turns down, is asked for by name instead (its title, without what follows \" - \", and its first artist), as a song by name is (POST /requests with title and artist), so Soulseek can still find it; a track with no artist, or one MusicBrainz didn't answer for, is left unmatched. Your requests go as any request does: waiting for an admin, or approved at once for an admin or a user whose requests go straight through, and then fetched before the next track is matched. A track you've asked for already isn't asked for again, so importing a playlist again asks only for what's new. Up to 5,000 tracks and 8 MB. With make_playlist, an Aoide playlist named as the import is made at once (its id is playlist_id) and filled as the import runs, each track going in at the end as it's handled, as Melete's own device (originDevice \"melete\"); a song not in the library goes in pending, and Melete swaps its track in once it arrives.",
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewPlaylistImport"}}}
@@ -18978,7 +18978,7 @@
           "tracks": {"type": "integer"},
           "asked": {"type": "integer", "description": "Tracks this import asked for."},
           "already": {"type": "integer", "description": "Tracks the same user had asked for already."},
-          "unmatched": {"type": "integer", "description": "Tracks no MusicBrainz recording fitted."},
+          "unmatched": {"type": "integer", "description": "Tracks it couldn't ask for: no MusicBrainz recording fitted and it says no artist to ask by name with, or MusicBrainz didn't answer."},
           "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
           "in_library": {
             "type": "integer",
@@ -19045,7 +19045,7 @@
           "tracks": {"type": "integer"},
           "asked": {"type": "integer", "description": "Tracks this import asked for."},
           "already": {"type": "integer", "description": "Tracks the same user had asked for already."},
-          "unmatched": {"type": "integer", "description": "Tracks no MusicBrainz recording fitted."},
+          "unmatched": {"type": "integer", "description": "Tracks it couldn't ask for: no MusicBrainz recording fitted and it says no artist to ask by name with, or MusicBrainz didn't answer."},
           "waiting": {"type": "integer", "description": "Of those asked for, the ones still waiting for an admin."},
           "in_library": {
             "type": "integer",

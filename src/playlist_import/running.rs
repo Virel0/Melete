@@ -169,7 +169,7 @@ async fn finish(pool: &SqlitePool, id: i64) -> anyhow::Result<()> {
         said.push(format!("{} asked for already", done.already));
     }
     if done.unmatched > 0 {
-        said.push(format!("{} not found on MusicBrainz", done.unmatched));
+        said.push(format!("{} couldn't be asked for", done.unmatched));
     }
     sqlx::query(
         "UPDATE playlist_imports SET state = 'done', message = ?, finished_at = ? WHERE id = ?",
@@ -219,7 +219,8 @@ impl Handled {
     }
 }
 
-/// Matches a track to a recording and asks for it as `user`.
+/// Matches a track to a recording and asks for it as `user`; one MusicBrainz has no recording
+/// for that fits, or turns down, is asked for by name instead ([`by_name`]).
 pub(super) async fn ask(
     pool: &SqlitePool,
     mb: &musicbrainz::Client,
@@ -232,10 +233,11 @@ pub(super) async fn ask(
             Ok(found) => break found,
             // Turned down as asked: asking again would be turned down too.
             Err(err @ musicbrainz::Error::Refused(_)) => {
-                return Ok(Handled::unmatched(err.to_string()));
+                return by_name(pool, user, track, err.to_string()).await;
             }
             Err(err) => {
                 tries += 1;
+                // Left unmatched, so importing it again asks MusicBrainz again.
                 if tries == TRIES {
                     return Ok(Handled::unmatched(format!(
                         "MusicBrainz didn't answer: {err}"
@@ -248,21 +250,64 @@ pub(super) async fn ask(
     };
     let recording = match recording {
         Ok(id) => id,
-        Err(why) => return Ok(Handled::unmatched(why)),
+        Err(why) => return by_name(pool, user, track, why).await,
     };
     let new = NewRequest {
         kind: "song".into(),
         mb_recording_id: Some(recording),
         ..NewRequest::default()
     };
-    Ok(
-        match requests::create(pool, None, Some(mb), user, new).await? {
-            Ok(view) => Handled {
-                fetch: view.state == "approved" && view.decided_by.is_some(),
-                ..Handled::of("asked", None, Some(view.id))
-            },
-            Err(Refused::Already(id)) => Handled::of("already", None, Some(id)),
-            Err(refused) => Handled::unmatched(refused.to_string()),
+    asked(pool, Some(mb), user, new).await
+}
+
+/// Asks for a track MusicBrainz couldn't tell by its title (without what follows " - ") and its
+/// first artist, as Ask's song by name does, so Soulseek, and YouTube after it, can still find
+/// it; `why` MusicBrainz couldn't. A track with no artist is left unmatched: its title alone
+/// says too little.
+async fn by_name(
+    pool: &SqlitePool,
+    user: &User,
+    track: &Track,
+    why: String,
+) -> anyhow::Result<Handled> {
+    let Some(artist) = track.artists.first() else {
+        return Ok(Handled::unmatched(why));
+    };
+    let title = track
+        .title
+        .split(" - ")
+        .next()
+        .unwrap_or(&track.title)
+        .trim();
+    let new = NewRequest {
+        kind: "song".into(),
+        title: Some(title.to_owned()),
+        artist: Some(artist.clone()),
+        ..NewRequest::default()
+    };
+    let handled = asked(pool, None, user, new).await?;
+    Ok(match handled.state {
+        "unmatched" => Handled::unmatched(format!(
+            "{why}; asking for it by name failed too: {}",
+            handled.why.unwrap_or_default()
+        )),
+        _ => handled,
+    })
+}
+
+/// Makes the request as `user`: asked, asked already, or why it couldn't be.
+async fn asked(
+    pool: &SqlitePool,
+    mb: Option<&musicbrainz::Client>,
+    user: &User,
+    new: NewRequest,
+) -> anyhow::Result<Handled> {
+    Ok(match requests::create(pool, None, mb, user, new).await? {
+        Ok(view) => Handled {
+            fetch: view.state == "approved" && view.decided_by.is_some(),
+            ..Handled::of("asked", None, Some(view.id))
         },
-    )
+        Err(Refused::Already(id)) => Handled::of("already", None, Some(id)),
+        Err(refused) => Handled::unmatched(refused.to_string()),
+    })
 }
