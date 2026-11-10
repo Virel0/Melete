@@ -347,6 +347,7 @@ async fn start_trailers(
                     videos,
                 },
                 transcoder.clone(),
+                config.ffmpeg.clone(),
             ));
         }
         None => tracing::info!("no trailers are downloaded; MELETE_TRAILER_JOBS turns it on"),

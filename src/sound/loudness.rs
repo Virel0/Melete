@@ -17,20 +17,26 @@ pub struct Loudness {
     pub true_peak_dbfs: f64,
 }
 
-/// The last `loudnorm` block in ffmpeg's log, or None when it printed nothing usable.
-pub fn parse(log: &str) -> Option<Loudness> {
+/// The values of the last `loudnorm` block in ffmpeg's log, each read as a number (they're
+/// printed as quoted decimals): None for one that's missing or not finite. None for the block
+/// when it printed none.
+pub fn block(log: &str) -> Option<impl Fn(&str) -> Option<f64>> {
     let marker = log.rfind("\"input_i\"")?;
     let open = log[..marker].rfind('{')?;
     let close = marker + log[marker..].find('}')?;
     let block: serde_json::Value = serde_json::from_str(&log[open..=close]).ok()?;
-    // Printed as quoted decimals.
-    let number = |name: &str| {
+    Some(move |name: &str| {
         let value = &block[name];
         value
             .as_f64()
             .or_else(|| value.as_str()?.trim().parse().ok())
             .filter(|v: &f64| v.is_finite())
-    };
+    })
+}
+
+/// The last `loudnorm` block in ffmpeg's log, or None when it printed nothing usable.
+pub fn parse(log: &str) -> Option<Loudness> {
+    let number = block(log)?;
     let lufs = number("input_i")?;
     let true_peak_dbfs = number("input_tp")?;
     // −inf, −70 and anything below: not enough signal, and a client must leave it alone.

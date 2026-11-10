@@ -38,7 +38,7 @@ const OTHER_VERSIONS: &[&str] = &[
 ];
 
 /// One of YouTube's results, as the downloader gives it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
 pub struct Found {
     pub id: String,
     #[serde(default)]
@@ -193,11 +193,13 @@ fn fit(song: &Song<'_>, found: &Found) -> Option<(u8, i64)> {
     fits.then(|| rank(song, found, theirs))
 }
 
-/// The result that is the song, the best fitting first; None when none fits.
-pub fn choose<'a>(song: &Song<'_>, found: &'a [Found]) -> Option<&'a Found> {
-    found
+/// Every result that is the song, the best fitting first (YouTube's order among equals).
+pub fn ranked<'a>(song: &Song<'_>, found: &'a [Found]) -> Vec<&'a Found> {
+    let mut fitting: Vec<((u8, i64), usize, &Found)> = found
         .iter()
-        .filter_map(|f| fit(song, f).map(|score| (score, f)))
-        .max_by_key(|(score, _)| *score)
-        .map(|(_, f)| f)
+        .enumerate()
+        .filter_map(|(at, f)| fit(song, f).map(|score| (score, at, f)))
+        .collect();
+    fitting.sort_by(|(a, at_a, _), (b, at_b, _)| b.cmp(a).then(at_a.cmp(at_b)));
+    fitting.into_iter().map(|(_, _, f)| f).collect()
 }

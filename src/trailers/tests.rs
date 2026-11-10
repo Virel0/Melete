@@ -167,7 +167,8 @@ async fn queues_one_title_at_a_time_and_keeps_what_the_downloader_got() {
         }
     );
 
-    // A lower quality set: each is downloaded again at it, the one YouTube hadn't asked again.
+    // A lower quality set: each is downloaded again at it; the video YouTube hadn't is passed
+    // over, and the title has no other.
     assert_eq!(
         step(&pool, &folders, 1080, || false).await.unwrap(),
         Some(Title::Series(1))
@@ -293,4 +294,47 @@ async fn songs_answers_in_the_shared_folder_are_left_for_songs() {
         !done.join("movie-9.json").exists(),
         "a trailer's is dealt with"
     );
+}
+
+#[tokio::test]
+async fn a_video_youtube_wont_give_here_is_passed_over_for_the_titles_next() {
+    let pool = db::open_in_memory().await;
+    let scratch = tempfile::tempdir().unwrap();
+    let folders = folders(scratch.path());
+    library(&pool).await;
+    // Two must go first; Two has a second trailer, unofficial, chosen after the first.
+    sqlx::query("UPDATE tmdb_movies SET videos = ? WHERE tmdb_id = 12")
+        .bind(
+            json!([
+                { "key": "bbbbbbbbbbb", "name": "Official Trailer", "language": "en",
+                  "kind": "Trailer", "official": true, "size": 2160, "published_at": null },
+                { "key": "xxxxxxxxxxx", "name": "Trailer", "language": "en", "kind": "Trailer",
+                  "official": false, "size": 1080, "published_at": null }
+            ])
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE series SET missing_since = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        step(&pool, &folders, 2160, || false).await.unwrap(),
+        Some(Title::Movie(2))
+    );
+    // Blocked here: its next video is asked for at once.
+    fake_downloader(&folders.jobs, "movie-2", "");
+    assert_eq!(
+        step(&pool, &folders, 2160, || false).await.unwrap(),
+        Some(Title::Movie(2))
+    );
+    assert_eq!(
+        state(&pool, Title::Movie(2)).await.unwrap().1,
+        "xxxxxxxxxxx"
+    );
+    fake_downloader(&folders.jobs, "", "");
+    step(&pool, &folders, 2160, || false).await.unwrap();
+    assert_eq!(state(&pool, Title::Movie(2)).await.unwrap().0, "done");
 }

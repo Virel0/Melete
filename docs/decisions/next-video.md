@@ -1,0 +1,5 @@
+Decision: A video YouTube won't give a title's trailer from here (an "unavailable" answer: removed, private, or blocked in this country or to VPNs) is passed over for that title (`downloaded_trailers.passed_over`), and the trailer is chosen again from the title's other videos on TMDB by the usual order; the title counts as not on YouTube only when none is left. A song's YouTube search keeps every result that fits, best first, and when the chosen one is unavailable or its audio isn't the song's length, the next is fetched; the song counts as not on YouTube when none is left. Trailers that failed before the downloader could read yt-dlp's error (its hint to use a VPN kept instead) or were refused to VPNs are taken as unavailable, with their video passed over.
+
+Why: Many studio trailers are made available in a few countries only, and a VPN's exit country often isn't one; a title usually has other trailers on TMDB, and a song other uploads, that aren't blocked. Moving on beats giving up, and switching the VPN's country would change it for everything that goes through it.
+
+Date: 2026-11-09
