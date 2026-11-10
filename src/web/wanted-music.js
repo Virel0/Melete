@@ -1,8 +1,8 @@
 // Wanted music, for admins: the wanted artists with their albums, searching for
-// one album or every album of an artist (a run that's followed as it goes), and wanted songs,
-// added here and searched for on Soulseek. Results and grabs work as video's do.
+// one album or every album of an artist (a run that's followed as it goes). Wanted songs are in
+// wanted-songs.js. Results and grabs work as video's do.
 
-import { confirmInline, field, form, group, when } from "/web/forms.js";
+import { confirmInline, form, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, number, plural } from "/web/lib.js";
 import { searchMissing } from "/web/wanted-missing.js";
 import { searchResults } from "/web/wanted.js";
@@ -51,7 +51,7 @@ function filteredList(all, { id, label, matches, row, noun }) {
 }
 
 // Runs a search and shows its results in `results`; `button` is off meanwhile.
-async function runSearch(ctx, button, results, path, waiting, name) {
+export async function runSearch(ctx, button, results, path, waiting, name) {
   button.disabled = true;
   results.replaceChildren(h("p", { class: "status", role: "status" }, waiting));
   try {
@@ -380,119 +380,6 @@ export async function wantedArtists(ctx) {
       artists.length ? null : h("p", { class: "status" }, "No artists wanted yet. Import Lidarr's list in Settings."),
       ...listed,
       bar,
-    ),
-  ];
-}
-
-// ---------- Wanted songs ----------
-
-// "4:23" or "263" to seconds; null when empty; NaN when it's neither.
-function seconds(text) {
-  const t = text.trim();
-  if (!t) return null;
-  const m = /^(\d{1,3}):([0-5]\d)$/.exec(t);
-  if (m) return Number(m[1]) * 60 + Number(m[2]);
-  return /^\d{1,5}$/.test(t) ? Number(t) : Number.NaN;
-}
-
-function songRow(ctx, song, libraries) {
-  const results = h("div");
-  const search = h("button", { type: "button", class: "quiet" }, "Search Soulseek");
-  search.addEventListener("click", () =>
-    runSearch(ctx, search, results, `/wanted/songs/${song.id}/search`, "Asking Soulseek; this can take up to a minute…", song.title),
-  );
-  const actions = h("div", { class: "row-actions" }, search);
-  const remove = h("button", { type: "button", class: "quiet" }, "Remove");
-  remove.addEventListener("click", () =>
-    confirmInline(actions, {
-      question: `Stop wanting “${song.title}”? Its searches go with it.`,
-      confirm: "Remove song",
-      run: async () => {
-        await api(`/wanted/songs/${song.id}`, { method: "DELETE" });
-        ctx.reload(`Removed “${song.title}”.`);
-      },
-    }),
-  );
-  actions.append(remove);
-  const library = libraries.find((l) => l.id === song.library_id);
-  const facts = [
-    song.album ? `From ${song.album}` : "On its own",
-    song.length_seconds ? `${Math.floor(song.length_seconds / 60)}:${String(song.length_seconds % 60).padStart(2, "0")} long` : null,
-    library ? `goes to ${library.name}` : "no library",
-    `added ${when(song.added_at)}`,
-  ].filter(Boolean);
-  return h(
-    "li",
-    {},
-    h("div", {}, h("strong", {}, song.title), " by ", song.artist, h("p", { class: "note" }, `${facts.join(", ")}.`), results),
-    actions,
-  );
-}
-
-export async function wantedSongs(ctx) {
-  const [songs, profiles, libraries] = await Promise.all([api("/wanted/songs"), api("/music/profiles"), api("/libraries")]);
-  if (!ctx.current()) return [];
-  const music = libraries.filter((l) => l.kind === "music");
-
-  const title = field("song-title", "Title", h("input", { autocomplete: "off" }));
-  const artist = field("song-artist", "Artist", h("input", { autocomplete: "off" }));
-  const album = field("song-album", "Album (optional)", h("input", { autocomplete: "off" }), "With it, the song goes with that album; without it, in the artist's Singles folder.");
-  const length = field(
-    "song-length",
-    "Length (optional)",
-    h("input", { inputmode: "numeric", autocomplete: "off", class: "year" }),
-    "Like 4:23. Tells a radio edit or a live take from it.",
-  );
-  const library =
-    music.length > 1
-      ? field(
-          "song-library",
-          "Library",
-          h("select", {}, h("option", { value: "" }, "Where the artist's albums go"), music.map((l) => h("option", { value: l.id }, l.name))),
-          "Needed unless the artist is a wanted artist.",
-        )
-      : null;
-  const profile = field(
-    "song-profile",
-    "Quality profile",
-    h("select", {}, h("option", { value: "" }, "The artist's, else FLAC preferred"), profiles.map((p) => h("option", { value: p.id }, p.name))),
-  );
-  const fields = [title, artist, album, length, library, profile].filter(Boolean);
-  const add = form(fields, "Add song", async () => {
-    const got = { title: title.input.value.trim(), artist: artist.input.value.trim() };
-    const secs = seconds(length.input.value);
-    if (!got.title) title.fail("Enter the song's title.");
-    if (!got.artist) artist.fail("Enter who it's by.");
-    if (Number.isNaN(secs) || secs === 0) length.fail("Enter the length as minutes and seconds, like 4:23, or leave it empty.");
-    if (!got.title || !got.artist || Number.isNaN(secs) || secs === 0) return null;
-    const body = {
-      ...got,
-      ...(album.input.value.trim() ? { album: album.input.value.trim() } : {}),
-      ...(secs ? { length_seconds: secs } : {}),
-      ...(library?.input.value ? { library_id: Number(library.input.value) } : {}),
-      ...(profile.input.value ? { music_profile_id: Number(profile.input.value) } : {}),
-    };
-    const added = await api("/wanted/songs", { method: "POST", body });
-    ctx.reload(`Added “${added.title}” by ${added.artist}.`);
-    return null;
-  });
-
-  return [
-    group(
-      "Add a song",
-      h("p", { class: "note" }, "Songs are searched for on Soulseek only: torrents come as albums."),
-      music.length ? add : h("p", { class: "status" }, "There's no music library to put songs in yet."),
-    ),
-    group(
-      "Wanted songs",
-      songs.length ? null : h("p", { class: "status" }, "No songs wanted yet."),
-      ...filteredList(songs, {
-        id: "song-filter",
-        label: "Find a song",
-        matches: (s, q) => `${s.title} ${s.artist} ${s.album ?? ""}`.toLowerCase().includes(q),
-        row: (s) => songRow(ctx, s, libraries),
-        noun: ["song", "songs"],
-      }),
     ),
   ];
 }

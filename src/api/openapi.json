@@ -9641,6 +9641,44 @@
         }
       }
     },
+    "/api/v1/wanted/songs/{id}/youtube": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Fetch a YouTube video chosen by hand as a wanted song",
+        "description": "For a song YouTube's matching couldn't find or found wrongly: the video named is fetched as the song by the trailer downloader at the YouTube worker's next round, once nothing for the song is under way and nothing else is with the downloader, without matching it or checking its length. It's put in the library and tagged as any song from YouTube, and the song's progress follows it (`source: youtube`). Choosing another before it's taken replaces it. Only while songs from YouTube are on (`MELETE_SONG_YOUTUBE`); only the video's id is sent to YouTube.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Wanted song id.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["video"],
+            "properties": {"video": {"type": "string", "description": "The video's link (youtube.com's watch, shorts, embed or live, youtu.be, music.youtube.com) or its 11-character id."}},
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "202": {
+            "description": "Chosen; fetched at the worker's next round",
+            "content": {"application/json": {"schema": {"type": "object", "required": ["video"], "properties": {"video": {"type": "string", "description": "The video's id."}}, "additionalProperties": false}}}
+          },
+          "400": {"description": "Not a YouTube video's link or id", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"description": "No such wanted song", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "409": {"description": "Songs from YouTube are off", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      }
+    },
     "/api/v1/wanted/songs/{id}/search": {
       "post": {
         "tags": ["Admin"],

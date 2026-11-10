@@ -93,7 +93,10 @@ async fn record(
             let Some(name) = answer.file.as_deref().and_then(crate::trailers::plain_name) else {
                 return fail(pool, job, "the downloader answered without a file", now).await;
             };
-            if !choosing::length_fits(song.length_seconds, answer.duration) {
+            // One chosen by hand is the song, whatever its length.
+            if !picks::by_hand(pool, song.id).await?
+                && !choosing::length_fits(song.length_seconds, answer.duration)
+            {
                 let said = answer
                     .duration
                     .map_or("unknown".into(), |d| format!("{d:.0} s"));

@@ -8,7 +8,8 @@ import { sectioned } from "/web/forms.js";
 import { activity } from "/web/progress.js";
 import { wantedList } from "/web/wanted.js";
 import { downloads } from "/web/wanted-downloads.js";
-import { wantedArtists, wantedSongs } from "/web/wanted-music.js";
+import { wantedArtists } from "/web/wanted-music.js";
+import { wantedSongs } from "/web/wanted-songs.js";
 import { rss } from "/web/wanted-rss.js";
 import { trash } from "/web/wanted-set-aside.js";
 

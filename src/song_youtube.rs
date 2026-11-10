@@ -29,6 +29,7 @@ use crate::progress::Step;
 
 mod answers;
 pub mod choosing;
+pub mod picks;
 mod placing;
 
 use answers::*;
@@ -155,6 +156,10 @@ pub async fn step(pool: &SqlitePool, jobs: &Path, fixes: &Fixes, now: i64) -> an
     if busy {
         return Ok(());
     }
+    // A video an admin chose by hand comes first.
+    if picks::take(pool, jobs, now).await? {
+        return Ok(());
+    }
     if let Some(song) = next(pool, now).await? {
         queue_search(pool, jobs, &song, now).await?;
     }
@@ -223,6 +228,7 @@ async fn queue_search(
          VALUES (?1, 'searching', ?2, ?2)
          ON CONFLICT (wanted_song_id) DO UPDATE SET state = 'searching', video = NULL,
              video_title = NULL, channel = NULL, duration_seconds = NULL, message = NULL,
+             by_hand = 0,
              others = '[]',
              attempts = CASE WHEN song_youtube.state = 'failed' THEN song_youtube.attempts
                  ELSE 0 END,
