@@ -43,7 +43,7 @@ use deciding::*;
 pub use grabbing::*;
 use matching::*;
 use packs::*;
-pub(crate) use packs::{missing_episodes, numbers};
+pub(crate) use packs::{missing_episodes, numbers, others_of};
 pub use view::*;
 
 /// How often indexers are asked for their newest releases.

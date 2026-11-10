@@ -207,3 +207,90 @@ async fn a_pack_of_several_seasons_is_checked_against_its_own_season_only() {
         ]
     );
 }
+
+/// What's in one of Show's season folders; none when there's no such folder.
+fn folder_of(r: &Rig, season: &str) -> Vec<String> {
+    let dir = r.local.path().join("shows/Show").join(season);
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .map(|d| {
+            d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+async fn seasons_of(r: &Rig, id: i64) -> (String, Option<i64>, Option<String>) {
+    sqlx::query_as("SELECT state, season, seasons FROM downloads WHERE id = ?")
+        .bind(id)
+        .fetch_one(&r.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_pack_of_several_seasons_brings_each_season_it_was_taken_for_home_in_turn() {
+    let r = rig().await;
+    let dir = "Show.S01-S03.1080p.BluRay.x264-GRP";
+    let id = pack(
+        &r,
+        &[
+            (&format!("{dir}/Season 1/Show.S01E01.mkv"), data(100, 1)),
+            (&format!("{dir}/Season 2/Show.S02E01.mkv"), data(100, 2)),
+            (&format!("{dir}/Season 3/Show.S03E01.mkv"), data(100, 4)),
+            (&format!("{dir}/Season 3/Show.S03E02.mkv"), data(100, 5)),
+        ],
+        None,
+    )
+    .await;
+    titled(&r, id, dir).await;
+    // Taken for season 2 (searched for) and season 3's first episode; season 1 not.
+    sqlx::query("UPDATE downloads SET seasons = '{\"3\": [1]}' WHERE id = ?")
+        .bind(id)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    assert_eq!(folder_of(&r, "Season 02"), ["Show.S02E01.mkv"]);
+    assert_eq!(
+        seasons_of(&r, id).await,
+        ("completed".into(), Some(3), Some("{}".into())),
+        "queued again for season 3"
+    );
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    assert_eq!(
+        folder_of(&r, "Season 03"),
+        ["Show.S03E01.mkv"],
+        "only what it was taken for"
+    );
+    assert_eq!(seasons_of(&r, id).await.0, "imported");
+    assert!(folder_of(&r, "Season 01").is_empty());
+}
+
+#[tokio::test]
+async fn a_season_none_of_whose_files_can_be_told_gives_way_to_the_next() {
+    let r = rig().await;
+    let dir = "Show.S01-S03.1080p.BluRay.x264-GRP";
+    let id = pack(
+        &r,
+        &[
+            (&format!("{dir}/Show.S02E01.mkv"), data(100, 2)),
+            (&format!("{dir}/Show.S03E01.mkv"), data(100, 4)),
+        ],
+        None,
+    )
+    .await;
+    titled(&r, id, dir).await;
+    // Season 1's episode isn't in it after all.
+    sqlx::query("UPDATE downloads SET seasons = '{\"1\": [1], \"3\": [1]}' WHERE id = ?")
+        .bind(id)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    }
+    assert_eq!(folder_of(&r, "Season 03"), ["Show.S03E01.mkv"]);
+    assert_eq!(seasons_of(&r, id).await.0, "imported");
+}

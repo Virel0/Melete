@@ -83,17 +83,17 @@ pub(super) async fn grab_best(
     if crate::runtime_checks::stopped(pool, crate::runtime_checks::title_of(target)).await? {
         return Ok(said);
     }
-    let best: Vec<(i64, String, String)> = sqlx::query_as(
+    let mut best: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT id, title, decision FROM release_decisions WHERE search_id = ? AND accepted = 1
            AND lower(title) NOT IN (SELECT lower(title) FROM blocklist)
          ORDER BY json_extract(decision, '$.rank') DESC NULLS LAST,
-                  json_extract(decision, '$.score') DESC, seeders DESC NULLS LAST, id
-         LIMIT ?",
+                  json_extract(decision, '$.score') DESC, seeders DESC NULLS LAST, id",
     )
     .bind(search_id)
-    .bind(GRAB_TRIES)
     .fetch_all(pool)
     .await?;
+    fewer_seasons_first(&mut best);
+    best.truncate(GRAB_TRIES as usize);
     for (release_id, title, decision) in best {
         // Accepted against a file there means better than it, below the cutoff.
         let decision: serde_json::Value = serde_json::from_str(&decision)?;
@@ -112,6 +112,7 @@ pub(super) async fn grab_best(
                 Some(downloads::Only {
                     episodes: &part.episodes,
                     replaces: &part.replaces,
+                    others: &part.others,
                 }),
             ),
         };
@@ -280,12 +281,17 @@ pub(super) async fn occupied(
             .bind(wanted.tvdb_id)
             .fetch_one(pool)
             .await?;
+            let (episode, episodes) = (
+                crate::downloads::episode_in_season("d", "?2"),
+                crate::downloads::episodes_for_season("d", "?2"),
+            );
             let (downloads, unsettled): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*), coalesce(sum({UNSETTLED}), 0) FROM downloads
-                 WHERE wanted_series_id = ?1 AND season = ?2 AND state <> 'failed'
-                   AND (?3 OR episode BETWEEN ?4 AND ?5
-                        OR (episode IS NULL AND (episodes IS NULL OR EXISTS (
-                                SELECT 1 FROM json_each(episodes) WHERE value BETWEEN ?4 AND ?5))))"
+                "SELECT count(*), coalesce(sum({UNSETTLED}), 0) FROM downloads d
+                 WHERE wanted_series_id = ?1 AND {} AND state <> 'failed'
+                   AND (?3 OR {episode} BETWEEN ?4 AND ?5
+                        OR ({episode} IS NULL AND ({episodes} IS NULL OR EXISTS (
+                                SELECT 1 FROM json_each({episodes}) WHERE value BETWEEN ?4 AND ?5))))",
+                crate::downloads::brings_season("d", "?2"),
             )))
             .bind(id)
             .bind(season)
@@ -301,6 +307,24 @@ pub(super) async fn occupied(
             }
         }
     })
+}
+
+/// Within each quality rank, releases holding fewer seasons first, in the order they came
+/// otherwise: a season's own pack before a pack of several, so a season isn't fetched as part of
+/// a far larger download when a pack of it alone is as good.
+pub(super) fn fewer_seasons_first(releases: &mut [(i64, String, String)]) {
+    let key = |(_, title, decision): &(i64, String, String)| {
+        let rank = serde_json::from_str::<serde_json::Value>(decision)
+            .ok()
+            .and_then(|d| d["rank"].as_i64());
+        let seasons = match release::parse(title).episodes {
+            Episodes::Seasons(seasons) => seasons.len(),
+            Episodes::CompleteSeries => usize::MAX,
+            _ => 1,
+        };
+        (std::cmp::Reverse(rank), seasons)
+    };
+    releases.sort_by_key(key);
 }
 
 /// A release as parsed, a series' one numbered from the first episode renumbered by the order
@@ -360,12 +384,24 @@ pub(super) async fn grab_kind(
         Err(why) => return Ok(Err(why)),
     };
     let here = occupied(pool, target, wanted, &release).await?;
-    if here.files == 0 && here.downloads == 0 {
-        return Ok(Ok(Kind::New));
+    let nothing_here = here.files == 0 && here.downloads == 0;
+    // A pack of several seasons is taken for every monitored season it adds to, so it's
+    // downloaded once for them all; when what it adds can't be told and nothing of the season is
+    // here, it's taken whole for the season, as any release is.
+    if let (Target::Series { id, season, .. }, Episodes::Seasons(seasons)) =
+        (target, &release.episodes)
+        && (seasons.len() > 1 || !nothing_here)
+    {
+        let part =
+            packs::part_of_seasons(pool, id, season, seasons, wanted, &release, decision).await?;
+        return Ok(match part {
+            Ok(part) => Ok(Kind::Part(part)),
+            Err(_) if nothing_here => Ok(Kind::New),
+            Err(why) => Err(why),
+        });
     }
-    if let (Target::Series { id, season, .. }, Episodes::Seasons(_)) = (target, &release.episodes) {
-        let part = packs::part_of(pool, id, season, wanted, &release, decision).await?;
-        return Ok(part.map(Kind::Part));
+    if nothing_here {
+        return Ok(Ok(Kind::New));
     }
     if here.unsettled > 0 {
         return Ok(Err(
