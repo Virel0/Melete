@@ -5,6 +5,7 @@
 //! at a time, oldest first, and runs one after another, since slskd searches one at a time; a
 //! run records each album as it's dealt with, so it can be watched.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -282,8 +283,23 @@ pub(crate) async fn grab_best(
     search_id: i64,
     grabbed: &mut Vec<Grabbed>,
 ) -> anyhow::Result<()> {
-    let best = best_first(pool, search_id).await?;
-    for (release_id, title, user) in best.into_iter().take(GRAB_TRIES) {
+    grab_best_except(pool, sources, search_id, &HashSet::new(), grabbed).await
+}
+
+/// [`grab_best`], passing over the Soulseek results of the users in `avoid` (ones a download
+/// of the same album or song failed with).
+pub(crate) async fn grab_best_except(
+    pool: &SqlitePool,
+    sources: &Sources,
+    search_id: i64,
+    avoid: &HashSet<String>,
+    grabbed: &mut Vec<Grabbed>,
+) -> anyhow::Result<()> {
+    let best = best_first(pool, search_id)
+        .await?
+        .into_iter()
+        .filter(|(_, _, user)| user.as_ref().is_none_or(|u| !avoid.contains(u)));
+    for (release_id, title, user) in best.take(GRAB_TRIES) {
         let outcome = match (user.is_some(), &sources.slskd, &sources.pipeline) {
             (true, Some(slskd), _) => soulseek_downloads::grab(pool, slskd, release_id).await?,
             (true, None, _) => Err(Refused::Soulseek),
