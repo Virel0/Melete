@@ -41,6 +41,9 @@ pub struct Config {
     /// Matching music to MusicBrainz (`MELETE_MUSICBRAINZ=on`; off by default, as every outside
     /// service is until it's configured).
     pub musicbrainz: bool,
+    /// For You from ListenBrainz (`MELETE_LISTENBRAINZ=on`; off by default, and only with
+    /// MusicBrainz on, since it goes by MusicBrainz ids).
+    pub listenbrainz: bool,
     /// Synced lyrics for imported albums from LRCLIB (`MELETE_LYRICS=lrclib`; off by default,
     /// since each track's title, artist, album and length leave the server).
     pub lyrics: bool,
@@ -168,6 +171,7 @@ impl Config {
         let slskd = slskd(&get)?;
         let translation = translation(&get)?;
         let musicbrainz = switch(&get, "MELETE_MUSICBRAINZ")?;
+        let listenbrainz = switch(&get, "MELETE_LISTENBRAINZ")?;
         let lyrics = match get("MELETE_LYRICS").as_deref() {
             None | Some("" | "off") => false,
             Some("lrclib") => true,
@@ -234,6 +238,7 @@ impl Config {
             tmdb_token,
             flaresolverr,
             musicbrainz,
+            listenbrainz,
             lyrics,
             song_albums,
             auto_dj,

@@ -66,6 +66,8 @@ struct Built {
     musicbrainz: Option<Arc<musicbrainz::Client>>,
     /// Wikimedia, for artists' portraits: there with MusicBrainz, and only then.
     wikimedia: Option<Arc<crate::wikimedia::Client>>,
+    /// ListenBrainz, for For You: there with it on and MusicBrainz, and only then.
+    listenbrainz: Option<Arc<crate::listenbrainz::Client>>,
     /// LRCLIB for the apps' lyrics, on with lyrics for imports.
     lyrics: Option<Arc<lrclib::Client>>,
     /// LibreTranslate for translating lyrics, when it's set up.
@@ -133,6 +135,10 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         Some(_) => Some(Arc::new(crate::wikimedia::Client::new()?)),
         None => None,
     };
+    let listenbrainz = match (config.listenbrainz, &musicbrainz) {
+        (true, Some(_)) => Some(Arc::new(crate::listenbrainz::Client::new()?)),
+        _ => None,
+    };
     let oidc = match &config.oidc {
         Some(settings) => Some(Arc::new(oidc::Client::with_pending(
             settings.clone(),
@@ -160,6 +166,7 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         pipeline,
         musicbrainz,
         wikimedia,
+        listenbrainz,
         lyrics: match config.lyrics {
             true => Some(Arc::new(lrclib::Client::new()?)),
             false => None,
@@ -209,21 +216,9 @@ fn spawn_downloads(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<
     }
 }
 
-/// Starts the background work the services need, saying what's on and off.
-fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
-    let pool = &fixed.pool;
-    let mut tasks = Vec::new();
-    if built.tmdb.is_none() {
-        tracing::warn!("MELETE_TMDB_TOKEN is not set; skipping metadata");
-    }
-    if built.flaresolverr.is_some() {
-        tracing::info!("FlareSolverr is set; Uindex can be searched");
-    }
-    if built.fixes.lyrics.is_some() {
-        tracing::info!(
-            "imported albums, and tracks without lyrics of their own, get lyrics from LRCLIB"
-        );
-    }
+/// Starts what fetches songs and albums from Soulseek, and songs from YouTube when Soulseek
+/// can't give them.
+fn spawn_songs(pool: &SqlitePool, built: &Built, tasks: &mut Vec<JoinHandle<()>>) {
     if let Some(client) = &built.slskd {
         tracing::info!("album searches also ask Soulseek through slskd");
         tasks.push(tokio::spawn(soulseek_downloads::follow(
@@ -255,6 +250,24 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
             built.fixes.clone(),
         )));
     }
+}
+
+/// Starts the background work the services need, saying what's on and off.
+fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
+    let pool = &fixed.pool;
+    let mut tasks = Vec::new();
+    if built.tmdb.is_none() {
+        tracing::warn!("MELETE_TMDB_TOKEN is not set; skipping metadata");
+    }
+    if built.flaresolverr.is_some() {
+        tracing::info!("FlareSolverr is set; Uindex can be searched");
+    }
+    if built.fixes.lyrics.is_some() {
+        tracing::info!(
+            "imported albums, and tracks without lyrics of their own, get lyrics from LRCLIB"
+        );
+    }
+    spawn_songs(pool, built, &mut tasks);
     spawn_downloads(pool, built, &mut tasks);
     tasks.push(tokio::spawn(rss::run(
         pool.clone(),
@@ -301,6 +314,15 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
         None => tracing::info!(
             "music isn't matched to MusicBrainz, nor playlists imported, nor followed artists looked up; MELETE_MUSICBRAINZ=on turns it on"
         ),
+    }
+    match &built.listenbrainz {
+        Some(client) => tasks.push(tokio::spawn(crate::for_you::run(
+            pool.clone(),
+            client.clone(),
+        ))),
+        None => {
+            tasks.push(tokio::spawn(crate::for_you::forget_while_off(pool.clone())));
+        }
     }
     if built.song_albums {
         tracing::info!("a requested song's album is wanted once the song is in");

@@ -23,6 +23,7 @@ pub(super) fn music_routes(
 ) -> Router {
     router
         .merge(music_home::routes(pool.clone(), coverart.is_some()))
+        .merge(music_for_you::routes(pool.clone()))
         .merge(music_pins::routes(pool.clone(), coverart.is_some()))
         .merge(music_mixes::routes(pool.clone()))
         .merge(music_household::routes(pool.clone()))

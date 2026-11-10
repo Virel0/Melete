@@ -23,7 +23,7 @@ pub struct Task {
 }
 
 /// Every background task, in the order the System page lists them.
-pub const TASKS: [Task; 19] = [
+pub const TASKS: [Task; 20] = [
     Task {
         name: "library",
         what: "scans the libraries on their schedule and imported folders at once, probes files, deals with replaced files and the trash, and runs TMDB matching (run now: a whole scan)",
@@ -93,6 +93,11 @@ pub const TASKS: [Task; 19] = [
         name: "artist-portraits",
         what: "looks up portraits of the library's artists on Wikimedia Commons, 20 an hour, while artists' portraits are on",
         wake: Some(|| jobs::PORTRAITS.notify_one()),
+    },
+    Task {
+        name: "for-you",
+        what: "makes each listener's For You list from ListenBrainz, 5 an hour, while For You is on",
+        wake: Some(|| jobs::FOR_YOU.notify_one()),
     },
     Task {
         name: "rss-sync",
