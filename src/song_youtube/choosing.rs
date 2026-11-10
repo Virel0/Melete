@@ -73,8 +73,8 @@ fn unaccented(c: char) -> char {
         .unwrap_or(c)
 }
 
-/// A Cyrillic letter as Latin letters, as names are commonly written in them ("Мураками" is
-/// "Murakami"); any other letter as it is.
+/// A Cyrillic letter as Latin letters, as names are commonly written in them ("Волна" is
+/// "Volna"); any other letter as it is.
 fn latin(c: char) -> String {
     const CYRILLIC: [(char, &str); 37] = [
         ('а', "a"),
@@ -196,7 +196,7 @@ fn without_article(name: &str) -> &str {
 }
 
 /// Whether the artist is named in `text`: their whole name, with or without its leading article
-/// ("Red Army Choir" for "The Red Army Choir"), or the first of several credited ("Dueto Sol
+/// ("Harbour Choir" for "The Harbour Choir"), or the first of several credited ("Dueto Sol
 /// and Luna" for "Dueto Sol & Luna with Mariachi") when it's more than a short word.
 fn names_artist(text: &str, artist: &str) -> bool {
     if has(text, artist) || has(text, without_article(artist)) {
