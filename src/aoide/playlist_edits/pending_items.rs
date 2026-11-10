@@ -7,6 +7,7 @@ use super::*;
 use crate::aoide::pending::{self, Arrived, Pending};
 
 /// What an item holds: a track in the library, or a song pending until it is.
+#[derive(Clone)]
 pub enum Holds {
     /// A track, as a device links one.
     Track(writing::TrackLink),
@@ -74,6 +75,61 @@ pub async fn add_items(
         return Ok(());
     }
     place(pool, &editor, &playlist, items, index).await
+}
+
+/// Writes item `item` of playlist `id` again as `holds`, keeping its id and place, when it's
+/// there and still pending on no request (a track an import couldn't ask for, handled again).
+/// One deleted, holding a track, or pending on a request is left as it is. Whether it was
+/// written.
+///
+/// # Errors
+///
+/// When it isn't a hand-made playlist the user owns or may edit, or a write error.
+pub async fn repoint(
+    pool: &SqlitePool,
+    editor: &Editor<'_>,
+    id: &str,
+    item: &str,
+    holds: Holds,
+) -> Result<bool, EditError> {
+    let (playlist, editor) = own(pool, editor, id).await?;
+    let Some(row) = playlist
+        .items
+        .iter()
+        .find(|row| row.get("id").and_then(Value::as_str) == Some(item))
+    else {
+        return Ok(false);
+    };
+    if Pending::of(row).is_none_or(|p| p.request_id.is_some()) {
+        return Ok(false);
+    }
+    let mut row = row.clone();
+    row.remove("pending");
+    match holds {
+        Holds::Track(link) => {
+            row.insert("jellyfinId".into(), link.jellyfin_id.into());
+            row.insert("contentKey".into(), link.content_key.into());
+        }
+        Holds::Pending(song) => {
+            row.insert("pending".into(), song.to_value());
+        }
+    }
+    // Just after its own last write, as a swap is.
+    let at = row.get("updatedAt").and_then(Value::as_i64).unwrap_or(0);
+    let just_after = Editor {
+        now: editor.now.max(at.saturating_add(1)),
+        ..editor
+    };
+    let change = item_change(&row, &just_after, false);
+    writing::append(
+        pool,
+        editor.user_id,
+        editor.device,
+        vec![change],
+        just_after.now,
+    )
+    .await?;
+    Ok(true)
 }
 
 /// Writes each item still pending on a request in `arrived` as the track that request

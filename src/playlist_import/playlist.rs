@@ -99,16 +99,18 @@ async fn write(
             why: handled.why.clone(),
         }),
     };
-    let item = NewItem {
-        id: writing::id_from(&format!("{playlist}/{position}")),
-        holds,
-    };
+    let id = writing::id_from(&format!("{playlist}/{position}"));
     let editor = Editor {
         user_id,
         device: MELETE_DEVICE,
         now: now_ms(),
     };
-    playlist_edits::add_items(pool, &editor, playlist, vec![item], None).await?;
+    // A track handled again (one it couldn't ask for before) rewrites its item in place; any
+    // other is added, once.
+    if !playlist_edits::repoint(pool, &editor, playlist, &id, holds.clone()).await? {
+        let item = NewItem { id, holds };
+        playlist_edits::add_items(pool, &editor, playlist, vec![item], None).await?;
+    }
     if handled.request.is_some() {
         pending::resolve(pool, Some(playlist)).await?;
     }

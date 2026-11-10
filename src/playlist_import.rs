@@ -313,7 +313,7 @@ mod tests {
                             Paranoid Android,Radiohead,,\n";
 
     #[tokio::test]
-    async fn an_import_asks_for_each_track_it_can_match_and_lists_the_rest() {
+    async fn an_import_asks_for_each_track_and_by_name_for_what_musicbrainz_cant_tell() {
         let pool = db::open_in_memory().await;
         sqlx::query(
             "INSERT INTO libraries (id, name, kind, path) VALUES (4, 'music', 'music', '/music')",
@@ -337,28 +337,18 @@ mod tests {
         let s = &view.summary;
         assert_eq!(
             (s.state.as_str(), s.asked, s.already, s.unmatched, s.waiting),
-            ("done", 1, 1, 1, 1)
+            ("done", 2, 1, 0, 2)
         );
         assert_eq!(
             s.message.as_deref(),
-            Some("1 asked for, 1 asked for already, 1 not found on MusicBrainz")
+            Some("2 asked for, 1 asked for already")
         );
         let items: Vec<(&str, Option<&str>)> = view
             .items
             .iter()
             .map(|t| (t.state.as_str(), t.why.as_deref()))
             .collect();
-        assert_eq!(
-            items,
-            [
-                ("asked", None),
-                (
-                    "unmatched",
-                    Some("no recording on MusicBrainz has its title, artist and length")
-                ),
-                ("already", None),
-            ]
-        );
+        assert_eq!(items, [("asked", None), ("asked", None), ("already", None)]);
         assert!(
             log.lock()
                 .unwrap()
@@ -378,12 +368,26 @@ mod tests {
             ("song", Some(PARANOID_ANDROID), "requested")
         );
         assert_eq!(view.items[2].request_id, Some(asked.id));
+        // No recording on MusicBrainz has Karma Police's title, artist and length: it's asked
+        // for by name, as Ask's song by name is.
+        let by_name = requests::get(&pool, view.items[1].request_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                by_name.title.as_str(),
+                by_name.mb_recording_id.as_deref(),
+                by_name.state.as_str()
+            ),
+            ("Karma Police", None, "requested")
+        );
 
         // An admin approves the whole playlist at once.
         let (approved, refused) = approve_all(&pool, Some(&mb), &sources, made.id, &admin)
             .await
             .unwrap();
-        assert_eq!((approved, refused), (vec![asked.id], vec![]));
+        assert_eq!((approved, refused), (vec![asked.id, by_name.id], vec![]));
         assert_eq!(summary(&pool, made.id).await.unwrap().unwrap().waiting, 0);
 
         // Imported again: nothing new to ask for.
@@ -392,7 +396,7 @@ mod tests {
             .unwrap();
         run(&pool, &mb, &sources, again.id).await.unwrap();
         let again = summary(&pool, again.id).await.unwrap().unwrap();
-        assert_eq!((again.asked, again.already, again.unmatched), (0, 2, 1));
+        assert_eq!((again.asked, again.already, again.unmatched), (0, 3, 0));
         assert_eq!(list(&pool, Some(alice.id)).await.unwrap().len(), 2);
         assert!(list(&pool, Some(admin.id)).await.unwrap().is_empty());
     }
@@ -402,8 +406,10 @@ mod tests {
         let pool = db::open_in_memory().await;
         let alice = user(&pool, "alice", false).await;
         let (mb, log) = testing::start(0).await;
-        let csv = "Track Name,Artist Name(s),ISRC\nUnreadable Song,Radiohead,\n\
-                   Paranoid Android,Radiohead,GBAYE9700245\n";
+        // The first says nobody it's by, so it can't be asked for by name either.
+        let csv = "Track Name,Artist Name(s),ISRC\nUnreadable Song,,\n\
+                   Paranoid Android,Radiohead,GBAYE9700245\n\
+                   Unreadable B-side,Radiohead,\n";
         let made = create(&pool, &alice, "Mix", &parse(csv).unwrap(), None)
             .await
             .unwrap();
@@ -426,10 +432,20 @@ mod tests {
             log.lock()
                 .unwrap()
                 .iter()
-                .filter(|l| l.to_lowercase().contains("unreadable"))
+                .filter(|l| l.to_lowercase().contains("unreadable") && !l.contains("B-side"))
                 .count(),
             1,
             "asked once"
+        );
+        // One by an artist is asked for by name instead, as Ask's song by name is.
+        assert_eq!(view.items[2].state, "asked");
+        let by_name = requests::get(&pool, view.items[2].request_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (by_name.title.as_str(), by_name.mb_recording_id.as_deref()),
+            ("Unreadable B-side", None)
         );
         // The ISRC is looked up as MusicBrainz allows, and its answer is the track: no search.
         assert_eq!(view.items[1].state, "asked");

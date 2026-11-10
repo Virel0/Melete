@@ -1,0 +1,5 @@
+Decision: A playlist import's track with an artist that no MusicBrainz recording fits, or that MusicBrainz turns down, is asked for by name, as Ask's song by name is: its title without what follows " - ", and its first artist. Only a track with no artist, or one MusicBrainz didn't answer for after its tries, is left unmatched. Tracks earlier imports left unmatched are handled again once, when the update's migration queues their imports, and an import's playlist item still pending on no request is written again in its place, holding what the track now is (its request, or its track when the library has it); one deleted, or holding a track or a request, is left as it is.
+
+Why: MusicBrainz doesn't list many songs that are easy to find elsewhere (uploads, regional releases, old recordings), and leaving them out meant Soulseek and YouTube were never asked. A song by name already works for Ask, and its Soulseek search and YouTube fallback need only the title and artist. Rewriting the item in place, rather than adding one, keeps a playlist's order and never brings back an item someone deleted.
+
+Date: 2026-11-09
