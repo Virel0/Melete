@@ -9,7 +9,7 @@
 services:
   stems:
     # This version's release; .env can name another, such as one built from ./stems.
-    image: ${MELETE_STEMS_IMAGE:-ghcr.io/virel0/melete:0.9.1-stems}
+    image: ${MELETE_STEMS_IMAGE:-ghcr.io/virel0/melete:0.9.2-stems}
     container_name: melete-stems
     restart: unless-stopped
     # Melete's own user: Melete reads, and on a track's removal deletes, what it writes.
