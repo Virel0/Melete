@@ -18,7 +18,7 @@ struct Answer {
 }
 
 /// A plain file name from the downloader: nothing that leaves the folder it's in.
-pub(super) fn plain(name: &str) -> Option<&str> {
+pub(crate) fn plain(name: &str) -> Option<&str> {
     let ok = !name.is_empty()
         && name != "."
         && name != ".."
@@ -59,6 +59,14 @@ pub(super) async fn read_answers(pool: &SqlitePool, folders: &Folders) -> anyhow
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        // Songs' answers are theirs to read (`song_youtube`).
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(crate::song_youtube::is_song_job)
+        {
             continue;
         }
         let answer: Option<Answer> = std::fs::read(&path)

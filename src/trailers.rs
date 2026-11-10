@@ -30,6 +30,9 @@ use crate::transcode::Transcoder;
 
 mod answers;
 
+/// A plain file name from the downloader: nothing that leaves the folder it's in.
+pub(crate) use answers::plain as plain_name;
+
 use answers::*;
 
 const EVERY: Duration = Duration::from_secs(30);

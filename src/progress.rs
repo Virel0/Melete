@@ -9,8 +9,10 @@ use sqlx::SqlitePool;
 
 use crate::db::unix_now;
 
+mod songs;
 mod wanted;
 
+use songs::*;
 use wanted::*;
 
 /// How long a finished download stays in the activity list.
@@ -282,11 +284,19 @@ pub async fn of(
     .await?;
     let under_way =
         |d: &DownloadRow| ["downloading", "completed", "transferring"].contains(&d.state.as_str());
+    let youtube = match kind {
+        "song" => youtube(pool, id).await?,
+        _ => None,
+    };
     let progress = match latest {
         // On disk is where a request ends, even while an upgrade of it downloads.
         Some(d) if under_way(&d) && !wanted.on_disk => from_download(d),
         // Just imported, its title not matched yet.
         Some(d) if d.settling => from_download(d),
+        // Fetched from YouTube when Soulseek couldn't give it.
+        _ if youtube.as_ref().is_some_and(|y| y.state == "imported") => {
+            from_youtube(kind, id, wanted.title, youtube.expect("checked above"))
+        }
         // On disk, or imported and waiting for the next scan to see it.
         latest if wanted.on_disk || latest.as_ref().is_some_and(|d| d.state == "imported") => {
             Progress {
@@ -302,9 +312,20 @@ pub async fn of(
                 copied: None,
             }
         }
+        _ if youtube.as_ref().is_some_and(YoutubeRow::under_way) => {
+            from_youtube(kind, id, wanted.title, youtube.expect("checked above"))
+        }
         latest => {
             let failed = latest.filter(|d| d.state == "failed");
             let why = failed.as_ref().and_then(|d| d.message.clone());
+            // A song's word says what's been tried: Soulseek, and YouTube after it.
+            let why = match (kind, youtube) {
+                ("song", Some(y)) => Some(y.standing().1),
+                ("song", None) if why.is_none() && searched(pool, id).await? => {
+                    Some("Soulseek was searched and had nothing that fits".into())
+                }
+                _ => why,
+            };
             let (step, message) = match (wanted.looked_for, &why) {
                 // Still looked out for: a failed try is behind it, not the end.
                 (true, Some(why)) => (Step::Searching, Some(format!("the last try failed: {why}"))),
