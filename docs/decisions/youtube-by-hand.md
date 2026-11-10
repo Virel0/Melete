@@ -1,5 +1,0 @@
-Decision: An admin can choose a YouTube video for a wanted song by its link or id (`POST /api/v1/wanted/songs/{id}/youtube`; youtube.com's watch, shorts, embed and live links, youtu.be and music.youtube.com), only while songs from YouTube are on. It waits (`song_youtube_picks`, one a song, a later choice replacing it) until nothing for the song is under way, and is taken at the YouTube worker's next round before any song it would look for itself; its audio is fetched as any song's from YouTube, put in the library and tagged as the song, without matching it or checking its length against the song's (`song_youtube.by_hand`). The song's next automatic try, if there's one, matches and checks length as before. Only the video's id goes to YouTube.
-
-Why: Some songs can't be matched by name (a classical piece under its performer, a title in another language, an upload that credits the artist differently), and an admin who finds the right video should be able to have it without the matcher's say. Waiting for what's under way keeps an answer to an earlier job from being taken for the chosen video.
-
-Date: 2026-11-10
