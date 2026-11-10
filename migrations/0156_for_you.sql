@@ -18,9 +18,11 @@ CREATE TABLE for_you (
 ) STRICT;
 
 -- ListenBrainz's answer about one MusicBrainz id: the recordings or artists listened to
--- alongside it, or a recording's artists and album (null when it knows none), as JSON.
+-- alongside it, an artist's most listened-to recordings, or a recording's artists and album
+-- (null when it knows none), as JSON.
 CREATE TABLE listenbrainz_answers (
-    kind TEXT NOT NULL CHECK (kind IN ('similar_recordings', 'similar_artists', 'recording')),
+    kind TEXT NOT NULL
+        CHECK (kind IN ('similar_recordings', 'similar_artists', 'top_recordings', 'recording')),
     mbid TEXT NOT NULL,
     answer TEXT NOT NULL CHECK (json_valid(answer)),
     fetched_at INTEGER NOT NULL,

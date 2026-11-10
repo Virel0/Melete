@@ -1,8 +1,8 @@
 //! ListenBrainz, MetaBrainz's open listening data, for each listener's For You list: on only
-//! with `MELETE_LISTENBRAINZ` (and MusicBrainz). Three things are asked, each by MusicBrainz ids
+//! with `MELETE_LISTENBRAINZ` (and MusicBrainz). Four things are asked, each by MusicBrainz ids
 //! alone: the recordings listened to alongside a recording, and the artists alongside an artist
-//! (both from ListenBrainz Labs, labs.api.listenbrainz.org), and the artists and album of
-//! recordings (api.listenbrainz.org). Never a name, an account, play counts or titles. Every
+//! (both from ListenBrainz Labs, labs.api.listenbrainz.org), and an artist's most listened-to
+//! recordings and the artists and album of recordings (api.listenbrainz.org). Never a name, an account, play counts or titles. Every
 //! request goes over https to those two hosts only, redirects included, with Melete's usual
 //! User-Agent, a timeout and a size cap; no account or token is used.
 //!
@@ -34,6 +34,9 @@ pub const METADATA_BATCH: usize = 50;
 /// The largest answer read; 100 similar recordings, or 50 recordings' metadata, are a few
 /// hundred kilobytes.
 const MAX_ANSWER: usize = 4 * 1024 * 1024;
+/// The largest list of an artist's top recordings read: every recording of theirs anyone
+/// listened to, some 1.5 MB for a well-known band and near 7 MB for the best-known.
+const MAX_TOP: usize = 16 * 1024 * 1024;
 /// The time between two requests' turns.
 const SPACING: Duration = Duration::from_secs(1);
 /// The longest a request waits for its turn, or for a hold to be over; past that it isn't sent.
@@ -89,6 +92,26 @@ pub struct SimilarArtist {
     /// How strongly they go with the one asked about, on a scale of the answer's own.
     #[serde(default)]
     pub score: f64,
+}
+
+/// One of an artist's most listened-to recordings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopRecording {
+    /// Its MusicBrainz id.
+    pub recording_mbid: String,
+    /// Its title.
+    #[serde(default)]
+    pub recording_name: String,
+    /// Its artists, as one line.
+    #[serde(default)]
+    pub artist_name: String,
+    /// The release it's listed from, by name.
+    pub release_name: Option<String>,
+    /// That release's MusicBrainz id.
+    pub release_mbid: Option<String>,
+    /// How many times it was listened to, by everyone.
+    #[serde(default)]
+    pub total_listen_count: f64,
 }
 
 /// What ListenBrainz knows of a recording: its artists and the album it's listed from.
@@ -262,7 +285,7 @@ impl Client {
                 ("algorithm", RECORDINGS_ALGORITHM),
             ],
         )?;
-        let mut found: Vec<SimilarRecording> = self.json(url).await?;
+        let mut found: Vec<SimilarRecording> = self.json(url, MAX_ANSWER).await?;
         found.retain(|r| crate::library::tags::is_mbid(&r.recording_mbid));
         found.sort_by(|a, b| b.score.total_cmp(&a.score));
         Ok(found)
@@ -282,9 +305,30 @@ impl Client {
             &format!("{}/similar-artists/json", self.labs),
             &[("artist_mbids", artist), ("algorithm", ARTISTS_ALGORITHM)],
         )?;
-        let mut found: Vec<SimilarArtist> = self.json(url).await?;
+        let mut found: Vec<SimilarArtist> = self.json(url, MAX_ANSWER).await?;
         found.retain(|a| crate::library::tags::is_mbid(&a.artist_mbid) && a.artist_mbid != artist);
         found.sort_by(|a, b| b.score.total_cmp(&a.score));
+        Ok(found)
+    }
+
+    /// `artist`'s (a MusicBrainz id) recordings, the most listened-to first. ListenBrainz has
+    /// at times refused this without an account's token; that's an error like any other.
+    ///
+    /// # Errors
+    ///
+    /// As [`similar_recordings`](Self::similar_recordings), and when the answer is over 16 MiB.
+    pub async fn top_recordings(&self, artist: &str) -> anyhow::Result<Vec<TopRecording>> {
+        anyhow::ensure!(
+            crate::library::tags::is_mbid(artist),
+            "not a MusicBrainz id"
+        );
+        let url = reqwest::Url::parse(&format!(
+            "{}/1/popularity/top-recordings-for-artist/{artist}",
+            self.api
+        ))?;
+        let mut found: Vec<TopRecording> = self.json(url, MAX_TOP).await?;
+        found.retain(|r| crate::library::tags::is_mbid(&r.recording_mbid));
+        found.sort_by(|a, b| b.total_listen_count.total_cmp(&a.total_listen_count));
         Ok(found)
     }
 
@@ -314,7 +358,7 @@ impl Client {
                 ("inc", "artist release"),
             ],
         )?;
-        let answer: HashMap<String, Metadata> = self.json(url).await?;
+        let answer: HashMap<String, Metadata> = self.json(url, MAX_ANSWER).await?;
         Ok(answer
             .into_iter()
             .filter(|(id, _)| recordings.contains(id))
@@ -343,7 +387,11 @@ impl Client {
     /// [`Busy`] when the hold is longer, or the second try is refused too. An answer saying no
     /// requests are left holds the next ones back until the limit resets. Errors never carry
     /// the address.
-    async fn json<T: serde::de::DeserializeOwned>(&self, url: reqwest::Url) -> anyhow::Result<T> {
+    async fn json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: reqwest::Url,
+        most: usize,
+    ) -> anyhow::Result<T> {
         let failed = |err: reqwest::Error| anyhow::anyhow!("ListenBrainz: {}", err.without_url());
         let mut tries = 0;
         let mut response = loop {
@@ -382,7 +430,7 @@ impl Client {
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(failed)? {
             anyhow::ensure!(
-                bytes.len() + chunk.len() <= MAX_ANSWER,
+                bytes.len() + chunk.len() <= most,
                 "ListenBrainz's answer is too large"
             );
             bytes.extend_from_slice(&chunk);

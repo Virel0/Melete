@@ -83,8 +83,10 @@ async fn offers_what_the_library_has_to_play_and_the_rest_to_request() {
     let w = world().await;
     let items = made(&w, w.alice, &everything()).await;
     // Track 2 by its recording, 3 by its artist and title, 6 and 7 by Birch (two at most) and 9;
-    // songs 20 (21 is from the same album) and 22. Never track 4 (heard lately), 5 (flagged)
-    // or 1 (her own), nor any of them to request.
+    // songs 20 (21 is from the same album) and 22, then Gale's most listened-to, 40 and 41 (42
+    // would be Gale's third). Never track 4 (heard lately), 5 (flagged) or 1 (her own), nor any
+    // of them to request; the artist ListenBrainz refused is left out, and the list made all
+    // the same.
     assert_eq!(
         short(&items),
         [
@@ -94,9 +96,12 @@ async fn offers_what_the_library_has_to_play_and_the_rest_to_request() {
             "t3 Alder",
             "t9 Alder",
             "s20 Alder",
-            "s22 Alder"
+            "s22 Alder",
+            "s40 Alder",
+            "s41 Alder"
         ]
     );
+    assert_eq!(items[7].because.kind, "artist", "Gale came from her artist");
     assert_eq!(items[1].because.kind, "artist");
     assert_eq!(items[0].because.title.as_deref(), Some("Seed Song"));
     let song = items[5].song.clone().unwrap();
@@ -128,25 +133,33 @@ async fn sends_musicbrainz_ids_alone_and_only_the_listeners_own() {
                 "similar-artists artist_mbids={} algorithm={ARTISTS_ALGORITHM}",
                 id(101)
             ),
+            format!("top-recordings {}", id(102)),
+            format!("top-recordings {}", id(105)),
+            format!("top-recordings {}", crate::listenbrainz::testing::REFUSED),
             format!(
-                "metadata recording_mbids={},{},{},{} inc=artist release",
-                id(3),
-                id(20),
-                id(21),
-                id(22)
+                "metadata recording_mbids={} inc=artist release",
+                [3, 20, 21, 22, 40, 41, 42].map(id).join(",")
             ),
         ],
-        "Alice's seeds, then the suggestions the library hasn't by id; nothing of Bob's"
+        "Alice's seeds, the artists alongside hers, then the suggestions the library hasn't by \
+         id; nothing of Bob's"
     );
-    // A list made again asks nothing: the answers are kept.
+    // A list made again asks only what was refused: the answers are kept.
     made(&w, w.alice, &everything()).await;
-    assert_eq!(w.log.lock().unwrap().len(), 3);
+    let again = w.log.lock().unwrap()[6..].to_vec();
+    assert_eq!(
+        again,
+        [format!(
+            "top-recordings {}",
+            crate::listenbrainz::testing::REFUSED
+        )]
+    );
     // Bob's is made from his own plays: Birch, and Alder alongside.
     let bob = made(&w, w.bob, &everything()).await;
     assert_eq!(short(&bob), ["t1 Birch"]);
     let log = w.log.lock().unwrap();
-    assert_eq!(log.len(), 5);
-    assert!(log[3].contains(&id(8)) && log[4].contains(&id(102)));
+    assert_eq!(log.len(), 10);
+    assert!(log[7].contains(&id(8)) && log[8].contains(&id(102)) && log[9].contains(&id(101)));
 }
 
 #[tokio::test]
@@ -162,7 +175,9 @@ async fn a_track_the_listener_cant_see_is_never_offered_to_play() {
             "t3 Alder",
             "s9 Alder",
             "s20 Alder",
-            "s22 Alder"
+            "s22 Alder",
+            "s40 Alder",
+            "s41 Alder"
         ],
         "track 9 is in a library hidden from her: to her it's a song to request"
     );
@@ -199,7 +214,15 @@ async fn what_was_heard_or_flagged_since_leaves_the_list() {
     assert_eq!(served.state, State::Ready);
     assert_eq!(
         short(&served.items),
-        ["t7 Alder", "t3 Alder", "t9 Alder", "s20 Alder", "s22 Alder"]
+        [
+            "t7 Alder",
+            "t3 Alder",
+            "t9 Alder",
+            "s20 Alder",
+            "s22 Alder",
+            "s40 Alder",
+            "s41 Alder"
+        ]
     );
 }
 
@@ -325,7 +348,7 @@ async fn turned_off_there_is_no_list_and_nothing_is_kept() {
     .await
     .unwrap();
     assert_eq!(kept, 0);
-    assert_eq!(w.log.lock().unwrap().len(), 3, "nothing asked while off");
+    assert_eq!(w.log.lock().unwrap().len(), 6, "nothing asked while off");
 }
 
 fn candidate(n: u32, playable: bool, score: f64, artist: &str, release: Option<&str>) -> Candidate {

@@ -67,7 +67,7 @@ async fn serves_the_list_in_the_documented_shape() {
         (&json!("ready"), &json!(NOW))
     );
     let items = body["items"].as_array().unwrap();
-    assert_eq!(items.len(), 7);
+    assert_eq!(items.len(), 9);
     for item in items {
         assert_eq!(fields(item), documented("MusicForYouItem"));
         assert_eq!(fields(&item["because"]), documented("MusicForYouBecause"));
@@ -136,9 +136,11 @@ async fn says_which_songs_are_asked_for_already() {
         marks,
         [
             (json!("requested"), json!(request)),
-            (json!("requested"), Value::Null)
+            (json!("requested"), Value::Null),
+            (json!("requestable"), Value::Null),
+            (json!("requestable"), Value::Null)
         ],
-        "her own request, then one wanted already"
+        "her own request, one wanted already, then Gale's two asked for by nobody"
     );
     // Someone else's request isn't hers.
     sqlx::query("UPDATE requests SET user_id = ?")

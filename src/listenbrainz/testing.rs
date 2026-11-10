@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
@@ -16,6 +16,9 @@ pub const PAUSED: &str = "00000000-0000-4000-8000-000000000429";
 pub const HELD: &str = "00000000-0000-4000-8000-000000003600";
 /// A recording whose answer says no requests are left for one second.
 pub const SPENT: &str = "00000000-0000-4000-8000-000000000000";
+/// An artist whose top recordings the fake refuses without a token, as ListenBrainz has at
+/// times.
+pub const REFUSED: &str = "00000000-0000-4000-8000-000000000401";
 
 /// What the fake answers: similar recordings and artists by the id asked about, and each
 /// recording's metadata.
@@ -25,6 +28,8 @@ pub struct Answers {
     pub recordings: HashMap<String, Vec<Value>>,
     /// Artist id to the artists alongside them.
     pub artists: HashMap<String, Vec<Value>>,
+    /// Artist id to their top recordings, as the API answers them.
+    pub top: HashMap<String, Vec<Value>>,
     /// Recording id to its metadata, as the API answers it.
     pub metadata: HashMap<String, Value>,
 }
@@ -48,6 +53,10 @@ pub async fn start(answers: Answers) -> (super::Client, Log) {
             "/1/metadata/recording/",
             axum::routing::get(recording_metadata),
         )
+        .route(
+            "/1/popularity/top-recordings-for-artist/{artist}",
+            axum::routing::get(top_recordings),
+        )
         .with_state((Arc::new(answers), log.clone()));
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let client = super::Client::with_bases(base.clone(), base, true)
@@ -64,6 +73,16 @@ pub fn recording(id: &str, title: &str, artist: &str, release: &str, score: i64)
         "release_mbid": "11111111-1111-4111-8111-111111111111", "caa_id": 1,
         "caa_release_mbid": "11111111-1111-4111-8111-111111111111", "score": score,
         "reference_mbid": "22222222-2222-4222-8222-222222222222",
+    })
+}
+
+/// One of an artist's top recordings as the API gives it.
+pub fn top(id: &str, title: &str, artist: &str, listens: i64) -> Value {
+    json!({
+        "artist_mbids": [], "artist_name": artist, "recording_mbid": id, "recording_name": title,
+        "release_name": "Their Album", "release_mbid": "33333333-3333-4333-8333-333333333333",
+        "caa_id": 1, "caa_release_mbid": "33333333-3333-4333-8333-333333333333", "length": 1000,
+        "total_listen_count": listens, "total_user_count": 1, "tags": [],
     })
 }
 
@@ -176,6 +195,25 @@ async fn recording_metadata(
         ],
         Value::Object(found).to_string(),
     )
+        .into_response()
+}
+
+async fn top_recordings(
+    State((answers, log)): State<Fake>,
+    Path(artist): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
+    headers: HeaderMap,
+) -> Response {
+    note(&log, &format!("top-recordings {artist}"), &query, &headers);
+    if artist == REFUSED {
+        return (
+            StatusCode::UNAUTHORIZED,
+            r#"{"code":401,"error":"you need to provide an Auth token for this endpoint"}"#,
+        )
+            .into_response();
+    }
+    json!(answers.top.get(&artist).cloned().unwrap_or_default())
+        .to_string()
         .into_response()
 }
 

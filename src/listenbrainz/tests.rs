@@ -145,3 +145,41 @@ async fn keeps_to_one_request_a_turn() {
     assert!(started.elapsed() >= Duration::from_millis(600));
     assert_eq!(log.lock().unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn reads_an_artists_top_recordings_by_its_id_alone() {
+    let mut answers = answers();
+    answers.top.insert(
+        ARTIST.into(),
+        vec![
+            testing::top(ALIKE, "Second", "Radiohead", 10),
+            testing::top("not an id", "Broken", "Radiohead", 99),
+            testing::top(SEED, "First", "Radiohead", 20),
+        ],
+    );
+    let (client, log) = testing::start(answers).await;
+    let top = client.top_recordings(ARTIST).await.unwrap();
+    let ids: Vec<&str> = top.iter().map(|r| r.recording_mbid.as_str()).collect();
+    assert_eq!(
+        ids,
+        [SEED, ALIKE],
+        "most listened-to first, and only real ids"
+    );
+    assert_eq!(
+        (top[0].recording_name.as_str(), top[0].artist_name.as_str()),
+        ("First", "Radiohead")
+    );
+    assert!(client.top_recordings("../user/someone").await.is_err());
+    // Refused without a token, as ListenBrainz has at times: an error, not a pause.
+    let refused = client.top_recordings(testing::REFUSED).await.unwrap_err();
+    assert!(refused.downcast_ref::<Busy>().is_none(), "{refused:#}");
+    assert!(format!("{refused:#}").contains("401"), "{refused:#}");
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            format!("top-recordings {ARTIST}"),
+            format!("top-recordings {}", testing::REFUSED),
+        ],
+        "the artist's id in the path, and nothing else"
+    );
+}

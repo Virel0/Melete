@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::de::DeserializeOwned;
 
 use super::*;
-use crate::listenbrainz::{Recording, SimilarArtist, SimilarRecording};
+use crate::listenbrainz::{Recording, SimilarArtist, SimilarRecording, TopRecording};
 
 /// How long an answer is kept, and used instead of asking again.
 pub(super) const KEPT_FOR: i64 = 7 * 24 * 3600;
@@ -80,6 +80,36 @@ pub(super) async fn similar_artists(
     let found = client.similar_artists(artist).await?;
     keep(pool, "similar_artists", artist, &found, now).await?;
     Ok(found)
+}
+
+/// `artist`'s most listened-to recordings, the first [`super::picking::TOP_PER_ARTIST`] of them:
+/// as kept, else asked. None, and nothing kept, when ListenBrainz refused or failed (it has at
+/// times refused this without an account's token): the list is made without them, and they're
+/// asked for again next time. A pause it asked for isn't a refusal: the list waits for it.
+pub(super) async fn top_recordings(
+    pool: &SqlitePool,
+    client: &listenbrainz::Client,
+    artist: &str,
+    now: i64,
+) -> anyhow::Result<Option<Vec<TopRecording>>> {
+    if let Some(found) = kept(pool, "top_recordings", artist, now).await? {
+        return Ok(Some(found));
+    }
+    let mut found = match client.top_recordings(artist).await {
+        Ok(found) => found,
+        Err(err) if err.downcast_ref::<listenbrainz::Busy>().is_some() => return Err(err),
+        Err(err) => {
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "an artist's top recordings couldn't be had; For You goes without them"
+            );
+            return Ok(None);
+        }
+    };
+    // An answer can hold thousands; only the first are ever used.
+    found.truncate(super::picking::TOP_PER_ARTIST);
+    keep(pool, "top_recordings", artist, &found, now).await?;
+    Ok(Some(found))
 }
 
 /// The artists and album of each of `recordings` ListenBrainz knows: as kept, else asked in

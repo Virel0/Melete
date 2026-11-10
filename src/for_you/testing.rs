@@ -6,8 +6,10 @@
 //! ListenBrainz says goes with Alice's song, from best to worst: recordings 2 (track 2, in the
 //! library by its id), 4 (track 4, heard lately), 5 (track 5, flagged), 3 (track 3 has no
 //! recording id, but its artist's id and title), 9 (track 9 by Fir, in library 2), 20 and 21
-//! (from one album, not in the library), 22 and 1 (her own song). Alongside Alder is Birch,
-//! with tracks 6, 7 and 8 on three albums, and alongside Birch is Alder.
+//! (from one album, not in the library), 22 and 1 (her own song). Alongside Alder are Birch,
+//! with tracks 6, 7 and 8 on three albums, then Gale, with none in the library but recordings
+//! 40, 41 and 42 most listened-to, then an artist whose top recordings ListenBrainz refuses;
+//! alongside Birch is Alder.
 
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -141,9 +143,22 @@ pub fn answers() -> Answers {
         rec(1, "Seed Song", "Alder", 500),
     ];
     answers.recordings.insert(id(1), found);
-    answers
-        .artists
-        .insert(id(101), vec![testing::artist(&id(102), "Birch", 40)]);
+    answers.artists.insert(
+        id(101),
+        vec![
+            testing::artist(&id(102), "Birch", 40),
+            testing::artist(&id(105), "Gale", 20),
+            testing::artist(testing::REFUSED, "Refused", 10),
+        ],
+    );
+    answers.top.insert(
+        id(105),
+        vec![
+            testing::top(&id(40), "Gale Hit", "Gale", 1000),
+            testing::top(&id(41), "Gale Two", "Gale", 500),
+            testing::top(&id(42), "Gale Three", "Gale", 250),
+        ],
+    );
     answers
         .artists
         .insert(id(102), vec![testing::artist(&id(101), "Alder", 40)]);
@@ -165,6 +180,10 @@ pub fn answers() -> Answers {
     answers
         .metadata
         .insert(id(22), meta(&[(id(122), "Echo".to_owned())], 222));
+    let gale = [(id(105), "Gale".to_owned())];
+    for n in [40, 41, 42] {
+        answers.metadata.insert(id(n), meta(&gale, 200 + n));
+    }
     answers
 }
 

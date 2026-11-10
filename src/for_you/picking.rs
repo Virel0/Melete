@@ -1,4 +1,5 @@
-//! What ListenBrainz suggests, sorted into songs the library has (to play) and songs it hasn't
+//! What ListenBrainz suggests (recordings alongside the seeds', and the most listened-to of the
+//! artists alongside theirs), sorted into songs the library has (to play) and songs it hasn't
 //! (to request), and the ranking that makes a list of them.
 
 use std::collections::HashMap;
@@ -18,6 +19,36 @@ const PER_SEED_ARTISTS: usize = 10;
 const TRACKS_PER_ARTIST: usize = 5;
 /// At most this many songs by one artist; at most one from one album.
 const PER_ARTIST: usize = 2;
+/// The artists alongside whose most listened-to recordings are asked for, closest first: each
+/// is one request, so a list asks some 10 more.
+const TOP_ARTISTS: usize = 10;
+/// The most listened-to recordings taken of each: more than [`PER_ARTIST`], as some may be in
+/// the library or left out.
+pub(super) const TOP_PER_ARTIST: usize = 10;
+
+/// Recordings suggested, by id: each one's best score, what ListenBrainz said of it, and the
+/// seed that gave it.
+type Suggested = HashMap<String, (f64, SimilarRecording, Because)>;
+
+/// Keeps `r` as suggested with `score`, unless it's one of `mine` (the seeds' own) or was
+/// suggested more strongly already.
+fn suggest(
+    best: &mut Suggested,
+    mine: &HashSet<&str>,
+    score: f64,
+    r: SimilarRecording,
+    because: &Because,
+) {
+    if mine.contains(r.recording_mbid.as_str()) {
+        return;
+    }
+    if best
+        .get(&r.recording_mbid)
+        .is_none_or(|(was, ..)| score > *was)
+    {
+        best.insert(r.recording_mbid.clone(), (score, r, because.clone()));
+    }
+}
 
 /// A song that could be on the list.
 #[derive(Debug, Clone, PartialEq)]
@@ -136,15 +167,15 @@ async fn by_artists(
 }
 
 /// The recordings alongside the seed recordings, each once with its best score and the seed
-/// that gave it, best first; none a seed itself.
+/// that gave it; none a seed itself.
 async fn alike_recordings(
     pool: &SqlitePool,
     client: &listenbrainz::Client,
     seeds: &seeds::Seeds,
     now: i64,
-) -> anyhow::Result<Vec<(f64, SimilarRecording, Because)>> {
+) -> anyhow::Result<Suggested> {
     let mine: HashSet<&str> = seeds.recordings.iter().map(|s| s.mbid.as_str()).collect();
-    let mut best: HashMap<String, (f64, SimilarRecording, Because)> = HashMap::new();
+    let mut best = Suggested::new();
     for seed in &seeds.recordings {
         let found = asking::similar_recordings(pool, client, &seed.mbid, now).await?;
         let top = found
@@ -152,14 +183,47 @@ async fn alike_recordings(
             .map_or(1.0, |r| r.score)
             .max(f64::MIN_POSITIVE);
         for r in found.into_iter().take(PER_SEED_RECORDINGS) {
-            if mine.contains(r.recording_mbid.as_str()) {
-                continue;
-            }
             let score = seed.weight * (r.score / top).clamp(0.0, 1.0);
-            let id = r.recording_mbid.clone();
-            if best.get(&id).is_none_or(|(was, ..)| score > *was) {
-                best.insert(id, (score, r, seed.because.clone()));
-            }
+            suggest(&mut best, &mine, score, r, &seed.because);
+        }
+    }
+    Ok(best)
+}
+
+/// Adds to `best` the most listened-to recordings of the [`TOP_ARTISTS`] closest `artists`
+/// alongside: each scored by its artist's score times its listens against their most
+/// listened-to, with its artist's seed. An artist ListenBrainz refused them for is left out.
+/// Then all of them, best first, ties broken on the recording.
+async fn with_top_recordings(
+    pool: &SqlitePool,
+    client: &listenbrainz::Client,
+    seeds: &seeds::Seeds,
+    artists: &HashMap<String, (f64, Because)>,
+    mut best: Suggested,
+    now: i64,
+) -> anyhow::Result<Vec<(f64, SimilarRecording, Because)>> {
+    let mine: HashSet<&str> = seeds.recordings.iter().map(|s| s.mbid.as_str()).collect();
+    let mut closest: Vec<(&String, &(f64, Because))> = artists.iter().collect();
+    closest.sort_by(|a, b| b.1.0.total_cmp(&a.1.0).then_with(|| a.0.cmp(b.0)));
+    for (artist, (score, because)) in closest.into_iter().take(TOP_ARTISTS) {
+        let Some(found) = asking::top_recordings(pool, client, artist, now).await? else {
+            continue;
+        };
+        let most = found
+            .first()
+            .map_or(1.0, |r| r.total_listen_count)
+            .max(f64::MIN_POSITIVE);
+        for r in found.into_iter().take(TOP_PER_ARTIST) {
+            let score = score * (r.total_listen_count / most).clamp(0.0, 1.0);
+            let r = SimilarRecording {
+                recording_mbid: r.recording_mbid,
+                recording_name: r.recording_name,
+                artist_credit_name: r.artist_name,
+                release_name: r.release_name,
+                release_mbid: r.release_mbid,
+                score: r.total_listen_count,
+            };
+            suggest(&mut best, &mine, score, r, because);
         }
     }
     let mut found: Vec<_> = best.into_values().collect();
@@ -246,6 +310,7 @@ pub(super) async fn pick(
     let left_out = left_out(pool, user, &flagged, now).await?;
     let alike = alike_recordings(pool, client, &seeds, now).await?;
     let artists = alike_artists(pool, client, &seeds, now).await?;
+    let alike = with_top_recordings(pool, client, &seeds, &artists, alike, now).await?;
 
     let ids: Vec<String> = alike
         .iter()

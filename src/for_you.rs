@@ -5,8 +5,9 @@
 //! Its seeds are the recordings and artists a listener finished most in the last 90 days, of
 //! the tracks they may see, leaving out any they flagged not interested. ListenBrainz
 //! ([`crate::listenbrainz`]) is asked, by MusicBrainz id alone, for the recordings listened to
-//! alongside each seed recording and the artists alongside each seed artist, then for the
-//! artists and album of the recordings it suggests. A suggestion the library has (a present
+//! alongside each seed recording and the artists alongside each seed artist, for the most
+//! listened-to recordings of the closest of those artists, then for the artists and album of
+//! the recordings suggested. A suggestion the library has (a present
 //! track the listener may see with its recording id, or with one of its artists' ids and the
 //! same title) is one to play, unless they heard it in the last 30 days, finished it three times
 //! or flagged it; the rest are to request. Tracks by the artists alongside theirs are ones to
@@ -41,7 +42,7 @@ const REMAKE_AFTER: i64 = 24 * 3600;
 /// Making a list starts at most this often for each listener, so a failing one isn't retried
 /// on every run.
 const TRY_EVERY: i64 = 3600;
-/// The most lists one background run makes: each is up to some 30 requests at one a second.
+/// The most lists one background run makes: each is up to some 40 requests at one a second.
 pub const PER_RUN: usize = 5;
 /// How often the background run looks for lists to make.
 const EVERY: Duration = Duration::from_secs(3600);
