@@ -357,6 +357,10 @@ pub async fn of(
     Ok(Some(progress))
 }
 
+/// A download under way for a series: its season, state, progress, message, and the other
+/// seasons of a pack of several it brings home.
+type Moving = (Option<i64>, String, f64, Option<String>, Option<String>);
+
 /// One season of a wanted series, as it stands: whether it's looked for, how much of it
 /// is in the library, and a download of it under way.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -420,9 +424,9 @@ pub async fn seasons(
     .await?;
     let known = !aired.is_empty();
     // Downloads under way, newest first; one without a season (a whole-series pack) is every
-    // season's.
-    let moving: Vec<(Option<i64>, String, f64, Option<String>)> = sqlx::query_as(
-        "SELECT season, state, progress, message FROM downloads
+    // season's, and a pack of several seasons each of its seasons'.
+    let moving: Vec<Moving> = sqlx::query_as(
+        "SELECT season, state, progress, message, seasons FROM downloads
          WHERE wanted_series_id = ? AND state IN ('downloading', 'completed', 'transferring')
          ORDER BY id DESC",
     )
@@ -438,9 +442,17 @@ pub async fn seasons(
             // Every aired episode that isn't left out on its own is here.
             let complete = episodes.is_some_and(|n| n > 0)
                 && of_season().all(|(s, e, left_out)| *left_out || on_disk.contains(&(*s, *e)));
-            let download = moving.iter().find(|(s, ..)| s.is_none_or(|s| s == season));
+            // A pack of several seasons is each season's it brings home.
+            let brings = |s: &Option<i64>, others: &Option<String>| {
+                s.is_none_or(|s| s == season)
+                    || others.as_deref().is_some_and(|o| {
+                        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(o)
+                            .is_ok_and(|o| o.contains_key(&season.to_string()))
+                    })
+            };
+            let download = moving.iter().find(|(s, .., others)| brings(s, others));
             let (step, percent) = match download {
-                Some((_, state, done, message)) if !complete => {
+                Some((_, state, done, message, _)) if !complete => {
                     let step = download_step(state, message.as_deref());
                     (step, (step == Step::Downloading).then_some(*done))
                 }

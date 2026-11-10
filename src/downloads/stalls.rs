@@ -128,10 +128,11 @@ pub(crate) async fn set_aside_in(
     wanted_series_id: i64,
     season: i64,
 ) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM downloads WHERE wanted_series_id = ? AND season = ?
-                        AND state = 'failed' AND message = ?)",
-    )
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT EXISTS (SELECT 1 FROM downloads d WHERE wanted_series_id = ?1 AND {}
+                        AND state = 'failed' AND message = ?3)",
+        super::brings_season("d", "?2")
+    )))
     .bind(wanted_series_id)
     .bind(season)
     .bind(setting_aside())

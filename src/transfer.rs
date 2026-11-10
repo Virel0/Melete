@@ -40,6 +40,7 @@ mod extras;
 mod identity;
 mod picking;
 mod place;
+mod seasons;
 mod tracking;
 mod verify;
 
@@ -51,6 +52,7 @@ pub(crate) use extras::*;
 pub(crate) use identity::*;
 pub(crate) use picking::*;
 pub(crate) use place::*;
+pub use seasons::reopen_packs;
 use tracking::*;
 
 /// How often to look for finished downloads when there's nothing to do.
@@ -127,7 +129,19 @@ pub async fn work_with(
     {
         tracing::warn!(error = %err, "couldn't reset interrupted transfers");
     }
+    let mut reopened_at: Option<std::time::Instant> = None;
     loop {
+        // Packs brought home for one season, opened again for their others: at the start, then
+        // hourly, for any imported meanwhile.
+        if reopened_at.is_none_or(|at| at.elapsed() >= Duration::from_secs(3600)) {
+            reopened_at = Some(std::time::Instant::now());
+            if let Err(err) = reopen_packs(&pool).await {
+                tracing::warn!(
+                    error = format!("{err:#}"),
+                    "couldn't open packs again for their other seasons"
+                );
+            }
+        }
         match next_due(&pool).await {
             Ok(Some(id)) => {
                 if let Err(err) = bring_home(&pool, seedbox, Some(&fixes), &sources, id).await {
@@ -333,6 +347,10 @@ pub(crate) async fn finish(
             // So the new files show up now rather than at the next scheduled scan: only the
             // folder they went into is scanned, which wakes no other disk.
             crate::library::ask_scan_of(pool, &dir).await?;
+            // A pack of several seasons goes on to its next.
+            if seasons::queue_next(pool, id, &message).await?.is_some() {
+                return Ok(());
+            }
             sqlx::query(
                 "UPDATE downloads SET state = 'imported', destination = ?, attempts = 0, next_attempt_at = NULL,
                      message = ?, updated_at = ?
@@ -389,6 +407,10 @@ pub(crate) async fn finish(
             .await?;
         }
         Err(Stop::Fail(why)) => {
+            // A pack of several seasons whose season can't be brought home goes on to its next.
+            if seasons::queue_next(pool, id, &why).await?.is_some() {
+                return Ok(());
+            }
             sqlx::query(
                 "UPDATE downloads SET state = 'failed', message = ?, updated_at = ? WHERE id = ?",
             )

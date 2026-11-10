@@ -216,11 +216,15 @@ async fn on_the_way(
     before: &HashMap<i64, Key>,
     after: &HashMap<i64, Key>,
 ) -> sqlx::Result<Option<Key>> {
+    // A pack of several seasons is on its way for each of them, whole.
     let coming: Vec<(i64, Option<i64>)> = sqlx::query_as(
         "SELECT season, episode FROM downloads
-         WHERE wanted_series_id = ? AND season IS NOT NULL
+         WHERE wanted_series_id = ?1 AND season IS NOT NULL
            AND state IN ('downloading', 'completed', 'transferring')
-         ORDER BY season, episode",
+         UNION
+         SELECT CAST(s.key AS INTEGER), NULL FROM downloads d, json_each(d.seasons) s
+         WHERE d.wanted_series_id = ?1 AND d.state IN ('downloading', 'completed', 'transferring')
+         ORDER BY 1, 2",
     )
     .bind(wanted)
     .fetch_all(&mut *conn)

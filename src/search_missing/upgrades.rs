@@ -73,7 +73,9 @@ pub(super) async fn still_below_cutoff(pool: &SqlitePool, item: &Item) -> anyhow
                         EXISTS (SELECT 1 FROM downloads d
                                 WHERE d.wanted_series_id = w.id AND d.state IN {UNDER_WAY}
                                   AND (d.season IS NULL OR (d.season = ?2
-                                       AND (d.episode IS NULL OR d.episode = ?3))))
+                                       AND (d.episode IS NULL OR d.episode = ?3))
+                                       OR EXISTS (SELECT 1 FROM json_each(d.seasons,
+                                                      '$.\"' || ?2 || '\"') WHERE value = ?3)))
                  FROM wanted_series w WHERE w.id = ?1"
             )))
             .bind(id)

@@ -18,6 +18,9 @@ pub(crate) struct Part {
     pub(super) kept: Vec<i64>,
     /// Episodes left out because a download for them is on its way or not settled.
     pub(super) on_the_way: Vec<i64>,
+    /// For a pack of several seasons, the other monitored seasons it adds to, each with the
+    /// episodes it's taken for: brought home with this one.
+    pub(crate) others: Vec<(i64, Vec<i64>)>,
 }
 
 impl Part {
@@ -38,6 +41,12 @@ impl Part {
             said.push_str(&format!(
                 "; left out {}, on its way",
                 numbers(&self.on_the_way)
+            ));
+        }
+        for (season, episodes) in &self.others {
+            said.push_str(&format!(
+                "; season {season}'s episodes {} too",
+                numbers(episodes)
             ));
         }
         said
@@ -123,6 +132,7 @@ pub(super) async fn part_of(
         replaces: Vec::new(),
         kept: Vec::new(),
         on_the_way: Vec::new(),
+        others: Vec::new(),
     };
     let mut missing = 0;
     for e in listed {
@@ -154,6 +164,81 @@ pub(super) async fn part_of(
             numbers(&part.on_the_way)
         )
     }))
+}
+
+/// The part of a pack of several seasons to take: [`part_of`] `season`, the one searched for,
+/// and with it the pack's other seasons it adds missing episodes to ([`others_of`]), so the
+/// pack is downloaded once for all of them. Why not, when it adds nothing to `season`.
+pub(super) async fn part_of_seasons(
+    pool: &SqlitePool,
+    wanted_series_id: i64,
+    season: i64,
+    seasons: &[i64],
+    wanted: &Wanted,
+    release: &Release,
+    decision: &serde_json::Value,
+) -> anyhow::Result<Result<Part, String>> {
+    let mut part = match part_of(pool, wanted_series_id, season, wanted, release, decision).await? {
+        Ok(part) => part,
+        Err(why) => return Ok(Err(why)),
+    };
+    part.others = others_of(
+        pool,
+        wanted_series_id,
+        season,
+        seasons,
+        wanted,
+        release,
+        decision,
+    )
+    .await?;
+    Ok(Ok(part))
+}
+
+/// The seasons of a pack of several besides `season`, each monitored one it adds missing
+/// episodes to with those episodes (as [`part_of`] would take them, less any it would take as an
+/// upgrade: a file on disk is replaced only for the season a download is first brought home
+/// for, so none is trashed before its copy is in place).
+pub(crate) async fn others_of(
+    pool: &SqlitePool,
+    wanted_series_id: i64,
+    season: i64,
+    seasons: &[i64],
+    wanted: &Wanted,
+    release: &Release,
+    decision: &serde_json::Value,
+) -> anyhow::Result<Vec<(i64, Vec<i64>)>> {
+    let mut others = Vec::new();
+    for &other in seasons.iter().filter(|s| **s != season) {
+        if !monitored(pool, wanted_series_id, other).await? {
+            continue;
+        }
+        if let Ok(taken) = part_of(pool, wanted_series_id, other, wanted, release, decision).await?
+        {
+            let upgrades: Vec<i64> = taken.replaces.iter().filter_map(|r| r.episode).collect();
+            let missing: Vec<i64> = taken
+                .episodes
+                .into_iter()
+                .filter(|e| !upgrades.contains(e))
+                .collect();
+            if !missing.is_empty() {
+                others.push((other, missing));
+            }
+        }
+    }
+    Ok(others)
+}
+
+/// Whether the series' season is monitored (a season not listed is, as the series is).
+async fn monitored(pool: &SqlitePool, wanted_series_id: i64, season: i64) -> sqlx::Result<bool> {
+    let set: Option<bool> = sqlx::query_scalar(
+        "SELECT monitored = 1 FROM wanted_seasons WHERE wanted_series_id = ? AND season = ?",
+    )
+    .bind(wanted_series_id)
+    .bind(season)
+    .fetch_optional(pool)
+    .await?;
+    Ok(set.unwrap_or(true))
 }
 
 /// The episodes of the season TMDB lists as aired, in the order the series follows, those left
@@ -289,9 +374,8 @@ type Coming = (String, Option<i64>, Option<String>);
 
 /// The episodes of the season a download is on its way for, or not yet settled in the library;
 /// None when one is for the whole season. A download names the first episode it was searched
-/// for, so its own name says the rest of a multi-episode release. Only a download recorded for
-/// this season counts: one recorded for another is brought home as that season's, so this one
-/// never waits on it.
+/// for, so its own name says the rest of a multi-episode release. A download counts when it
+/// brings this season home: recorded for it, or a pack of several seasons taken for it too.
 async fn on_the_way(
     pool: &SqlitePool,
     wanted_series_id: i64,
@@ -299,8 +383,11 @@ async fn on_the_way(
     wanted: &Wanted,
 ) -> anyhow::Result<Option<Vec<i64>>> {
     let rows: Vec<Coming> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT title, episode, episodes FROM downloads
-         WHERE wanted_series_id = ? AND season = ? AND state <> 'failed' AND {UNSETTLED}"
+        "SELECT title, {}, {} FROM downloads d
+         WHERE wanted_series_id = ?1 AND {} AND state <> 'failed' AND {UNSETTLED}",
+        crate::downloads::episode_in_season("d", "?2"),
+        crate::downloads::episodes_for_season("d", "?2"),
+        crate::downloads::brings_season("d", "?2"),
     )))
     .bind(wanted_series_id)
     .bind(season)

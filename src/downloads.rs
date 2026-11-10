@@ -32,6 +32,31 @@ pub use records::*;
 pub use removing::*;
 pub use stalls::*;
 
+/// SQL: whether download row `d` brings home `season` (an SQL expression): the season it was
+/// grabbed for, or another of a pack of several seasons taken with it (`downloads.seasons`).
+/// `d` and `season` are code, never input.
+pub fn brings_season(d: &str, season: &str) -> String {
+    format!(
+        "({d}.season = {season} OR json_type({d}.seasons, '$.\"' || {season} || '\"') IS NOT NULL)"
+    )
+}
+
+/// SQL: the episodes of `season` download row `d` was taken for, as a JSON array; NULL for the
+/// whole season. For the season it was grabbed for, its own `episodes`; for another of a pack
+/// of several seasons, that season's in `seasons`.
+pub fn episodes_for_season(d: &str, season: &str) -> String {
+    format!(
+        "(CASE WHEN {d}.season = {season} THEN {d}.episodes
+               ELSE json_extract({d}.seasons, '$.\"' || {season} || '\"') END)"
+    )
+}
+
+/// SQL: the episode download row `d` was searched for, when it was for `season`: another season
+/// of a pack of several names none.
+pub fn episode_in_season(d: &str, season: &str) -> String {
+    format!("(CASE WHEN {d}.season = {season} THEN {d}.episode END)")
+}
+
 /// The largest .torrent fetched.
 const MAX_TORRENT_BYTES: usize = 10 * 1024 * 1024;
 

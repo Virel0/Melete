@@ -30,11 +30,13 @@ pub async fn grab(
     grab_only(pool, deluge, fetcher, release_id, None).await
 }
 
-/// The episodes of its season a season pack is taken for, and the files their copies replace.
+/// The episodes of its season a season pack is taken for, and the files their copies replace;
+/// for a pack of several seasons, its other seasons taken with it and their episodes.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Only<'a> {
     pub(crate) episodes: &'a [i64],
     pub(crate) replaces: &'a [crate::upgrades::Replaced],
+    pub(crate) others: &'a [(i64, Vec<i64>)],
 }
 
 /// Like [`grab`], for only some of a season pack's episodes when `only` says which: only their
@@ -227,12 +229,23 @@ async fn insert_download(
     let episodes = only
         .map(|o| serde_json::to_string(o.episodes))
         .transpose()?;
+    let seasons = only
+        .filter(|o| !o.others.is_empty())
+        .map(|o| {
+            let by_season: serde_json::Map<String, serde_json::Value> = o
+                .others
+                .iter()
+                .map(|(season, episodes)| (season.to_string(), serde_json::json!(episodes)))
+                .collect();
+            serde_json::to_string(&by_season)
+        })
+        .transpose()?;
     let now = unix_now();
     let id: Option<i64> = sqlx::query_scalar(
         "INSERT INTO downloads (infohash, title, wanted_movie_id, wanted_series_id, wanted_album_id,
              season, episode, decision, state, message, added_at, updated_at, replaces, added_here,
-             episodes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?, ?, ?)
+             episodes, seasons)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (infohash) DO NOTHING
          RETURNING id",
     )
@@ -250,6 +263,7 @@ async fn insert_download(
     .bind(serde_json::to_string(&replaces)?)
     .bind(message.is_none())
     .bind(episodes)
+    .bind(seasons)
     .fetch_optional(pool)
     .await?;
     Ok(id)
