@@ -593,3 +593,144 @@ async fn none_fitting_names_the_closest_and_a_failed_download_gives_way_to_the_n
         "{message:?}"
     );
 }
+
+#[test]
+fn a_video_is_named_by_its_id_or_any_of_youtubes_links() {
+    let id = "dQw4w9WgXcQ";
+    for text in [
+        id,
+        " https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42 ",
+        "https://youtu.be/dQw4w9WgXcQ?si=abc",
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=x",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    ] {
+        assert_eq!(picks::video_id(text).as_deref(), Some(id), "{text}");
+    }
+    for text in [
+        "",
+        "dQw4w9WgXc",
+        "https://example.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=short",
+        "ftp://youtu.be/dQw4w9WgXcQ",
+        "https://www.youtube.com/channel/dQw4w9WgXcQ",
+    ] {
+        assert_eq!(picks::video_id(text), None, "{text}");
+    }
+}
+
+#[tokio::test]
+async fn a_video_chosen_by_hand_is_fetched_as_the_song_whatever_its_length() {
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    // The song came to nothing on YouTube.
+    sqlx::query(
+        "INSERT INTO song_youtube (wanted_song_id, state, message, started_at, updated_at)
+         VALUES (2, 'none', 'none of YouTube''s 10 results has its title, artist and length', 0, ?)",
+    )
+    .bind(NOW)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let picked = picks::pick(&pool, 2, "https://youtu.be/ddddddddddd", NOW)
+        .await
+        .unwrap();
+    assert_eq!(picked, Ok("ddddddddddd".to_owned()));
+    step(&pool, jobs.path(), &fixes(), NOW + 30).await.unwrap();
+    let audio = job(jobs.path(), "song-2-audio").expect("its audio asked for");
+    assert_eq!(audio["video"], "ddddddddddd");
+    let clip = jobs.path().join("done/song-2-audio.opus");
+    std::fs::create_dir_all(jobs.path().join("done")).unwrap();
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=d=3",
+            "-c:a",
+            "libopus",
+        ])
+        .arg(&clip)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    // Far longer than the song: chosen by hand, it's the song anyway.
+    answer(
+        jobs.path(),
+        "song-2-audio",
+        json!({"id": "song-2-audio", "ok": true, "file": "song-2-audio.opus", "duration": 95.0}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 60).await.unwrap();
+    assert_eq!(state(&pool).await.unwrap().0, "imported");
+    let got = progress(&pool).await;
+    assert_eq!(
+        (got.step, got.source.as_deref()),
+        (Step::InLibrary, Some("youtube"))
+    );
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM song_youtube_picks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "taken");
+}
+
+#[tokio::test]
+async fn a_video_chosen_by_hand_waits_for_what_is_under_way_and_only_while_on() {
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    // Its own search is with the downloader: the pick waits for its answer.
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    picks::pick(&pool, 2, "ddddddddddd", NOW)
+        .await
+        .unwrap()
+        .unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW + 30).await.unwrap();
+    assert!(job(jobs.path(), "song-2-audio").is_none());
+    answer(
+        jobs.path(),
+        "song-2-search",
+        json!({"id": "song-2-search", "ok": true, "results": []}),
+    );
+    step(&pool, jobs.path(), &fixes(), NOW + 60).await.unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW + 90).await.unwrap();
+    assert_eq!(
+        job(jobs.path(), "song-2-audio").unwrap()["video"],
+        "ddddddddddd"
+    );
+    assert!(picks::by_hand(&pool, 2).await.unwrap());
+    // A search made afterwards (the next automatic try) checks length again.
+    sqlx::query("UPDATE song_youtube SET state = 'failed', updated_at = 0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    std::fs::remove_dir_all(jobs.path().join("queue")).unwrap();
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW + 2 * 86_400)
+        .await
+        .unwrap();
+    assert!(job(jobs.path(), "song-2-search").is_some());
+    assert!(!picks::by_hand(&pool, 2).await.unwrap());
+    // Off: nothing is chosen, and nothing waits.
+    sqlx::query("UPDATE settings SET value = 'off'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        picks::pick(&pool, 2, "eeeeeeeeeee", NOW).await.unwrap(),
+        Err(picks::NotPicked::Off)
+    );
+    assert_eq!(
+        picks::pick(&pool, 99, "eeeeeeeeeee", NOW).await.unwrap(),
+        Err(picks::NotPicked::NoSong)
+    );
+    assert_eq!(
+        picks::pick(&pool, 2, "not a link", NOW).await.unwrap(),
+        Err(picks::NotPicked::NotAVideo)
+    );
+}

@@ -1,4 +1,5 @@
-//! Wanted songs (admins only): a single track to have, fetched through Soulseek.
+//! Wanted songs (admins only): a single track to have, fetched through Soulseek, and when
+//! Soulseek can't, from YouTube: a video an admin chooses for one by hand among them.
 //! Adding one says where it goes and how its results are decided: by default the wanted
 //! artist's library and profile when the artist is on the wanted list, else the only music
 //! library and the preset that prefers FLAC.
@@ -7,7 +8,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router, middleware};
 use serde::Deserialize;
 use sqlx::SqlitePool;
@@ -28,6 +29,7 @@ pub fn routes(pool: SqlitePool) -> Router {
     Router::new()
         .route("/api/v1/wanted/songs", get(list).post(add))
         .route("/api/v1/wanted/songs/{id}", delete(remove))
+        .route("/api/v1/wanted/songs/{id}/youtube", post(youtube))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
         .with_state(pool)
 }
@@ -243,6 +245,35 @@ async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pick {
+    /// A YouTube video's link or id.
+    video: String,
+}
+
+/// Fetches the YouTube video an admin chose as the wanted song, at the YouTube worker's next
+/// round, without matching it or checking its length.
+async fn youtube(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(pick): Json<Pick>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    use crate::song_youtube::picks::{self, NotPicked};
+    match picks::pick(&pool, id, &pick.video, unix_now()).await? {
+        Ok(video) => Ok((
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "video": video })),
+        )),
+        Err(NotPicked::NotAVideo) => Err(bad("video isn't a YouTube video's link or id")),
+        Err(NotPicked::NoSong) => Err(ApiError::new(StatusCode::NOT_FOUND, "no such wanted song")),
+        Err(NotPicked::Off) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "songs from YouTube are off; turn them on in Settings first",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
@@ -449,5 +480,61 @@ mod tests {
         )
         .await;
         assert!(status.is_client_error(), "unknown fields are refused");
+    }
+
+    #[tokio::test]
+    async fn an_admin_chooses_a_youtube_video_for_a_song_while_songs_from_youtube_are_on() {
+        let (pool, app, token) = setup(&[3]).await;
+        let (_, song) = send(
+            &app,
+            "POST",
+            "/api/v1/wanted/songs",
+            &token,
+            json!({"title": "Song", "artist": "Duo"}),
+        )
+        .await;
+        let uri = format!("/api/v1/wanted/songs/{}/youtube", song["id"]);
+        let link = json!({"video": "https://youtu.be/ddddddddddd"});
+        // Off: refused.
+        let (status, _) = send(&app, "POST", &uri, &token, link.clone()).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        sqlx::query(
+            "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_SONG_YOUTUBE', 'on', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (status, body) = send(&app, "POST", &uri, &token, link.clone()).await;
+        assert_eq!(
+            (status, body),
+            (StatusCode::ACCEPTED, json!({"video": "ddddddddddd"}))
+        );
+        let waiting: String =
+            sqlx::query_scalar("SELECT video FROM song_youtube_picks WHERE wanted_song_id = ?")
+                .bind(song["id"].as_i64())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(waiting, "ddddddddddd");
+        let bad = json!({"video": "https://example.com/watch?v=ddddddddddd"});
+        assert_eq!(
+            send(&app, "POST", &uri, &token, bad).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        let none = "/api/v1/wanted/songs/999/youtube";
+        assert_eq!(
+            send(&app, "POST", none, &token, link.clone()).await.0,
+            StatusCode::NOT_FOUND
+        );
+        // Admins only.
+        let viewer = crate::auth::testing::user(&pool, "viewer", false).await;
+        let viewer = auth::issue_token(&pool, viewer.id, TokenKind::Session, "t")
+            .await
+            .unwrap()
+            .1;
+        assert_eq!(
+            send(&app, "POST", &uri, &viewer, link).await.0,
+            StatusCode::FORBIDDEN
+        );
     }
 }

@@ -22,7 +22,7 @@ import { lists } from "/web/sources-lists.js";
 import { profiles } from "/web/sources-profiles.js";
 import { rss } from "/web/wanted-rss.js";
 import { blocklist, trash } from "/web/wanted-set-aside.js";
-import { wantedSongs } from "/web/wanted-music.js";
+import { wantedSongs } from "/web/wanted-songs.js";
 import { musicFollowing, musicProfiles } from "/web/admin-music.js";
 import { addPage, needsMatch } from "/web/manage-add.js";
 import { historyFor, queueFor, replacedFor, takenOffFor } from "/web/manage-activity.js";
