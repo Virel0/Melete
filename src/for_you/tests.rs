@@ -1,4 +1,4 @@
-use super::picking::{Candidate, rank};
+use super::picking::{Candidate, candidates, rank};
 use super::testing::{NOW, World, id, play, world};
 use super::*;
 use crate::listenbrainz::{ARTISTS_ALGORITHM, RECORDINGS_ALGORITHM};
@@ -546,5 +546,60 @@ async fn a_song_that_came_in_as_another_recording_leaves_the_list() {
             .as_ref()
             .is_none_or(|s| s.mb_recording_id != song.mb_recording_id)),
         "it's in the library now"
+    );
+}
+
+#[tokio::test]
+async fn one_artist_credited_two_ways_counts_once_against_the_cap() {
+    let w = world().await;
+    let because = Because {
+        kind: "artist".into(),
+        title: None,
+        artist: "Alder".into(),
+    };
+    // Track 6 is Birch's, by their MusicBrainz id; two songs not in the library are Birch's
+    // too, by the same id, credited "The Birch" and "Birch & Co".
+    let playable = std::collections::HashMap::from([(6, (0.9, because.clone()))]);
+    let song = |n: u32, credit: &str, score: f64| {
+        let r: crate::listenbrainz::SimilarRecording = serde_json::from_value(serde_json::json!({
+            "recording_mbid": id(n), "recording_name": format!("Other {n}"),
+            "artist_credit_name": credit, "score": 1.0,
+        }))
+        .unwrap();
+        (score, r, because.clone())
+    };
+    let requestable = vec![song(500, "The Birch", 0.8), song(501, "Birch & Co", 0.7)];
+    let meta: std::collections::HashMap<String, crate::listenbrainz::Recording> = [500, 501]
+        .into_iter()
+        .map(|n| {
+            (
+                id(n),
+                crate::listenbrainz::Recording {
+                    artist_mbids: vec![id(102)],
+                    artist: Some(if n == 500 { "The Birch" } else { "Birch & Co" }.into()),
+                    release: None,
+                    release_group_mbid: None,
+                },
+            )
+        })
+        .collect();
+    let seeds = seeds::Seeds {
+        recordings: Vec::new(),
+        artists: Vec::new(),
+    };
+    let all = candidates(&w.pool, &seeds, playable, requestable, &meta)
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 3);
+    assert!(
+        all.iter().all(|c| c.artist == format!("mbid:{}", id(102))),
+        "one key for all three"
+    );
+    let list = rank(all);
+    assert_eq!(
+        short(&list).len(),
+        2,
+        "two by one artist at most: {:?}",
+        short(&list)
     );
 }

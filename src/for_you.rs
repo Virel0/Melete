@@ -31,6 +31,7 @@ use crate::listenbrainz;
 mod asking;
 mod picking;
 mod seeds;
+mod serving;
 mod stored;
 
 use stored::*;
@@ -205,7 +206,7 @@ pub async fn for_listener(
     Ok(Served {
         state: State::Ready,
         made_at: Some(made_at),
-        items: picking::still_there(pool, user, access, items, now).await?,
+        items: serving::still_there(pool, user, access, items, now).await?,
     })
 }
 
