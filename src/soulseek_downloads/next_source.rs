@@ -13,8 +13,10 @@ use std::collections::HashSet;
 use super::*;
 use crate::{album_search, artist_search, song_search};
 
-/// Soulseek downloads a search gets at most for its album or song, the first one included.
-const TRIES: i64 = 3;
+/// Soulseek downloads a search gets at most for its album or song, the first one included:
+/// most failures are one user's (a refusal, a ban, a file changed since the search), so trying
+/// a few more costs little.
+pub(crate) const TRIES: i64 = 5;
 
 /// What a failed transfer's state says happened, as the next source's note puts it.
 pub(super) fn cause(state: &str) -> &'static str {
@@ -176,19 +178,28 @@ async fn used_up(pool: &SqlitePool, failed: &Failed, search_id: i64) -> sqlx::Re
     .bind(search_id)
     .fetch_one(pool)
     .await?;
+    Ok(Used {
+        tries,
+        users: failed_users(pool, failed.wanted_album_id, failed.wanted_song_id).await?,
+    })
+}
+
+/// The Soulseek users a download of the album or song has failed with, from any search.
+pub(crate) async fn failed_users(
+    pool: &SqlitePool,
+    album: Option<i64>,
+    song: Option<i64>,
+) -> sqlx::Result<HashSet<String>> {
     let users: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT json_extract(soulseek, '$.username') FROM downloads
          WHERE source = 'soulseek' AND state = 'failed'
            AND (wanted_album_id = ? OR wanted_song_id = ?)",
     )
-    .bind(failed.wanted_album_id)
-    .bind(failed.wanted_song_id)
+    .bind(album)
+    .bind(song)
     .fetch_all(pool)
     .await?;
-    Ok(Used {
-        tries,
-        users: users.into_iter().collect(),
-    })
+    Ok(users.into_iter().collect())
 }
 
 #[cfg(test)]

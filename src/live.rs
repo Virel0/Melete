@@ -227,6 +227,13 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
             pool.clone(),
             client.clone(),
         )));
+        tasks.push(tokio::spawn(crate::soulseek_again::work(
+            pool.clone(),
+            crate::artist_search::Sources {
+                slskd: Some(client.clone()),
+                pipeline: built.pipeline.clone(),
+            },
+        )));
         match &built.slskd_downloads {
             Some(folder) => tasks.push(tokio::spawn(soulseek_import::work(
                 pool.clone(),

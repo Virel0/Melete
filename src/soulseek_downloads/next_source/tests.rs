@@ -92,14 +92,14 @@ async fn a_refused_file_grabs_the_next_source_from_another_user() {
     seen.lock().unwrap().transfer_state = "Completed, Rejected".into();
     refresh(&pool, &slskd).await.unwrap();
 
-    let note = "trying the next source (2 of 3) after a Soulseek user refused the file";
+    let note = "trying the next source (2 of 5) after a Soulseek user refused the file";
     assert_eq!(
         downloads(&pool).await,
         [
             row(
                 "alice",
                 "failed",
-                &format!("{REFUSED}; the next source is being tried (2 of 3)")
+                &format!("{REFUSED}; the next source is being tried (2 of 5)")
             ),
             row("bob", "downloading", &format!("{note}: queued with slskd")),
         ],
@@ -120,30 +120,25 @@ async fn a_refused_file_grabs_the_next_source_from_another_user() {
 }
 
 #[tokio::test]
-async fn a_search_gets_three_downloads_at_most_and_then_it_says_so() {
-    let pool = fixture(&["alice", "bob", "carol", "erin"]).await;
+async fn a_search_gets_five_downloads_at_most_and_then_it_says_so() {
+    let pool = fixture(&["alice", "bob", "carol", "erin", "frank", "gina"]).await;
     let (slskd, seen) = testing::start(serde_json::json!([]), 1).await;
     grab(&pool, &slskd, 10).await.unwrap().unwrap();
     seen.lock().unwrap().transfer_state = "Completed, Rejected".into();
-    for _ in 0..4 {
+    for _ in 0..6 {
         refresh(&pool, &slskd).await.unwrap();
     }
 
-    let last = format!("{REFUSED}; all 3 tries are used, so it stays failed");
+    let last = format!("{REFUSED}; all 5 tries are used, so it stays failed");
+    let next = |n: i64| format!("{REFUSED}; the next source is being tried ({n} of 5)");
     assert_eq!(
         downloads(&pool).await,
         [
-            row(
-                "alice",
-                "failed",
-                &format!("{REFUSED}; the next source is being tried (2 of 3)")
-            ),
-            row(
-                "bob",
-                "failed",
-                &format!("{REFUSED}; the next source is being tried (3 of 3)")
-            ),
-            row("carol", "failed", &last),
+            row("alice", "failed", &next(2)),
+            row("bob", "failed", &next(3)),
+            row("carol", "failed", &next(4)),
+            row("erin", "failed", &next(5)),
+            row("frank", "failed", &last),
         ]
     );
     let progress = crate::progress::of(&pool, "album", 7)
@@ -158,7 +153,7 @@ async fn a_search_gets_three_downloads_at_most_and_then_it_says_so() {
 
 #[tokio::test]
 async fn a_queue_slskd_refuses_counts_as_a_try() {
-    let pool = fixture(&["alice", "bob", "carol", "erin"]).await;
+    let pool = fixture(&["alice", "bob", "carol", "erin", "frank", "gina"]).await;
     let (slskd, seen) = testing::start(serde_json::json!([]), 1).await;
     grab(&pool, &slskd, 10).await.unwrap().unwrap();
     {
@@ -175,11 +170,14 @@ async fn a_queue_slskd_refuses_counts_as_a_try() {
             row(
                 "alice",
                 "failed",
-                &format!("{REFUSED}; all 3 tries are used, so it stays failed")
+                &format!("{REFUSED}; all 5 tries are used, so it stays failed")
             ),
             row("bob", "failed", offline),
             row("carol", "failed", offline),
-        ]
+            row("erin", "failed", offline),
+            row("frank", "failed", offline),
+        ],
+        "gina is never tried"
     );
 }
 
@@ -270,14 +268,14 @@ async fn a_song_slskd_lost_gets_the_next_source_too() {
     seen.lock().unwrap().forgotten = true;
     refresh(&pool, &slskd).await.unwrap();
 
-    let note = "trying the next source (2 of 3) after slskd lost track of the last one";
+    let note = "trying the next source (2 of 5) after slskd lost track of the last one";
     assert_eq!(
         downloads(&pool).await,
         [
             row(
                 "alice",
                 "failed",
-                "slskd no longer knows part of it; the next source is being tried (2 of 3)"
+                "slskd no longer knows part of it; the next source is being tried (2 of 5)"
             ),
             row("bob", "downloading", &format!("{note}: queued with slskd")),
         ]

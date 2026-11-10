@@ -20,6 +20,8 @@ use crate::soulseek::Source;
 
 mod next_source;
 
+pub(crate) use next_source::failed_users;
+
 /// How often slskd is asked about downloads in progress.
 const FOLLOW_EVERY: Duration = Duration::from_secs(30);
 
