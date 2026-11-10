@@ -60,6 +60,8 @@ struct Built {
     fixes: Arc<album_fix::Fixes>,
     slskd: Option<Arc<slskd::Client>>,
     slskd_downloads: Option<PathBuf>,
+    /// The trailer downloader's job folder, which also takes songs from YouTube.
+    downloader_jobs: Option<PathBuf>,
     pipeline: Option<Arc<downloads::Pipeline>>,
     musicbrainz: Option<Arc<musicbrainz::Client>>,
     /// Wikimedia, for artists' portraits: there with MusicBrainz, and only then.
@@ -154,6 +156,7 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         fixes,
         slskd,
         slskd_downloads,
+        downloader_jobs: config.trailer_jobs.clone(),
         pipeline,
         musicbrainz,
         wikimedia,
@@ -237,6 +240,13 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
                 "MELETE_SLSKD_DOWNLOADS is not set; finished Soulseek downloads stay in slskd's folder"
             ),
         }
+    }
+    if let Some(jobs) = &built.downloader_jobs {
+        tasks.push(tokio::spawn(crate::song_youtube::work(
+            pool.clone(),
+            jobs.clone(),
+            built.fixes.clone(),
+        )));
     }
     spawn_downloads(pool, built, &mut tasks);
     tasks.push(tokio::spawn(rss::run(

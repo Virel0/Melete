@@ -1,10 +1,11 @@
 # Titles' trailers from YouTube, downloaded once and converted on the GPU so every player can play
-# them. Needs the VPN from compose.vpn.yaml, and is off unless both are added in .env:
+# them; with MELETE_SONG_YOUTUBE on, also songs Soulseek can't give, their audio as it comes. Needs the VPN from compose.vpn.yaml, and is off unless both are added in .env:
 #   COMPOSE_FILE=compose.yaml:compose.vpn.yaml:compose.trailers.yaml
 # The downloader shares the Gluetun container's network, so YouTube only ever sees the VPN's
 # address, and Gluetun's firewall lets nothing out while the VPN is down. Without Gluetun it
 # doesn't start. It publishes no port, never sees the library, and talks to Melete only through
-# a folder of job files; only the trailers' YouTube video ids leave the server.
+# a folder of job files; only the trailers' YouTube video ids, and a song's artist and title
+# (its search) and the video chosen for it, leave the server.
 
 services:
   trailers:

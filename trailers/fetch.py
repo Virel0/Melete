@@ -1,17 +1,27 @@
-"""Melete's trailer downloader.
+"""Melete's trailer downloader, which also fetches songs Soulseek doesn't have.
 
 Downloads one title's trailer from YouTube and makes it playable everywhere: at most the height
 asked for, converted once to HEVC on the GPU (NVENC; on the CPU when there's no GPU) unless it
 already is H.264 or HEVC, HDR kept, audio as AAC, in an MP4 that starts playing at once.
 
-Jobs are files. Melete writes `queue/<id>.json` ({"id", "video", "max_height"}: `video` a
-YouTube video id); this takes one by renaming it into `running/`, and answers with
-`done/<id>.json` and the video beside it: {"id", "ok": true, "file", "height", "duration",
-"converted"}, {"id", "ok": true, "unavailable": "<why>"} when YouTube doesn't have it (removed,
-private, blocked here), or {"id", "ok": false, "error": "<why>"}.
+Jobs are files. Melete writes `queue/<id>.json`; this takes one by renaming it into `running/`,
+and answers with `done/<id>.json`, any file beside it. Three kinds:
+
+- a trailer, {"id", "video", "max_height"} (`video` a YouTube video id): answered {"id", "ok":
+  true, "file", "height", "duration", "converted"}, or {"id", "ok": true, "unavailable":
+  "<why>"} when YouTube doesn't have it (removed, private, blocked here);
+- a song search, {"id", "kind": "song_search", "query"}: YouTube's first results for the words,
+  answered {"id", "ok": true, "results": [{"id", "title", "channel", "duration"}]}; Melete
+  picks one, or none;
+- a song, {"id", "kind": "song", "video"}: the video's best audio as it comes (Opus or AAC,
+  never converted), answered {"id", "ok": true, "file", "duration", "codec", "bitrate"}, or
+  "unavailable" as a trailer is.
+
+Any job can be answered {"id", "ok": false, "error": "<why>"}.
 
 It reaches nothing but YouTube, and only through the VPN container its network is attached to
-(compose.trailers.yaml); it has no port and never sees the library. Only the video id leaves.
+(compose.trailers.yaml); it has no port and never sees the library. Only a trailer's video id,
+a song's title and artist (its search) and the video id chosen leave.
 """
 
 import json
@@ -32,6 +42,9 @@ IDLE_SECONDS = 5.0
 BETWEEN_SECONDS = float(os.environ.get("TRAILER_PAUSE", "20"))
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 HEIGHTS = (720, 1080, 2160)
+# Results a song search reads, and the longest search words taken.
+SEARCH_RESULTS = 10
+MAX_QUERY = 200
 # What YouTube says when the video can't be had at all, as opposed to a failure worth retrying.
 GONE = ("Video unavailable", "Private video", "This video has been removed", "not available in your country",
         "Sign in to confirm your age", "members-only")
@@ -122,7 +135,90 @@ def answer(job_id, body):
     os.rename(path + ".tmp", path)
 
 
+def song_search(job, job_id):
+    """YouTube's first results for the words, with each video's title, channel and length."""
+    query = " ".join(str(job.get("query", "")).split())[:MAX_QUERY]
+    if not query:
+        raise ValueError("the job has no words to search for")
+    result = subprocess.run(
+        ["yt-dlp", "--flat-playlist", "--dump-single-json", "--no-cache-dir",
+         f"ytsearch{SEARCH_RESULTS}:{query}"],
+        capture_output=True, text=True)
+    if result.returncode != 0:
+        said = (result.stderr or result.stdout).strip().splitlines()
+        raise RuntimeError((said[-1] if said else f"yt-dlp ended with {result.returncode}")[:300])
+    found = json.loads(result.stdout or "{}")
+    results = []
+    for entry in found.get("entries") or []:
+        video = str(entry.get("id") or "")
+        if not VIDEO_ID.match(video):
+            continue
+        results.append({"id": video, "title": str(entry.get("title") or ""),
+                        "channel": str(entry.get("channel") or entry.get("uploader") or ""),
+                        "duration": entry.get("duration")})
+    return {"id": job_id, "ok": True, "results": results}
+
+
+def song(job, job_id):
+    """The video's best audio, as it comes: Opus in an .opus file or AAC in an .m4a."""
+    video_id = str(job.get("video", ""))
+    if not VIDEO_ID.match(video_id):
+        raise ValueError("the job names no YouTube video id")
+    started = time.time()
+    with tempfile.TemporaryDirectory(dir=os.path.join(JOBS, "running")) as scratch:
+        result = subprocess.run(
+            ["yt-dlp", "--no-playlist", "--no-progress", "--no-cache-dir", "--no-mtime",
+             "--format", "bestaudio[acodec=opus]/bestaudio[ext=m4a]/bestaudio",
+             "--extract-audio", "--audio-format", "best",
+             "--output", os.path.join(scratch, "source.%(ext)s"), SOURCE.format(id=video_id)],
+            capture_output=True, text=True)
+        if result.returncode != 0:
+            said = (result.stderr or result.stdout).strip().splitlines()
+            reason = (said[-1] if said else f"yt-dlp ended with {result.returncode}")[:300]
+            if any(g.lower() in reason.lower() for g in GONE):
+                return {"id": job_id, "ok": True, "unavailable": reason}
+            raise RuntimeError(reason)
+        found = [f for f in os.listdir(scratch) if f.startswith("source.")]
+        if not found:
+            raise RuntimeError("yt-dlp left no file")
+        source = os.path.join(scratch, found[0])
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
+             source], check=True, capture_output=True, text=True).stdout
+        data = json.loads(out)
+        audio = next((s for s in data["streams"] if s["codec_type"] == "audio"), None)
+        if audio is None:
+            raise RuntimeError("what YouTube gave has no audio")
+        codec = audio.get("codec_name")
+        extension = {"opus": "opus", "aac": "m4a"}.get(codec)
+        if extension is None:
+            raise RuntimeError(f"YouTube gave {codec} audio, which isn't kept")
+        file = f"{job_id}.{extension}"
+        partial = os.path.join(JOBS, "done", f".{file}.partial")
+        try:
+            # Into its own kind of file, the audio as it is.
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", source,
+                 "-map", "0:a:0", "-c:a", "copy", "-f", "ogg" if extension == "opus" else "ipod",
+                 partial], check=True, capture_output=True)
+            os.rename(partial, os.path.join(JOBS, "done", file))
+        finally:
+            if os.path.exists(partial):
+                os.remove(partial)
+    bitrate = int(data["format"].get("bit_rate") or audio.get("bit_rate") or 0)
+    return {"id": job_id, "ok": True, "file": file,
+            "duration": round(float(data["format"].get("duration") or 0), 2),
+            "codec": codec, "bitrate": bitrate, "seconds": round(time.time() - started, 1)}
+
+
 def work(job, job_id, nvenc):
+    kind = job.get("kind", "trailer")
+    if kind == "song_search":
+        return song_search(job, job_id)
+    if kind == "song":
+        return song(job, job_id)
+    if kind != "trailer":
+        raise ValueError(f"{kind} isn't a kind of job")
     video_id = str(job.get("video", ""))
     max_height = int(job.get("max_height", 0))
     if not VIDEO_ID.match(video_id):
@@ -182,7 +278,8 @@ def main():
                 raise ValueError("the job's id isn't one to name files by")
             body = work(job, job_id, nvenc)
             answer(job_id, body)
-            log(f"job {job_id}: {body.get('unavailable') or 'downloaded'}")
+            done = "searched" if "results" in body else "downloaded"
+            log(f"job {job_id}: {body.get('unavailable') or done}")
         except Exception as err:  # Any failure is the job's answer, never the worker's end.
             if re.match(r"^[A-Za-z0-9_-]{1,64}$", job_id):
                 answer(job_id, {"id": job_id, "ok": False, "error": f"{type(err).__name__}: {err}"[:500]})

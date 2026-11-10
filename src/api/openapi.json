@@ -15849,7 +15849,7 @@
           "percent": {"type": ["number", "null"], "description": "How much is downloaded, while downloading."},
           "message": {"type": ["string", "null"], "description": "The latest word on it, in plain words."},
           "download_id": {"type": ["integer", "null"]},
-          "source": {"type": ["string", "null"], "enum": ["torrent", "soulseek", null]},
+          "source": {"type": ["string", "null"], "enum": ["torrent", "soulseek", "youtube", null], "description": "Where it comes from: a torrent, a Soulseek user, or YouTube (a song Soulseek couldn't give, with MELETE_SONG_YOUTUBE on, fetched by the trailer downloader)."},
           "updated_at": {
             "type": ["integer", "null"],
             "description": "Unix seconds the download last changed; null for a step worked out from the library."

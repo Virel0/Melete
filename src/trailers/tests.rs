@@ -271,3 +271,26 @@ async fn a_video_that_isnt_an_mp4_or_leaves_the_folder_is_a_failure() {
         Path::new("/config/trailers/passwd")
     );
 }
+
+#[tokio::test]
+async fn songs_answers_in_the_shared_folder_are_left_for_songs() {
+    let pool = db::open_in_memory().await;
+    let scratch = tempfile::tempdir().unwrap();
+    let folders = folders(scratch.path());
+    let done = folders.jobs.join("done");
+    std::fs::write(
+        done.join("song-2-search.json"),
+        r#"{"id":"song-2-search","ok":true}"#,
+    )
+    .unwrap();
+    std::fs::write(done.join("movie-9.json"), r#"{"id":"movie-9","ok":true}"#).unwrap();
+    read_answers(&pool, &folders).await.unwrap();
+    assert!(
+        done.join("song-2-search.json").exists(),
+        "a song's answer stays"
+    );
+    assert!(
+        !done.join("movie-9.json").exists(),
+        "a trailer's is dealt with"
+    );
+}

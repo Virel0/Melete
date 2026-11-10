@@ -231,7 +231,7 @@ pub(crate) async fn song_destination(
 }
 
 /// A new title folder's name: "Title (Year)", without characters folders can't hold.
-pub(super) fn folder_name(title: &str, year: Option<i64>) -> String {
+pub(crate) fn folder_name(title: &str, year: Option<i64>) -> String {
     let clean: String = title
         .chars()
         .map(|c| {

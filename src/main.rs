@@ -96,6 +96,7 @@ mod settings;
 mod single_songs;
 mod slskd;
 mod song_search;
+mod song_youtube;
 mod soulseek;
 mod soulseek_downloads;
 mod soulseek_import;
