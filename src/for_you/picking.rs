@@ -60,7 +60,9 @@ pub(super) struct Candidate {
     pub score: f64,
     /// What ties are broken on: the track id or the recording.
     pub order: String,
-    /// Its first artist, folded, for the per-artist cap.
+    /// Its first artist, for the per-artist cap and the one-song-per-title check: by their
+    /// MusicBrainz id when it's known, so an artist credited two ways ("The Smashing Pumpkins",
+    /// "Smashing Pumpkins") counts once; else by the name, folded ([`artist_key`]).
     pub artist: String,
     /// Its album (release group, else the library's album), for the per-album cap.
     pub release: Option<String>,
@@ -105,7 +107,7 @@ pub(super) fn rank(mut all: Vec<Candidate>) -> Vec<Item> {
 
 /// The tracks `user` isn't offered to play: heard in the last 30 days, finished
 /// [`PLAYED_OFTEN`] times, or in `flagged`.
-async fn left_out(
+pub(super) async fn left_out(
     pool: &SqlitePool,
     user: i64,
     flagged: &HashSet<i64>,
@@ -124,7 +126,7 @@ async fn left_out(
 }
 
 /// The present track `access` sees of each of `recordings` that the library has, by recording.
-async fn by_recording(
+pub(super) async fn by_recording(
     pool: &SqlitePool,
     access: &Access,
     recordings: &[String],
@@ -146,7 +148,7 @@ async fn by_recording(
 
 /// The present tracks `access` sees crediting any of `artists` (MusicBrainz ids): each one's
 /// id, title and that artist's id, by track id.
-async fn by_artists(
+pub(super) async fn by_artists(
     pool: &SqlitePool,
     access: &Access,
     artists: &HashSet<&str>,
@@ -263,25 +265,43 @@ async fn alike_artists(
     Ok(best)
 }
 
-/// A library track's first artist (folded), its album, and its recording.
+/// A candidate's artist as [`Candidate::artist`] keys it: their MusicBrainz id when known, else
+/// their name, folded.
+pub(super) fn artist_key(mbid: Option<&str>, name: &str) -> String {
+    match mbid.filter(|m| !m.is_empty()) {
+        Some(mbid) => format!("mbid:{mbid}"),
+        None => format!("name:{}", fold(name)),
+    }
+}
+
+/// A library track's first artist ([`artist_key`]), its album, and its recording.
 type Details = HashMap<i64, (String, Option<String>, Option<String>)>;
 
 async fn details(pool: &SqlitePool, tracks: &[i64]) -> sqlx::Result<Details> {
-    let rows: Vec<(i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+    type Row = (i64, String, Option<String>, Option<String>, Option<String>);
+    let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT t.id,
              coalesce((SELECT ta.name FROM music_track_artists ta
                        WHERE ta.track_id = t.id AND ta.position = 0), t.artist, ''),
              coalesce(a.match_release_group_id, a.mb_release_group_id, 'album:' || t.album_id),
-             coalesce(t.mb_recording_id, t.match_recording_id)
+             coalesce(t.mb_recording_id, t.match_recording_id),
+             (SELECT {ARTIST_MBID} FROM music_track_artists ta
+                  JOIN music_artists ar ON ar.id = ta.artist_id
+              WHERE ta.track_id = t.id AND ta.position = 0)
          FROM music_tracks t LEFT JOIN music_albums a ON a.id = t.album_id
-         WHERE t.id IN (SELECT value FROM json_each(?))",
-    )
+         WHERE t.id IN (SELECT value FROM json_each(?))"
+    )))
     .bind(serde_json::to_string(tracks).unwrap_or_else(|_| "[]".into()))
     .fetch_all(pool)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, artist, release, recording)| (id, (fold(&artist), release, recording)))
+        .map(|(id, artist, release, recording, mbid)| {
+            (
+                id,
+                (artist_key(mbid.as_deref(), &artist), release, recording),
+            )
+        })
         .collect())
 }
 
@@ -375,7 +395,7 @@ pub(super) async fn pick(
 
 /// The candidates to rank: tracks to play, but none a seed's own recording, and songs to
 /// request, each song once by its artist and title.
-async fn candidates(
+pub(super) async fn candidates(
     pool: &SqlitePool,
     seeds: &seeds::Seeds,
     playable: HashMap<i64, (f64, Because)>,
@@ -408,7 +428,10 @@ async fn candidates(
     let mut songs = HashSet::new();
     for (score, r, because) in requestable {
         let found = meta.get(&r.recording_mbid);
-        let artist = fold(
+        let artist = artist_key(
+            found
+                .and_then(|m| m.artist_mbids.first())
+                .map(String::as_str),
             found
                 .and_then(|m| m.artist.as_deref())
                 .unwrap_or(&r.artist_credit_name),
@@ -430,61 +453,4 @@ async fn candidates(
         });
     }
     Ok(out)
-}
-
-/// The kept list's songs still to offer, in order: those to play still present for `access`
-/// and not heard lately, finished often or flagged by `user` since; those to request still not
-/// in the library for them.
-pub(super) async fn still_there(
-    pool: &SqlitePool,
-    user: i64,
-    access: &Access,
-    items: Vec<Item>,
-    now: i64,
-) -> anyhow::Result<Vec<Item>> {
-    let flagged = track_ids(crate::aoide::listening::not_interested(pool, user).await?);
-    let left_out = left_out(pool, user, &flagged, now).await?;
-    let tracks: Vec<i64> = items.iter().filter_map(|i| i.track_id).collect();
-    let present: HashSet<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT t.id FROM music_tracks t WHERE t.missing_since IS NULL AND {}
-           AND t.id IN (SELECT value FROM json_each(?))",
-        access.track_sql("t")
-    )))
-    .bind(serde_json::to_string(&tracks)?)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .collect();
-    let songs: Vec<String> = items
-        .iter()
-        .filter_map(|i| Some(i.song.as_ref()?.mb_recording_id.clone()))
-        .collect();
-    let arrived = by_recording(pool, access, &songs).await?;
-    // Or arrived as another recording: one of its artists' tracks with its title, folded, as
-    // a list counts one owned.
-    let credited: HashSet<&str> = items
-        .iter()
-        .filter_map(|i| i.song.as_ref())
-        .flat_map(|s| s.mb_artist_ids.iter().map(String::as_str))
-        .collect();
-    let titled: HashSet<(String, String)> = by_artists(pool, access, &credited)
-        .await?
-        .into_iter()
-        .map(|(_, title, artist)| (artist, fold(&title)))
-        .collect();
-    let came = |song: &crate::for_you::Song| {
-        arrived.contains_key(&song.mb_recording_id)
-            || song
-                .mb_artist_ids
-                .iter()
-                .any(|a| titled.contains(&(a.clone(), fold(&song.title))))
-    };
-    Ok(items
-        .into_iter()
-        .filter(|i| match (&i.track_id, &i.song) {
-            (Some(track), _) => present.contains(track) && !left_out.contains(track),
-            (None, Some(song)) => !came(song),
-            (None, None) => false,
-        })
-        .collect())
 }
