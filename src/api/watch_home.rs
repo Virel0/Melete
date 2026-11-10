@@ -29,6 +29,7 @@ use crate::access::Access;
 
 mod because;
 mod cards;
+mod hero;
 mod hero_clip;
 mod hero_trailer;
 mod kinds;
@@ -40,7 +41,9 @@ use cards::*;
 /// The most titles in each row.
 const ROW: i64 = 20;
 /// The most picks the hero steps through.
-const HERO: usize = 8;
+const HERO: usize = 12;
+/// Of those, how many go to what's for the viewer and what's new before what they're watching.
+const HERO_FIRST: usize = 10;
 
 #[derive(Clone)]
 struct HomeState {
@@ -184,17 +187,12 @@ async fn home(
     );
     let (highly_rated, again) = (mine(highly_rated), mine(again));
 
-    // The hero: what's being watched first, then the newest of everything.
-    let mut newest: Vec<&(TitleRef, i64)> = shows.iter().chain(&anime).chain(&movies).collect();
-    newest.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
-    let mut seen = HashSet::new();
-    let hero: Vec<Entry> = continuing
-        .iter()
-        .cloned()
-        .chain(newest.into_iter().map(|(t, _)| Entry::plain(*t)))
-        .filter(|e| seen.insert(e.title))
-        .take(HERO)
-        .collect();
+    let hero = hero::picks(
+        &continuing,
+        &featured,
+        &highly_rated,
+        [&shows, &anime, &movies],
+    );
 
     let rows: [(&str, Vec<Entry>); 10] = [
         ("continue_watching", continuing),

@@ -157,10 +157,11 @@ async fn rows_hold_their_titles_in_order_with_anime_apart() {
         ["movie:2", "movie:1"],
         "a gone film is left out"
     );
-    // The hero: what's being watched, then the newest of everything, each title once.
+    // The hero: what's new (with nothing picked for them), then what's being watched, each
+    // title once.
     assert_eq!(
         titles(&home["hero"]),
-        ["movie:2", "series:1", "series:3", "series:2", "movie:1"]
+        ["series:1", "movie:2", "series:3", "series:2", "movie:1"]
     );
 }
 
@@ -191,7 +192,8 @@ async fn each_item_carries_its_art_facts_and_progress() {
                           "watched": false, "updated_at": 20 });
     assert_eq!(row(&home, "continue_watching")[0]["progress"], partway);
     assert_eq!(row(&home, "latest_movies")[0]["progress"], partway);
-    assert_eq!(home["hero"][0]["progress"], partway);
+    assert_eq!(home["hero"][1]["id"], 2);
+    assert_eq!(home["hero"][1]["progress"], partway, "in the hero too");
     // The next episode, and the two on disk not watched (one file holds both; the special
     // doesn't count).
     let show = &row(&home, "next_up")[0];
@@ -309,7 +311,7 @@ async fn empty_rows_are_left_out_and_each_user_sees_their_own() {
 }
 
 #[tokio::test]
-async fn the_hero_has_at_most_eight_picks() {
+async fn the_hero_has_at_most_twelve_picks() {
     let f = fixture().await;
     for id in 10..20 {
         sqlx::query(
@@ -347,3 +349,68 @@ mod hero_clip;
 mod hero_trailer;
 mod more;
 mod picks;
+
+fn entry(series: bool, id: i64) -> Entry {
+    Entry::plain(TitleRef { series, id })
+}
+
+fn hero_titles(hero: &[Entry]) -> Vec<String> {
+    hero.iter()
+        .map(|e| {
+            format!(
+                "{}:{}",
+                if e.title.series { "series" } else { "movie" },
+                e.title.id
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_hero_puts_whats_for_you_and_whats_new_first_turn_about_and_whats_watched_last() {
+    let picked: Vec<Entry> = (1..=6).map(|id| entry(false, id)).collect();
+    let rated = [entry(false, 90)];
+    // Newest first: series 21 then 22 ... (added at 200, 199, ...); movie 3 is picked too.
+    let shows: Vec<(TitleRef, i64)> = (21..=26)
+        .map(|id| (TitleRef { series: true, id }, 221 - id))
+        .collect();
+    let movies = [(
+        TitleRef {
+            series: false,
+            id: 3,
+        },
+        150,
+    )];
+    let watching = [entry(true, 30), entry(true, 31), entry(true, 32)];
+    let hero = hero::picks(&watching, &picked, &rated, [&shows, &[], &movies]);
+    assert_eq!(
+        hero_titles(&hero),
+        [
+            "movie:1",
+            "series:21",
+            "movie:2",
+            "series:22",
+            "movie:3",
+            "series:23",
+            "movie:4",
+            "series:24",
+            "movie:5",
+            "series:25",
+            "series:30",
+            "series:31"
+        ],
+        "ten for you and new, turn about (movie 3 once), then what's being watched"
+    );
+    // Without AI picks: highly rated titles not started stand in.
+    let hero = hero::picks(&watching, &[], &rated, [&shows, &[], &movies]);
+    assert_eq!(
+        &hero_titles(&hero)[..3],
+        ["movie:90", "series:21", "series:22"]
+    );
+    // Little new and nothing for them: what's being watched fills the rest.
+    let hero = hero::picks(&watching, &[], &[], [&shows[..1], &[], &[]]);
+    assert_eq!(
+        hero_titles(&hero),
+        ["series:21", "series:30", "series:31", "series:32"]
+    );
+}
