@@ -68,6 +68,12 @@ pub(super) const PROXY: Service = Service {
             "Artists' portraits, from wikidata.org and Wikimedia Commons.",
             ON,
         ),
+        field(
+            Via::ListenBrainz.setting(),
+            "ListenBrainz through the proxy",
+            "For You, from labs.api.listenbrainz.org and api.listenbrainz.org.",
+            ON,
+        ),
         field(Via::Lyrics.setting(), "LRCLIB through the proxy", "", ON),
         field(
             Via::OpenSubtitles.setting(),

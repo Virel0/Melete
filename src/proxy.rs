@@ -97,6 +97,8 @@ pub enum Service {
     CoverArt,
     /// Wikidata and Wikimedia Commons, for artists' portraits.
     Wikimedia,
+    /// ListenBrainz, for For You.
+    ListenBrainz,
     /// LRCLIB, for lyrics.
     Lyrics,
     OpenSubtitles,
@@ -121,11 +123,12 @@ pub enum Service {
 
 impl Service {
     /// Every service, in the order the settings show them.
-    pub const ALL: [Service; 15] = [
+    pub const ALL: [Service; 16] = [
         Service::Tmdb,
         Service::MusicBrainz,
         Service::CoverArt,
         Service::Wikimedia,
+        Service::ListenBrainz,
         Service::Lyrics,
         Service::OpenSubtitles,
         Service::OpenRouter,
@@ -146,6 +149,7 @@ impl Service {
             Service::MusicBrainz => "MELETE_PROXY_MUSICBRAINZ",
             Service::CoverArt => "MELETE_PROXY_COVERART",
             Service::Wikimedia => "MELETE_PROXY_WIKIMEDIA",
+            Service::ListenBrainz => "MELETE_PROXY_LISTENBRAINZ",
             Service::Lyrics => "MELETE_PROXY_LYRICS",
             Service::OpenSubtitles => "MELETE_PROXY_OPENSUBTITLES",
             Service::OpenRouter => "MELETE_PROXY_OPENROUTER",

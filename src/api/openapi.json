@@ -6134,6 +6134,32 @@
         }
       }
     },
+    "/api/v1/music/for-you": {
+      "get": {
+        "tags": ["Music"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "For You",
+        "description": "Songs for you from your own play history, while an admin has For You on (Settings → Outside services → MusicBrainz → For You from ListenBrainz; off by default, and only with MusicBrainz on): some in the library to play, some not, to request, up to 40, best first, each with the song or artist of yours it came from (`because`, for \"Because you listened to …\"). It's made from the 10 recordings and 10 artists (each track's first credited) you finished most in the last 90 days, of the tracks you may see, leaving out those you flagged not interested: ListenBrainz says which recordings are listened to alongside each recording and which artists alongside each artist. A suggestion is one to play when a present track you may see has its recording id, or one of its artists' ids and the same title (compared without case, accents or punctuation); tracks by the artists alongside yours are ones to play too, but never one you heard in the last 30 days, finished three times or flagged, nor your seeds' own. The rest are to request. At most two by one artist and one from one album; each kind gets up to half first, and what's left goes to the best of either. What leaves the server, to labs.api.listenbrainz.org and api.listenbrainz.org: the MusicBrainz ids of your seed recordings and artists, and of the recordings ListenBrainz suggested (for their artists and album). Never a name, an account, play counts, titles or anything else about the household. Lists are kept and served at once; yours is made in the background the first time, then again once a day has passed and what you played has changed (a few listeners an hour, so a first list can take a while), and ListenBrainz's answers are kept a week. Each time it's served, a track to play you may no longer see, or have heard or flagged since, is left out, and so is a song to request that's now in the library for you. Only your own list is served. A song to request carries what `POST /api/v1/requests` takes to ask for it (`kind` and `mb_recording_id`), and its state as discovery says it: `requested` when it's wanted already, or you asked for it and it wasn't declined (with `request_id`, your request), else `requestable`. Its cover is its album's from the Cover Art Archive, only with covers of music not in the library on (`MELETE_SEARCH_COVERS`), served to you alone, as a search's are (`GET /api/v1/music/release-groups/{id}/cover`). Turned off, `state` is `off`, and every list and answer kept is forgotten.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most songs to give.",
+            "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 40}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicForYou"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      }
+    },
     "/api/v1/music/collections": {
       "get": {
         "tags": ["Music"],
@@ -10285,6 +10311,7 @@
                 "stem-splitting",
                 "following",
                 "artist-portraits",
+                "for-you",
                 "rss-sync",
                 "import-lists",
                 "offline-copies",
@@ -16888,6 +16915,71 @@
         },
         "additionalProperties": false
       },
+      "MusicForYou": {
+        "type": "object",
+        "required": ["state", "made_at", "items"],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["off", "no_history", "waiting", "ready"],
+            "description": "`off`: For You isn't on, or MusicBrainz is off. `no_history`: you finished nothing in the last 90 days to go on. `waiting`: your list hasn't been made yet; it's made in the background, so ask again later. `ready`: these are its songs (none when nothing was found)."
+          },
+          "made_at": {"type": ["integer", "null"], "description": "When your list was made, in seconds since 1970; null until it's `ready`."},
+          "items": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/MusicForYouItem"},
+            "description": "Best first; empty unless `ready`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "MusicForYouItem": {
+        "type": "object",
+        "required": ["state", "track", "song", "request_id", "because"],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["playable", "requested", "requestable"],
+            "description": "`playable`: in the library, with `track`. `requested`: not in the library, with `song`, and wanted already or asked for by you. `requestable`: not in the library, with `song`, to ask for."
+          },
+          "track": {
+            "anyOf": [{"$ref": "#/components/schemas/MusicTrack"}, {"type": "null"}],
+            "description": "The track to play, as the library's track lists give it; null for a song not in the library."
+          },
+          "song": {
+            "anyOf": [{"$ref": "#/components/schemas/MusicForYouSong"}, {"type": "null"}],
+            "description": "The song to request; null for one in the library."
+          },
+          "request_id": {"type": ["integer", "null"], "description": "Your request for the song, when you asked for it and it wasn't declined."},
+          "because": {"$ref": "#/components/schemas/MusicForYouBecause"}
+        },
+        "additionalProperties": false
+      },
+      "MusicForYouSong": {
+        "type": "object",
+        "required": ["kind", "mb_recording_id", "title", "artist", "mb_artist_ids", "release", "poster"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["song"], "description": "What `POST /api/v1/requests` asks for it as, with `mb_recording_id`."},
+          "mb_recording_id": {"type": "string", "description": "Its MusicBrainz recording."},
+          "title": {"type": "string", "description": "Its title, as ListenBrainz gives it."},
+          "artist": {"type": "string", "description": "Its artists, as one line."},
+          "mb_artist_ids": {"type": "array", "items": {"type": "string"}, "description": "Its credited artists' MusicBrainz ids, in order; empty when ListenBrainz doesn't say."},
+          "release": {"type": ["string", "null"], "description": "The album it's listed from."},
+          "poster": {"type": ["string", "null"], "description": "Its album's cover on this server, with covers of music not in the library on; null otherwise, or when the archive was found to have none in the last day."}
+        },
+        "additionalProperties": false
+      },
+      "MusicForYouBecause": {
+        "type": "object",
+        "required": ["kind", "title", "artist"],
+        "description": "The seed of yours a song came from.",
+        "properties": {
+          "kind": {"type": "string", "enum": ["song", "artist"], "description": "A song you played, or an artist."},
+          "title": {"type": ["string", "null"], "description": "The song's title; null for an artist."},
+          "artist": {"type": "string", "description": "The song's artist, or the artist's name."}
+        },
+        "additionalProperties": false
+      },
       "MusicMix": {
         "type": "object",
         "required": ["key", "name", "about", "tracks"],
@@ -19806,6 +19898,7 @@
               "stem-splitting",
               "following",
               "artist-portraits",
+              "for-you",
               "rss-sync",
               "import-lists",
               "offline-copies",

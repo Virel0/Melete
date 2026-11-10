@@ -46,6 +46,9 @@ pub static FOLLOW: Notify = Notify::const_new();
 /// Wakes the lookup of library artists' portraits (an admin running it from Tasks).
 pub static PORTRAITS: Notify = Notify::const_new();
 
+/// Wakes the making of For You lists (someone's is due, or an admin running it from Tasks).
+pub static FOR_YOU: Notify = Notify::const_new();
+
 /// Wakes the library scan now rather than at its next run, every library whole.
 pub fn request_rescan() {
     scans::ask_whole();

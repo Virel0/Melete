@@ -64,6 +64,8 @@ struct Built {
     musicbrainz: Option<Arc<musicbrainz::Client>>,
     /// Wikimedia, for artists' portraits: there with MusicBrainz, and only then.
     wikimedia: Option<Arc<crate::wikimedia::Client>>,
+    /// ListenBrainz, for For You: there with it on and MusicBrainz, and only then.
+    listenbrainz: Option<Arc<crate::listenbrainz::Client>>,
     /// LRCLIB for the apps' lyrics, on with lyrics for imports.
     lyrics: Option<Arc<lrclib::Client>>,
     /// LibreTranslate for translating lyrics, when it's set up.
@@ -131,6 +133,10 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         Some(_) => Some(Arc::new(crate::wikimedia::Client::new()?)),
         None => None,
     };
+    let listenbrainz = match (config.listenbrainz, &musicbrainz) {
+        (true, Some(_)) => Some(Arc::new(crate::listenbrainz::Client::new()?)),
+        _ => None,
+    };
     let oidc = match &config.oidc {
         Some(settings) => Some(Arc::new(oidc::Client::with_pending(
             settings.clone(),
@@ -157,6 +163,7 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
         pipeline,
         musicbrainz,
         wikimedia,
+        listenbrainz,
         lyrics: match config.lyrics {
             true => Some(Arc::new(lrclib::Client::new()?)),
             false => None,
@@ -284,6 +291,15 @@ fn spawn(fixed: &Fixed, built: &Built) -> Vec<JoinHandle<()>> {
         None => tracing::info!(
             "music isn't matched to MusicBrainz, nor playlists imported, nor followed artists looked up; MELETE_MUSICBRAINZ=on turns it on"
         ),
+    }
+    match &built.listenbrainz {
+        Some(client) => tasks.push(tokio::spawn(crate::for_you::run(
+            pool.clone(),
+            client.clone(),
+        ))),
+        None => {
+            tasks.push(tokio::spawn(crate::for_you::forget_while_off(pool.clone())));
+        }
     }
     if built.song_albums {
         tracing::info!("a requested song's album is wanted once the song is in");
