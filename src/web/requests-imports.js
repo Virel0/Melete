@@ -22,7 +22,7 @@ export function importRow(ctx, i, { approving = false } = {}) {
     i.in_library ? `${i.in_library} in the library already` : null,
     i.asked ? `${i.asked} asked for` : null,
     i.already ? `${i.already} asked for already` : null,
-    i.unmatched ? `${i.unmatched} not found` : null,
+    i.unmatched ? `${i.unmatched} couldn't be asked for` : null,
     i.waiting ? `${i.waiting} waiting for an admin` : null,
   ].filter(Boolean);
   const actions = h("div", { class: "row-actions" });
@@ -69,7 +69,7 @@ export function importRow(ctx, i, { approving = false } = {}) {
     actions.append(remove);
   }
   // The tracks that weren't found, fetched when asked to be shown.
-  const missing = h("details", {}, h("summary", {}, `Tracks not found (${i.unmatched})`));
+  const missing = h("details", {}, h("summary", {}, `Tracks not asked for (${i.unmatched})`));
   missing.addEventListener("toggle", async () => {
     if (!missing.open || missing.dataset.loaded) return;
     missing.dataset.loaded = "1";
@@ -162,7 +162,7 @@ export async function imports(ctx) {
   return [
     group(
       "Import a playlist",
-      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself. Songs the library has already aren't asked for, and tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
+      h("p", { class: "note" }, "Each track becomes a song request, as if you'd asked for it yourself; one MusicBrainz doesn't know is asked for by its title and artist. Songs the library has already aren't asked for, and tracks you've asked for already are left as they are, so importing a playlist again asks only for what's new."),
       importForm(ctx, draw),
     ),
     group("Your playlist imports", empty, list),

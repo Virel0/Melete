@@ -208,7 +208,8 @@ lists for it:
   some other way, give Melete such a key.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.trailers.yaml`: the trailer downloader, behind `compose.vpn.yaml`'s VPN (it
-  shares Gluetun's network and won't start without it), converting on an NVIDIA GPU.
+  shares Gluetun's network and won't start without it), converting on an NVIDIA GPU. With
+  `MELETE_SONG_YOUTUBE` on, it also fetches songs Soulseek can't give from YouTube.
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
 - `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,

@@ -25,5 +25,11 @@ pub(super) const TRAILERS: Service = Service {
                 ],
             },
         ),
+        field(
+            "MELETE_SONG_YOUTUBE",
+            "Songs from YouTube as a last resort",
+            "A song someone asked for that Soulseek found nothing for, or whose Soulseek downloads all failed, is looked for on YouTube by its artist and title, through the VPN. A video is taken only when its title, artist and length all fit the song, and never a cover, remix or sped-up version. YouTube's audio is lossy (Opus or AAC, about 130 to 160 kbps) and is kept as it comes, whatever the music profile prefers.",
+            Input::Toggle { on: "on" },
+        ),
     ],
 };

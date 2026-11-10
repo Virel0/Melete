@@ -27,7 +27,8 @@ async fn an_import_makes_a_playlist_whose_missing_songs_show_pending() {
     let app = routes(pool.clone(), Some(mb.clone()), Sources::default());
     let csv = "Track Name,Artist Name(s),Track Duration (ms),ISRC\n\
                Paranoid Android,Radiohead,383000,GBAYE9700245\n\
-               Karma Police,Radiohead,264000,\n";
+               Karma Police,Radiohead,264000,\n\
+               Untitled Demo,,,\n";
     let body = json!({"name": "Road trip", "csv": csv, "make_playlist": true});
 
     let (status, refused) = send(
@@ -77,7 +78,7 @@ async fn an_import_makes_a_playlist_whose_missing_songs_show_pending() {
     assert_eq!(status, StatusCode::OK, "{one}");
     assert_eq!(
         (&one["name"], &one["tracks"]),
-        (&json!("Road trip"), &json!(2))
+        (&json!("Road trip"), &json!(3))
     );
     let asked = &one["items"][0];
     assert_eq!(
@@ -90,7 +91,15 @@ async fn an_import_makes_a_playlist_whose_missing_songs_show_pending() {
         json!({"request_id": request, "title": "Paranoid Android", "artist": "Radiohead",
                "album": null, "duration_ms": 383000, "state": "requested", "why": null})
     );
-    let unmatched = &one["items"][1]["pending"];
+    // MusicBrainz can't tell Karma Police: asked for by name, and pending on that request.
+    let by_name = &one["items"][1]["pending"];
+    assert!(by_name["request_id"].is_i64(), "{by_name}");
+    assert_eq!(
+        (&by_name["title"], &by_name["state"]),
+        (&json!("Karma Police"), &json!("requested"))
+    );
+    // A track that says nobody it's by can't be asked for even by name.
+    let unmatched = &one["items"][2]["pending"];
     assert_eq!(
         (&unmatched["request_id"], &unmatched["state"]),
         (&Value::Null, &json!("unmatched"))

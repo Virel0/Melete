@@ -121,6 +121,12 @@ pub async fn trailer_downloads(pool: &SqlitePool) -> sqlx::Result<bool> {
     Ok(value(pool, "MELETE_TRAILER_DOWNLOADS").await?.as_deref() == Some("on"))
 }
 
+/// Whether songs Soulseek can't give are fetched from YouTube by the trailer downloader
+/// (`MELETE_SONG_YOUTUBE`); off by default.
+pub async fn song_youtube(pool: &SqlitePool) -> sqlx::Result<bool> {
+    Ok(value(pool, "MELETE_SONG_YOUTUBE").await?.as_deref() == Some("on"))
+}
+
 /// The most a trailer is downloaded at, in lines (`MELETE_TRAILER_QUALITY`: 720, 1080 or 2160);
 /// 2160 when unset or unknown.
 pub async fn trailer_quality(pool: &SqlitePool) -> sqlx::Result<i64> {
