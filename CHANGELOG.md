@@ -7,6 +7,36 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-10
+
+### Added
+
+- An admin can choose the YouTube video for a wanted song by hand (Manage → Music → wanted
+  songs → Use a YouTube video, or `POST /api/v1/wanted/songs/{id}/youtube` with its link): for a
+  song YouTube's matching couldn't find, it's fetched as the song without matching it or
+  checking its length. Only while songs from YouTube are on.
+
+### Changed
+
+- Songs from YouTube match more often: an artist's leading "The" (or another article) may be
+  left out of a video's title or channel, and Cyrillic and Latin spellings of a name or title
+  match ("Волна" is "Volna").
+- A song YouTube had nothing fitting for says which result came closest and why it wasn't
+  taken ("the closest, … on …, it runs 4:20, the song 3:20").
+- A video YouTube refuses to download (as with "HTTP Error 403") gives way to the next one
+  that fits at once, rather than the song waiting a day; the trailer downloader's yt-dlp is
+  2026.10.26.
+
+### Fixed
+
+- A season that indexers have only as single episodes is fetched: when a season's search finds
+  no pack it can take, the single episodes it found are taken for the season's missing
+  episodes, the best of each, each as that episode's download, without searching again. The
+  title page's results say so for such a release instead of "Can't be grabbed".
+- A song fetched from YouTube takes its place in the playlists waiting for it, as one from
+  Soulseek or a torrent does, instead of showing as on its way for good; those waiting already
+  are swapped at the next scan.
+
 ## [0.9.2] - 2026-11-10
 
 ### Added
@@ -983,7 +1013,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/Virel0/Melete/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Virel0/Melete/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Virel0/Melete/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Virel0/Melete/compare/v0.8.0...v0.9.0
