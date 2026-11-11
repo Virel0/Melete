@@ -734,3 +734,44 @@ async fn a_video_chosen_by_hand_waits_for_what_is_under_way_and_only_while_on() 
         Err(picks::NotPicked::NotAVideo)
     );
 }
+
+#[tokio::test]
+async fn songs_given_up_on_before_matching_improved_are_tried_again_at_once() {
+    let (music, jobs) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let pool = rig(music.path()).await;
+    std::fs::create_dir_all(jobs.path().join("queue")).unwrap();
+    // Nothing fitted it a minute ago, and another song is in the library from YouTube.
+    sqlx::query(
+        "INSERT INTO wanted_songs (id, title, artist, library_id, source, added_at)
+             VALUES (5, 'Other', 'Someone', 3, 'manual', 0);
+         INSERT INTO song_youtube (wanted_song_id, state, message, attempts, started_at, updated_at)
+             VALUES (2, 'none', 'nothing fits', 0, ?1, ?1);
+         INSERT INTO song_youtube (wanted_song_id, state, video, placed, started_at, updated_at)
+             VALUES (5, 'imported', 'abcdefghijk', 'Singles/Other.opus', ?1, ?1);",
+    )
+    .bind(NOW - 60)
+    .execute(&pool)
+    .await
+    .unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    assert!(
+        job(jobs.path(), "song-2-search").is_none(),
+        "not for a month"
+    );
+
+    sqlx::raw_sql(include_str!("../../migrations/0164_fresh_tries.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    step(&pool, jobs.path(), &fixes(), NOW).await.unwrap();
+    assert!(
+        job(jobs.path(), "song-2-search").is_some(),
+        "tried again now"
+    );
+    let kept: String =
+        sqlx::query_scalar("SELECT state FROM song_youtube WHERE wanted_song_id = 5")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, "imported", "a song fetched is left as it is");
+}

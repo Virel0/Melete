@@ -2,7 +2,8 @@
 //! a track whose MusicBrainz recording (from its tags, else from matching) is the request's,
 //! else the one track the request's own song download put in the library, or the one fetched
 //! for it from YouTube, whatever recording it's tagged with (MusicBrainz often lists a song
-//! several times, and a song asked for by name has none).
+//! several times, and a song asked for by name has none); else a track with its title and
+//! artist (`by_name`).
 //! Each item is written again with its own id, playlist and place, now naming the track, as
 //! the playlist's owner from Melete's own device, timed just after the item's own last write,
 //! so an edit a device made later (even one it sends later, from offline) still wins; an item
@@ -115,7 +116,15 @@ pub async fn resolve(pool: &SqlitePool, playlist: Option<&str>) -> Result<usize,
         return Ok(0);
     }
     let mut found = Arrived::new();
-    for (request, track) in arrived(pool, &requests).await? {
+    let mut tracks = arrived(pool, &requests).await?;
+    // Else the library may have it by its title and artist, under another recording or none.
+    let left: Vec<i64> = requests
+        .iter()
+        .copied()
+        .filter(|r| !tracks.iter().any(|(had, _)| had == r))
+        .collect();
+    tracks.extend(super::by_name::arrived(pool, &left).await?);
+    for (request, track) in tracks {
         if let Some(link) = writing::track_link(pool, track).await? {
             found.insert(request, link);
         }

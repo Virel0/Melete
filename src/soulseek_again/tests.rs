@@ -167,3 +167,45 @@ async fn an_album_whose_soulseek_downloads_failed_is_searched_again_and_one_neve
         .unwrap();
     assert!(due_albums(&pool, *NOW).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_song_with_no_search_on_record_is_searched_for_unless_the_library_has_it() {
+    // Its search cleared (or never made): searched for now, and its best result grabbed.
+    let pool = song(AFTER + 1).await;
+    sqlx::query("DELETE FROM searches")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (sources, seen) = sources(&["bob"]).await;
+    assert_eq!(run(&pool, &sources, *NOW).await.unwrap(), [Again::Song(2)]);
+    assert_eq!(seen.lock().unwrap().texts, ["Radiohead Paranoid Android"]);
+    assert_eq!(grabbed_from(&pool).await, ["bob"]);
+
+    // Wanted only just now: its request's own search is left to it.
+    let pool = song(AFTER + 1).await;
+    sqlx::query("DELETE FROM searches")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE wanted_songs SET added_at = ?")
+        .bind(*NOW - 60)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(run(&pool, &sources, *NOW).await.unwrap().is_empty());
+
+    // The library has it already, from before it was wanted: nothing is fetched.
+    let pool = song(AFTER + 1).await;
+    sqlx::raw_sql(
+        "DELETE FROM searches;
+         INSERT INTO music_albums (id, library_id, key, title, artist_name, folder, seen_generation)
+             VALUES (1, 3, 'k', 'OK Computer', 'Radiohead', 'a', 1);
+         INSERT INTO music_tracks (id, library_id, rel_path, size, modified_at,
+             first_seen_generation, seen_generation, album_id, tagged, title, artist, genres)
+             VALUES (7, 3, 'a/2', 1, 1, 1, 1, 1, 1, 'Paranoid Android', 'Radiohead', '[]');",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(run(&pool, &sources, *NOW).await.unwrap().is_empty());
+}

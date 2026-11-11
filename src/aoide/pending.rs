@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 
 use super::playlists::Row;
 
+pub(crate) mod by_name;
 mod resolving;
 
 pub use resolving::*;

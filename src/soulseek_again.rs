@@ -6,7 +6,9 @@
 //! passing over the users a download of it already failed with; one that fails gets its next
 //! sources as any does. A song also gets its try on YouTube in between, when that's on
 //! (`song_youtube`). An album no one has had at all is left to RSS syncs and Search all missing.
-//! Runs hourly, [`PER_RUN`] at most, one search at a time, only with slskd set up.
+//! A wanted song with no search on record at all is searched for too ([`never_searched`]).
+//! Runs hourly, [`PER_RUN`] at most (and [`FIRST_PER_RUN`] first searches), one search at a
+//! time, only with slskd set up. Nothing is fetched for a song the library has already.
 
 use std::time::Duration;
 
@@ -22,6 +24,11 @@ pub const AFTER: i64 = 86_400;
 pub const TIMES: i64 = 3;
 /// Searches one run makes at most.
 pub const PER_RUN: usize = 10;
+/// First searches one run makes at most, for songs Soulseek has no search of on record.
+pub const FIRST_PER_RUN: usize = 60;
+/// How long a song is wanted before it's searched for when it has no search on record, so
+/// its request's own search isn't doubled.
+pub const NEW_FOR: i64 = 3600;
 /// How often a run is made, and how long after starting the first one is.
 const EVERY: Duration = Duration::from_secs(3600);
 const FIRST: Duration = Duration::from_secs(600);
@@ -58,11 +65,14 @@ pub async fn run(pool: &SqlitePool, sources: &Sources, now: i64) -> anyhow::Resu
     let Some(slskd) = sources.slskd.as_deref() else {
         return Ok(Vec::new());
     };
-    let mut due = due_songs(pool, now).await?;
-    due.extend(due_albums(pool, now).await?);
+    let mut again = due_songs(pool, now).await?;
+    again.extend(due_albums(pool, now).await?);
+    again.truncate(PER_RUN);
+    let mut due = never_searched(pool, now).await?;
+    due.extend(again);
     let client = crate::torznab::Client::new()?;
     let mut searched = Vec::new();
-    for again in due.into_iter().take(PER_RUN) {
+    for again in due {
         note(pool, again, now).await?;
         let (search, avoid) = match again {
             Again::Song(id) => (
@@ -137,13 +147,51 @@ async fn due_songs(pool: &SqlitePool, now: i64) -> anyhow::Result<Vec<Again>> {
     .bind((PER_RUN * 3) as i64)
     .fetch_all(pool)
     .await?;
+    not_had(pool, candidates).await
+}
+
+/// Of the wanted songs `candidates`, those nothing is on its way for and that aren't in the
+/// library by any means (a track of their recording, or with their title and artist, from
+/// before they were wanted, say).
+async fn not_had(pool: &SqlitePool, candidates: Vec<i64>) -> anyhow::Result<Vec<Again>> {
+    let have = crate::aoide::pending::by_name::in_library(pool, &candidates).await?;
     let mut due = Vec::new();
     for id in candidates {
+        if have.contains(&id) {
+            continue;
+        }
         let step = crate::progress::of(pool, "song", id).await?.map(|p| p.step);
         if matches!(step, Some(Step::Wanted | Step::Failed)) {
             due.push(Again::Song(id));
         }
     }
+    Ok(due)
+}
+
+/// Wanted songs with no Soulseek search on record: one whose first search couldn't start
+/// (slskd away when it was asked for, say), or whose searches were cleared after 30 days.
+/// Nothing else looks for them, so they're searched for, the newest wanted first,
+/// [`FIRST_PER_RUN`] a run at most: each wanted [`NEW_FOR`], nothing of it on its way or in the
+/// library, and not searched again within [`AFTER`] nor more than [`TIMES`] times.
+async fn never_searched(pool: &SqlitePool, now: i64) -> anyhow::Result<Vec<Again>> {
+    let candidates: Vec<i64> = sqlx::query_scalar(
+        "SELECT s.id FROM wanted_songs s
+         LEFT JOIN soulseek_again a ON a.wanted_song_id = s.id
+         WHERE NOT EXISTS (SELECT 1 FROM searches q WHERE q.wanted_song_id = s.id)
+           AND s.added_at <= ?1
+           AND NOT EXISTS (SELECT 1 FROM downloads d
+                           WHERE d.wanted_song_id = s.id AND d.state <> 'failed')
+           AND coalesce(a.times, 0) < ?2 AND coalesce(a.last_at, 0) <= ?3
+         ORDER BY s.added_at DESC, s.id DESC LIMIT ?4",
+    )
+    .bind(now - NEW_FOR)
+    .bind(TIMES)
+    .bind(now - AFTER)
+    .bind((FIRST_PER_RUN * 2) as i64)
+    .fetch_all(pool)
+    .await?;
+    let mut due = not_had(pool, candidates).await?;
+    due.truncate(FIRST_PER_RUN);
     Ok(due)
 }
 
