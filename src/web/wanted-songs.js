@@ -3,7 +3,7 @@
 
 import { confirmInline, field, form, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
-import { runSearch } from "/web/wanted-music.js";
+import { filteredList, runSearch } from "/web/wanted-music.js";
 
 // "4:23" or "263" to seconds; null when empty; NaN when it's neither.
 function seconds(text) {
