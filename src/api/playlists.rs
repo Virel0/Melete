@@ -2,6 +2,7 @@
 //! with them, one with its tracks as Melete has them, and editing one's own, written into the
 //! sync log as an Aoide device would write it (`edits`); each user's folders (`folders`).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, Path, State};
@@ -150,6 +151,7 @@ async fn detail(
         .filter_map(|i| Pending::of(i)?.request_id)
         .collect();
     let states = pending::vouched(pool, &playlist.id, &asked).await?;
+    let missing = not_found(pool, &states).await?;
     let folders = playlists::folders(pool, me).await?;
     let mut body = summary(&playlist, me, &folders);
     body["items"] = playlist
@@ -161,20 +163,63 @@ async fn detail(
                 "position": str_of(item, "position"),
                 "content_key": str_of(item, "contentKey"),
                 "track": track_of(item).and_then(|t| tracks.get(&t)).cloned(),
-                "pending": Pending::of(item).map(|song| pending_json(song, &states)),
+                "pending": Pending::of(item).map(|song| pending_json(song, &states, &missing)),
             })
         })
         .collect();
     Ok(body)
 }
 
+/// Of the approved song requests in `states`, those whose song wasn't found anywhere (Soulseek
+/// and YouTube both tried, as the Requests page has it) or is no longer wanted: each with why.
+async fn not_found(
+    pool: &SqlitePool,
+    states: &HashMap<i64, String>,
+) -> anyhow::Result<HashMap<i64, String>> {
+    let approved: Vec<i64> = states
+        .iter()
+        .filter(|(_, state)| *state == "approved")
+        .map(|(id, _)| *id)
+        .collect();
+    if approved.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let songs: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT id, wanted_song_id FROM requests
+         WHERE id IN (SELECT value FROM json_each(?)) AND kind = 'song'",
+    )
+    .bind(Value::from(approved).to_string())
+    .fetch_all(pool)
+    .await?;
+    let mut found = HashMap::new();
+    for (request, song) in songs {
+        let Some(song) = song else {
+            found.insert(request, "it's no longer wanted".to_owned());
+            continue;
+        };
+        if let Some(p) = crate::progress::of(pool, "song", song).await?
+            && p.step == crate::progress::Step::Failed
+        {
+            found.insert(request, p.message.unwrap_or_default());
+        }
+    }
+    Ok(found)
+}
+
 /// A pending song as the API shows it: its request's state (requested, approved or declined),
-/// `unmatched` when it has none, or `gone` when the request was withdrawn or wasn't put in the
-/// playlist by the user who asked for it.
-fn pending_json(song: Pending, states: &std::collections::HashMap<i64, String>) -> Value {
-    let state = match song.request_id {
-        None => "unmatched",
-        Some(id) => states.get(&id).map_or("gone", String::as_str),
+/// `not_found` for an approved one whose song wasn't found anywhere, `unmatched` when it has
+/// none, or `gone` when the request was withdrawn or wasn't put in the playlist by the user who
+/// asked for it.
+fn pending_json(
+    song: Pending,
+    states: &HashMap<i64, String>,
+    missing: &HashMap<i64, String>,
+) -> Value {
+    let missed = song.request_id.and_then(|id| missing.get(&id));
+    let state = match (song.request_id, missed) {
+        (None, _) => "unmatched",
+        (Some(_), Some(_)) => "not_found",
+        (Some(id), None) => states.get(&id).map_or("gone", String::as_str),
     };
     json!({
         "request_id": song.request_id,
@@ -183,7 +228,7 @@ fn pending_json(song: Pending, states: &std::collections::HashMap<i64, String>) 
         "album": song.album,
         "duration_ms": song.duration_ms,
         "state": state,
-        "why": song.why,
+        "why": missed.cloned().or(song.why),
     })
 }
 
@@ -344,5 +389,67 @@ mod tests {
             get(&app, &owner_token, "/api/v1/playlists/gone").await.0,
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn a_pending_song_found_nowhere_says_so_though_its_request_is_approved() {
+        let pool = crate::db::open_in_memory().await;
+        let (owner, token) = user(&pool, "owner").await;
+        // Two approved requests: one Soulseek and YouTube both had nothing for, one not
+        // searched for yet; and one still waiting for an admin.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'music', 'music', '/m');
+             INSERT INTO wanted_songs (id, title, artist, library_id, source, added_at)
+                 VALUES (2, 'Song', 'Duo', 1, 'manual', 0), (3, 'Other', 'Duo', 1, 'manual', 0);
+             INSERT INTO searches (wanted_song_id, searched_at, indexers) VALUES (2, 0, '[]');
+             INSERT INTO song_youtube (wanted_song_id, state, message, started_at, updated_at)
+                 VALUES (2, 'none', 'nothing fits', 0, 0);
+             INSERT INTO requests (id, user_id, kind, title, state, created_at, decided_at,
+                 wanted_song_id)
+                 VALUES (10, {owner}, 'song', 'Song', 'approved', 0, 0, 2),
+                        (11, {owner}, 'song', 'Other', 'approved', 0, 0, 3);
+             INSERT INTO requests (id, user_id, kind, title, state, created_at)
+                 VALUES (12, {owner}, 'song', 'Third', 'requested', 0);"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let item = |id: &str, request: i64, position: &str| {
+            format!(
+                r#"{{"opId":"{id}","entity":"playlist_items","entityId":"{id}","operation":"upsert","payload":{{"id":"{id}","playlistId":"p","position":"{position}","updatedAt":11,"originDevice":"phone","pending":{{"requestId":{request},"title":"Song","artist":"Duo","album":null,"durationMs":null,"why":null}}}},"createdAt":11}}"#
+            )
+        };
+        let (a, b, c) = (
+            item("a", 10, "a0"),
+            item("b", 11, "a1"),
+            item("c", 12, "a2"),
+        );
+        push(
+            &pool,
+            owner,
+            &[
+                r#"{"opId":"p1","entity":"playlists","entityId":"p","operation":"upsert","payload":{"id":"p","name":"Mix","updatedAt":10,"originDevice":"phone"},"createdAt":10}"#,
+                &a,
+                &b,
+                &c,
+            ],
+        )
+        .await;
+        let (status, one) = get(&routes(pool.clone()), &token, "/api/v1/playlists/p").await;
+        assert_eq!(status, StatusCode::OK, "{one}");
+        let found_nowhere = &one["items"][0]["pending"];
+        assert_eq!(found_nowhere["state"], "not_found", "{found_nowhere}");
+        assert!(
+            found_nowhere["why"]
+                .as_str()
+                .unwrap()
+                .contains("not on YouTube either"),
+            "{found_nowhere}"
+        );
+        assert_eq!(
+            one["items"][1]["pending"]["state"], "approved",
+            "on its way"
+        );
+        assert_eq!(one["items"][2]["pending"]["state"], "requested");
     }
 }

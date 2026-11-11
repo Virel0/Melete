@@ -19510,10 +19510,10 @@
           "duration_ms": {"type": ["integer", "null"]},
           "state": {
             "type": "string",
-            "enum": ["requested", "approved", "declined", "unmatched", "gone"],
-            "description": "How its request stands: requested (waiting for an admin), approved (on its way) or declined; unmatched when it has none (it stays pending); gone when the request was withdrawn, or wasn't put in the playlist by the user who asked for it."
+            "enum": ["requested", "approved", "declined", "not_found", "unmatched", "gone"],
+            "description": "How its request stands: requested (waiting for an admin), approved (being fetched; `progress` says how far) or declined; unmatched when it has none (it stays pending); gone when the request was withdrawn, or wasn't put in the playlist by the user who asked for it."
           },
-          "why": {"type": ["string", "null"], "description": "Why it couldn't be asked for, when unmatched."}
+          "why": {"type": ["string", "null"], "description": "Why it couldn't be asked for, when unmatched; why it wasn't found, when not_found."}
         },
         "additionalProperties": false
       },

@@ -163,7 +163,7 @@ pub fn length_fits(song: Option<i64>, video: Option<f64>) -> bool {
 
 /// The song's title as a video's must have it: without what follows " - " (" - Remastered"),
 /// a featured artist, bracketed parts ("(The Ballad of…)", "[2011 Mix]") or a leading article.
-fn core_title(title: &str) -> String {
+pub fn core_title(title: &str) -> String {
     let mut core = title.split(" - ").next().unwrap_or(title).to_owned();
     for open in ["feat.", "ft."] {
         if let Some(at) = core.to_lowercase().find(open) {
@@ -198,7 +198,7 @@ fn without_article(name: &str) -> &str {
 /// Whether the artist is named in `text`: their whole name, with or without its leading article
 /// ("Harbour Choir" for "The Harbour Choir"), or the first of several credited ("Dueto Sol
 /// and Luna" for "Dueto Sol & Luna with Mariachi") when it's more than a short word.
-fn names_artist(text: &str, artist: &str) -> bool {
+pub fn names_artist(text: &str, artist: &str) -> bool {
     if has(text, artist) || has(text, without_article(artist)) {
         return true;
     }

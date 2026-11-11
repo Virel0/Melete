@@ -173,16 +173,18 @@ const WAITING = {
   requested: "Requested",
   approved: "On its way",
   declined: "Request declined",
+  not_found: "Not found yet",
   unmatched: "Not found on MusicBrainz",
 };
 
 // A song not in the library yet: what it is, and how its request stands.
 function pendingRow(song) {
+  const missed = song.state === "not_found";
   return h(
     "li",
     { class: "gone pending" },
     h("span", { class: "name" }, h("span", {}, song.title), h("span", { class: "by" }, [song.artist, song.album].filter(Boolean).join(", "))),
-    h("span", { class: "missing" }, WAITING[song.state] ?? "Not in the library"),
+    h("span", { class: `missing${missed ? " state-failed" : ""}`, title: missed ? song.why : null }, WAITING[song.state] ?? "Not in the library"),
   );
 }
 

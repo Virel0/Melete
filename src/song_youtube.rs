@@ -167,8 +167,9 @@ pub async fn step(pool: &SqlitePool, jobs: &Path, fixes: &Fixes, now: i64) -> an
 }
 
 /// The next song to try: Soulseek searched for it, no download of it but failed ones, nothing
-/// for it or the album fetched for it for [`SETTLED`], not tried on YouTube or due again, and nothing on its way or in the library
-/// (an album fetched for it, say); the newest wanted first.
+/// for it or the album fetched for it for [`SETTLED`], not tried on YouTube or due again, and
+/// nothing on its way or in the library (an album fetched for it, or a track of it from before
+/// it was wanted); the newest wanted first.
 async fn next(pool: &SqlitePool, now: i64) -> anyhow::Result<Option<Wanted>> {
     let candidates: Vec<Wanted> = sqlx::query_as(
         "SELECT s.id, s.title, s.artist, s.length_seconds FROM wanted_songs s
@@ -195,7 +196,9 @@ async fn next(pool: &SqlitePool, now: i64) -> anyhow::Result<Option<Wanted>> {
     .bind(now - NONE_FOR)
     .fetch_all(pool)
     .await?;
-    for song in candidates {
+    let ids: Vec<i64> = candidates.iter().map(|s| s.id).collect();
+    let have = crate::aoide::pending::by_name::in_library(pool, &ids).await?;
+    for song in candidates.into_iter().filter(|s| !have.contains(&s.id)) {
         let step = crate::progress::of(pool, "song", song.id)
             .await?
             .map(|p| p.step);
