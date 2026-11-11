@@ -12,7 +12,7 @@ const PAGE = 50;
 const FOLLOW_MS = 3000;
 
 // A list filtered as you type and shown 50 at a time, as wanted movies and series are.
-function filteredList(all, { id, label, matches, row, noun }) {
+export function filteredList(all, { id, label, matches, row, noun }) {
   const filter = h("input", { id, type: "search", autocomplete: "off" });
   const count = h("p", { class: "status", "aria-live": "polite" });
   const list = h("ul", { class: "rows" });
