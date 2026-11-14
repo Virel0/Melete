@@ -7,6 +7,25 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-13
+
+### Added
+
+- A torrent no one is sharing is found dead and said so: when Deluge has seen no seeder of a
+  download (none connected, none counted by its trackers, no whole copy among its peers) and
+  it has made no progress for 24 hours, and another search finds nothing else to grab, it's
+  removed from Deluge with what it had on the seedbox, its release is blocklisted, and its
+  download says no one is sharing it. A title's progress and each season's carry `dead`, so
+  the Requests page and the apps tell whoever asked that nothing will come of what was found;
+  a title still looked for stays searching, in case another release appears.
+
+### Fixed
+
+- Search on a title's page takes a season found only as single episodes: when no pack of it is
+  accepted, its single episodes are grabbed for the season's missing episodes, as an approved
+  request or Search all missing already did (`POST /api/v1/searches/{id}/take`). Before, it
+  said nothing was accepted and grabbed nothing, though its results said they'd be taken.
+
 ## [0.9.4] - 2026-11-10
 
 ### Fixed
@@ -1030,7 +1049,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/Virel0/Melete/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Virel0/Melete/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Virel0/Melete/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Virel0/Melete/compare/v0.9.1...v0.9.2
