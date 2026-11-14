@@ -15933,7 +15933,8 @@
           "download_id",
           "source",
           "updated_at",
-          "copied"
+          "copied",
+          "dead"
         ],
         "properties": {
           "kind": {
@@ -15965,6 +15966,10 @@
           "copied": {
             "anyOf": [{"$ref": "#/components/schemas/Copying"}, {"type": "null"}],
             "description": "While it's being copied home (transferring, before an album's tagging): how far that has got, updated at most once a second. Null otherwise."
+          },
+          "dead": {
+            "type": "boolean",
+            "description": "Its latest download is dead: Deluge found no seeder of it for 24 hours and it made no progress, nothing else could be grabbed, so it was removed and its release blocklisted. Nothing will come of what was found; `message` says so. A title still looked for stays searching, in case another release appears."
           }
         },
         "additionalProperties": false
@@ -16047,7 +16052,7 @@
       },
       "RequestSeason": {
         "type": "object",
-        "required": ["season", "monitored", "episodes", "in_library", "step", "percent"],
+        "required": ["season", "monitored", "episodes", "in_library", "step", "percent", "dead"],
         "properties": {
           "season": {"type": "integer", "description": "0 is specials."},
           "monitored": {"type": "boolean", "description": "Whether it's looked for, whoever asked for it."},
@@ -16064,6 +16069,10 @@
           "percent": {
             "type": ["number", "null"],
             "description": "How much of the download is done, while downloading."
+          },
+          "dead": {
+            "type": "boolean",
+            "description": "Not all of it is here, nothing is on its way, and a download for what's missing was found dead: no one was sharing it, and nothing else could be grabbed."
           }
         },
         "additionalProperties": false

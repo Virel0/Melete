@@ -666,6 +666,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_time_without_a_seeder_runs_until_one_is_seen_or_it_moves() {
+        let pool = db::open_in_memory().await;
+        let base = indexer().await;
+        let ids = releases(&pool, &[format!("{base}/t"), String::new()]).await;
+        let (p, fake) = pipeline().await;
+        let movie = grab(&pool, &p.deluge, &p.fetcher, ids[0])
+            .await
+            .unwrap()
+            .unwrap();
+        let seen = |progress: f64, seeds: Option<(i64, i64, f64)>| {
+            let mut status = testing::status("Some.Movie", "Downloading", progress, false);
+            if let Some((connected, swarm, copies)) = seeds {
+                status["num_seeds"] = connected.into();
+                status["total_seeds"] = swarm.into();
+                status["distributed_copies"] = copies.into();
+            }
+            fake.lock()
+                .unwrap()
+                .torrents
+                .insert(MOVIE_HASH.into(), status);
+        };
+        let since = |pool: SqlitePool| async move {
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT seedless_since FROM downloads WHERE id = ?",
+            )
+            .bind(movie.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        // Deluge says nothing of seeders: not counted.
+        seen(0.0, None);
+        refresh(&pool, &p.deluge).await.unwrap();
+        assert_eq!(since(pool.clone()).await, None);
+        // No seeder anywhere: counted from now, and kept while it lasts.
+        seen(0.0, Some((0, -1, 0.0)));
+        refresh(&pool, &p.deluge).await.unwrap();
+        let first = since(pool.clone()).await.expect("seedless");
+        sqlx::query("UPDATE downloads SET seedless_since = 5 WHERE id = ?")
+            .bind(movie.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        refresh(&pool, &p.deluge).await.unwrap();
+        assert_eq!(since(pool.clone()).await, Some(5), "kept from {first}");
+        // A seeder counted by the tracker, or a whole copy among peers, or progress: cleared.
+        for (progress, seeds) in [
+            (0.0, Some((0, 3, 0.0))),
+            (0.0, Some((0, 0, 1.2))),
+            (2.0, Some((0, 0, 0.0))),
+        ] {
+            sqlx::query("UPDATE downloads SET seedless_since = 5 WHERE id = ?")
+                .bind(movie.id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            seen(progress, seeds);
+            refresh(&pool, &p.deluge).await.unwrap();
+            assert_eq!(since(pool.clone()).await, None, "{progress} {seeds:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn marks_downloads_complete_or_failed_as_deluge_says() {
         let pool = db::open_in_memory().await;
         let base = indexer().await;

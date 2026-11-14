@@ -17,6 +17,10 @@ use tokio::sync::Mutex;
 
 use crate::config::Secret;
 
+mod status;
+
+pub use status::*;
+
 /// The largest reply read: the status of many torrents with their file lists.
 const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
@@ -64,55 +68,6 @@ fn short(message: &str) -> &str {
     let inner = message.rsplit_once(">: ").map_or(message, |(_, rest)| rest);
     inner.trim_end_matches(|c: char| c == ']' || c.is_whitespace())
 }
-
-/// One torrent as Deluge sees it.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Status {
-    /// The torrent's name.
-    pub name: String,
-    /// "Downloading", "Seeding", "Paused", "Checking", "Queued", "Error"...
-    pub state: String,
-    /// How much is downloaded, in percent (0 to 100).
-    pub progress: f64,
-    /// The size of the files it downloads, in bytes.
-    pub total_size: i64,
-    /// The folder on the seedbox it downloads into.
-    pub save_path: String,
-    /// Whether every file it downloads is complete.
-    pub is_finished: bool,
-    /// Its files; empty for a magnet link until Deluge has fetched the metadata.
-    pub files: Vec<TorrentFile>,
-    /// Deluge's tracker or error message; often empty.
-    pub message: String,
-    /// How much it has uploaded for each byte downloaded; 0 when Deluge doesn't say.
-    #[serde(default)]
-    pub ratio: f64,
-    /// How long it has seeded, in seconds; 0 when Deluge doesn't say.
-    #[serde(default)]
-    pub seeding_time: i64,
-}
-
-/// A file in a torrent.
-#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
-pub struct TorrentFile {
-    /// Relative to the save path, starting with the torrent's folder when it has one.
-    pub path: String,
-    /// Its size in bytes.
-    pub size: i64,
-}
-
-const STATUS_FIELDS: [&str; 10] = [
-    "name",
-    "state",
-    "progress",
-    "total_size",
-    "save_path",
-    "is_finished",
-    "files",
-    "message",
-    "ratio",
-    "seeding_time",
-];
 
 /// A client for Deluge's web UI. It holds one session and makes one call at a time; requests
 /// give up after 30 seconds.

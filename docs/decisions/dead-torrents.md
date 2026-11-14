@@ -1,0 +1,5 @@
+Decision: Amends the stalled-torrents decision. Melete asks Deluge for a torrent's seeders (connected, counted by its trackers, and whole copies among its peers) and keeps since when it has had none and made no progress (`seedless_since`; cleared by a seeder or by progress, and not counted while Deluge says nothing of seeders). A stalled torrent seedless for 24 hours whose search again finds nothing else to grab is dead: removed from Deluge with what it downloaded on the seedbox (never the library), failed, its release left blocklisted, and its download says no one is sharing it (`dead_at`). A title's progress (`dead`) and each season's (`dead`, while what a dead download was for is still missing and nothing is on its way) say so. A stalled torrent that isn't dead keeps going as before. An indexer's seeder count alone isn't trusted to decide, as it can be stale.
+
+Why: A torrent no one shares stayed downloading at 0% for good, kept as a rare title's only copy, so whoever asked for it saw it on its way and never learned it wouldn't come.
+
+Date: 2026-11-13
