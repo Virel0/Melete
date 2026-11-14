@@ -10,7 +10,7 @@
 services:
   trailers:
     # This version's release; .env can name another, such as one built from ./trailers.
-    image: ${MELETE_TRAILERS_IMAGE:-ghcr.io/virel0/melete:0.9.4-trailers}
+    image: ${MELETE_TRAILERS_IMAGE:-ghcr.io/virel0/melete:0.9.5-trailers}
     container_name: melete-trailers
     restart: unless-stopped
     network_mode: "service:gluetun"
