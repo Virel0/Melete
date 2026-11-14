@@ -1,5 +1,5 @@
-//! Downloads (admins only): grabbing an accepted search result, the list of downloads, and
-//! testing the seedbox connection.
+//! Downloads (admins only): grabbing an accepted search result, taking a season's search as a
+//! sync would (`season`), the list of downloads, and testing the seedbox connection.
 
 use std::sync::Arc;
 
@@ -14,6 +14,8 @@ use super::auth::{AppState, require_admin};
 use crate::downloads::{self, Download, NotRemoved, Pipeline, Refused};
 use crate::seedbox::TestReport;
 use crate::upgrades::{self, Emptied, NotRestored, Trashed};
+
+mod season;
 
 #[derive(Clone)]
 struct DownloadState {
@@ -36,6 +38,7 @@ pub fn routes(
     };
     Router::new()
         .route("/api/v1/releases/{id}/grab", post(grab))
+        .route("/api/v1/searches/{id}/take", post(season::take_season))
         .route("/api/v1/downloads", get(list))
         .route("/api/v1/downloads/{id}", delete(remove))
         .route("/api/v1/downloads/clear-failed", post(clear_failed))

@@ -19,6 +19,18 @@ export async function searchAndGrab(ctx, ask, said) {
   try {
     const search = await api(ask.path, { method: "POST", body: ask.body });
     const best = search.releases.find((r) => r.accepted && !r.blocklisted);
+    // No pack of the season: its single episodes are taken for the missing ones, as a sync would.
+    const single = (r) => !r.blocklisted && r.decision.rejections?.length === 1 && r.decision.rejections[0] === SINGLE_EPISODES;
+    if (!best && search.releases.some(single)) {
+      said.textContent = "No pack of the season was accepted; taking its single episodes for the missing ones…";
+      const taken = await api(`/searches/${search.id}/take`, { method: "POST" });
+      const started = taken.grabbed.filter((g) => g.download_id !== null).length;
+      said.textContent = started
+        ? `${outcomes(search).sentence} No pack of the season was accepted, so ${plural(started, "single episode was", "single episodes were")} grabbed for the missing episodes. Follow them under Activity.`
+        : `${outcomes(search).sentence} No pack was accepted, and none of its single episodes could be taken${taken.grabbed[0]?.refused ? ` (${taken.grabbed[0].refused})` : " (every episode is on disk or on its way)"}. Search and choose shows why.`;
+      announce(said.textContent);
+      return search;
+    }
     if (!best) {
       said.textContent = `${outcomes(search).sentence} Nothing was accepted, so nothing was grabbed. Search and choose shows why.`;
       announce(said.textContent);

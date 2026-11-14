@@ -3538,6 +3538,40 @@
         }
       }
     },
+    "/api/v1/searches/{id}/take": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Take a season's search as a sync would",
+        "description": "Grabs from a whole season's search what an RSS sync or an approved request would: its best accepted pack, else, when no pack is grabbed, the single episodes it found for the season's missing episodes (aired, monitored, not on disk and nothing on its way), the best of each, each as that episode's download. Search on a title's page calls it when no result is accepted but some are single episodes of the season. Needs MELETE_DOWNLOADS=on.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Search id, from a season's search.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SeasonTaken"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "No such search",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "It isn't a whole season's search, or downloads are off",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/downloads": {
       "get": {
         "tags": ["Admin"],
@@ -15811,6 +15845,15 @@
           "episode": {"type": ["integer", "null"], "description": "Null for a season pack."},
           "releases": {"type": "integer"},
           "accepted": {"type": "integer"}
+        },
+        "additionalProperties": false
+      },
+      "SeasonTaken": {
+        "type": "object",
+        "required": ["grabbed", "said"],
+        "properties": {
+          "grabbed": {"type": "array", "items": {"$ref": "#/components/schemas/RssGrab"}, "description": "Every grab made or tried, in order."},
+          "said": {"type": ["string", "null"], "description": "What was taken one by one or from a pack in part (\"no pack of it to take; took episodes 1-25 one by one\"); null otherwise."}
         },
         "additionalProperties": false
       },
