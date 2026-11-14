@@ -3,8 +3,11 @@
 //! again, passing over its release. When another release is grabbed, the stalled torrent is
 //! removed from Deluge with what it downloaded on the seedbox, and its release stays
 //! blocklisted. Otherwise it goes back to downloading, so a rare title keeps its only copy, says
-//! so, and is looked at again after as long. Paused and queued torrents aren't stalled; the
-//! library is never touched.
+//! so, and is looked at again after as long, unless it's dead: no seeder seen by Deluge and no
+//! progress for [`DEAD_AFTER`]. A dead torrent is removed from Deluge with what it downloaded on
+//! the seedbox, its release stays blocklisted, and its download says no one is sharing it
+//! (`dead_at`), so whoever asked for it is told nothing will come of it. Paused and queued
+//! torrents aren't stalled; the library is never touched.
 
 use super::*;
 use crate::search::Target;
@@ -12,6 +15,9 @@ use crate::transfer::{Again, search_again_for};
 
 /// How long a downloading torrent may go without progress before another release is looked for.
 pub const STALLED_AFTER: i64 = 4 * 3600;
+
+/// How long a stalled torrent may go without a seeder and without progress before it's dead.
+pub const DEAD_AFTER: i64 = 24 * 3600;
 
 /// How often downloads are looked at for stalls.
 const CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
@@ -25,6 +31,8 @@ struct Stalled {
     season: Option<i64>,
     episode: Option<i64>,
     wanted_album_id: Option<i64>,
+    /// No seeder seen and no progress for [`DEAD_AFTER`].
+    dead: bool,
 }
 
 /// Looks for stalled torrents every few minutes, for as long as the server runs.
@@ -47,7 +55,8 @@ pub async fn replace_stalled(
 ) -> anyhow::Result<usize> {
     let since = unix_now() - STALLED_AFTER;
     let stalled: Vec<Stalled> = sqlx::query_as(
-        "SELECT id, infohash, wanted_movie_id, wanted_series_id, season, episode, wanted_album_id
+        "SELECT id, infohash, wanted_movie_id, wanted_series_id, season, episode, wanted_album_id,
+             coalesce(seedless_since <= ?2, 0) AS dead
          FROM downloads
          WHERE state = 'downloading' AND source = 'torrent' AND infohash IS NOT NULL
            AND missing_since IS NULL AND message LIKE 'Downloading%'
@@ -56,6 +65,7 @@ pub async fn replace_stalled(
          ORDER BY id",
     )
     .bind(since)
+    .bind(unix_now() - DEAD_AFTER)
     .fetch_all(pool)
     .await?;
     let mut replaced = 0;
@@ -102,6 +112,10 @@ async fn replace(
         Again::Grabbed(other) => {
             drop_stalled(pool, sources, download, &other).await?;
             Ok(true)
+        }
+        Again::Not(why) if download.dead => {
+            bury(pool, sources, download, &why).await?;
+            Ok(false)
         }
         Again::Not(why) => {
             if !listed_before && let Some(entry) = entry {
@@ -165,6 +179,38 @@ async fn drop_stalled(
         .execute(pool)
         .await
         .map(|_| ())
+}
+
+/// A dead torrent with nothing else to grab: it goes from Deluge with what it downloaded,
+/// stays failed and blocklisted, and says no one is sharing it.
+async fn bury(
+    pool: &SqlitePool,
+    sources: &crate::fulfil::Sources,
+    download: &Stalled,
+    why: &str,
+) -> sqlx::Result<()> {
+    let removed = match &sources.pipeline {
+        Some(pipeline) => match pipeline.deluge.remove(&download.infohash, true).await {
+            Ok(_) => "it was removed from Deluge with what it had".to_owned(),
+            Err(err) => format!("Deluge couldn't remove it ({err}), so remove it there"),
+        },
+        None => "downloads are off, so it's still in Deluge".to_owned(),
+    };
+    let hours = DEAD_AFTER / 3600;
+    let now = unix_now();
+    sqlx::query(
+        "UPDATE downloads SET message = ?, dead_at = ?, updated_at = ? WHERE id = ? AND state = 'failed'",
+    )
+    .bind(format!(
+        "no one is sharing it: Deluge found no seeder for {hours} hours and it made no progress, \
+         so {removed}, and the release is blocklisted; nothing else could be grabbed ({why})"
+    ))
+    .bind(now)
+    .bind(now)
+    .bind(download.id)
+    .execute(pool)
+    .await
+    .map(|_| ())
 }
 
 /// Nothing else was grabbed: the torrent goes back to downloading, saying why, until it's
@@ -411,6 +457,62 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn a_dead_torrent_with_nothing_else_is_removed_and_says_no_one_is_sharing_it() {
+        let (pool, sources, fake, id) = stuck(&[BEST], 30).await;
+        // No seeder seen for a day: dead.
+        sqlx::query("UPDATE downloads SET seedless_since = ? WHERE id = ?")
+            .bind(unix_now() - DEAD_AFTER - 60)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let hash: String = sqlx::query_scalar("SELECT infohash FROM downloads WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(replace_stalled(&pool, &sources).await.unwrap(), 0);
+
+        let (state, message) = row(&pool, id).await;
+        assert_eq!(state, "failed");
+        assert!(
+            message.starts_with("no one is sharing it")
+                && message.contains("removed from Deluge")
+                && message.contains("nothing else to grab yet"),
+            "{message}"
+        );
+        assert_eq!(fake.lock().unwrap().data_removed, [hash]);
+        assert_eq!(blocked(&pool).await, [BEST], "not grabbed again");
+        // Whoever asked for it is told.
+        let dune: i64 = sqlx::query_scalar("SELECT wanted_movie_id FROM downloads WHERE id = ?")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let progress = crate::progress::of(&pool, "movie", dune)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(progress.dead, "{progress:?}");
+        assert!(
+            progress
+                .message
+                .is_some_and(|m| m.contains("no one is sharing it")),
+        );
+        // Without a seeder for less than a day it keeps going, as a stalled one does.
+        let (pool, sources, _fake, id) = stuck(&[BEST], 30).await;
+        sqlx::query("UPDATE downloads SET seedless_since = ? WHERE id = ?")
+            .bind(unix_now() - 3600)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(replace_stalled(&pool, &sources).await.unwrap(), 0);
+        assert_eq!(row(&pool, id).await.0, "downloading");
     }
 
     #[tokio::test]

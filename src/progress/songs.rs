@@ -64,6 +64,7 @@ pub(super) fn from_youtube(kind: &'static str, id: i64, title: String, y: Youtub
         source: Some("youtube".into()),
         updated_at: Some(y.updated_at),
         copied: None,
+        dead: false,
     }
 }
 

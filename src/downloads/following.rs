@@ -1,5 +1,5 @@
 //! Asking Deluge how downloads on the seedbox are doing: finished ones completed, long-unlisted
-//! ones failed.
+//! ones failed, and since when one has had no seeder (`seedless_since`, for `stalls`).
 
 use super::*;
 
@@ -53,7 +53,8 @@ pub async fn refresh(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Resu
                     "Error" => format!("Deluge: {}", status.message),
                     state => state.to_owned(),
                 };
-                // Progress that went up clears what was said about a stall (see `stalls`).
+                // Progress that went up clears what was said about a stall (see `stalls`); a
+                // seeder seen, or progress, clears how long it's been without one.
                 sqlx::query(
                     "UPDATE downloads SET state = ?1, progress = ?2, size = ?3, save_path = ?4,
                          name = ?5, files = ?6,
@@ -61,6 +62,9 @@ pub async fn refresh(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Resu
                                         THEN ?7 || '; ' || stall_note ELSE ?7 END,
                          progress_at = CASE WHEN ?2 > progress THEN ?8 ELSE progress_at END,
                          stall_note = CASE WHEN ?2 > progress THEN NULL ELSE stall_note END,
+                         seedless_since = CASE WHEN ?2 > progress OR ?11 = 1 THEN NULL
+                                               WHEN ?11 = 0 THEN coalesce(seedless_since, ?8)
+                                               ELSE seedless_since END,
                          missing_since = NULL, updated_at = ?8, completed_at = ?9
                      WHERE id = ?10 AND state = 'downloading'",
                 )
@@ -78,6 +82,7 @@ pub async fn refresh(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Resu
                 .bind(now)
                 .bind(finished.then_some(now))
                 .bind(id)
+                .bind(status.seeded())
                 .execute(&mut *tx)
                 .await?;
             }

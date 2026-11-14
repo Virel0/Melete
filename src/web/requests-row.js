@@ -74,6 +74,11 @@ function whence(p) {
   return h("p", { class: "note" }, from ? [from, updated ? [", updated ", updated] : null] : ["Updated ", updated], ".");
 }
 
+// What a request's row says when the download found for it died: no one was sharing it.
+function deadNote() {
+  return h("p", { class: "note state-failed" }, "No one is sharing what was found, so nothing will come of it. It's still looked out for, in case another release appears.");
+}
+
 // Where a season stands, in the words the step bar uses.
 const SEASON_STEPS = {
   searching: "Looking for a download",
@@ -103,7 +108,9 @@ function seasonItem(ctx, r, s, waiting) {
       ? `Downloading, ${Math.round(s.percent)}%`
       : s.step === "searching" && s.episodes === 0
         ? "Waiting for it to air"
-        : (SEASON_STEPS[s.step] ?? s.step);
+        : s.dead
+          ? "No one is sharing it"
+          : (SEASON_STEPS[s.step] ?? s.step);
   const actions = h("span", { class: "season-actions" });
   if (waiting) {
     actions.append(h("span", { class: "note" }, "You asked; waiting for an admin."));
@@ -132,7 +139,7 @@ function seasonItem(ctx, r, s, waiting) {
     "li",
     {},
     h("span", { class: "season-name" }, seasonName(s.season)),
-    h("span", { class: `badge${s.step === "failed" ? " state-failed" : ""}` }, label),
+    h("span", { class: `badge${s.step === "failed" || s.dead ? " state-failed" : ""}`, title: s.dead ? "What was found has no seeders, so nothing will come of it; it's still looked out for." : null }, label),
     s.step === "downloading" && s.percent !== null
       ? h("progress", { max: 100, value: s.percent, "aria-label": `${seasonName(s.season)}: ${Math.round(s.percent)}% downloaded` })
       : null,
@@ -203,7 +210,7 @@ export function requestRow(ctx, r, { decide: deciding, ...mineOpts } = {}) {
     r.seasons?.length && !deciding
       ? seasonList(ctx, r, mineOpts)
       : r.state === "approved" && r.progress
-        ? [stepBar(r.progress), whence(r.progress)]
+        ? [stepBar(r.progress), whence(r.progress)].concat(r.progress.dead ? [deadNote()] : [])
         : r.state === "approved" && r.kind === "artist"
           ? h("p", { class: "note" }, "Their albums are looked for one by one.")
           : null;
