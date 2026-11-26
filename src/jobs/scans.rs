@@ -198,6 +198,23 @@ pub fn take(schedule: Schedule, now: i64) -> Option<Scope> {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn a_scan_request_is_done_once_the_run_that_took_it_has_finished() {
+        let waits = |ticket| {
+            tokio::time::timeout(std::time::Duration::from_millis(100), finished_with(ticket))
+        };
+        let first = ask_folder(-1, None);
+        assert!(take(Schedule::DEFAULT, 0).is_some());
+        // Asked while that run goes on: the next run takes it.
+        let second = ask_folder(-2, None);
+        run_finished();
+        assert!(waits(first).await.is_ok());
+        assert!(waits(second).await.is_err(), "not taken yet");
+        assert!(take(Schedule::DEFAULT, 0).is_some());
+        run_finished();
+        assert!(waits(second).await.is_ok());
+    }
+
     #[test]
     fn the_next_whole_scan_follows_the_schedule() {
         let day = 86_400;

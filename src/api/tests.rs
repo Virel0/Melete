@@ -3415,9 +3415,16 @@ mod openapi {
         let bytes = started.into_body().collect().await.unwrap().to_bytes();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_shape(&spec(), "LibrarySweep", &body);
-        assert_eq!((body["missing"].clone(), body["subtitles"].clone()), (json!(true), json!(false)));
+        assert_eq!(
+            (body["missing"].clone(), body["subtitles"].clone()),
+            (json!(true), json!(false))
+        );
         let music = app
-            .oneshot(send("POST", "/api/v1/libraries/music/scan-and-search", "{}"))
+            .oneshot(send(
+                "POST",
+                "/api/v1/libraries/music/scan-and-search",
+                "{}",
+            ))
             .await
             .unwrap();
         assert_eq!(music.status(), StatusCode::CONFLICT);
