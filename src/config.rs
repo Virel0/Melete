@@ -40,6 +40,9 @@ pub struct Config {
     /// A FlareSolverr (`MELETE_FLARESOLVERR_URL`, e.g. http://flaresolverr:8191), for trackers
     /// behind Cloudflare's browser check (Uindex); those are off without it.
     pub flaresolverr: Option<String>,
+    /// The address watch party guests reach Melete at (`MELETE_PARTY_URL`), which invite links
+    /// begin with; None leaves it to the page that makes one.
+    pub party_url: Option<String>,
     /// Matching music to MusicBrainz (`MELETE_MUSICBRAINZ=on`; off by default, as every outside
     /// service is until it's configured).
     pub musicbrainz: bool,
@@ -173,6 +176,7 @@ impl Config {
             .filter(|token| !token.is_empty())
             .map(Secret);
         let flaresolverr = flaresolverr(&get)?;
+        let party_url = party_url(&get)?;
         let slskd = slskd(&get)?;
         let translation = translation(&get)?;
         let musicbrainz = switch(&get, "MELETE_MUSICBRAINZ")?;
@@ -243,6 +247,7 @@ impl Config {
             library_categories: Vec::new(),
             tmdb_token,
             flaresolverr,
+            party_url,
             musicbrainz,
             listenbrainz,
             lyrics,

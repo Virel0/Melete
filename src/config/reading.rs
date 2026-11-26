@@ -64,6 +64,31 @@ pub(super) fn flaresolverr(
     )
 }
 
+/// The address watch party guests reach Melete at (`MELETE_PARTY_URL`): an origin alone, such
+/// as https://watch.example.com, which invite links begin with. None leaves the link to the
+/// page that made it.
+pub(super) fn party_url(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<String>> {
+    let Some(url) = get("MELETE_PARTY_URL")
+        .map(|u| u.trim().to_owned())
+        .filter(|u| !u.is_empty())
+    else {
+        return Ok(None);
+    };
+    let parsed = reqwest::Url::parse(&url)
+        .with_context(|| format!("MELETE_PARTY_URL {url:?} isn't an address"))?;
+    anyhow::ensure!(
+        matches!(parsed.scheme(), "http" | "https")
+            && parsed.host_str().is_some()
+            && matches!(parsed.path(), "" | "/")
+            && parsed.query().is_none()
+            && parsed.fragment().is_none()
+            && parsed.username().is_empty()
+            && parsed.password().is_none(),
+        "MELETE_PARTY_URL is an address alone, such as https://watch.example.com"
+    );
+    Ok(Some(url.trim_end_matches('/').to_owned()))
+}
+
 /// slskd's settings: off without an address; with one, its API key is needed.
 pub(super) fn slskd(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Option<Slskd>> {
     Ok(match get("MELETE_SLSKD_URL").filter(|u| !u.is_empty()) {

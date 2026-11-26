@@ -98,6 +98,14 @@ async fn guest_in(f: &Fixture, name: &str) -> (String, String) {
     assert_eq!(status, StatusCode::CREATED, "{made}");
     let invite = made["invite"].as_str().unwrap().to_owned();
     assert_eq!(made["path"], format!("/#/guest/{invite}"));
+    // The whole link only once the address for guests is set.
+    let base: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE name = 'MELETE_PARTY_URL'")
+            .fetch_optional(&f.pool)
+            .await
+            .unwrap();
+    let whole = base.map(|base| format!("{base}/#/guest/{invite}"));
+    assert_eq!(made["link"], json!(whole));
     let (status, headers, joined) = send(
         f,
         json_request(
@@ -272,6 +280,10 @@ async fn a_guest_follows_plays_and_streams_their_party_and_reaches_nothing_else(
 #[tokio::test]
 async fn a_capped_party_refuses_guests_a_stream_over_its_cap_and_invites_are_spent_once() {
     let f = fixture(Some(1_000)).await;
+    sqlx::query("INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_PARTY_URL', 'https://watch.example.com', 0)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
     let (pass, _) = guest_in(&f, "Sam").await;
     let bearer = format!("Bearer {pass}");
     let with_pass = Some(("authorization", bearer.as_str()));

@@ -18658,6 +18658,7 @@
         "type": "object",
         "required": [
           "invite",
+          "link",
           "path",
           "expires_at"
         ],
@@ -18665,6 +18666,10 @@
           "invite": {
             "type": "string",
             "description": "The invite's secret (`mpi_…`), shown this once."
+          },
+          "link": {
+            "type": ["string", "null"],
+            "description": "The whole link, from the address set for guests (MELETE_PARTY_URL, Outside services, Watch party guests); null without one: the page adds its own."
           },
           "path": {
             "type": "string",
@@ -20960,7 +20965,8 @@
               "proxy",
               "vpn",
               "webhook",
-              "email"
+              "email",
+              "party"
             ]
           },
           "name": {"type": "string"},

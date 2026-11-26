@@ -5,6 +5,7 @@ use super::*;
 mod alerts;
 mod make_room;
 mod musicbrainz;
+mod party;
 mod proxy;
 mod trailers;
 mod vpn;
@@ -483,4 +484,5 @@ pub const SERVICES: &[Service] = &[
     vpn::VPN,
     alerts::WEBHOOK,
     alerts::EMAIL,
+    party::PARTY,
 ];
