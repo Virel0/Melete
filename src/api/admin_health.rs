@@ -46,6 +46,10 @@ async fn health(State(state): State<HealthState>) -> Result<Json<Health>, ApiErr
     if let Some(finding) = crate::tmdb_status::finding(&crate::tmdb_status::current()) {
         admin_health::system_problem(&mut health, finding);
     }
+    // Whether each library answers is known to its regular check.
+    for finding in crate::library::health::findings(&state.pool).await? {
+        admin_health::system_problem(&mut health, finding);
+    }
     // Whether the proxy answers is known to the connections made through it.
     if let Some(finding) = crate::proxy::finding() {
         admin_health::system_problem(&mut health, finding);

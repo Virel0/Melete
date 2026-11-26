@@ -94,18 +94,24 @@ fn width_of(size: &str) -> Option<u32> {
 }
 
 /// The file's bytes, if it's inside the library (a link out of it isn't followed) and not too
-/// large.
+/// large; none while the library isn't responding, or when it doesn't answer in time.
 async fn read_inside(root: &Path, rel_path: &str) -> Option<Vec<u8>> {
-    let root = tokio::fs::canonicalize(root).await.ok()?;
-    let path = tokio::fs::canonicalize(root.join(rel_path)).await.ok()?;
-    if !path.starts_with(&root) {
-        return None;
-    }
-    let metadata = tokio::fs::metadata(&path).await.ok()?;
-    if !metadata.is_file() || metadata.len() > MAX_SOURCE_BYTES {
-        return None;
-    }
-    tokio::fs::read(&path).await.ok()
+    let (at, rel_path) = (root.to_path_buf(), rel_path.to_owned());
+    crate::library::health::within(root, crate::library::health::LIMIT, move || {
+        let root = std::fs::canonicalize(at).ok()?;
+        let path = std::fs::canonicalize(root.join(rel_path)).ok()?;
+        if !path.starts_with(&root) {
+            return None;
+        }
+        let metadata = std::fs::metadata(&path).ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_SOURCE_BYTES {
+            return None;
+        }
+        std::fs::read(&path).ok()
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// The image cropped to `shape` (width over height) around its subject, as the backdrop focus

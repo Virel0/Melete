@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 mod anime_subtitles;
+mod disks;
 mod frame_rates;
 mod matching;
 mod profiles;
 
 use anime_subtitles::*;
+use disks::*;
 use frame_rates::*;
 use matching::*;
 use profiles::*;
@@ -43,7 +45,7 @@ pub struct Finding {
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
     /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
     /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate,
-    /// anime_unstyled_subtitles, proxy_down.
+    /// anime_unstyled_subtitles, proxy_down, library_unreachable.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -373,31 +375,6 @@ async fn library_files(pool: &SqlitePool, found: &mut Found) -> anyhow::Result<(
     Ok(())
 }
 
-/// Libraries whose disk is nearly full: less than [`crate::disk::NEARLY_FULL_PERCENT`] free. A
-/// library that can't be measured is left to the scan, which says so.
-async fn disks(pool: &SqlitePool, found: &mut Found) -> anyhow::Result<()> {
-    let libraries: Vec<(i64, String, String)> =
-        sqlx::query_as("SELECT id, name, path FROM libraries ORDER BY name")
-            .fetch_all(pool)
-            .await?;
-    for (id, name, path) in libraries {
-        let Ok(space) = crate::disk::space(std::path::Path::new(&path)) else {
-            continue;
-        };
-        if let Some(message) = nearly_full(&name, space) {
-            found.add(
-                "system",
-                Level::Problem,
-                "disk_nearly_full",
-                message,
-                1,
-                Some(id),
-            );
-        }
-    }
-    Ok(())
-}
-
 /// OpenSubtitles' downloads for the day used up: fetching resumes when they come back.
 async fn opensubtitles_used_up(pool: &SqlitePool, found: &mut Found) -> anyhow::Result<()> {
     if let Some(reset_at) = crate::opensubtitles::used_up_until(pool).await? {
@@ -416,17 +393,6 @@ async fn opensubtitles_used_up(pool: &SqlitePool, found: &mut Found) -> anyhow::
         );
     }
     Ok(())
-}
-
-/// What's said of a library whose disk is nearly full; None when it isn't.
-fn nearly_full(name: &str, space: crate::disk::Space) -> Option<String> {
-    space.nearly_full().then(|| {
-        format!(
-            "The disk the {name} library is on is nearly full: {} GB free ({}%).",
-            space.free / 1_000_000_000,
-            space.free * 100 / space.total
-        )
-    })
 }
 
 /// The database's copies, as of `now`: the latest daily one failed, or the newest one made is

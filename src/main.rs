@@ -211,6 +211,9 @@ async fn main() -> anyhow::Result<()> {
         },
         &config,
     )?;
+    // What's known of whether each library answers, before anything reads one.
+    library::health::load(&pool, &libraries).await?;
+    tokio::spawn(library::health::run(pool.clone(), libraries.clone()));
     tokio::spawn(library::watch::run(pool.clone(), libraries.clone()));
     spawn_background_jobs(&pool, &config, libraries, tmdb);
 

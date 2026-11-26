@@ -61,8 +61,23 @@ struct Place {
     error: Option<String>,
 }
 
-fn place(kind: &'static str, name: String, path: PathBuf) -> Place {
-    let measured = disk::space(&path);
+/// A folder's room, measured off the async threads and given up on after the library check's
+/// time limit: a library that isn't responding says so instead of holding the page.
+async fn place(kind: &'static str, name: String, path: PathBuf) -> Place {
+    let at = path.clone();
+    let measured =
+        match crate::library::health::within(&path, crate::library::health::LIMIT, move || {
+            disk::space(&at).map_err(|err| err.to_string())
+        })
+        .await
+        {
+            Ok(measured) => measured,
+            // id 0: a folder of no library's (the data or transcode folder).
+            Err(down) if down.id == 0 => {
+                Err(format!("it {}", down.why.trim_start_matches("its folder ")))
+            }
+            Err(down) => Err(format!("{}: {}", down.saying(), down.why)),
+        };
     Place {
         kind,
         name,
@@ -70,7 +85,7 @@ fn place(kind: &'static str, name: String, path: PathBuf) -> Place {
         total: measured.as_ref().ok().map(|s| s.total),
         free: measured.as_ref().ok().map(|s| s.free),
         nearly_full: measured.as_ref().is_ok_and(|s| s.nearly_full()),
-        error: measured.err().map(|err| err.to_string()),
+        error: measured.err(),
     }
 }
 
@@ -79,16 +94,14 @@ async fn disk_space(State(state): State<SystemState>) -> Result<Json<Vec<Place>>
         sqlx::query_as("SELECT name, path FROM libraries ORDER BY name")
             .fetch_all(&state.pool)
             .await?;
-    let mut places: Vec<Place> = libraries
-        .into_iter()
-        .map(|(name, path)| place("library", name, path.into()))
-        .collect();
-    places.push(place("data", "data".into(), state.data_dir.clone()));
-    places.push(place(
-        "transcode",
-        "transcode".into(),
-        state.transcode_dir.clone(),
-    ));
+    let mut places = futures_util::future::join_all(
+        libraries
+            .into_iter()
+            .map(|(name, path)| place("library", name, path.into())),
+    )
+    .await;
+    places.push(place("data", "data".into(), state.data_dir.clone()).await);
+    places.push(place("transcode", "transcode".into(), state.transcode_dir.clone()).await);
     Ok(Json(places))
 }
 

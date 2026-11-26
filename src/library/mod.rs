@@ -1,6 +1,7 @@
 pub mod absolute;
 pub mod extras;
 pub mod gapless;
+pub mod health;
 mod music;
 pub mod parse;
 pub mod progress;
