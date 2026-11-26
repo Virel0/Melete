@@ -82,11 +82,28 @@ impl client::Handler for Pin {
     }
 }
 
+/// How much the seedbox may send before Melete has taken it in. One copy moves at most this
+/// much per round trip, so russh's 2 MiB default held a copy to about 10 MB/s at 100 ms; at
+/// 32 MiB it's ten times that.
+const WINDOW: u32 = 32 * 1024 * 1024;
+/// SFTP reads asked for at once, enough to keep the window full (OpenSSH answers at most
+/// 255 KiB a read).
+const READS_AHEAD: usize = (WINDOW as usize).div_ceil(255 * 1024);
+
 fn ssh_config() -> Arc<client::Config> {
     Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(120)),
+        window_size: WINDOW,
         ..client::Config::default()
     })
+}
+
+/// The SFTP session's settings: [`READS_AHEAD`] reads at once.
+fn sftp_config() -> russh_sftp::client::Config {
+    russh_sftp::client::Config {
+        max_concurrent_reads: READS_AHEAD,
+        ..Default::default()
+    }
 }
 
 /// An SSH connection to `host` and `port`, the way the seedbox's proxy switch says: direct, or
@@ -214,7 +231,7 @@ impl Seedbox {
             .request_subsystem(true, "sftp")
             .await
             .map_err(sftp_error)?;
-        let sftp = SftpSession::new(channel.into_stream())
+        let sftp = SftpSession::new_with_config(channel.into_stream(), sftp_config())
             .await
             .map_err(|err| Error::Sftp(err.to_string()))?;
         Ok(Connection {
@@ -592,6 +609,13 @@ mod tests {
             at_root.sftp_path("/home/user/Completed").as_deref(),
             Some("/")
         );
+    }
+
+    #[test]
+    fn copies_keep_enough_in_flight_for_a_far_seedbox() {
+        // Reads ahead fill the window, which is what one copy moves per round trip.
+        assert!(ssh_config().window_size >= 32 * 1024 * 1024);
+        assert!(sftp_config().max_concurrent_reads as u64 * 255 * 1024 >= u64::from(WINDOW));
     }
 
     #[tokio::test]
