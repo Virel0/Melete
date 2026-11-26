@@ -91,8 +91,11 @@ async fn scan_noting(
         super::walk::walk_from(&root, Media::Audio, None, &folders)
     });
     let walked = progress
-        .walking(super::progress::TICK, walk)
-        .await?
+        .walking(
+            super::progress::TICK,
+            super::health::unless_down(&library.path, walk),
+        )
+        .await??
         .with_context(|| format!("scanning {}", library.path.display()))?;
     let (found, skipped, ignored) = (walked.found, walked.skipped, walked.ignored);
 
@@ -115,7 +118,11 @@ async fn scan_noting(
         .map(|f| f.rel_path.clone())
         .collect();
     let root = library.path.clone();
-    let (read, problems) = tokio::task::spawn_blocking(move || read_all(&root, stale)).await?;
+    let (read, problems) = super::health::unless_down(
+        &library.path,
+        tokio::task::spawn_blocking(move || read_all(&root, stale)),
+    )
+    .await??;
     problems.log(&library.name);
     let mut folders: Vec<String> = found
         .iter()
@@ -124,7 +131,11 @@ async fn scan_noting(
     folders.sort_unstable();
     folders.dedup();
     let root = library.path.clone();
-    let artwork = tokio::task::spawn_blocking(move || find_artwork(&root, &folders)).await?;
+    let artwork = super::health::unless_down(
+        &library.path,
+        tokio::task::spawn_blocking(move || find_artwork(&root, &folders)),
+    )
+    .await??;
     store(pool, library, &found, read, &artwork, (skipped, &ignored)).await
 }
 

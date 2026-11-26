@@ -2115,6 +2115,10 @@
           "404": {
             "description": "No such file",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "The file's library isn't responding; the message says so (\"the movies library isn't responding\"), for a player to show",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
       }
@@ -2166,7 +2170,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "503": {
-            "description": "The library folder can't be reached",
+            "description": "The library folder can't be reached, or its library isn't responding (the message says so: \"the movies library isn't responding\")",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -6729,7 +6733,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "503": {
-            "description": "The library folder can't be reached",
+            "description": "The library folder can't be reached, or its library isn't responding (the message says so: \"the movies library isn't responding\")",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         },
@@ -10303,7 +10307,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What needs attention in each admin area",
-        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs), and from the connections made through the proxy (proxy_down, under system: the proxy set under Outside services didn't answer the latest connection to it, so the services set to go through it fail until it does, and none goes direct; the message names the proxy by its address, never its login); nothing outside the server is contacted.",
+        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs), and from the connections made through the proxy (proxy_down, under system: the proxy set under Outside services didn't answer the latest connection to it, so the services set to go through it fail until it does, and none goes direct; the message names the proxy by its address, never its login), and from each library's regular check (library_unreachable, under system, with the library's id: its folder didn't answer within 15 seconds, couldn't be read or was empty, so scans leave it alone, copies into it wait and stream links for its files are refused with 503 until it answers again); nothing outside the server is contacted.",
         "responses": {
           "200": {
             "description": "OK",
@@ -19878,7 +19882,8 @@
               "runtime_checks_failed",
               "movies_high_frame_rate",
               "anime_unstyled_subtitles",
-              "proxy_down"
+              "proxy_down",
+              "library_unreachable"
             ],
             "description": "Stable, for apps to act on."
           },
@@ -19886,7 +19891,7 @@
           "count": {"type": "integer", "description": "How many things it's about."},
           "id": {
             "type": ["integer", "null"],
-            "description": "The indexer (indexer_failed), library (files_missing, files_unparsed, disk_nearly_full) or wanted movie or series (runtime_checks_failed: GET /api/v1/runtime-checks/{kind}/{id}) it's about."
+            "description": "The indexer (indexer_failed), library (files_missing, files_unparsed, disk_nearly_full, library_unreachable) or wanted movie or series (runtime_checks_failed: GET /api/v1/runtime-checks/{kind}/{id}) it's about."
           }
         }
       },

@@ -27,6 +27,7 @@ const WHERE = {
   files_missing: () => "#/admin/system/libraries",
   files_unparsed: () => "#/admin/system/libraries",
   disk_nearly_full: () => "#/admin/system/status",
+  library_unreachable: () => "#/admin/system/status",
   backup_failed: () => "#/admin/system/backups",
   backup_old: () => "#/admin/system/backups",
   gpu_unavailable: () => "#/admin/system/tasks",

@@ -127,6 +127,37 @@ async fn streams_whole_files_and_ranges() {
 }
 
 #[tokio::test]
+async fn a_library_not_responding_is_said_rather_than_waited_on() {
+    let f = fixture().await;
+    let url = stream_url(&f, 1).await;
+    let library = crate::library::Library {
+        id: 1,
+        name: "movies".into(),
+        kind: LibraryKind::Movies,
+        path: f._library.path().into(),
+    };
+    crate::library::health::load(&f.pool, &[library])
+        .await
+        .unwrap();
+    crate::library::health::mark_at(
+        f._library.path(),
+        "its folder didn't answer within 15 seconds",
+    )
+    .unwrap();
+
+    let (status, body) = send(&f, "POST", "/api/v1/files/1/play", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(
+        body.to_string()
+            .contains("the movies library isn't responding"),
+        "{body}"
+    );
+    // A link handed out before is refused the same way, at once.
+    let stream = fetch(&f, &url, None).await;
+    assert_eq!(stream.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn stream_links_expire_and_die_with_their_login() {
     let f = fixture().await;
     assert_eq!(

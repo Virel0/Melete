@@ -65,6 +65,7 @@ pub(super) struct FoundFile {
 
 /// Scans one library and records the result in a single transaction.
 pub async fn scan(pool: &SqlitePool, library: &Library) -> anyhow::Result<ScanReport> {
+    answering(library)?;
     let _one_at_a_time = SCANNING.lock().await;
     if library.kind == LibraryKind::Music {
         return super::music::scan(pool, library).await;
@@ -83,7 +84,13 @@ pub async fn scan_folder(
     library: &Library,
     folder: &str,
 ) -> anyhow::Result<ScanReport> {
-    let loose = !library.path.join(folder).is_dir() && library.path.join(folder).exists();
+    answering(library)?;
+    let at = library.path.join(folder);
+    let loose = super::health::within(&library.path, super::health::LIMIT, move || {
+        !at.is_dir() && at.exists()
+    })
+    .await
+    .map_err(|down| anyhow::anyhow!("{}: {}", down.saying(), down.why))?;
     if library.kind == LibraryKind::Music || loose || !walk::is_title_folder(folder) {
         return scan(pool, library).await;
     }
@@ -92,6 +99,18 @@ pub async fn scan_folder(
     let scanned = scan_video(pool, library, Some(folder), &progress).await;
     progress.finish().await;
     scanned
+}
+
+/// Refuses a scan of a library that isn't responding: it would wait on the folder with no end.
+fn answering(library: &Library) -> anyhow::Result<()> {
+    match super::health::down_at(&library.path) {
+        Some(down) => anyhow::bail!(
+            "{}: {}; it's scanned once it answers",
+            down.saying(),
+            down.why
+        ),
+        None => Ok(()),
+    }
 }
 
 /// One scan at a time, whole or of a folder, so two never record the same files at once.
@@ -110,8 +129,8 @@ async fn scan_video(
         walk::walk_from(&root, Media::Video, scope.as_deref(), &folders)
     });
     let walked = progress
-        .walking(TICK, walk)
-        .await?
+        .walking(TICK, super::health::unless_down(&library.path, walk))
+        .await??
         .with_context(|| format!("scanning {}", library.path.display()))?;
     let (extras, beside): (Vec<FoundFile>, Vec<FoundFile>) = walked
         .beside

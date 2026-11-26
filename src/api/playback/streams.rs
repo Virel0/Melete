@@ -10,6 +10,7 @@ pub(super) async fn play(
     limit: Option<Extension<crate::ways_in::VideoLimit>>,
 ) -> Result<Json<Value>, ApiError> {
     require_playable(&pool, &current.access, file_id).await?;
+    answering(&pool, file_id).await?;
     let tracks = super::super::languages::picked(&pool, current.user.id, file_id).await?;
     let (token, expires_at) = create_play_session(&pool, current.token_id, file_id, None).await?;
     let progress = load_progress(&pool, current.user.id, file_id)
@@ -117,18 +118,26 @@ pub(super) async fn stream(
     Ok(response.map(Body::new))
 }
 
-/// The file on disk. Refuses anything, such as a symlink, that resolves outside its library.
+/// The file on disk. Refuses anything, such as a symlink, that resolves outside its library,
+/// and says so, rather than waiting, when its library isn't responding.
 pub(in super::super) async fn resolve(root: &str, rel_path: &str) -> Result<PathBuf, ApiError> {
-    let root = tokio::fs::canonicalize(root).await.map_err(|_| {
-        ApiError::new(
+    let (root, rel_path) = (PathBuf::from(root), rel_path.to_owned());
+    let at = root.clone();
+    let found = crate::library::health::within(&root, crate::library::health::LIMIT, move || {
+        let root = std::fs::canonicalize(&at).ok()?;
+        let path = std::fs::canonicalize(root.join(&rel_path));
+        Some((root, path, rel_path))
+    })
+    .await
+    .map_err(|down| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, down.saying()))?;
+    let Some((root, path, rel_path)) = found else {
+        return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "the library folder can't be reached right now",
-        )
-    })?;
+        ));
+    };
     let not_on_disk = || ApiError::new(StatusCode::NOT_FOUND, "the file is not on disk right now");
-    let path = tokio::fs::canonicalize(root.join(rel_path))
-        .await
-        .map_err(|_| not_on_disk())?;
+    let path = path.map_err(|_| not_on_disk())?;
     if !path.starts_with(&root) {
         tracing::warn!(
             rel_path,
@@ -137,4 +146,22 @@ pub(in super::super) async fn resolve(root: &str, rel_path: &str) -> Result<Path
         return Err(not_on_disk());
     }
     Ok(path)
+}
+
+/// Refuses a stream link for a library file whose library isn't responding, saying so, so a
+/// player tells its viewer instead of waiting on the stream.
+pub(in super::super) async fn answering(pool: &SqlitePool, file_id: i64) -> Result<(), ApiError> {
+    let root: Option<String> = sqlx::query_scalar(
+        "SELECT l.path FROM media_files f JOIN libraries l ON l.id = f.library_id WHERE f.id = ?",
+    )
+    .bind(file_id)
+    .fetch_optional(pool)
+    .await?;
+    match root.and_then(|root| crate::library::health::down_at(std::path::Path::new(&root))) {
+        Some(down) => Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            down.saying(),
+        )),
+        None => Ok(()),
+    }
 }
