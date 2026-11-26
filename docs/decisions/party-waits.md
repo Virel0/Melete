@@ -1,0 +1,5 @@
+Decision: A watch party waits for everyone. A player that's loading or buffering on the party's file says so (after 0.7 seconds, so a blip isn't worth stopping anyone), and a playing party pauses where it has got to (`held`, naming who it waits for); once nobody's waiting it plays on from that spot. A wait is let go after 30 seconds, and so is anyone no longer in the party, so one slow connection can't hold everyone; that player follows the party when it can. Playing or pausing by hand ends any waiting. All of it is worked out as the party is read, writing nothing while nobody waits. A guest is told only that someone from the household is loading, never an account's name.
+
+Why: Without it, a viewer on a slower connection than the host's starts late and skips to where everyone is, and loses whatever plays while their stream stalls. Pausing for a few seconds keeps everyone on the same frame, the way watching together is expected to work; the cap keeps it from turning into everyone waiting on one connection.
+
+Date: 2026-11-26

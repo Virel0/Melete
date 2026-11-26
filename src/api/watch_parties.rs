@@ -50,6 +50,10 @@ pub fn routes_with(pool: SqlitePool, limiter: Arc<LoginLimiter>) -> Router {
         .route("/api/v1/watch-parties/{id}/leave", post(leave))
         .route("/api/v1/watch-parties/{id}/invites", post(invite))
         .route(
+            "/api/v1/watch-parties/{id}/waiting",
+            axum::routing::put(waiting),
+        )
+        .route(
             "/api/v1/watch-parties/{id}/guests/{guest}",
             axum::routing::delete(send_away),
         )
@@ -215,6 +219,34 @@ async fn leave(
     } else {
         Err(refused(Refused::NotFound))
     }
+}
+
+#[derive(Deserialize)]
+struct WaitingBody {
+    /// Whether this player is loading or buffering.
+    waiting: bool,
+}
+
+/// This device's player is loading or buffering, or ready again: a playing party pauses for
+/// it and plays on once everyone's ready, or after 30 seconds.
+async fn waiting(
+    State(state): State<PartyState>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+    Json(body): Json<WaitingBody>,
+) -> Result<Json<Value>, ApiError> {
+    if watch_party::one(&state.pool, current.token_id, id)
+        .await?
+        .is_none()
+    {
+        return Err(refused(Refused::NotFound));
+    }
+    let who = (
+        watch_party::waits::Waiter::Device(current.token_id),
+        current.user.username.as_str(),
+    );
+    watch_party::waits::set(&state.pool, id, who, body.waiting).await?;
+    answer(&state.pool, current.token_id, id).await
 }
 
 /// Makes an invite link for someone with no account: it lets one guest into this party once,

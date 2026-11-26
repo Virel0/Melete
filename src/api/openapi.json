@@ -7874,6 +7874,115 @@
         }
       }
     },
+    "/api/v1/watch-parties/{id}/waiting": {
+      "put": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Say this player is waiting, or ready",
+        "description": "Whether this player is loading or buffering, or ready again. A playing party pauses where it is for a new wait (`held`, with who it waits for in `waiting`), and plays on from there once nobody's waiting, or once a wait has lasted 30 seconds, when it carries on without them. Playing or pausing by hand ends any waiting.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/waiting": {
+      "put": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "Say the guest's player is waiting, or ready",
+        "description": "Whether this player is loading or buffering, or ready again. A playing party pauses where it is for a new wait (`held`, with who it waits for in `waiting`), and plays on from there once nobody's waiting, or once a wait has lasted 30 seconds, when it carries on without them. Playing or pausing by hand ends any waiting. A household device waited for shows to a guest as \"someone from the household\". With a watch party guest's pass, never an account's sign-in or API key (a change by cookie needs the X-Melete-Web header).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestPartyAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "By cookie without the X-Melete-Web header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/watch-parties/{id}/invites": {
       "post": {
         "tags": [
@@ -18599,6 +18708,8 @@
           "version",
           "max_bitrate",
           "household",
+          "held",
+          "waiting",
           "guests"
         ],
         "properties": {
@@ -18640,6 +18751,15 @@
           "household": {
             "type": "integer",
             "description": "How many of the household's devices are in it."
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Paused for someone loading or buffering."
+          },
+          "waiting": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Who it waits for: guests by name, and \"someone from the household\" for a household device."
           },
           "guests": {
             "type": "array",
@@ -18821,6 +18941,19 @@
         },
         "additionalProperties": false
       },
+      "WaitingInput": {
+        "type": "object",
+        "required": [
+          "waiting"
+        ],
+        "properties": {
+          "waiting": {
+            "type": "boolean",
+            "description": "True while the player is loading or buffering."
+          }
+        },
+        "additionalProperties": false
+      },
       "WatchParty": {
         "type": "object",
         "required": [
@@ -18837,6 +18970,8 @@
           "playing",
           "version",
           "guest_max_bitrate",
+          "held",
+          "waiting",
           "guests",
           "members"
         ],
@@ -18905,6 +19040,15 @@
               "null"
             ],
             "description": "Guests' streams are held to this many bits a second; null: as everyone's."
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Paused for someone loading or buffering; it plays on once nobody is."
+          },
+          "waiting": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Who it waits for: usernames and guests' names, first first."
           },
           "guests": {
             "type": "array",

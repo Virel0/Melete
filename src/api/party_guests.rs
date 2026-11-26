@@ -45,6 +45,7 @@ pub fn routes(pool: SqlitePool, ffprobe: PathBuf) -> Router {
     let with_pass = Router::new()
         .route("/api/v1/party", get(show).put(change))
         .route("/api/v1/party/leave", post(leave))
+        .route("/api/v1/party/waiting", axum::routing::put(waiting))
         .route("/api/v1/party/file", get(file))
         .route("/api/v1/party/play", post(play))
         .route("/api/v1/party/events", get(events))
@@ -214,6 +215,26 @@ async fn change(
     )
     .await?
     .map_err(refused)?;
+    answer(&state.pool, &guest).await
+}
+
+#[derive(Deserialize)]
+struct WaitingBody {
+    waiting: bool,
+}
+
+/// The guest's player is loading or buffering, or ready again: a playing party pauses for
+/// them and plays on once everyone's ready, or after 30 seconds.
+async fn waiting(
+    State(state): State<GuestState>,
+    Extension(guest): Extension<Guest>,
+    Json(body): Json<WaitingBody>,
+) -> Result<Json<Value>, ApiError> {
+    let who = (
+        crate::watch_party::waits::Waiter::Guest(guest.id),
+        guest.name.as_str(),
+    );
+    crate::watch_party::waits::set(&state.pool, guest.party_id, who, body.waiting).await?;
     answer(&state.pool, &guest).await
 }
 

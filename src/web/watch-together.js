@@ -11,6 +11,9 @@
 // - attachParty(s, where): the player's part, while it's open: follows the party when it plays
 //   this file, sends this player's play, pause and seek; returns the Together panel's body.
 // - togetherPage(ctx): `#/together`, to join by code or go back to the party.
+//
+// Waiting for everyone: a player loading or buffering on the party's file says so, and a
+// playing party pauses for it, playing on once everyone's ready (or after 30 seconds).
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
 
@@ -60,6 +63,8 @@ function took(answer) {
 
 function ended(words) {
   party = null;
+  waitingSaid = false;
+  clearTimeout(waitTimer);
   clearTimeout(retry);
   clearTimeout(sendTimer);
   source?.close();
@@ -124,6 +129,34 @@ async function send(body = here()) {
   }
 }
 
+// Whether this player has said it's waiting, and the wait about to be said.
+let waitingSaid = false;
+let waitTimer = null;
+// A stall this short isn't worth stopping everyone for.
+const WAIT_AFTER_MS = 700;
+
+async function sayWaiting(waiting) {
+  if (!party || waiting === waitingSaid) return;
+  waitingSaid = waiting;
+  try {
+    took(await api(`/watch-parties/${party.id}/waiting`, { method: "PUT", body: { waiting } }));
+  } catch (err) {
+    if (err.status === 404) ended("The watch party has ended.");
+  }
+}
+
+// The player stalls, or opens before it can play: waited for, if the party plays (or already
+// waits). Ready again: no longer.
+function stalled() {
+  if (!onParty() || !(party.playing || party.held)) return;
+  clearTimeout(waitTimer);
+  waitTimer = setTimeout(() => sayWaiting(true), WAIT_AFTER_MS);
+}
+function ready() {
+  clearTimeout(waitTimer);
+  if (waitingSaid) sayWaiting(false);
+}
+
 // Play, pause or a seek here: sent, unless it's this player following.
 function local() {
   if (!onParty() || following) return;
@@ -177,16 +210,23 @@ export function attachParty(s, ctx) {
   const video = s.video;
   const events = ["play", "pause", "seeked"];
   events.forEach((e) => video.addEventListener(e, local));
+  video.addEventListener("waiting", stalled);
+  video.addEventListener("canplay", ready);
+  video.addEventListener("playing", ready);
   const body = h("div", { class: "together" });
-  const draw = () => body.replaceChildren(...panelBody(ctx));
+  const draw = () => body.replaceChildren(...panelBody(ctx).filter(Boolean));
   watchers.add(draw);
   draw();
+  pickUp().then(() => {
+    if (player?.s === s && onParty() && video.readyState < 3) stalled();
+  });
   // Once the video can play: follow the party here, or, as its host, take it to this file.
   video.addEventListener(
     "canplay",
     async () => {
       await pickUp();
       if (!party || player?.s !== s) return;
+      ready();
       if (onParty()) follow(party);
       else if (hostHere()) send({ file_id: Number(s.fileId), position_ms: 0, playing: !video.paused });
       changed();
@@ -197,6 +237,10 @@ export function attachParty(s, ctx) {
     body,
     stop() {
       events.forEach((e) => video.removeEventListener(e, local));
+      video.removeEventListener("waiting", stalled);
+      video.removeEventListener("canplay", ready);
+      video.removeEventListener("playing", ready);
+      ready();
       watchers.delete(draw);
       if (player?.s === s) player = null;
     },
@@ -243,7 +287,9 @@ function panelBody(ctx) {
     await api(`/watch-parties/${party.id}`, { method: "DELETE" }).catch(() => {});
     ended("You ended the watch party for everyone.");
   });
+  const held = party.waiting?.length ? h("p", { class: "status", role: "status" }, `Waiting for ${party.waiting.join(", ")}…`) : null;
   return [
+    held,
     h("p", {}, "Code: ", h("strong", { class: "party-code" }, party.code)),
     h("p", { class: "note" }, onParty() ? "Others join with this code under Watch together." : h("a", { href: partyHref(party) }, "Back to what the party is watching")),
     h("ul", { class: "plain" }, members),

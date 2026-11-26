@@ -158,7 +158,7 @@ pub async fn set(
     }
     let now = now_ms();
     let changed = sqlx::query(
-        "UPDATE watch_parties SET position_ms = ?, position_at = ?, playing = ?,
+        "UPDATE watch_parties SET position_ms = ?, position_at = ?, playing = ?, held = 0,
              version = version + 1, updated_at = ?
          WHERE id = ? AND version = ?",
     )
@@ -171,11 +171,11 @@ pub async fn set(
     .execute(pool)
     .await?
     .rows_affected();
-    Ok(if changed == 1 {
-        Ok(())
-    } else {
-        Err(Refused::Stale)
-    })
+    if changed != 1 {
+        return Ok(Err(Refused::Stale));
+    }
+    super::waits::clear(pool, guest.party_id).await?;
+    Ok(Ok(()))
 }
 
 /// The guest leaves; their pass and stream links end.
@@ -237,15 +237,27 @@ struct Seen {
     season: Option<i64>,
     episode: Option<i64>,
     household: i64,
+    held: bool,
 }
 
 /// The guest's party as they see it: what plays (its title), where and whether, the other
 /// guests by name, and how many of the household's devices are in it.
 pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value>> {
+    let waiting: Vec<String> = super::waits::names(pool, guest.party_id)
+        .await?
+        .into_iter()
+        .map(|(name, guest)| {
+            if guest {
+                name
+            } else {
+                super::waits::SOMEONE.to_owned()
+            }
+        })
+        .collect();
     let seen: Option<Seen> = sqlx::query_as(
         "SELECT p.file_id, p.position_ms, p.position_at, p.playing, p.version,
              p.guest_max_bitrate, m.parsed_title AS movie, s.parsed_title AS series, f.season,
-             f.episode,
+             f.episode, p.held,
              (SELECT count(*) FROM watch_party_members WHERE party_id = p.id) AS household
          FROM watch_parties p JOIN media_files f ON f.id = p.file_id
          LEFT JOIN movies m ON m.id = f.movie_id LEFT JOIN series s ON s.id = f.series_id
@@ -279,6 +291,8 @@ pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value
         "version": seen.version,
         "max_bitrate": seen.guest_max_bitrate,
         "household": seen.household,
+        "held": seen.held,
+        "waiting": waiting,
         "guests": guests,
     })))
 }
