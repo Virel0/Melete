@@ -752,6 +752,9 @@ fn https_is_off_until_its_address_certificate_and_key_are_all_set() {
     assert!(read(&[all[0], ("MELETE_TLS_CERT", "melete.crt"), all[2]]).is_err());
     assert!(read(&[("MELETE_TLS_PROXY_PROTOCOL", "on")]).is_err());
     assert!(read(&[("MELETE_TLS_BIND", "8443"), all[1], all[2]]).is_err());
+}
+
+#[test]
 fn the_address_for_party_guests_is_an_address_alone() {
     let read = |value: &str| {
         reading::party_url(&|k: &str| (k == "MELETE_PARTY_URL").then(|| value.to_owned()))
