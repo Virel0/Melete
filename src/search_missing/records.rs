@@ -34,6 +34,9 @@ pub struct MissingSearch {
     pub started_at: i64,
     /// When it ended, in Unix seconds; `None` while it runs.
     pub finished_at: Option<i64>,
+    /// The library it searched for alone (a library's Scan and search); `None` for the whole
+    /// area.
+    pub library_id: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -52,6 +55,7 @@ pub(super) struct Row {
     pub(super) started_by: Option<String>,
     pub(super) started_at: i64,
     pub(super) finished_at: Option<i64>,
+    pub(super) library_id: Option<i64>,
 }
 
 impl From<Row> for MissingSearch {
@@ -72,13 +76,15 @@ impl From<Row> for MissingSearch {
             started_by: r.started_by,
             started_at: r.started_at,
             finished_at: r.finished_at,
+            library_id: r.library_id,
         }
     }
 }
 
 pub(super) const COLUMNS: &str =
     "SELECT s.id, s.area, s.goal, s.state, s.total, s.done, s.searched, s.grabbed,
-        s.current, s.message, s.notes, u.username AS started_by, s.started_at, s.finished_at
+        s.current, s.message, s.notes, u.username AS started_by, s.started_at, s.finished_at,
+        s.library_id
      FROM missing_searches s LEFT JOIN users u ON u.id = s.started_by";
 
 /// A run by its id; `None` when there's no such run.

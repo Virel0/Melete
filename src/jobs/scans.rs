@@ -81,13 +81,22 @@ struct Asked {
     folders: Vec<(i64, Option<String>)>,
     /// When the last whole scan started, in Unix seconds.
     last_whole: Option<i64>,
+    /// The latest request's number, and the latest one taken by a run.
+    ticket: u64,
+    taken: u64,
 }
 
 static ASKED: Mutex<Asked> = Mutex::new(Asked {
     whole: false,
     folders: Vec::new(),
     last_whole: None,
+    ticket: 0,
+    taken: 0,
 });
+
+/// The latest request a finished run took, scan and what follows it (matching, probing).
+static DONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FINISHED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// What a housekeeping run scans.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,12 +122,35 @@ pub fn ask_whole() {
     ASKED.lock().expect("no holder panics").whole = true;
 }
 
-/// Asks for one library to be scanned at the next run, whole or only `folder`.
-pub fn ask_folder(library_id: i64, folder: Option<String>) {
+/// Asks for one library to be scanned at the next run, whole or only `folder`; returns the
+/// request's number, for [`finished_with`].
+pub fn ask_folder(library_id: i64, folder: Option<String>) -> u64 {
     let mut asked = ASKED.lock().expect("no holder panics");
     let request = (library_id, folder);
     if !asked.folders.contains(&request) {
         asked.folders.push(request);
+    }
+    asked.ticket += 1;
+    asked.ticket
+}
+
+/// Notes that the run that took the latest requests has finished, scan and all that follows.
+pub fn run_finished() {
+    let taken = ASKED.lock().expect("no holder panics").taken;
+    DONE.fetch_max(taken, std::sync::atomic::Ordering::SeqCst);
+    FINISHED.notify_waiters();
+}
+
+/// Waits until a run that took request `ticket` has finished.
+pub async fn finished_with(ticket: u64) {
+    loop {
+        let notified = FINISHED.notified();
+        let mut notified = std::pin::pin!(notified);
+        notified.as_mut().enable();
+        if DONE.load(std::sync::atomic::Ordering::SeqCst) >= ticket {
+            return;
+        }
+        notified.await;
     }
 }
 
@@ -152,6 +184,8 @@ fn next_after(schedule: Schedule, last: i64, offset: i64) -> i64 {
 pub fn take(schedule: Schedule, now: i64) -> Option<Scope> {
     let mut asked = ASKED.lock().expect("no holder panics");
     let folders = std::mem::take(&mut asked.folders);
+    // Whatever runs next takes every request made so far.
+    asked.taken = asked.ticket;
     if asked.whole || schedule.due(asked.last_whole, now, utc_offset(now)) {
         asked.whole = false;
         asked.last_whole = Some(now);

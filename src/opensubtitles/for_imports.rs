@@ -7,7 +7,7 @@
 //! downloads.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 
@@ -48,13 +48,58 @@ pub async fn fetch_for_imports_at(
     subtitles: &Path,
     api: &str,
 ) -> anyhow::Result<Report> {
+    fetch_for(pool, subtitles, api, None).await
+}
+
+/// The same for every film and episode of one library, not only new imports (a library's Scan
+/// and search): what each lacks in the languages set for imports. Files already looked for in a
+/// language aren't again; None when OpenSubtitles or those languages aren't set up.
+pub async fn fetch_for_library(
+    pool: &SqlitePool,
+    subtitles: &Path,
+    library: i64,
+) -> anyhow::Result<Option<Report>> {
+    fetch_for_library_at(pool, subtitles, library, API).await
+}
+
+/// The same, with OpenSubtitles' API at `api`.
+pub async fn fetch_for_library_at(
+    pool: &SqlitePool,
+    subtitles: &Path,
+    library: i64,
+    api: &str,
+) -> anyhow::Result<Option<Report>> {
+    let config = crate::settings::load(pool).await?;
+    if !config
+        .opensubtitles
+        .as_ref()
+        .is_some_and(|s| !s.imports.is_empty())
+    {
+        return Ok(None);
+    }
+    fetch_for(pool, subtitles, api, Some(library))
+        .await
+        .map(Some)
+}
+
+/// Fetches what the new imports lack, or, with `library`, every file of that library.
+async fn fetch_for(
+    pool: &SqlitePool,
+    subtitles: &Path,
+    api: &str,
+    library: Option<i64>,
+) -> anyhow::Result<Report> {
     let mut report = Report::default();
     let config = crate::settings::load(pool).await?;
     let Some(settings) = config.opensubtitles.filter(|s| !s.imports.is_empty()) else {
         return Ok(report);
     };
     let client = Client::with_api(&settings, api)?;
-    for file in imported(pool).await? {
+    let files = match library {
+        None => imported(pool).await?,
+        Some(library) => of_library(pool, library).await?,
+    };
+    for file in files {
         for language in lacking(pool, &file, &settings.imports).await? {
             if used_up_until(pool).await?.is_some() {
                 return Ok(report);
@@ -117,6 +162,29 @@ async fn imported(pool: &SqlitePool) -> anyhow::Result<Vec<Imported>> {
     let mut seen = HashSet::new();
     files.retain(|f| seen.insert(f.id));
     Ok(files)
+}
+
+/// Every film's and episode's file in the library, as it is now.
+async fn of_library(pool: &SqlitePool, library: i64) -> anyhow::Result<Vec<Imported>> {
+    let rows: Vec<(i64, i64, i64, String, String)> = sqlx::query_as(
+        "SELECT f.id, f.size, f.modified_at, l.path, f.rel_path
+         FROM media_files f JOIN libraries l ON l.id = f.library_id
+         WHERE f.library_id = ? AND f.missing_since IS NULL AND l.kind IN ('movies', 'shows')
+         ORDER BY f.id",
+    )
+    .bind(library)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, size, modified, root, rel_path)| Imported {
+            id,
+            size,
+            modified,
+            root,
+            rel_path,
+        })
+        .collect())
 }
 
 /// Which of `languages` the file has no text subtitle in and hasn't been looked for in yet.

@@ -55,10 +55,12 @@ pub fn request_rescan() {
     RESCAN.notify_one();
 }
 
-/// Wakes a scan of one library now, whole or only one title folder (its path in the library).
-pub fn request_folder_scan(library_id: i64, folder: Option<String>) {
-    scans::ask_folder(library_id, folder);
+/// Wakes a scan of one library now, whole or only one title folder (its path in the library);
+/// returns the request's number, which [`scans::finished_with`] waits on.
+pub fn request_folder_scan(library_id: i64, folder: Option<String>) -> u64 {
+    let ticket = scans::ask_folder(library_id, folder);
     RESCAN.notify_one();
+    ticket
 }
 
 /// Runs `job` now, then after each `interval` or as soon as `asked` is notified, whichever

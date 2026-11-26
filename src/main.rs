@@ -106,6 +106,7 @@ mod soulseek_import;
 mod sound;
 mod stems;
 mod subtitles;
+mod sweep;
 mod tasks;
 mod tmdb;
 mod tmdb_status;
@@ -161,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
     // command run beside the server, whose searches are still running.
     artist_search::recover(&pool).await?;
     search_missing::recover(&pool).await?;
+    sweep::recover(&pool).await?;
     library::progress::recover(&pool).await?;
     // Listens from an Aoide import, or pushed before this version, into the play history.
     plays::catch_up_or_log(&pool).await;
