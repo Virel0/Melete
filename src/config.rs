@@ -176,7 +176,6 @@ impl Config {
             .filter(|token| !token.is_empty())
             .map(Secret);
         let flaresolverr = flaresolverr(&get)?;
-        let party_url = party_url(&get)?;
         let slskd = slskd(&get)?;
         let translation = translation(&get)?;
         let musicbrainz = switch(&get, "MELETE_MUSICBRAINZ")?;
@@ -247,7 +246,7 @@ impl Config {
             library_categories: Vec::new(),
             tmdb_token,
             flaresolverr,
-            party_url,
+            party_url: party_url(&get)?,
             musicbrainz,
             listenbrainz,
             lyrics,
