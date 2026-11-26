@@ -31,6 +31,7 @@ use tower::ServiceExt;
 use crate::config::Tls;
 use crate::ways_in::{Net, ProxiedClient};
 
+mod idle;
 pub mod proxy_header;
 
 /// Connections open at once at most.
@@ -39,6 +40,43 @@ pub const MOST_CONNECTIONS: usize = 1024;
 const HEADER_LIMIT: Duration = Duration::from_secs(5);
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(10);
 const REQUEST_HEADERS_LIMIT: Duration = Duration::from_secs(30);
+/// How long a connection may go with no byte read or written (a body that never comes, a
+/// response nobody reads) before it's closed. A video playing keeps its connection moving.
+const IDLE_LIMIT: Duration = Duration::from_secs(60);
+/// Connections one client may have open at once.
+pub const PER_CLIENT: usize = 64;
+
+/// One of a client's open connections, counted while it's held.
+struct PerClient(IpAddr);
+
+static OPEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<IpAddr, usize>>> =
+    std::sync::LazyLock::new(Default::default);
+
+impl PerClient {
+    /// A place for one more of `client`'s connections; none when it has [`PER_CLIENT`].
+    fn take(client: IpAddr) -> Option<PerClient> {
+        let mut open = OPEN.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = open.entry(client).or_default();
+        if *count >= PER_CLIENT {
+            return None;
+        }
+        *count += 1;
+        Some(PerClient(client))
+    }
+}
+
+impl Drop for PerClient {
+    fn drop(&mut self) {
+        let mut open = OPEN.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = open.get_mut(&self.0) {
+            *count -= 1;
+            if *count == 0 {
+                open.remove(&self.0);
+            }
+        }
+    }
+}
+
 /// How often the certificate files are looked at for a change.
 const RELOAD_EVERY: Duration = Duration::from_secs(10 * 60);
 
@@ -235,17 +273,25 @@ async fn connection(
         .await
         .map_err(|_| "no handshake in time".to_owned())?
         .map_err(|err| format!("handshake: {err}"))?;
+    // The client is decided here, never by a header the client could write.
+    let client = client.unwrap_or(peer.ip());
+    let Some(_per_client) = PerClient::take(client) else {
+        return Err(format!(
+            "{client} has {PER_CLIENT} connections open already"
+        ));
+    };
     let service = router.map_request(move |mut request: axum::http::Request<Incoming>| {
         request.extensions_mut().insert(ConnectInfo(peer));
-        if let Some(client) = client {
-            request.extensions_mut().insert(ProxiedClient(client));
-        }
+        request.extensions_mut().insert(ProxiedClient(client));
         request
     });
     hyper::server::conn::http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(REQUEST_HEADERS_LIMIT)
-        .serve_connection(TokioIo::new(tls), TowerToHyperService::new(service))
+        .serve_connection(
+            TokioIo::new(idle::Idle::new(tls, IDLE_LIMIT)),
+            TowerToHyperService::new(service),
+        )
         .with_upgrades()
         .await
         .map_err(|err| format!("serving: {err}"))

@@ -307,9 +307,10 @@ impl Opens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoLimit(pub Option<i64>);
 
-/// Who the client is, as a trusted proxy said in a PROXY protocol header ahead of an HTTPS
-/// connection it passed through (`crate::tls`): put on the connection's requests by the
-/// listener, which believes such a header from a trusted proxy alone.
+/// Who the client of an HTTPS connection is (`crate::tls`): the client a trusted proxy's PROXY
+/// header named, else the connection's own address. Put on the connection's requests by the
+/// listener, so `X-Forwarded-For`, which on a connection passed through only the client could
+/// have written, is never believed there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProxiedClient(pub IpAddr);
 

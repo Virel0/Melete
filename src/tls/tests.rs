@@ -64,6 +64,16 @@ async fn who(
     root: &CertificateDer<'static>,
     before: &[u8],
 ) -> Result<String, String> {
+    who_with(at, root, before, "").await
+}
+
+/// The same, with extra request headers (each line ending CRLF).
+async fn who_with(
+    at: SocketAddr,
+    root: &CertificateDer<'static>,
+    before: &[u8],
+    headers: &str,
+) -> Result<String, String> {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(root.clone()).unwrap();
     let config = rustls::ClientConfig::builder_with_provider(provider())
@@ -79,7 +89,9 @@ async fn who(
         .connect(name, tcp)
         .await
         .map_err(|e| e.to_string())?;
-    tls.write_all(b"GET /who HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    let request =
+        format!("GET /who HTTP/1.1\r\nHost: localhost\r\n{headers}Connection: close\r\n\r\n");
+    tls.write_all(request.as_bytes())
         .await
         .map_err(|e| e.to_string())?;
     let mut answer = String::new();
@@ -172,5 +184,46 @@ fn a_wrong_certificate_says_which_file_and_never_what_it_holds() {
     assert!(
         !bad.contains("PRIVATE KEY") && !bad.contains(&key_text[30..60]),
         "{bad}"
+    );
+}
+
+#[tokio::test]
+async fn on_https_a_client_never_names_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let (at, root) = https(dir.path(), true, "127.0.0.1").await;
+    // A trusted proxy's header naming nobody (a health check): the connection's own address,
+    // never what X-Forwarded-For says, which only the client could have written.
+    let forged = "X-Forwarded-For: 198.51.100.77\r\n";
+    assert_eq!(
+        who_with(at, &root, b"PROXY UNKNOWN\r\n", forged)
+            .await
+            .unwrap(),
+        "127.0.0.1"
+    );
+    assert_eq!(
+        who_with(at, &root, PROXIED, forged).await.unwrap(),
+        "203.0.113.9"
+    );
+    // Without the PROXY protocol too.
+    let dir = tempfile::tempdir().unwrap();
+    let (at, root) = https(dir.path(), false, "127.0.0.1").await;
+    assert_eq!(who_with(at, &root, b"", forged).await.unwrap(), "127.0.0.1");
+}
+
+#[test]
+fn one_client_has_at_most_its_share_of_connections() {
+    let client: IpAddr = "198.51.100.200".parse().unwrap();
+    let held: Vec<PerClient> = (0..PER_CLIENT)
+        .map(|_| PerClient::take(client).unwrap())
+        .collect();
+    assert!(PerClient::take(client).is_none(), "one more is refused");
+    assert!(
+        PerClient::take("198.51.100.201".parse().unwrap()).is_some(),
+        "others aren't held up"
+    );
+    drop(held);
+    assert!(
+        PerClient::take(client).is_some(),
+        "places come back as connections close"
     );
 }
