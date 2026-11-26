@@ -30,7 +30,9 @@ pub use successors::carry_progress;
 /// movies or shows library, or its whole music library; every library when it's in none.
 pub async fn ask_scan_of(pool: &SqlitePool, dir: &std::path::Path) -> sqlx::Result<()> {
     match locate(pool, dir).await? {
-        Some((id, folder)) => crate::jobs::request_folder_scan(id, folder),
+        Some((id, folder)) => {
+            crate::jobs::request_folder_scan(id, folder);
+        }
         None => crate::jobs::request_rescan(),
     }
     Ok(())

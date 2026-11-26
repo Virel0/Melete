@@ -12348,6 +12348,50 @@
         }
       }
     },
+    "/api/v1/libraries/{name}/scan-and-search": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "A library's latest Scan and search",
+        "parameters": [{"name": "name", "in": "path", "required": true, "description": "The library's name.", "schema": {"type": "string"}}],
+        "responses": {
+          "200": {"description": "Its latest, or null when it has had none", "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/LibrarySweep"}, {"type": "null"}]}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"description": "No such library", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      },
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Scan a library, then search for what it's missing",
+        "description": "Scans the library (its new files matched and probed, as any scan), then, each unless turned off: searches for its missing titles, then for upgrades of its files below their profile's cutoff, each a missing search for this library's titles alone (`library_id`), paced like Search all missing and let wait while another runs in the area; then fetches the subtitles its films and episodes lack in the languages set for imports (MELETE_OPENSUBTITLES_IMPORTS), each file and language looked for once. A title is the library's when its folder is in it, or, without a folder yet, when its new files go there. Movie and series libraries only; one at a time per library.",
+        "parameters": [{"name": "name", "in": "path", "required": true, "description": "The library's name.", "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "missing": {"type": "boolean", "default": true},
+              "upgrades": {"type": "boolean", "default": true},
+              "subtitles": {"type": "boolean", "default": true}
+            },
+            "additionalProperties": false
+          }}}
+        },
+        "responses": {
+          "202": {"description": "Started", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibrarySweep"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"description": "No such library", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "409": {"description": "A music library, or one under way for it already", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "503": {"description": "The library isn't responding", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      }
+    },
     "/api/v1/movies/{id}/rescan": {
       "post": {
         "tags": ["Admin"],
@@ -20997,6 +21041,27 @@
         },
         "additionalProperties": false
       },
+      "LibrarySweep": {
+        "type": "object",
+        "required": ["id", "library", "step", "state", "missing", "upgrades", "subtitles", "missing_search_id", "upgrade_search_id", "subtitles_fetched", "message", "started_by", "started_at", "finished_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "library": {"type": "string", "description": "The library's name."},
+          "step": {"type": "string", "enum": ["scanning", "missing", "upgrades", "subtitles", "done"], "description": "The step under way, or the last one reached."},
+          "state": {"type": "string", "enum": ["running", "done", "failed"], "description": "failed: why is in message."},
+          "missing": {"type": "boolean", "description": "Whether its missing titles are searched for."},
+          "upgrades": {"type": "boolean", "description": "Whether upgrades of its files below their cutoff are searched for."},
+          "subtitles": {"type": "boolean", "description": "Whether the subtitles its files lack are fetched."},
+          "missing_search_id": {"type": ["integer", "null"], "description": "The missing search it started for what's missing (GET /api/v1/missing-searches/{id})."},
+          "upgrade_search_id": {"type": ["integer", "null"], "description": "The missing search it started for upgrades."},
+          "subtitles_fetched": {"type": "integer", "description": "Subtitles fetched."},
+          "message": {"type": ["string", "null"], "description": "How it went, step by step, once it has ended."},
+          "started_by": {"type": ["string", "null"], "description": "Who started it; null once that user is removed."},
+          "started_at": {"type": "integer", "description": "Unix seconds."},
+          "finished_at": {"type": ["integer", "null"], "description": "Unix seconds; null while it runs."}
+        },
+        "additionalProperties": false
+      },
       "MissingSearch": {
         "type": "object",
         "required": [
@@ -21013,7 +21078,8 @@
           "notes",
           "started_by",
           "started_at",
-          "finished_at"
+          "finished_at",
+          "library_id"
         ],
         "properties": {
           "id": {"type": "integer"},
@@ -21052,7 +21118,8 @@
             "description": "The username of the admin who started it; null once that account is gone."
           },
           "started_at": {"type": "integer", "description": "Unix seconds."},
-          "finished_at": {"type": ["integer", "null"], "description": "Unix seconds."}
+          "finished_at": {"type": ["integer", "null"], "description": "Unix seconds."},
+          "library_id": {"type": ["integer", "null"], "description": "The library it searched for alone (its Scan and search); null for the whole area."}
         },
         "additionalProperties": false
       },

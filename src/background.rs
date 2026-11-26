@@ -60,6 +60,7 @@ pub(crate) async fn housekeeping(
         wake_after_probing();
         settle_upgrades(&pool).await;
         forget_old(&pool, &artwork_dir).await;
+        jobs::scans::run_finished();
         let next = jobs::scans::next_whole(schedule, crate::db::unix_now());
         crate::tasks::finished("library", None, next);
     })

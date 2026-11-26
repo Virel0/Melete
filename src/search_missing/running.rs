@@ -84,10 +84,10 @@ pub(super) async fn run(
     pool: &SqlitePool,
     sources: &Sources,
     id: i64,
-    area: Area,
+    (area, library): (Area, Option<i64>),
     goal: Goal,
 ) -> anyhow::Result<Ended> {
-    let mut items: VecDeque<Item> = to_do(pool, area, goal).await?.into();
+    let mut items: VecDeque<Item> = to_do(pool, area, goal, library).await?.into();
     let mut total = items.len();
     sqlx::query("UPDATE missing_searches SET total = ? WHERE id = ?")
         .bind(i64::try_from(total)?)
@@ -398,6 +398,45 @@ mod tests {
                 (e23.to_owned(), Some(2), Some(23), None)
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_run_for_one_library_searches_only_its_titles() {
+        let pool = setup().await;
+        let who = admin(&pool).await;
+        let e22 = "[SubsPlease] Some Anime - 46 (1080p) [ABCD1234].mkv";
+        let pipeline = some_anime(&pool, 21, &[e22]).await;
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (2, 'shows', 'shows', '/s')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let sources = sources(Some(pipeline));
+        // Some Anime's folder is in the anime library: a run for the shows library has nothing.
+        let other = start_in(
+            &pool,
+            sources.clone(),
+            Area::Series,
+            Goal::Missing,
+            Some(2),
+            who,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let other = finished(&pool, other.id).await;
+        assert_eq!(
+            (other.total, other.searched, other.library_id),
+            (0, 0, Some(2))
+        );
+        let own = start_in(&pool, sources, Area::Series, Goal::Missing, Some(1), who)
+            .await
+            .unwrap()
+            .unwrap();
+        let own = finished(&pool, own.id).await;
+        assert!(own.searched >= 1 && own.grabbed == 1, "{own:?}");
+        assert_eq!(own.library_id, Some(1));
     }
 
     #[tokio::test]

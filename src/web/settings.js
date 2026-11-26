@@ -13,6 +13,7 @@ import { services } from "/web/services.js";
 import { arrs, indexers, lists, profiles } from "/web/sources.js";
 import { users } from "/web/users.js";
 import { titleRescan } from "/web/library-rescan.js";
+import { librarySweep } from "/web/library-sweep.js";
 
 const SECTIONS = [
   { key: "account", name: "Your account", admin: false, page: account },
@@ -79,6 +80,7 @@ export async function libraries(ctx) {
         ),
         h("p", { class: "note" }, `Last scanned ${when(l.last_scan_at)}.`),
         scanButton(`Scan ${l.name} now`, `/libraries/${encodeURIComponent(l.name)}/scan`, `Scan of ${l.name} started.`),
+        l.kind === "music" ? null : librarySweep(ctx, l),
       ),
     ),
   );

@@ -35,17 +35,31 @@ pub async fn start_for(
     goal: Goal,
     started_by: i64,
 ) -> anyhow::Result<Result<MissingSearch, Already>> {
+    start_in(pool, sources, area, goal, None, started_by).await
+}
+
+/// [`start_for`], for the titles of one library only when `library` is given: those whose
+/// folder is in it, or, without a folder yet, whose new files go there.
+pub async fn start_in(
+    pool: &SqlitePool,
+    sources: Sources,
+    area: Area,
+    goal: Goal,
+    library: Option<i64>,
+    started_by: i64,
+) -> anyhow::Result<Result<MissingSearch, Already>> {
     if let Some(id) = running_in(pool, area).await? {
         return Ok(Err(Already(id)));
     }
     let inserted: sqlx::Result<i64> = sqlx::query_scalar(
-        "INSERT INTO missing_searches (area, goal, state, started_by, started_at)
-         VALUES (?, ?, 'running', ?, ?) RETURNING id",
+        "INSERT INTO missing_searches (area, goal, state, started_by, started_at, library_id)
+         VALUES (?, ?, 'running', ?, ?, ?) RETURNING id",
     )
     .bind(area.as_str())
     .bind(goal.as_str())
     .bind(started_by)
     .bind(unix_now())
+    .bind(library)
     .fetch_one(pool)
     .await;
     let id = match inserted {
@@ -62,7 +76,7 @@ pub async fn start_for(
         .ok_or_else(|| anyhow::anyhow!("missing search {id} vanished"))?;
     let pool = pool.clone();
     tokio::spawn(async move {
-        let outcome = run(&pool, &sources, id, area, goal).await;
+        let outcome = run(&pool, &sources, id, (area, library), goal).await;
         let (state, message) = match outcome {
             Ok(Ended::Done(message)) => ("done", message),
             Ok(Ended::Stopped(message)) => ("stopped", message),

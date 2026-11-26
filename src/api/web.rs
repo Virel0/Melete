@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 171] = [
+const MODULES: [(&str, &str); 172] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -50,6 +50,7 @@ const MODULES: [(&str, &str); 171] = [
         "watch-together.js",
         include_str!("../web/watch-together.js"),
     ),
+    ("library-sweep.js", include_str!("../web/library-sweep.js")),
     ("page-state.js", include_str!("../web/page-state.js")),
     ("cards.js", include_str!("../web/cards.js")),
     ("home.js", include_str!("../web/home.js")),
@@ -1275,6 +1276,7 @@ mod tests {
             ("/web/user-keys.js", "/users/${u.id}/keys"),
             ("/web/watch-together.js", "/watch-parties"),
             ("/web/library-rescan.js", "/rescan"),
+            ("/web/library-sweep.js", "/scan-and-search"),
             ("/web/services.js", "#/admin/system/downloading"),
         ] {
             let request = Request::get(uri).body(Body::empty()).unwrap();
