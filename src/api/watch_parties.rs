@@ -259,9 +259,12 @@ async fn invite(
     let (secret, expires_at) = guests::invite(&state.pool, (current.user.id, current.token_id), id)
         .await?
         .map_err(refused)?;
+    let path = format!("/#/guest/{secret}");
+    let config = crate::settings::load(&state.pool).await?;
     let body = json!({
         "invite": secret,
-        "path": format!("/#/guest/{secret}"),
+        "link": config.party_url.map(|base| format!("{base}{path}")),
+        "path": path,
         "expires_at": expires_at,
     });
     Ok((StatusCode::CREATED, Json(body)).into_response())

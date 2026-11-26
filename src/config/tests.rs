@@ -720,3 +720,28 @@ fn alerts_by_webhook_and_email_are_off_until_set_and_checked() {
     );
     assert!(read(&[mail[0], mail[1], ("MELETE_ALERT_EMAIL_TO", "alice")]).is_err());
 }
+
+#[test]
+fn the_address_for_party_guests_is_an_address_alone() {
+    let read = |value: &str| {
+        reading::party_url(&|k: &str| (k == "MELETE_PARTY_URL").then(|| value.to_owned()))
+    };
+    assert_eq!(read("").unwrap(), None);
+    assert_eq!(
+        read("https://watch.example.com/").unwrap().as_deref(),
+        Some("https://watch.example.com")
+    );
+    assert_eq!(
+        read("http://192.168.1.10:8100").unwrap().as_deref(),
+        Some("http://192.168.1.10:8100")
+    );
+    for bad in [
+        "watch.example.com",
+        "ftp://x.example",
+        "https://x.example/path",
+        "https://x.example/?a=1",
+        "https://u:p@x.example",
+    ] {
+        assert!(read(bad).is_err(), "{bad}");
+    }
+}

@@ -291,10 +291,74 @@ function panelBody(ctx) {
   return [
     held,
     h("p", {}, "Code: ", h("strong", { class: "party-code" }, party.code)),
+    guestsPart(ctx),
     h("p", { class: "note" }, onParty() ? "Others join with this code under Watch together." : h("a", { href: partyHref(party) }, "Back to what the party is watching")),
     h("ul", { class: "plain" }, members),
     h("div", { class: "form-actions" }, leave, end),
   ];
+}
+
+// The invite link made last, kept while the panel is drawn again for the party's changes.
+let invited = null;
+
+// Guests with no account: who's in, Send away for each, and a link to let one more in.
+function guestsPart(ctx) {
+  const said = h("p", { class: "note", role: "status" });
+  const link = h("div", { class: "invite-link" });
+  const showLink = () => {
+    if (invited?.party !== party.id) return;
+    const field = h("input", { id: "invite-url", readonly: true, value: invited.url, "aria-label": "Invite link" });
+    const copy = h("button", { type: "button", class: "quiet" }, "Copy");
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(invited.url);
+        said.textContent = "Copied. It lets one person in, once, within a day.";
+      } catch {
+        field.select();
+        said.textContent = "Select the link and copy it. It lets one person in, once, within a day.";
+      }
+    });
+    link.replaceChildren(field, copy);
+    said.textContent = invited.note;
+  };
+  const invite = h("button", { type: "button", class: "quiet" }, invited?.party === party.id ? "Another invite" : "Invite a guest");
+  invite.addEventListener("click", async () => {
+    invite.disabled = true;
+    try {
+      const made = await api(`/watch-parties/${party.id}/invites`, { method: "POST" });
+      invited = {
+        party: party.id,
+        url: made.link ?? `${location.origin}${made.path}`,
+        note: made.link
+          ? "Send this to one person. It lets them in once, within a day, to this party alone."
+          : "Send this to one person: it lets them in once, within a day. It begins with this page's address; set the address guests reach Melete at under Outside services, Watch party guests.",
+      };
+      showLink();
+    } catch (err) {
+      if (err instanceof SignedOut) return ctx.signedOut();
+      said.textContent = err.message;
+    } finally {
+      invite.disabled = false;
+    }
+  });
+  const guests = (party.guests ?? []).map((g) => {
+    const away = h("button", { type: "button", class: "quiet", "aria-label": `Send ${g.name} away` }, "Send away");
+    away.addEventListener("click", async () => {
+      away.disabled = true;
+      try {
+        await api(`/watch-parties/${party.id}/guests/${g.id}`, { method: "DELETE" });
+        announce(`${g.name} was sent away.`);
+        refresh();
+      } catch (err) {
+        if (err instanceof SignedOut) return ctx.signedOut();
+        said.textContent = err.message;
+        away.disabled = false;
+      }
+    });
+    return h("li", {}, `${g.name} (guest) `, away);
+  });
+  showLink();
+  return h("div", { class: "party-guests" }, guests.length ? h("ul", { class: "plain" }, guests) : null, invite, link, said);
 }
 
 // Joining with a code: the party's file opens and plays where the party is.
