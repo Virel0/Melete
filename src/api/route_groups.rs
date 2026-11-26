@@ -120,6 +120,10 @@ pub(super) fn account_routes(
         .merge(avatars::routes(pool.clone()))
         .merge(events::routes(pool.clone()))
         .merge(listen::routes_with(pool.clone(), kept.join_codes.clone()))
+        .merge(watch_parties::routes_with(
+            pool.clone(),
+            kept.join_codes.clone(),
+        ))
         .merge(oidc::routes(pool.clone(), oidc_client, limiter))
         .merge(ai::routes_with(
             pool.clone(),

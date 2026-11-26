@@ -21,6 +21,7 @@ import { codeSignIn } from "/web/sign-in-code.js";
 import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
+import { togetherPage } from "/web/watch-together.js";
 import { requestsPage } from "/web/requests.js";
 import { searchPage } from "/web/search.js";
 import { calendarPage } from "/web/calendar.js";
@@ -260,6 +261,9 @@ async function render() {
       return titlePage(kind, id, under, params, gen, me.is_admin);
     }
     if (kind === "favourites" && !id) return favouritesPage(params, gen);
+    if (kind === "together" && !id) {
+      return togetherPage({ me, current: () => gen === generation, signedOut: () => signIn("Your session ended. Sign in again.") }, show);
+    }
     if (kind === "search" && !id) return searchPage(params, gen);
     if (kind === "people" && /^\d+$/.test(id)) return personPage(id, gen);
     if (kind === "collections" && /^\d+$/.test(id)) return collectionPage(id, gen);
@@ -300,6 +304,7 @@ async function render() {
       // A video and music at once would talk over each other.
       pauseMusic();
       return playerPage(id, params, {
+        me,
         current: () => gen === generation,
         onLeave: (fn) => leaving.push(fn),
         signedOut: () => signIn("Your session ended. Sign in again."),

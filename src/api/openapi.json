@@ -7506,6 +7506,374 @@
         }
       }
     },
+    "/api/v1/watch-parties": {
+      "get": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "The watch parties this device is in",
+        "description": "The same list the event stream's `watch_party` sends.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WatchParty"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Start a watch party",
+        "description": "Starts a party playing the given film's or episode's file, with this device in it. Others join with its `code`. Each device plays its own stream (POST /api/v1/files/{id}/play), with its own audio and subtitles, and follows the party from the event stream's `watch_party`. `guest_max_bitrate`, when given, holds guests' streams to that many bits a second.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchPartyStartInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a file in the library, a position below 0, or a cap of 0 or less",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such file, or not one this account can watch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/watch-parties/join": {
+      "post": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Join a watch party by its code",
+        "description": "Five wrong codes stop the user joining for 15 minutes. Refused when the party plays something this account can't watch.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListenJoinInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The party plays something this account can't watch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No party has that code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/watch-parties/{id}": {
+      "get": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "A watch party this device is in",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyAnswer"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Change what the party plays",
+        "description": "Plays, pauses or seeks, made against the `version` last seen; anyone in the party may. Only its host changes `file_id`, moving it on to the next episode, say.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchPartyChangeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a file in the library, or a position below 0",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Only the host changes what plays",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It changed since `version`; get it again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "End a watch party for everyone",
+        "description": "Only its host, or an admin.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Ended"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Not its host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/watch-parties/{id}/leave": {
+      "post": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Leave a watch party",
+        "description": "The last to leave ends it.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Left"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/music/unmatched": {
       "get": {
         "tags": ["Music"],
@@ -17596,6 +17964,162 @@
           "spatial": {
             "enum": ["atmos", "multichannel", null],
             "description": "What's served: atmos or multichannel when it goes as it is (or converted keeping its channels: Atmos itself is lost in a conversion); null when it's stereo or folded into stereo."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchParty": {
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "host",
+          "file_id",
+          "movie_id",
+          "series_id",
+          "season",
+          "episode",
+          "position_ms",
+          "position_at",
+          "playing",
+          "version",
+          "guest_max_bitrate",
+          "members"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "description": "Six letters and digits others join with."
+          },
+          "host": {
+            "type": "string",
+            "description": "The username of who started it: they change what plays, and end it for everyone."
+          },
+          "file_id": {
+            "type": "integer",
+            "description": "The film's or episode's file playing."
+          },
+          "movie_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Its movie, for a film."
+          },
+          "series_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Its series, for an episode."
+          },
+          "season": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Its season, for an episode."
+          },
+          "episode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Its episode number, for an episode."
+          },
+          "position_ms": {
+            "type": "integer",
+            "description": "Where in it at `position_at`; while playing it moves on from there."
+          },
+          "position_at": {
+            "type": "integer",
+            "description": "Unix milliseconds, on the server's clock."
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Raised by every change; a change names the version it was made against."
+          },
+          "guest_max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Guests' streams are held to this many bits a second; null: as everyone's."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListenMember"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchPartyAnswer": {
+        "type": "object",
+        "required": [
+          "party",
+          "server_time"
+        ],
+        "properties": {
+          "party": {
+            "$ref": "#/components/schemas/WatchParty"
+          },
+          "server_time": {
+            "type": "integer",
+            "description": "The server's clock now, Unix milliseconds, to set a device's against."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchPartyStartInput": {
+        "type": "object",
+        "required": ["file_id", "position_ms", "playing", "guest_max_bitrate"],
+        "properties": {
+          "file_id": {
+            "type": "integer"
+          },
+          "position_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "guest_max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Bits a second guests' streams are held to; none: as everyone's."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchPartyChangeInput": {
+        "type": "object",
+        "required": ["version", "file_id", "position_ms", "playing"],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "description": "The version the change was made against."
+          },
+          "file_id": {
+            "type": "integer"
+          },
+          "position_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "playing": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

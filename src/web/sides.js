@@ -39,6 +39,7 @@ export function watchEntries(categories) {
     { key: "shows", name: "Shows", href: "#/shows", here: (route) => list(route, "shows") },
     categories.includes("anime") ? { key: "anime", name: "Anime", href: "#/anime", here: (route) => list(route, "anime") } : null,
     { key: "favourites", name: "My List", href: "#/favourites", here: (route) => list(route, "favourites") },
+    { key: "together", name: "Watch together", href: "#/together", here: (route) => list(route, "together") },
   ].filter(Boolean);
 }
 

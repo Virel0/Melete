@@ -87,7 +87,8 @@ pub fn part(path: &str) -> Part {
         }
         "files" if api.ends_with("/wrong") => Part::Admin,
         "movies" | "series" | "artwork" | "calendar" | "files" | "stream" | "hls" | "browse"
-        | "discover" | "items" | "people" | "collections" | "offline" | "home" => Part::Video,
+        | "discover" | "items" | "people" | "collections" | "offline" | "home"
+        | "watch-parties" => Part::Video,
         "music"
             if api.starts_with("music/profiles")
                 || api.starts_with("music/transitions/summary") =>

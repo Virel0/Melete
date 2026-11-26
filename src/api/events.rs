@@ -18,6 +18,9 @@
 //!   as `GET /api/v1/music/household` lists `people`; sent once anyone else has chosen.
 //! - `listening`: the listening-together sessions the device is in, each time one
 //!   changes; sent once the device is in one, and as `[]` once it's in none again.
+//! - `watch_party`: the watch parties the device is in, as `GET /api/v1/watch-parties` lists
+//!   them, each time one changes; sent once the device is in one, and as `[]` once it's in none
+//!   again.
 //!
 //! Only what the way in opens is sent: no `sync` without music, and so on. The
 //! stream ends when its session signs out and after 10 minutes; clients reconnect, and work
@@ -190,11 +193,13 @@ async fn events(
     // Whether the device has been in a session, and whether a scan has run, since the stream
     // opened.
     let listened = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watched = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let scanned = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stream = super::progress::stream_of(pool, &current, false, move |pool| {
         let device = device.clone();
         let access = access.clone();
         let listened = listened.clone();
+        let watched = watched.clone();
         let scanned = scanned.clone();
         async move {
             let mut kinds = Vec::new();
@@ -235,6 +240,16 @@ async fn events(
                 }
                 if listened.load(Ordering::Relaxed) {
                     kinds.push(("listening", serde_json::to_string(&sessions)?));
+                }
+            }
+            if video {
+                let parties = crate::watch_party::for_device(&pool, token).await?;
+                use std::sync::atomic::Ordering;
+                if !parties.is_empty() {
+                    watched.store(true, Ordering::Relaxed);
+                }
+                if watched.load(Ordering::Relaxed) {
+                    kinds.push(("watch_party", serde_json::to_string(&parties)?));
                 }
             }
             Ok(kinds)
@@ -623,6 +638,53 @@ mod tests {
         assert_eq!(
             (kind(&left), left.lines().nth(1)),
             ("listening", Some("data: []"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_device_hears_of_its_watch_parties() {
+        let pool = crate::db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'films', 'movies', '/f');
+             INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation)
+                 VALUES (1, 1, 'Film', 'Film', 1);
+             INSERT INTO media_files (id, library_id, rel_path, size, modified_at, movie_id,
+                 first_seen_generation, seen_generation) VALUES (1, 1, 'Film/f.mkv', 1, 0, 1, 1, 1);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (alice, token) = user(&pool, "alice").await;
+        let token_id: i64 = sqlx::query_scalar("SELECT id FROM tokens WHERE user_id = ?")
+            .bind(alice)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let app = routes(pool.clone());
+        let (first, mut body) = open(&app, &token, "/api/v1/events", None).await;
+        assert!(
+            first.iter().all(|e| kind(e) != "watch_party"),
+            "nothing until it's in a party"
+        );
+        let state = crate::watch_party::State {
+            file_id: 1,
+            position_ms: 0,
+            playing: true,
+        };
+        let id = crate::watch_party::start(&pool, (alice, token_id), &state, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let started = next_event(&mut body).await;
+        assert_eq!(kind(&started), "watch_party");
+        assert!(started.contains(r#""file_id":1"#), "{started}");
+        crate::watch_party::leave(&pool, token_id, id)
+            .await
+            .unwrap();
+        let left = next_event(&mut body).await;
+        assert_eq!(
+            (kind(&left), left.lines().nth(1)),
+            ("watch_party", Some("data: []"))
         );
     }
 }
