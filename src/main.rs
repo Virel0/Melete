@@ -122,6 +122,7 @@ mod upgrades;
 mod want;
 mod wanted_edit;
 mod wanted_removed;
+mod watch_party;
 mod ways_in;
 mod wikimedia;
 

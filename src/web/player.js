@@ -16,6 +16,7 @@ import { previewBar } from "/web/player-previews.js";
 import { subtitleSearch } from "/web/player-subtitle-search.js";
 import { playbackLog, reportButton } from "/web/player-report.js";
 import { resumedNote, startAt } from "/web/player-resume.js";
+import { attachParty } from "/web/watch-together.js";
 import { sizePicker } from "/web/player-subtitle-size.js";
 
 const REPORT_EVERY_MS = 10_000;
@@ -78,7 +79,8 @@ export async function playerPage(fileId, params, ctx) {
   const subtitlesBox = subtitlePicker(s);
   const pickSubtitles = subtitlesBox?.querySelector("select") ?? null;
   const search = info.subtitle_search ? subtitleSearch(fileId, (track) => addTrack(s, subtitles, track)) : null;
-  const panels = playerPanels(s, subtitlesBox, search);
+  const party = attachParty(s, ctx);
+  const panels = playerPanels(s, subtitlesBox, search, party.body);
   const seek = previewBar(video, fileId, play.stream_url, { trickplay: info.trickplay, chapters: info.chapters ?? [], credits: segments?.credits });
   const reports = startReports(s, restart);
   const where = { seriesId, seasonNumber, episodeNumber, season, episode, title };
@@ -95,6 +97,7 @@ export async function playerPage(fileId, params, ctx) {
     removeEventListener("pagehide", reports.onHide);
     document.removeEventListener("keydown", onKey);
     document.removeEventListener("fullscreenchange", onFullscreen);
+    party.stop();
     detach(s);
     stopStyled(s);
     controls.stop();
@@ -142,7 +145,7 @@ function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) 
 // The control bar's panels: Subtitles (every choice as a chip, their size, and finding more),
 // Audio (the track and the sound) and Settings (speed, quality and chapters), each only when it
 // has something.
-function playerPanels(s, subtitlesBox, search) {
+function playerPanels(s, subtitlesBox, search, together) {
   if (subtitlesBox) subtitlesBox.hidden = true;
   const find = search
     ? h("button", { type: "button", class: "quiet", onclick: () => (panels.close(), search.scrollIntoView({ block: "center" }), search.querySelector("select, input, button")?.focus()) }, "Find more subtitles")
@@ -158,6 +161,7 @@ function playerPanels(s, subtitlesBox, search) {
       subtitleBody.length ? { name: "subtitles", label: "Subtitles", body: subtitleBody } : null,
       audioBody.length ? { name: "audio", label: "Audio", body: audioBody } : null,
       { name: "settings", label: "Settings", body: settingsBody },
+      { name: "together", label: "Together", body: [together] },
     ].filter(Boolean),
     () => s.controls?.wake(),
   );

@@ -82,6 +82,7 @@ mod unstyled_subtitles;
 mod vpn;
 mod wanted_removed;
 mod watch_home;
+mod watch_parties;
 mod web;
 mod wrong_file;
 

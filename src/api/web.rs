@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 170] = [
+const MODULES: [(&str, &str); 171] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -45,6 +45,10 @@ const MODULES: [(&str, &str); 170] = [
     (
         "library-rescan.js",
         include_str!("../web/library-rescan.js"),
+    ),
+    (
+        "watch-together.js",
+        include_str!("../web/watch-together.js"),
     ),
     ("page-state.js", include_str!("../web/page-state.js")),
     ("cards.js", include_str!("../web/cards.js")),
@@ -1269,6 +1273,7 @@ mod tests {
             ("/web/system-upkeep.js", "/admin/system/backups"),
             ("/web/system-upkeep.js", "melete.db-wal"),
             ("/web/user-keys.js", "/users/${u.id}/keys"),
+            ("/web/watch-together.js", "/watch-parties"),
             ("/web/library-rescan.js", "/rescan"),
             ("/web/services.js", "#/admin/system/downloading"),
         ] {
