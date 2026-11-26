@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use crate::db::now_ms;
 
 pub mod guests;
+pub mod waits;
 
 /// A party unchanged this long ends.
 const IDLE_MS: i64 = 24 * 3600 * 1000;
@@ -250,7 +251,7 @@ pub async fn set(
     let now = now_ms();
     let changed = sqlx::query(
         "UPDATE watch_parties SET file_id = ?, position_ms = ?, position_at = ?, playing = ?,
-             version = version + 1, updated_at = ?
+             held = 0, version = version + 1, updated_at = ?
          WHERE id = ? AND version = ?",
     )
     .bind(state.file_id)
@@ -263,11 +264,12 @@ pub async fn set(
     .execute(pool)
     .await?
     .rows_affected();
-    Ok(if changed == 1 {
-        Ok(())
-    } else {
-        Err(Refused::Stale)
-    })
+    if changed != 1 {
+        return Ok(Err(Refused::Stale));
+    }
+    // Played or paused by hand: that ends any waiting.
+    waits::clear(pool, id).await?;
+    Ok(Ok(()))
 }
 
 #[derive(sqlx::FromRow)]
@@ -285,14 +287,31 @@ struct Row {
     playing: bool,
     version: i64,
     guest_max_bitrate: Option<i64>,
+    held: bool,
 }
 
 /// The parties the device is in, as the API shows them, oldest first.
 pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<Value>> {
     tidy(pool).await?;
+    // Who each waits for, settled first, so what's read next is as it stands.
+    let ids: Vec<i64> =
+        sqlx::query_scalar("SELECT party_id FROM watch_party_members WHERE token_id = ?")
+            .bind(token_id)
+            .fetch_all(pool)
+            .await?;
+    let mut waiting = std::collections::HashMap::new();
+    for id in ids {
+        let names: Vec<String> = waits::names(pool, id)
+            .await?
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        waiting.insert(id, names);
+    }
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT p.id, p.code, u.username AS host, p.file_id, f.movie_id, f.series_id, f.season,
-             f.episode, p.position_ms, p.position_at, p.playing, p.version, p.guest_max_bitrate
+             f.episode, p.position_ms, p.position_at, p.playing, p.version, p.guest_max_bitrate,
+             p.held
          FROM watch_parties p
          JOIN watch_party_members m ON m.party_id = p.id AND m.token_id = ?
          JOIN users u ON u.id = p.host_user_id
@@ -328,6 +347,8 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "playing": row.playing,
             "version": row.version,
             "guest_max_bitrate": row.guest_max_bitrate,
+            "held": row.held,
+            "waiting": waiting.remove(&row.id).unwrap_or_default(),
             "guests": guests::of_party(pool, row.id).await?,
             "members": members.into_iter().map(|(user_id, user, device, you)| json!({
                 "username": user, "avatar_url": pictures.get(&user_id), "device": device,
