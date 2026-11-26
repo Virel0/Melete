@@ -242,6 +242,22 @@ thread_local! {
 
 #[cfg(test)]
 thread_local! {
+    /// The routes a watch party guest's pass guards, seen on this thread, by "METHOD /path".
+    pub(super) static GUEST_GUARDED: std::cell::RefCell<std::collections::BTreeSet<String>> =
+        const { std::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+/// Notes a route a guest's pass guards, for the tests that hold the documentation to the code.
+#[cfg(test)]
+pub(super) fn note_guest_route(request: &Request) {
+    if let Some(path) = request.extensions().get::<axum::extract::MatchedPath>() {
+        let route = format!("{} {}", request.method(), path.as_str());
+        GUEST_GUARDED.with(|guarded| guarded.borrow_mut().insert(route));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
     /// What each route guarded on this thread needs of a token's scope, by "METHOD /path".
     pub(super) static SCOPE_NEEDED: std::cell::RefCell<std::collections::BTreeMap<String, Scope>> =
         const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };

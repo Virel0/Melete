@@ -18,7 +18,7 @@ use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_playback};
 use super::playback::require_playable;
 use crate::auth::LoginLimiter;
-use crate::watch_party::{self, Refused};
+use crate::watch_party::{self, Refused, guests};
 
 #[derive(Clone)]
 struct PartyState {
@@ -48,6 +48,11 @@ pub fn routes_with(pool: SqlitePool, limiter: Arc<LoginLimiter>) -> Router {
             get(show).put(change).delete(end),
         )
         .route("/api/v1/watch-parties/{id}/leave", post(leave))
+        .route("/api/v1/watch-parties/{id}/invites", post(invite))
+        .route(
+            "/api/v1/watch-parties/{id}/guests/{guest}",
+            axum::routing::delete(send_away),
+        )
         .route_layer(middleware::from_fn_with_state(auth, require_playback))
         .with_state(PartyState { pool, limiter })
 }
@@ -210,6 +215,36 @@ async fn leave(
     } else {
         Err(refused(Refused::NotFound))
     }
+}
+
+/// Makes an invite link for someone with no account: it lets one guest into this party once,
+/// within a day. The secret goes after `#`, so the link's opening never sends it to a server.
+async fn invite(
+    State(state): State<PartyState>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+) -> Result<Response, ApiError> {
+    let (secret, expires_at) = guests::invite(&state.pool, (current.user.id, current.token_id), id)
+        .await?
+        .map_err(refused)?;
+    let body = json!({
+        "invite": secret,
+        "path": format!("/#/guest/{secret}"),
+        "expires_at": expires_at,
+    });
+    Ok((StatusCode::CREATED, Json(body)).into_response())
+}
+
+/// Sends a guest away: their pass and stream links end at once.
+async fn send_away(
+    State(state): State<PartyState>,
+    Extension(current): Extension<CurrentUser>,
+    Path((id, guest)): Path<(i64, i64)>,
+) -> Result<StatusCode, ApiError> {
+    guests::send_away(&state.pool, current.token_id, id, guest)
+        .await?
+        .map_err(refused)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn end(

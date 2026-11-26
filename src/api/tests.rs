@@ -365,7 +365,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 397);
+        assert_eq!(checked, 408);
     }
 
     /// The response's fields are exactly the schema's.
@@ -3619,4 +3619,5 @@ mod openapi {
 
 mod access;
 mod access_walk;
+mod guests;
 mod scopes;

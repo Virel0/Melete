@@ -13,7 +13,7 @@ use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_user};
-use super::playback::{LINKS, STREAM_PREFIX, holder_sees, require_playable};
+use super::playback::{LINKS, STREAM_PREFIX, link_sees, require_playable};
 use crate::auth;
 use crate::db::unix_now;
 use crate::trickplay::{self, Index};
@@ -76,18 +76,18 @@ async fn sheet(
             "this stream link is unknown or has expired; ask to play again",
         )
     };
-    let session: Option<(i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT file_id, token_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
+    let session: Option<(i64, i64, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT file_id, token_id, guest_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
     )))
     .bind(auth::token_hash(&token))
     .bind(unix_now())
     .fetch_optional(&state.pool)
     .await?;
-    let Some((file_id, token_id)) = session else {
+    let Some((file_id, token_id, guest_id)) = session else {
         return Err(gone());
     };
     // A link made before the title was hidden from its holder stops with that.
-    if !holder_sees(&state.pool, token_id, file_id).await? {
+    if !link_sees(&state.pool, (token_id, guest_id), file_id).await? {
         return Err(gone());
     }
     let number = sheet

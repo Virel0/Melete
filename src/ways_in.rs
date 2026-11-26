@@ -33,6 +33,9 @@ pub enum Part {
     Requests,
     /// Settings, Wanted, users, approvals: what admins do.
     Admin,
+    /// A watch party's guests: their routes (`/api/v1/party/…`) and their stream links, and
+    /// nothing else. A way opening only this lets guests in without opening the household's.
+    Party,
 }
 
 impl Part {
@@ -42,6 +45,7 @@ impl Part {
             "music" => Part::Music,
             "requests" => Part::Requests,
             "admin" => Part::Admin,
+            "party" => Part::Party,
             _ => return None,
         })
     }
@@ -59,7 +63,13 @@ pub fn part(path: &str) -> Part {
         return Part::Admin;
     };
     let first = api.split('/').next().unwrap_or_default();
+    // A guest's stream link, told by its own prefix: their stream, subtitles, previews, HLS.
+    let second = api.split('/').nth(1).unwrap_or_default();
+    if matches!(first, "stream" | "hls") && second.starts_with("mls_g") {
+        return Part::Party;
+    }
     match first {
+        "party" => Part::Party,
         // The event stream carries only what the way opens (`Opens`).
         "health" | "openapi.json" | "auth" | "events" => Part::Always,
         // It measures the way in itself, whichever app asks.
@@ -512,6 +522,7 @@ mod tests {
                     "Music" | "Aoide" => Part::Music,
                     "Requests" => Part::Requests,
                     "Admin" => Part::Admin,
+                    "Party" => Part::Party,
                     other => panic!("{method} {path}: no part for the tag {other:?}"),
                 };
                 let concrete = path.replace("{", "x").replace("}", "");
@@ -552,6 +563,33 @@ mod tests {
             "a range like home's isn't a proxy"
         );
         assert!(WaysIn::default().untrusted_single_hosts().is_empty());
+    }
+
+    #[test]
+    fn a_way_for_guests_opens_their_party_and_nothing_of_the_household() {
+        for guests in [
+            "/api/v1/party",
+            "/api/v1/party/join",
+            "/api/v1/stream/mls_g0a1b/subtitles/s2",
+            "/api/v1/stream/mls_g0a1b/trickplay/0.jpg",
+            "/api/v1/hls/mls_g0a1b/main.m3u8",
+        ] {
+            assert_eq!(part(guests), Part::Party, "{guests}");
+        }
+        // A household device's link has no 'g': its hex never does.
+        assert_eq!(part("/api/v1/stream/mls_0a1b"), Part::Video);
+        assert_eq!(part("/api/v1/watch-parties"), Part::Video);
+        let ways = WaysIn {
+            ways: Some(parse_ways("home 192.168.0.0/24 all; vps 10.20.0.1 party").unwrap()),
+            proxies: Vec::new(),
+        };
+        let vps = ip("10.20.0.1");
+        assert_eq!(ways.allows(vps, Part::Party), Ok(()));
+        assert_eq!(ways.allows(vps, Part::Always), Ok(()));
+        for shut in [Part::Video, Part::Music, Part::Requests, Part::Admin] {
+            assert!(ways.allows(vps, shut).is_err(), "{shut:?}");
+        }
+        assert_eq!(ways.allows(ip("192.168.0.20"), Part::Party), Ok(()));
     }
 
     #[test]

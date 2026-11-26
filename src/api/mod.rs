@@ -57,6 +57,7 @@ mod music_transitions;
 mod next_up;
 mod offline;
 mod oidc;
+mod party_guests;
 mod playback;
 mod playlists;
 mod preferences;
