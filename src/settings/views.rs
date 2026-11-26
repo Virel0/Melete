@@ -120,6 +120,7 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
         "proxy" => config.proxy.at.is_some() && !config.proxy.through.is_empty(),
         "vpn" => config.vpn.is_some(),
         "webhook" => config.alerts.webhook.is_some(),
+        "party" => config.party_url.is_some(),
         "email" => config.alerts.email.is_some(),
         _ => false,
     }
