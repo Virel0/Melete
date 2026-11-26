@@ -1,0 +1,15 @@
+# Melete's own WireGuard tunnel, for watch party guests outside the household
+# (docs/REMOTE-ACCESS.md, section 6). Off unless added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.tunnel.yaml
+# with MELETE_TUNNEL_PORT and MELETE_TUNNEL_ENDPOINT set there. It publishes one UDP port and
+# asks nothing more of the container: no TUN device, no NET_ADMIN. Melete answers WireGuard
+# itself and serves only its own API through it.
+
+services:
+  melete:
+    ports:
+      - "${MELETE_TUNNEL_PORT:?set MELETE_TUNNEL_PORT in .env}:${MELETE_TUNNEL_PORT}/udp"
+    environment:
+      MELETE_TUNNEL_PORT: ${MELETE_TUNNEL_PORT}
+      MELETE_TUNNEL_ENDPOINT: ${MELETE_TUNNEL_ENDPOINT:?set MELETE_TUNNEL_ENDPOINT in .env}
+      MELETE_TUNNEL_NET: ${MELETE_TUNNEL_NET:-}

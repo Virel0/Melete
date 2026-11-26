@@ -25,17 +25,23 @@ struct PartyState {
     pool: SqlitePool,
     /// Wrong codes count like wrong passwords.
     limiter: Arc<LoginLimiter>,
+    /// Melete's own tunnel, for guests who come through it.
+    tunnel: Arc<crate::tunnel::Slot>,
 }
 
 /// The watch party routes with a limiter of their own, for tests.
 #[cfg(test)]
 pub fn routes(pool: SqlitePool) -> Router {
-    routes_with(pool, Arc::default())
+    routes_with(pool, Arc::default(), Arc::default())
 }
 
 /// The watch party routes, counting wrong codes in `limiter`, which outlasts the API being set
-/// up afresh.
-pub fn routes_with(pool: SqlitePool, limiter: Arc<LoginLimiter>) -> Router {
+/// up afresh, and making guests' peers in `tunnel` once it's started.
+pub fn routes_with(
+    pool: SqlitePool,
+    limiter: Arc<LoginLimiter>,
+    tunnel: Arc<crate::tunnel::Slot>,
+) -> Router {
     let auth = AppState {
         pool: pool.clone(),
         limiter: Arc::default(),
@@ -50,6 +56,10 @@ pub fn routes_with(pool: SqlitePool, limiter: Arc<LoginLimiter>) -> Router {
         .route("/api/v1/watch-parties/{id}/leave", post(leave))
         .route("/api/v1/watch-parties/{id}/invites", post(invite))
         .route(
+            "/api/v1/watch-parties/{id}/tunnel-invites",
+            post(tunnel_invites::make),
+        )
+        .route(
             "/api/v1/watch-parties/{id}/waiting",
             axum::routing::put(waiting),
         )
@@ -58,7 +68,11 @@ pub fn routes_with(pool: SqlitePool, limiter: Arc<LoginLimiter>) -> Router {
             axum::routing::delete(send_away),
         )
         .route_layer(middleware::from_fn_with_state(auth, require_playback))
-        .with_state(PartyState { pool, limiter })
+        .with_state(PartyState {
+            pool,
+            limiter,
+            tunnel,
+        })
 }
 
 #[derive(Deserialize)]
@@ -290,6 +304,8 @@ async fn end(
         .map_err(refused)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+mod tunnel_invites;
 
 #[cfg(test)]
 mod tests;

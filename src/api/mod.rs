@@ -159,6 +159,8 @@ pub struct Kept {
     pub ai_searches: Arc<ai::Searches>,
     /// What AI picks may spend: each user's calls in the last hour, and those running.
     pub ai_budget: Arc<crate::ai::Budget>,
+    /// Melete's own WireGuard tunnel, once it's started; empty while it's off.
+    pub tunnel: Arc<crate::tunnel::Slot>,
 }
 
 /// Every route the server answers, keeping nothing from an API built before.

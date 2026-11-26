@@ -127,6 +127,18 @@ pub async fn still_in(pool: &SqlitePool, guest_id: i64) -> sqlx::Result<bool> {
         .await
 }
 
+/// Whether the invite hashed as `invite_hash` is unused, good, and its party still going.
+pub async fn invite_open(pool: &SqlitePool, invite_hash: &[u8]) -> sqlx::Result<bool> {
+    super::tidy(pool).await?;
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM watch_party_invites WHERE invite_hash = ? AND expires_at > ?)",
+    )
+    .bind(invite_hash)
+    .bind(now_ms())
+    .fetch_one(pool)
+    .await
+}
+
 /// Who let a guest in, while they may still play `file_id`: they're in their party, it
 /// plays that file, and it's still going (someone of the household is in it, and it changed
 /// within the day); checked as is, without waiting for ended parties to be cleared away. Who

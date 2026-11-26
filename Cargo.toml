@@ -14,6 +14,8 @@ argon2 = "=0.6.0"
 # this version and with these features: naming it adds no crate.
 aws-lc-rs = { version = "=1.19.0", default-features = false, features = ["aws-lc-sys", "alloc"] }
 axum = "=0.8.9"
+# Bytes for the tunnel's packets, as WireGuard's library takes them; in the build already.
+bytes = "=1.12.1"
 base64 = "=0.23.1"
 # Guessing the encoding of subtitle files that aren't UTF-8 (Firefox's detector), and
 # decoding them.
@@ -22,6 +24,11 @@ encoding_rs = "=0.8.42"
 fancy-regex = "=0.20.0"
 futures-util = { version = "=0.3.34", default-features = false }
 getrandom = "=0.4.3"
+# WireGuard in userspace, for the tunnel (`tunnel`): Mullvad's fork of BoringTun, MPL-2.0. Its
+# own UDP socket and no TUN device; its crypto through aws-lc-rs, as the rest of the build.
+gotatun = { version = "=0.10.3", default-features = false, features = ["device", "aws-lc-rs"] }
+# The addresses a tunnel peer may send from, as WireGuard's library takes them.
+ipnetwork = "=0.21.1"
 # HMAC-SHA1 for two-factor codes (RFC 6238). Already in the build through russh, at this version.
 hmac = "=0.13.0"
 # A plain connection through the proxy, for the seedbox's SFTP: hyper-util's SOCKS5 and HTTP
@@ -52,10 +59,14 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154", features = ["raw_value"] }
 sha1 = "=0.11.0"
 sha2 = "=0.11.1"
+# The tunnel's TCP/IP in userspace: IPv4 and TCP only, nothing routed or forwarded.
+smoltcp = { version = "=0.14.0", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "socket-tcp"] }
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "macros"] }
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "process", "time"] }
 tokio-rustls = { version = "=0.26.6", default-features = false }
 # Handing each request to the API as it's set up now (live); axum brings it in already.
+# Writing to a tunnel connection's channel from AsyncWrite; in the build already.
+tokio-util = { version = "=0.7.20", default-features = false }
 tower = { version = "=0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "=0.7.1", features = ["fs"] }
 tracing = "=0.1.44"

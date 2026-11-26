@@ -166,6 +166,7 @@ struct JoinBody {
 /// Joins with an invite: the pass comes back as a cookie and, for an app, in the answer.
 async fn join(
     State(state): State<GuestState>,
+    arrival: Option<Extension<crate::tunnel::Arrival>>,
     headers: HeaderMap,
     Json(body): Json<JoinBody>,
 ) -> Result<Response, ApiError> {
@@ -175,6 +176,10 @@ async fn join(
     let (pass, guest) = guests::accept(&state.pool, &body.invite, &body.name)
         .await?
         .map_err(refused)?;
+    // Through Melete's own tunnel, the guest's peer now lasts as long as they're in.
+    if let Some(Extension(arrival)) = arrival {
+        arrival.joined(guest.party_id, guest.id);
+    }
     debug_assert!(pass.starts_with(PASS_PREFIX));
     let Json(mut answer) = answer(&state.pool, &guest).await?;
     answer["pass"] = json!(pass);

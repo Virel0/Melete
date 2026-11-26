@@ -329,3 +329,42 @@ async fn a_capped_party_refuses_guests_a_stream_over_its_cap_and_invites_are_spe
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
+
+#[tokio::test]
+async fn a_tunnel_invite_needs_the_tunnel_and_comes_with_a_peer_for_the_guest() {
+    let f = fixture(None).await;
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}/tunnel-invites", f.party);
+    let ask = || json_request("POST", &uri, Some(("authorization", &bearer)), Value::Null);
+    let (status, _, off) = send(&f, ask()).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{off}");
+
+    let slot = Arc::new(crate::tunnel::Slot::default());
+    let settings = crate::tunnel::Settings {
+        port: 0,
+        endpoint: "melete.example:51820".into(),
+        net: (std::net::Ipv4Addr::new(10, 73, 0, 0), 24),
+    };
+    let tunnel = crate::tunnel::Tunnel::start(&f.pool, settings, Router::new())
+        .await
+        .unwrap();
+    slot.set(tunnel);
+    let with_tunnel = Fixture {
+        app: super::super::watch_parties::routes_with(f.pool.clone(), Arc::default(), slot),
+        pool: f.pool.clone(),
+        host: f.host.clone(),
+        party: f.party,
+        _library: tempfile::tempdir().unwrap(),
+    };
+    let (status, _, made) = send(&with_tunnel, ask()).await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["address"], "10.73.0.2");
+    assert_eq!(made["server"], "http://10.73.0.1");
+    let config = made["wireguard_config"].as_str().unwrap();
+    assert!(config.starts_with("[Interface]\nPrivateKey = "), "{config}");
+    assert!(config.contains("\nAllowedIPs = 10.73.0.1/32\nEndpoint = melete.example:51820\n"));
+    // Its invite lets a guest in as any other does.
+    let join = json!({"invite": made["invite"], "name": "Sam"});
+    let (status, _, _) = send(&f, json_request("POST", "/api/v1/party/join", None, join)).await;
+    assert_eq!(status, StatusCode::CREATED);
+}

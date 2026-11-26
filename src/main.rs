@@ -118,6 +118,7 @@ mod trailers;
 mod transcode;
 mod transfer;
 mod trickplay;
+mod tunnel;
 mod two_factor;
 mod upgrades;
 mod want;
@@ -220,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(library::health::run(pool.clone(), libraries.clone()));
     tokio::spawn(library::watch::run(pool.clone(), libraries.clone()));
     spawn_background_jobs(&pool, &config, libraries, tmdb);
+    start_tunnel(&pool, &config, &live).await?;
 
     // Connection info gives sign-in lockouts and the ways in the caller's address.
     let app = live
@@ -228,6 +230,25 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    Ok(())
+}
+
+/// Starts Melete's own WireGuard tunnel when its port is set, serving the API to its peers.
+async fn start_tunnel(
+    pool: &sqlx::SqlitePool,
+    config: &config::Config,
+    live: &Arc<live::Live>,
+) -> anyhow::Result<()> {
+    let Some(settings) = config.tunnel.clone() else {
+        return Ok(());
+    };
+    let started = tunnel::Tunnel::start(pool, settings, live.service()).await?;
+    tracing::info!(
+        port = started.port().await,
+        address = %started.own_address(),
+        "Melete's own tunnel is listening"
+    );
+    live.tunnel().set(started);
     Ok(())
 }
 
