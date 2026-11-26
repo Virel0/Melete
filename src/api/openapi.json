@@ -19385,7 +19385,9 @@
               "opensubtitles",
               "scans",
               "proxy",
-              "vpn"
+              "vpn",
+              "webhook",
+              "email"
             ]
           },
           "name": {"type": "string"},

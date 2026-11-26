@@ -671,3 +671,52 @@ fn the_preview_width_is_one_settings_offers() {
         assert!(with(bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn alerts_by_webhook_and_email_are_off_until_set_and_checked() {
+    let read = |vars: &[(&str, &str)]| {
+        let vars: std::collections::HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        alerts::alerts(&|k: &str| vars.get(k).cloned())
+    };
+    let none = read(&[]).unwrap();
+    assert!(none.webhook.is_none() && none.email.is_none());
+
+    let hook = read(&[("MELETE_ALERT_WEBHOOK_URL", "https://ntfy.sh/topic")]).unwrap();
+    assert!(!hook.webhook.unwrap().json);
+    assert!(read(&[("MELETE_ALERT_WEBHOOK_URL", "ntfy.sh/topic")]).is_err());
+    assert!(
+        read(&[
+            ("MELETE_ALERT_WEBHOOK_URL", "https://ntfy.sh/topic"),
+            ("MELETE_ALERT_WEBHOOK_FORMAT", "xml")
+        ])
+        .is_err()
+    );
+
+    let mail = [
+        ("MELETE_SMTP_HOST", "smtp.example.com"),
+        ("MELETE_ALERT_EMAIL_FROM", "melete@example.com"),
+        (
+            "MELETE_ALERT_EMAIL_TO",
+            "alice@example.com, bob@example.com",
+        ),
+    ];
+    let email = read(&mail).unwrap().email.unwrap();
+    assert_eq!((email.port, email.tls), (587, false));
+    assert_eq!(email.to, ["alice@example.com", "bob@example.com"]);
+    let tls = read(&[mail[0], mail[1], mail[2], ("MELETE_SMTP_SECURITY", "tls")])
+        .unwrap()
+        .email
+        .unwrap();
+    assert_eq!((tls.port, tls.tls), (465, true));
+    // A login is a user and a password; a setting without the server says what's missing.
+    assert!(read(&[mail[0], mail[1], mail[2], ("MELETE_SMTP_USERNAME", "alice")]).is_err());
+    let missing = read(&[("MELETE_ALERT_EMAIL_TO", "alice@example.com")]).unwrap_err();
+    assert!(
+        missing.to_string().contains("MELETE_SMTP_HOST"),
+        "{missing}"
+    );
+    assert!(read(&[mail[0], mail[1], ("MELETE_ALERT_EMAIL_TO", "alice")]).is_err());
+}

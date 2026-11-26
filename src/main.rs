@@ -12,6 +12,7 @@ mod ai;
 mod ai_picks;
 mod album_fix;
 mod album_search;
+mod alerts;
 mod aoide;
 mod api;
 mod arr;

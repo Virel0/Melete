@@ -11,10 +11,12 @@ use anyhow::{Context, bail};
 use crate::library::{LibraryCategory, LibraryConfig, LibraryKind};
 use crate::transcode::Hardware;
 
+mod alerts;
 mod libraries;
 mod reading;
 mod services;
 
+pub use alerts::*;
 use libraries::*;
 pub use reading::*;
 pub use services::*;
@@ -107,6 +109,9 @@ pub struct Config {
     pub proxy: crate::proxy::Setup,
     /// Gluetun's control server (`MELETE_VPN_URL`, `MELETE_VPN_KEY`); none by default.
     pub vpn: Option<crate::gluetun::Settings>,
+    /// Telling admins what needs them, by webhook or email (`MELETE_ALERT_*`, `MELETE_SMTP_*`);
+    /// neither by default.
+    pub alerts: Alerts,
 }
 
 /// A value kept out of `Debug` output, so logging the config cannot leak it.
@@ -230,6 +235,7 @@ impl Config {
         let opensubtitles = opensubtitles(&get)?;
         let proxy = crate::proxy::Setup::from_lookup(&get)?;
         let vpn = crate::gluetun::Settings::from_lookup(&get)?;
+        let alerts = alerts::alerts(&get)?;
         Ok(Self {
             bind,
             data_dir,
@@ -265,6 +271,7 @@ impl Config {
             opensubtitles,
             proxy,
             vpn,
+            alerts,
         })
     }
 }

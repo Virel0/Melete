@@ -311,11 +311,24 @@ async fn check_with(
     Ok(changes)
 }
 
-/// Reads every library's folder each minute for as long as the server runs.
+/// Reads every library's folder each minute for as long as the server runs, and tells admins
+/// when one stops or starts answering (`alerts`).
 pub async fn run(pool: SqlitePool, libraries: Vec<Library>) {
     loop {
-        if let Err(err) = check(&pool, &libraries, LIMIT).await {
-            tracing::warn!(error = %err, "couldn't record whether the libraries answer");
+        match check(&pool, &libraries, LIMIT).await {
+            // Admins are told, without holding up the next check.
+            Ok(changes) => {
+                for change in changes {
+                    let (pool, alert) = (
+                        pool.clone(),
+                        crate::alerts::Alert::library(&change, unix_now()),
+                    );
+                    tokio::spawn(async move { crate::alerts::send(&pool, &alert).await });
+                }
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "couldn't record whether the libraries answer")
+            }
         }
         tokio::time::sleep(EVERY).await;
     }
