@@ -214,7 +214,7 @@ export function attachParty(s, ctx) {
   video.addEventListener("canplay", ready);
   video.addEventListener("playing", ready);
   const body = h("div", { class: "together" });
-  const draw = () => body.replaceChildren(...panelBody(ctx));
+  const draw = () => body.replaceChildren(...panelBody(ctx).filter(Boolean));
   watchers.add(draw);
   draw();
   pickUp().then(() => {
