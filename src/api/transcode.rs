@@ -18,7 +18,7 @@ use sqlx::SqlitePool;
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_playback};
 use super::playback::{
-    LINKS, LoadedFile, STREAM_PREFIX, create_play_session, holder_sees, load_file, load_progress,
+    LINKS, LoadedFile, STREAM_PREFIX, create_play_session, link_sees, load_file, load_progress,
     overall_bitrate, require_playable, resolve, way_limit, within_limit,
 };
 use super::subtitles::{embedded_key, sidecar_key, sidecars_of};
@@ -75,14 +75,24 @@ pub fn routes(
         .route_layer(middleware::from_fn_with_state(auth, require_playback));
     // The playlist URL's own token is the credential here.
     let hls = Router::new().route("/api/v1/hls/{token}/{name}", get(hls));
-    signed_in.merge(hls).with_state(TranscodeState {
-        pool,
-        ffprobe: Arc::new(ffprobe),
-        transcoder,
-        subtitle_cache: Arc::new(subtitle_cache),
-        keyframes: Arc::default(),
-        styled: Arc::default(),
-    })
+    // A watch party guest's pass is the credential here.
+    let guest = Router::new()
+        .route("/api/v1/party/transcode", axum::routing::post(guest_start))
+        .route_layer(middleware::from_fn_with_state(
+            pool.clone(),
+            super::party_guests::require_guest,
+        ));
+    signed_in
+        .merge(hls)
+        .merge(guest)
+        .with_state(TranscodeState {
+            pool,
+            ffprobe: Arc::new(ffprobe),
+            transcoder,
+            subtitle_cache: Arc::new(subtitle_cache),
+            keyframes: Arc::default(),
+            styled: Arc::default(),
+        })
 }
 
 /// A file's keyframes, found once per version of it.
@@ -187,14 +197,23 @@ fn hold_to_limit(
     Ok(())
 }
 
-/// Creates a transcoding session for a file and returns its playlist URL.
-async fn start(
-    State(state): State<TranscodeState>,
-    Extension(current): Extension<CurrentUser>,
-    Path(file_id): Path<i64>,
-    limit: Option<Extension<crate::ways_in::VideoLimit>>,
-    Json(ask): Json<TranscodeAsk>,
-) -> Result<Json<Value>, ApiError> {
+/// A conversion asked for, checked and ready to hand out a link for.
+struct Prepared {
+    settings_json: String,
+    duration_seconds: Option<f64>,
+    burned_subtitle: Option<String>,
+    burn_reason: Value,
+    limit: Option<i64>,
+}
+
+/// Checks a conversion of `file_id` can be made as asked, held to `limit`, and readies it.
+async fn prepare(
+    state: &TranscodeState,
+    file_id: i64,
+    ask: TranscodeAsk,
+    limit: Option<i64>,
+) -> Result<Prepared, ApiError> {
+    let state = state.clone();
     let TranscodeAsk {
         mut settings,
         subtitle,
@@ -204,14 +223,12 @@ async fn start(
         .validate()
         .and(ass_burn::check_subtitle(subtitle.as_deref()))
         .map_err(|reason| ApiError::new(StatusCode::BAD_REQUEST, reason))?;
-    require_playable(&state.pool, &current.access, file_id).await?;
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
     let Some(media) = &file.media else {
         return Err(unprocessable(
             "ffprobe couldn't read this file, so it can't be transcoded",
         ));
     };
-    let limit = way_limit(limit);
     hold_to_limit(&mut settings, limit, &file, media)?;
     let burn_reason = ass_burn::decide(
         &state,
@@ -263,22 +280,74 @@ async fn start(
             }
         });
     }
-    let settings_json = serde_json::to_string(&settings)?;
-    let (token, expires_at) =
-        create_play_session(&state.pool, current.token_id, file_id, Some(&settings_json)).await?;
+    Ok(Prepared {
+        settings_json: serde_json::to_string(&settings)?,
+        duration_seconds,
+        burned_subtitle: settings.burn_subtitle.clone(),
+        burn_reason: json!(burn_reason),
+        limit,
+    })
+}
+
+/// Creates a transcoding session for a file and returns its playlist URL.
+async fn start(
+    State(state): State<TranscodeState>,
+    Extension(current): Extension<CurrentUser>,
+    Path(file_id): Path<i64>,
+    limit: Option<Extension<crate::ways_in::VideoLimit>>,
+    Json(ask): Json<TranscodeAsk>,
+) -> Result<Json<Value>, ApiError> {
+    require_playable(&state.pool, &current.access, file_id).await?;
+    let ready = prepare(&state, file_id, ask, way_limit(limit)).await?;
+    let (token, expires_at) = create_play_session(
+        &state.pool,
+        current.token_id,
+        file_id,
+        Some(&ready.settings_json),
+    )
+    .await?;
     let progress = load_progress(&state.pool, current.user.id, file_id)
         .await?
         .unwrap_or_default();
     Ok(Json(json!({
         "playlist_url": format!("/api/v1/hls/{token}/main.m3u8"),
         "expires_at": expires_at,
-                "duration_seconds": duration_seconds,
+        "duration_seconds": ready.duration_seconds,
         "resume_seconds": progress.position_seconds,
         "watched": progress.watched,
         "segments": super::segments::of_file(&state.pool, file_id).await?,
-        "max_bitrate": limit,
-        "burned_subtitle": settings.burn_subtitle,
-        "burn_reason": burn_reason,
+        "max_bitrate": ready.limit,
+        "burned_subtitle": ready.burned_subtitle,
+        "burn_reason": ready.burn_reason,
+    })))
+}
+
+/// A watch party guest's conversion of the file their party plays, held to the party's cap
+/// and the way's limit alike.
+async fn guest_start(
+    State(state): State<TranscodeState>,
+    Extension(guest): Extension<crate::watch_party::guests::Guest>,
+    limit: Option<Extension<crate::ways_in::VideoLimit>>,
+    Json(ask): Json<TranscodeAsk>,
+) -> Result<Json<Value>, ApiError> {
+    let file_id = super::party_guests::playing(&state.pool, &guest).await?;
+    let cap = super::playback::guest_cap(&state.pool, guest.id).await?;
+    let limit = super::playback::lower(way_limit(limit), cap);
+    let ready = prepare(&state, file_id, ask, limit).await?;
+    let (token, expires_at) = super::playback::create_guest_link(
+        &state.pool,
+        guest.id,
+        file_id,
+        Some(&ready.settings_json),
+    )
+    .await?;
+    Ok(Json(json!({
+        "playlist_url": format!("/api/v1/hls/{token}/main.m3u8"),
+        "expires_at": expires_at,
+        "duration_seconds": ready.duration_seconds,
+        "max_bitrate": ready.limit,
+        "burned_subtitle": ready.burned_subtitle,
+        "burn_reason": ready.burn_reason,
     })))
 }
 
@@ -293,27 +362,36 @@ async fn hls(
     }
     // The token's hash also keys its running ffmpeg: unlike row ids, it is never reused.
     let key = auth::token_hash(&token);
-    let row: Option<(i64, String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT file_id, transcode, token_id FROM {LINKS}
+    let row: Option<(i64, String, i64, Option<i64>)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT file_id, transcode, token_id, guest_id FROM {LINKS}
          WHERE token_hash = ? AND expires_at > ? AND transcode IS NOT NULL"
-    )))
-    .bind(&key)
-    .bind(unix_now())
-    .fetch_optional(&state.pool)
-    .await?;
+        )))
+        .bind(&key)
+        .bind(unix_now())
+        .fetch_optional(&state.pool)
+        .await?;
     let gone = || {
         ApiError::new(
             StatusCode::NOT_FOUND,
             "this playlist link is unknown or has expired; ask to transcode again",
         )
     };
-    let Some((file_id, settings, token_id)) = row else {
+    let Some((file_id, settings, token_id, guest_id)) = row else {
         return Err(gone());
     };
-    if !holder_sees(&state.pool, token_id, file_id).await? {
+    if !link_sees(&state.pool, (token_id, guest_id), file_id).await? {
         return Err(gone());
     }
     let settings: Settings = serde_json::from_str(&settings)?;
+    // A guest's conversion is held to the party's cap as it is now: lowered since, it's asked
+    // for again.
+    if let Some(guest) = guest_id
+        && let Some(cap) = super::playback::guest_cap(&state.pool, guest).await?
+        && settings.max_bitrate.is_none_or(|bits| bits > cap)
+    {
+        return Err(gone());
+    }
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
     let media = file
         .media

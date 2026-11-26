@@ -53,6 +53,11 @@ const fn by_link(path: &'static str, why: &'static str) -> Public {
 /// Every route open without a token. Nothing goes here without its reason.
 const PUBLIC: &[Public] = &[
     open(
+        "POST",
+        "/api/v1/party/join",
+        "someone with no account joins a watch party with an invite link's secret, spent once",
+    ),
+    open(
         "GET",
         "/api/v1/health",
         "a liveness check for the container; says only that it's up and its version",
@@ -277,6 +282,7 @@ pub(super) async fn sweep(
     app: &Router,
 ) -> (BTreeMap<(Method, String), StatusCode>, BTreeSet<String>) {
     auth::ADMIN_GUARDED.with(|guarded| guarded.borrow_mut().clear());
+    auth::GUEST_GUARDED.with(|guarded| guarded.borrow_mut().clear());
     let mut answers = BTreeMap::new();
     for path in every_route() {
         for method in &METHODS {
@@ -372,13 +378,28 @@ async fn every_admin_route_refuses_a_signed_in_user_who_isnt_an_admin() {
     assert!(asked > 200, "only {asked} admin requests were made");
 }
 
+/// The routes a watch party guest's pass guards, as the last sweep found them.
+pub(super) fn guest_routes() -> BTreeSet<String> {
+    auth::GUEST_GUARDED.with(|guarded| {
+        guarded
+            .borrow()
+            .iter()
+            .map(|route| {
+                let (method, path) = route.split_once(' ').unwrap();
+                key(method, path)
+            })
+            .collect()
+    })
+}
+
 /// `x-melete-access` on every documented operation says what the code does: `public` for a
-/// route on the list above (and `security: []`), `admin` where `require_admin` guards it, and
-/// `user` otherwise.
+/// route on the list above (and `security: []`), `admin` where `require_admin` guards it,
+/// `guest` where a watch party guest's pass does, and `user` otherwise.
 #[tokio::test]
 async fn every_operation_documents_who_may_call_it() {
     let (_, app, _artwork) = full_server().await;
     let (_, guarded) = sweep(&app).await;
+    let guests = guest_routes();
     let mut wrong = Vec::new();
     for (path, operations) in spec()["paths"].as_object().unwrap() {
         for (method, operation) in operations.as_object().unwrap() {
@@ -388,6 +409,8 @@ async fn every_operation_documents_who_may_call_it() {
                 "public"
             } else if guarded.contains(&key(method.as_str(), path)) {
                 "admin"
+            } else if guests.contains(&key(method.as_str(), path)) {
+                "guest"
             } else {
                 "user"
             };

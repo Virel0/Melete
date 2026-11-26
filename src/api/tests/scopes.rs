@@ -44,12 +44,15 @@ async fn keys(pool: &SqlitePool) -> Vec<(Scope, String)> {
 async fn every_operation_documents_the_scope_it_needs() {
     let (_, app, _artwork) = full_server().await;
     let (_, needed) = needed(&app).await;
+    // A guest's pass has no scope: those routes take no account's token at all.
+    let guests = super::access::guest_routes();
     let mut wrong = Vec::new();
     for (path, operations) in spec()["paths"].as_object().unwrap() {
         for (method, operation) in operations.as_object().unwrap() {
             let method = Method::from_bytes(method.to_uppercase().as_bytes()).unwrap();
             let code = match public(&method, path) {
                 Some(_) => None,
+                None if guests.contains(&key(method.as_str(), path)) => None,
                 None => Some(needed[&key(method.as_str(), path)].as_str()),
             };
             let documented = operation["x-melete-scope"].as_str();

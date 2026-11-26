@@ -15,6 +15,8 @@ use sqlx::SqlitePool;
 
 use crate::db::now_ms;
 
+pub mod guests;
+
 /// A party unchanged this long ends.
 const IDLE_MS: i64 = 24 * 3600 * 1000;
 /// Letters and digits that can't be mistaken for one another, as Listen Together's.
@@ -326,6 +328,7 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "playing": row.playing,
             "version": row.version,
             "guest_max_bitrate": row.guest_max_bitrate,
+            "guests": guests::of_party(pool, row.id).await?,
             "members": members.into_iter().map(|(user_id, user, device, you)| json!({
                 "username": user, "avatar_url": pictures.get(&user_id), "device": device,
                 "you": you,

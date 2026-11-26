@@ -202,6 +202,33 @@ pub(in super::super) async fn holder_sees(
     })
 }
 
+/// Whether a stream link's holder may still play `file_id`: a household device as
+/// [`holder_sees`] says, or a watch party guest while they're in it and it plays that file.
+pub(in super::super) async fn link_sees(
+    pool: &SqlitePool,
+    (token_id, guest_id): (i64, Option<i64>),
+    file_id: i64,
+) -> Result<bool, ApiError> {
+    let Some(guest) = guest_id else {
+        return holder_sees(pool, token_id, file_id).await;
+    };
+    // A guest reaches no more than whoever let them in may still see.
+    let Some(inviter) = crate::watch_party::guests::sees(pool, guest, file_id).await? else {
+        return Ok(false);
+    };
+    let admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?")
+        .bind(inviter)
+        .fetch_optional(pool)
+        .await?;
+    let Some(admin) = admin else {
+        return Ok(false);
+    };
+    Ok(Access::of(pool, inviter, admin)
+        .await?
+        .sees_file(pool, file_id)
+        .await?)
+}
+
 /// What the user a link was given to may see now; None once the session or key is gone.
 pub(in super::super) async fn holder_access(
     pool: &SqlitePool,

@@ -105,7 +105,7 @@ fn secret_key(key: &str) -> bool {
 fn scrub_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = ["mlt_", "mls_"]
+    while let Some(at) = ["mlt_", "mls_", "mpi_", "mpg_"]
         .iter()
         .filter_map(|prefix| rest.find(prefix))
         .min()
@@ -210,6 +210,24 @@ mod tests {
 
     fn report(body: Value) -> Report {
         serde_json::from_value(body).unwrap()
+    }
+
+    #[test]
+    fn watch_party_invites_and_guest_passes_are_replaced_too() {
+        let mut details = json!({
+            "link": format!("https://melete.example/#/guest/mpi_{}", "b2".repeat(32)),
+            "note": format!("guest pass mpg_{} kept", "c3".repeat(32)),
+            "stream": format!("/api/v1/stream/mls_g{}", "d4".repeat(32)),
+        });
+        scrub(&mut details);
+        assert_eq!(
+            details,
+            json!({
+                "link": "https://melete.example/#/guest/[redacted]",
+                "note": "guest pass [redacted] kept",
+                "stream": "/api/v1/stream/[redacted]",
+            })
+        );
     }
 
     #[test]

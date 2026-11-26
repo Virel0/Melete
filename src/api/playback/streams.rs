@@ -97,25 +97,94 @@ pub(super) async fn stream(
     if !token.starts_with(STREAM_PREFIX) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "not a stream link"));
     }
-    let row: Option<(String, String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT root, rel_path, token_id, file_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
-    )))
-    .bind(auth::token_hash(&token))
-    .bind(unix_now())
-    .fetch_optional(&pool)
-    .await?;
-    let Some((root, rel_path, token_id, file_id)) = row else {
+    let row: Option<(String, String, i64, i64, Option<i64>)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT root, rel_path, token_id, file_id, guest_id FROM {LINKS}
+             WHERE token_hash = ? AND expires_at > ?"
+        )))
+        .bind(auth::token_hash(&token))
+        .bind(unix_now())
+        .fetch_optional(&pool)
+        .await?;
+    let Some((root, rel_path, token_id, file_id, guest_id)) = row else {
         return Err(gone());
     };
-    if !holder_sees(&pool, token_id, file_id).await? {
+    if !link_sees(&pool, (token_id, guest_id), file_id).await? {
         return Err(gone());
     }
-    if let Some(limit) = way_limit(limit) {
+    // A guest's stream is held to their party's cap too.
+    let cap = match guest_id {
+        Some(guest) => guest_cap(&pool, guest).await?,
+        None => None,
+    };
+    if let Some(limit) = lower(way_limit(limit), cap) {
         within_limit(limit, stored_bitrate(&pool, file_id).await?)?;
     }
     let path = resolve(&root, &rel_path).await?;
     let response = ServeFile::new(path).try_call(request).await?;
     Ok(response.map(Body::new))
+}
+
+/// The lower of two limits, either of which may be missing.
+pub(in super::super) fn lower(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// The bits a second a guest's party holds guests' streams to.
+pub(in super::super) async fn guest_cap(
+    pool: &SqlitePool,
+    guest_id: i64,
+) -> Result<Option<i64>, ApiError> {
+    Ok(sqlx::query_scalar(
+        "SELECT p.guest_max_bitrate FROM watch_party_guests g
+         JOIN watch_parties p ON p.id = g.party_id WHERE g.id = ?",
+    )
+    .bind(guest_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten())
+}
+
+/// Creates a stream link for a watch party guest, for the file their party plays; with
+/// `transcode` settings it opens an HLS playlist of it re-encoded with them.
+pub(in super::super) async fn create_guest_link(
+    pool: &SqlitePool,
+    guest_id: i64,
+    file_id: i64,
+    transcode: Option<&str>,
+) -> Result<(String, i64), ApiError> {
+    let now = unix_now();
+    sqlx::query("DELETE FROM guest_play_sessions WHERE expires_at <= ?")
+        .bind(now)
+        .execute(pool)
+        .await?;
+    let token = auth::random_token(super::GUEST_STREAM_PREFIX)?;
+    let expires_at = now + STREAM_LIFETIME;
+    sqlx::query(
+        "INSERT INTO guest_play_sessions (token_hash, guest_id, file_id, transcode, created_at,
+             expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(auth::token_hash(&token))
+    .bind(guest_id)
+    .bind(file_id)
+    .bind(transcode)
+    .bind(now)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "DELETE FROM guest_play_sessions WHERE guest_id = ?1 AND id NOT IN
+             (SELECT id FROM guest_play_sessions WHERE guest_id = ?1 ORDER BY id DESC LIMIT ?2)",
+    )
+    .bind(guest_id)
+    .bind(MAX_STREAMS_PER_TOKEN)
+    .execute(pool)
+    .await?;
+    Ok((token, expires_at))
 }
 
 /// The file on disk. Refuses anything, such as a symlink, that resolves outside its library,

@@ -237,5 +237,6 @@ pub(super) fn watching_routes(
             subtitle_cache.clone(),
         ))
         .merge(web::routes())
+        .merge(party_guests::routes(pool.clone(), ffprobe.clone()))
         .merge(transcode::routes(pool, ffprobe, transcoder, subtitle_cache))
 }

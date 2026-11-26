@@ -44,17 +44,24 @@ pub(super) const STREAM_PREFIX: &str = "mls_";
 /// playlist), the session or key it was given to, library folder and path. Only present files
 /// and extras.
 pub(super) const LINKS: &str = "(SELECT p.token_hash, p.expires_at, p.file_id, p.transcode,
-         p.token_id, l.path AS root, f.rel_path
+         p.token_id, l.path AS root, f.rel_path, NULL AS guest_id
      FROM play_sessions p JOIN media_files f ON f.id = p.file_id
      JOIN libraries l ON l.id = f.library_id WHERE f.missing_since IS NULL
      UNION ALL SELECT p.token_hash, p.expires_at, p.extra_id, p.transcode, p.token_id, l.path,
-         e.rel_path
+         e.rel_path, NULL
      FROM extra_play_sessions p JOIN media_extras e ON e.id = p.extra_id
      JOIN libraries l ON l.id = e.library_id WHERE e.missing_since IS NULL
      UNION ALL SELECT p.token_hash, p.expires_at, 2199023255552 + p.trailer_id, p.transcode,
-         p.token_id, a.path, d.file
+         p.token_id, a.path, d.file, NULL
      FROM trailer_play_sessions p JOIN downloaded_trailers d ON d.id = p.trailer_id
-     JOIN app_folders a ON a.name = 'trailers' WHERE d.file IS NOT NULL)";
+     JOIN app_folders a ON a.name = 'trailers' WHERE d.file IS NOT NULL
+     UNION ALL SELECT g.token_hash, g.expires_at, g.file_id, g.transcode, 0, l.path, f.rel_path,
+         g.guest_id
+     FROM guest_play_sessions g JOIN media_files f ON f.id = g.file_id
+     JOIN libraries l ON l.id = f.library_id WHERE f.missing_since IS NULL)";
+/// A watch party guest's stream links begin so: 'g' is never in a token's hex, so the ways in
+/// can tell them by their address alone.
+pub(super) const GUEST_STREAM_PREFIX: &str = "mls_g";
 pub(super) const STREAM_LIFETIME: i64 = 24 * 60 * 60;
 /// Reaching this share of a file's duration marks it watched.
 const WATCHED_FRACTION: f64 = 0.9;

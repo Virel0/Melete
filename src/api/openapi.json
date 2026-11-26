@@ -7874,6 +7874,565 @@
         }
       }
     },
+    "/api/v1/watch-parties/{id}/invites": {
+      "post": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Invite a guest",
+        "description": "Makes an invite link for someone with no account: it lets one guest into this party, once, within a day, and the pass it gives reaches this party alone. `path` is the link's path and fragment (`/#/guest/mpi_…`): the secret is after `#`, so opening the link never sends it to a server. Shown once.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Made",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPartyInvite"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such party, or this device isn't in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/watch-parties/{id}/guests/{guest}": {
+      "delete": {
+        "tags": [
+          "Playback"
+        ],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Send a guest away",
+        "description": "Their pass and stream links end at once.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Watch party id.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "guest",
+            "in": "path",
+            "required": true,
+            "description": "The guest's id, as the party lists them.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Sent away"
+          },
+          "404": {
+            "description": "No such party or guest, or this device isn't in the party",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/party/join": {
+      "post": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "public",
+        "security": [],
+        "summary": "Join a watch party as a guest",
+        "description": "With an invite link's secret, spent once, and the name to show the others. The pass comes back as the `melete_guest` cookie (HttpOnly, for `/api/v1/party` only) and in `pass`, for an app.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestJoinInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "In",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestJoinAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No name, or one over 40 letters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The invite is unknown, used, past its day, or its party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party": {
+      "get": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "The guest's watch party",
+        "description": "What plays, where and whether, the guests by name, and how many of the household are in it; no account's name. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestPartyAnswer"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The watch party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "Play, pause or seek as a guest",
+        "description": "Made against the `version` last seen; a guest never changes what plays. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestChangeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestPartyAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A position below 0",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A change by cookie without the X-Melete-Web header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It changed since `version`; get it again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/leave": {
+      "post": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "Leave the watch party as a guest",
+        "description": "The pass and its stream links end, and the cookie is cleared. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "204": {
+            "description": "Left"
+          },
+          "403": {
+            "description": "By cookie without the X-Melete-Web header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/events": {
+      "get": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "The guest's watch party as it changes",
+        "description": "Server-sent events: `watch_party` with `{party, server_time}` as `GET /api/v1/party` answers, each time it changes, and `null` once it has ended or the guest has left, when the stream ends. It also ends after 10 minutes, for the browser to open again. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "200": {
+            "description": "The event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/file": {
+      "get": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "The file the party plays",
+        "description": "Its tracks (`media`, as `GET /api/v1/files/{id}` gives it) and the most bits a second a guest's stream may take (`max_bitrate`: the party's cap for guests, and the way's own limit, the lower of them; null for none). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestFile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The watch party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/play": {
+      "post": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "A guest's stream link",
+        "description": "For the file the party plays now, as it is. A file over `max_bitrate` is refused when streamed (403): ask for a conversion instead. The link ends with the guest, or once the party plays another file. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestPlay"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "By cookie without the X-Melete-Web header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The watch party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/subtitles": {
+      "get": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "The subtitle tracks of the file the party plays",
+        "description": "As `GET /api/v1/files/{id}/subtitles` lists them; each is fetched under the guest's stream link (`{stream_url}/subtitles/{track}.vtt`). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SubtitleTrack"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The watch party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The file's folder can't be read right now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/party/transcode": {
+      "post": {
+        "tags": [
+          "Party"
+        ],
+        "x-melete-access": "guest",
+        "summary": "A guest's conversion",
+        "description": "As `POST /api/v1/files/{id}/transcode` takes it, of the file the party plays, held to `max_bitrate`. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranscodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestTranscode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Settings that can't be",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "By cookie without the X-Melete-Web header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The watch party has ended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "This file can't be converted so",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No pass, or one that has ended (left, sent away, or the party ended)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/music/unmatched": {
       "get": {
         "tags": ["Music"],
@@ -17968,6 +18527,300 @@
         },
         "additionalProperties": false
       },
+      "WatchPartyGuest": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "For sending them away (DELETE /api/v1/watch-parties/{id}/guests/{guest})."
+          },
+          "name": {
+            "type": "string",
+            "description": "What they called themselves."
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchPartyInvite": {
+        "type": "object",
+        "required": [
+          "invite",
+          "path",
+          "expires_at"
+        ],
+        "properties": {
+          "invite": {
+            "type": "string",
+            "description": "The invite's secret (`mpi_…`), shown this once."
+          },
+          "path": {
+            "type": "string",
+            "description": "The link's path and fragment, `/#/guest/{invite}`, for the address guests reach Melete at."
+          },
+          "expires_at": {
+            "type": "integer",
+            "description": "Unix milliseconds: unused by then, it lets no one in."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestJoinInput": {
+        "type": "object",
+        "required": [
+          "invite",
+          "name"
+        ],
+        "properties": {
+          "invite": {
+            "type": "string",
+            "description": "The invite link's secret."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name to show the others: 1 to 40 letters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestParty": {
+        "type": "object",
+        "required": [
+          "id",
+          "you",
+          "title",
+          "file_id",
+          "position_ms",
+          "position_at",
+          "playing",
+          "version",
+          "max_bitrate",
+          "household",
+          "guests"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "you": {
+            "type": "string",
+            "description": "The name this guest gave."
+          },
+          "title": {
+            "type": "string",
+            "description": "What plays: the film's name, or the series' with its season and episode."
+          },
+          "file_id": {
+            "type": "integer"
+          },
+          "position_ms": {
+            "type": "integer",
+            "description": "Where in it at `position_at`; while playing it moves on from there."
+          },
+          "position_at": {
+            "type": "integer",
+            "description": "Unix milliseconds, on the server's clock."
+          },
+          "playing": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The cap the party holds guests' streams to, in bits a second; null for none."
+          },
+          "household": {
+            "type": "integer",
+            "description": "How many of the household's devices are in it."
+          },
+          "guests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "you"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "you": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestPartyAnswer": {
+        "type": "object",
+        "required": [
+          "party",
+          "server_time"
+        ],
+        "properties": {
+          "party": {
+            "$ref": "#/components/schemas/GuestParty"
+          },
+          "server_time": {
+            "type": "integer",
+            "description": "The server's clock now, Unix milliseconds."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestJoinAnswer": {
+        "type": "object",
+        "required": [
+          "party",
+          "server_time",
+          "pass"
+        ],
+        "properties": {
+          "party": {
+            "$ref": "#/components/schemas/GuestParty"
+          },
+          "server_time": {
+            "type": "integer"
+          },
+          "pass": {
+            "type": "string",
+            "description": "The guest's pass (`mpg_…`), for an app to send as a bearer token; a browser has it as a cookie."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestChangeInput": {
+        "type": "object",
+        "required": [
+          "version",
+          "position_ms",
+          "playing"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "description": "The version the change was made against."
+          },
+          "position_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "playing": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestFile": {
+        "type": "object",
+        "required": [
+          "id",
+          "media",
+          "max_bitrate"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "media": {
+            "description": "Its streams as ffprobe read them, as FileInfo's media; null when it couldn't be read."
+          },
+          "max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The most bits a second a guest's stream may take; null for no limit."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestPlay": {
+        "type": "object",
+        "required": [
+          "file_id",
+          "stream_url",
+          "expires_at",
+          "max_bitrate"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "integer"
+          },
+          "stream_url": {
+            "type": "string",
+            "description": "`/api/v1/stream/mls_g…`, with byte ranges."
+          },
+          "expires_at": {
+            "type": "integer",
+            "description": "Unix seconds."
+          },
+          "max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "As GuestFile's."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GuestTranscode": {
+        "type": "object",
+        "required": [
+          "playlist_url",
+          "expires_at",
+          "duration_seconds",
+          "max_bitrate",
+          "burned_subtitle",
+          "burn_reason"
+        ],
+        "properties": {
+          "playlist_url": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer",
+            "description": "Unix seconds."
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_bitrate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "What the conversion was held to."
+          },
+          "burned_subtitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "As TranscodeResponse's."
+          },
+          "burn_reason": {
+            "description": "As TranscodeResponse's."
+          }
+        },
+        "additionalProperties": false
+      },
       "WatchParty": {
         "type": "object",
         "required": [
@@ -17984,6 +18837,7 @@
           "playing",
           "version",
           "guest_max_bitrate",
+          "guests",
           "members"
         ],
         "properties": {
@@ -18051,6 +18905,13 @@
               "null"
             ],
             "description": "Guests' streams are held to this many bits a second; null: as everyone's."
+          },
+          "guests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WatchPartyGuest"
+            },
+            "description": "Guests with no account, by the names they gave."
           },
           "members": {
             "type": "array",

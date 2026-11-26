@@ -17,7 +17,7 @@ use sqlx::SqlitePool;
 
 use super::ApiError;
 use super::auth::{AppState, CurrentUser, require_user};
-use super::playback::{LINKS, STREAM_PREFIX, holder_sees, load_file, require_playable, resolve};
+use super::playback::{LINKS, STREAM_PREFIX, link_sees, load_file, require_playable, resolve};
 use crate::auth;
 use crate::db::unix_now;
 use crate::subtitles::{self, Sidecar, Source};
@@ -45,12 +45,22 @@ pub fn routes(pool: SqlitePool, ffprobe: PathBuf, ffmpeg: PathBuf, cache: PathBu
         .route("/api/v1/stream/{token}/subtitles/{track}", get(track))
         .route("/api/v1/stream/{token}/fonts", get(originals::fonts))
         .route("/api/v1/stream/{token}/fonts/{font}", get(originals::font));
-    signed_in.merge(tracks).with_state(SubtitleState {
-        pool,
-        ffprobe: Arc::new(ffprobe),
-        ffmpeg: Arc::new(ffmpeg),
-        cache: Arc::new(cache),
-    })
+    // A watch party guest's pass is the credential here.
+    let guest = Router::new()
+        .route("/api/v1/party/subtitles", get(guest_list))
+        .route_layer(middleware::from_fn_with_state(
+            pool.clone(),
+            super::party_guests::require_guest,
+        ));
+    signed_in
+        .merge(tracks)
+        .merge(guest)
+        .with_state(SubtitleState {
+            pool,
+            ffprobe: Arc::new(ffprobe),
+            ffmpeg: Arc::new(ffmpeg),
+            cache: Arc::new(cache),
+        })
 }
 
 pub(super) use crate::subtitles::{embedded_key, sidecar_key};
@@ -73,6 +83,20 @@ async fn list(
     Path(id): Path<i64>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     require_playable(&state.pool, &current.access, id).await?;
+    Ok(Json(tracks_of(&state, id).await?))
+}
+
+/// The same for a watch party guest: the tracks of the file their party plays.
+async fn guest_list(
+    State(state): State<SubtitleState>,
+    Extension(guest): Extension<crate::watch_party::guests::Guest>,
+) -> Result<Json<Vec<Value>>, ApiError> {
+    let id = super::party_guests::playing(&state.pool, &guest).await?;
+    Ok(Json(tracks_of(&state, id).await?))
+}
+
+/// Every subtitle track of file `id`.
+async fn tracks_of(state: &SubtitleState, id: i64) -> Result<Vec<Value>, ApiError> {
     let file = load_file(&state.pool, &state.ffprobe, id).await?;
     let video = resolve(&file.root, &file.rel_path).await?;
     let mut tracks: Vec<Value> = file
@@ -139,7 +163,7 @@ async fn list(
     for (f, encoding) in fetched.iter().zip(fetched_encodings) {
         tracks.push(super::subtitle_search::fetched_track(f, encoding));
     }
-    Ok(Json(tracks))
+    Ok(tracks)
 }
 
 /// Where an ASS/SSA track is as it is, relative to the stream URL as the WebVTT one is; None
@@ -153,15 +177,15 @@ async fn linked_file(pool: &SqlitePool, token: &str) -> Result<i64, ApiError> {
     if !token.starts_with(STREAM_PREFIX) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "not a stream link"));
     }
-    let session: Option<(i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT file_id, token_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
+    let session: Option<(i64, i64, Option<i64>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT file_id, token_id, guest_id FROM {LINKS} WHERE token_hash = ? AND expires_at > ?"
     )))
     .bind(auth::token_hash(token))
     .bind(unix_now())
     .fetch_optional(pool)
     .await?;
-    if let Some((id, token_id)) = session
-        && holder_sees(pool, token_id, id).await?
+    if let Some((id, token_id, guest_id)) = session
+        && link_sees(pool, (token_id, guest_id), id).await?
     {
         return Ok(id);
     }
