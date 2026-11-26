@@ -74,6 +74,7 @@ mod speedtest;
 mod stems;
 mod subtitle_search;
 mod subtitles;
+mod sweeps;
 mod system;
 mod title_artwork;
 mod transcode;
@@ -261,8 +262,15 @@ pub fn server_with(
             crate::offline::folder(transcoder.root()),
             crate::trickplay::folder(data_dir),
         ));
+    let search = crate::search_missing::Sources {
+        tmdb: tmdb.clone(),
+        slskd: slskd.clone(),
+        pipeline: downloads.clone(),
+        pace: crate::search_missing::PACE,
+    };
+    let sweeps = sweeps::routes(pool.clone(), search, subtitle_cache.clone());
     let router = wanting_routes(
-        router,
+        router.merge(sweeps),
         &pool,
         &tmdb,
         MusicLookups {

@@ -365,7 +365,7 @@ mod openapi {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 388);
+        assert_eq!(checked, 390);
     }
 
     /// The response's fields are exactly the schema's.
@@ -3362,6 +3362,72 @@ mod openapi {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_shape(&spec(), "MissingSearch", &body);
+    }
+
+    #[tokio::test]
+    async fn a_scan_and_search_carries_exactly_the_documented_fields() {
+        let pool = crate::db::open_in_memory().await;
+        let admin = crate::auth::testing::user(&pool, "admin", true).await;
+        let (_, token) =
+            crate::auth::issue_token(&pool, admin.id, crate::auth::TokenKind::Session, "t")
+                .await
+                .unwrap();
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'anime', 'shows', '/a'),
+                 (2, 'music', 'music', '/m')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let search = crate::search_missing::Sources {
+            tmdb: None,
+            slskd: None,
+            pipeline: None,
+            pace: std::time::Duration::ZERO,
+        };
+        let app = sweeps::routes(pool, search, std::env::temp_dir());
+        let send = |method: &str, uri: &str, body: &'static str| {
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let none = app
+            .clone()
+            .oneshot(send("GET", "/api/v1/libraries/anime/scan-and-search", ""))
+            .await
+            .unwrap();
+        let bytes = none.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], b"null");
+        let started = app
+            .clone()
+            .oneshot(send(
+                "POST",
+                "/api/v1/libraries/anime/scan-and-search",
+                r#"{"subtitles":false}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(started.status(), StatusCode::ACCEPTED);
+        let bytes = started.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_shape(&spec(), "LibrarySweep", &body);
+        assert_eq!(
+            (body["missing"].clone(), body["subtitles"].clone()),
+            (json!(true), json!(false))
+        );
+        let music = app
+            .oneshot(send(
+                "POST",
+                "/api/v1/libraries/music/scan-and-search",
+                "{}",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(music.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

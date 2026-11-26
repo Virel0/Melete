@@ -28,6 +28,16 @@ pub(super) enum Item {
 }
 
 impl Item {
+    /// The wanted movie, series or album it's for.
+    pub(super) fn wanted_id(&self) -> i64 {
+        match *self {
+            Item::Movie { id, .. }
+            | Item::Season { id, .. }
+            | Item::Episode { id, .. }
+            | Item::Album { id, .. } => id,
+        }
+    }
+
     pub(super) fn name(&self) -> String {
         match self {
             Item::Movie { title, .. } | Item::Album { title, .. } => title.clone(),
@@ -65,12 +75,49 @@ impl Item {
     }
 }
 
-/// What the run has to do in the area now.
-pub(super) async fn to_do(pool: &SqlitePool, area: Area, goal: Goal) -> anyhow::Result<Vec<Item>> {
-    match goal {
-        Goal::Missing => missing(pool, area).await,
-        Goal::CutoffUnmet => below_cutoff(pool, area).await,
+/// What the run has to do in the area now; only for the titles of `library` when it's given.
+pub(super) async fn to_do(
+    pool: &SqlitePool,
+    area: Area,
+    goal: Goal,
+    library: Option<i64>,
+) -> anyhow::Result<Vec<Item>> {
+    let mut items = match goal {
+        Goal::Missing => missing(pool, area).await?,
+        Goal::CutoffUnmet => below_cutoff(pool, area).await?,
+    };
+    if let Some(library) = library {
+        let titles = in_library(pool, area, library).await?;
+        items.retain(|item| titles.contains(&item.wanted_id()));
     }
+    Ok(items)
+}
+
+/// The wanted titles of the area that belong to `library`: by their folder's library, or,
+/// without a folder yet, by the library their new files go to.
+async fn in_library(
+    pool: &SqlitePool,
+    area: Area,
+    library: i64,
+) -> sqlx::Result<std::collections::HashSet<i64>> {
+    let query = match area {
+        Area::Movies => {
+            "SELECT w.id FROM wanted_movies w
+             WHERE coalesce((SELECT m.library_id FROM movies m WHERE m.id = w.movie_id), w.library_id) = ?"
+        }
+        Area::Series => {
+            "SELECT w.id FROM wanted_series w
+             WHERE coalesce((SELECT s.library_id FROM series s WHERE s.id = w.series_id), w.library_id) = ?"
+        }
+        // Music isn't swept by library.
+        Area::Albums => return Ok(Default::default()),
+    };
+    Ok(sqlx::query_scalar(query)
+        .bind(library)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 /// Whether an item still needs its search when its turn comes.
