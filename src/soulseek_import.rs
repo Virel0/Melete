@@ -124,6 +124,9 @@ pub async fn import(
         Ok(plan) => plan,
         Err(stop) => return transfer::finish(pool, id, row.attempts, Err(stop)).await,
     };
+    if let Some(waiting) = transfer::waiting_for(&plan.root) {
+        return transfer::finish(pool, id, row.attempts, Err(waiting)).await;
+    }
     let claimed = sqlx::query(
         "UPDATE downloads SET state = 'transferring', message = 'copying from slskd''s folder',
              updated_at = ?
@@ -216,7 +219,7 @@ async fn plan(
 
 async fn copy_all(pool: &SqlitePool, id: i64, plan: &Plan) -> Result<(), Stop> {
     let root = plan.root.clone();
-    let mounted = transfer::blocking(move || {
+    let mounted = transfer::blocking_in(&plan.root, move || {
         Ok(std::fs::read_dir(&root)
             .map(|mut d| d.next().is_some())
             .unwrap_or(false))
@@ -259,11 +262,18 @@ async fn copy_all(pool: &SqlitePool, id: i64, plan: &Plan) -> Result<(), Stop> {
         let partial = transfer::partial_path(&dir, &file.name, id)?;
         // Recorded before it exists, so removing the download can delete it.
         transfer::record_partial(pool, id, &partial).await?;
-        let copied = transfer::blocking(move || {
+        // A whole file's copy has no time limit, but isn't waited on once the library stops
+        // responding.
+        let copy = transfer::blocking(move || {
             transfer::create_dirs(&dir)?;
             copy_one(&source, &partial, &target, size, mine)
-        })
-        .await?;
+        });
+        let copied = crate::library::health::unless_down(&plan.root, copy)
+            .await
+            .map_err(|_| match crate::library::health::down_at(&plan.root) {
+                Some(down) => Stop::Wait(transfer::waiting(&down)),
+                None => Stop::Retry("the library stopped responding".into()),
+            })??;
         if copied {
             // Remembered at once, so a restart knows this file is this download's own.
             placed.push(target_name);

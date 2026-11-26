@@ -25,6 +25,8 @@ pub(crate) struct Tracker<'a> {
     offset: Option<u64>,
     /// When the count was last written.
     written: Option<Instant>,
+    /// The bytes copied so far, for whatever watches the copy.
+    copied: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl<'a> Tracker<'a> {
@@ -39,7 +41,13 @@ impl<'a> Tracker<'a> {
             fresh: 0,
             offset: None,
             written: None,
+            copied: Arc::default(),
         }
+    }
+
+    /// The bytes copied so far, as the copy goes on.
+    pub(crate) fn progress(&self) -> Arc<std::sync::atomic::AtomicU64> {
+        self.copied.clone()
     }
 
     /// A file of `size` bytes is done (copied, or placed by an earlier run): the next starts
@@ -49,6 +57,8 @@ impl<'a> Tracker<'a> {
             self.fresh += size.saturating_sub(offset);
         }
         self.before += size;
+        self.copied
+            .store(self.before, std::sync::atomic::Ordering::Relaxed);
         self.write(0).await
     }
 
@@ -58,6 +68,8 @@ impl<'a> Tracker<'a> {
         if now {
             self.offset = Some(done);
         }
+        self.copied
+            .store(self.before + done, std::sync::atomic::Ordering::Relaxed);
         if !now && self.written.is_some_and(|at| at.elapsed() < EVERY) {
             return Ok(());
         }

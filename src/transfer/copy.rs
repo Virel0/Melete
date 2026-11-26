@@ -1,7 +1,22 @@
 //! Copying files over SFTP under a hidden part name that resumes, with each part file recorded so
 //! removing the download deletes only its own.
 
+use std::os::unix::fs::OpenOptionsExt;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
 use super::*;
+use crate::library::health;
+
+/// How long a copy may go without copying anything before it counts as stalled and starts
+/// again where it stopped.
+const STALLED_AFTER: Duration = Duration::from_secs(10 * 60);
+/// How often a copy going on is looked at.
+const WATCH_EVERY: Duration = Duration::from_secs(30);
+/// How long one write to a part file may take before its library counts as not responding.
+const WRITE_LIMIT: Duration = Duration::from_secs(60);
+/// How long making sure a copied file reached the disk may take.
+const SYNC_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 /// Copies every file of the plan under its hidden part name, checks a movie's or episode's
 /// running time when `check` is given, and only then puts the files in place: a download that
@@ -15,7 +30,7 @@ pub(super) async fn copy_all(
 ) -> Result<(), Stop> {
     // An unmounted share looks like an empty folder; writing there would fill the host's disk.
     let root = plan.root.clone();
-    let mounted = blocking(move || {
+    let mounted = blocking_in(&plan.root, move || {
         Ok(std::fs::read_dir(&root)
             .map(|mut d| d.next().is_some())
             .unwrap_or(false))
@@ -39,8 +54,29 @@ pub(super) async fn copy_all(
         .await
         .map_err(db)?;
     let placed: Vec<String> = serde_json::from_str(&placed).unwrap_or_default();
-    let mut staged = Vec::with_capacity(plan.files.len());
     let mut tracker = Tracker::new(pool, id, &plan.files);
+    let copied = tracker.progress();
+    let staged = tokio::select! {
+        staged = copy_files(pool, &connection, plan, id, &placed, &mut tracker) => staged?,
+        stop = watch(&copied, &plan.root, STALLED_AFTER, WATCH_EVERY) => return Err(stop),
+    };
+    if let Some(check) = check {
+        say(pool, id, super::CHECKING).await?;
+        verify::check_staged(check, &staged).await?;
+    }
+    place_all(pool, id, staged, placed).await
+}
+
+/// Copies each file of the plan under its part name, telling `tracker` how far it has got.
+async fn copy_files(
+    pool: &SqlitePool,
+    connection: &Connection,
+    plan: &Plan,
+    id: i64,
+    placed: &[String],
+    tracker: &mut Tracker<'_>,
+) -> Result<Vec<Staged>, Stop> {
+    let mut staged = Vec::with_capacity(plan.files.len());
     for (n, file) in plan.files.iter().enumerate() {
         let dir = match file.folder.as_str() {
             "" => plan.dir.clone(),
@@ -52,14 +88,37 @@ pub(super) async fn copy_all(
         };
         let message = format!("copying {} of {}: {}", n + 1, plan.files.len(), file.name);
         say(pool, id, &message).await?;
-        staged.push(fetch(pool, &connection, file, &dir, id, &placed, &mut tracker).await?);
+        staged.push(fetch(pool, connection, file, &dir, id, placed, tracker).await?);
         tracker.file_done(file.size).await?;
     }
-    if let Some(check) = check {
-        say(pool, id, super::CHECKING).await?;
-        verify::check_staged(check, &staged).await?;
+    Ok(staged)
+}
+
+/// Watches a copy going on, and answers why to stop it: its library stopped responding (it
+/// waits for it), or nothing was copied for `after` (it's stalled, and starts again where it
+/// stopped).
+pub(super) async fn watch(
+    copied: &AtomicU64,
+    root: &Path,
+    after: Duration,
+    every: Duration,
+) -> Stop {
+    let (mut seen, mut since) = (copied.load(Ordering::Relaxed), Instant::now());
+    loop {
+        tokio::time::sleep(every).await;
+        if let Some(down) = health::down_at(root) {
+            return Stop::Wait(waiting(&down));
+        }
+        let now = copied.load(Ordering::Relaxed);
+        if now != seen {
+            (seen, since) = (now, Instant::now());
+        } else if since.elapsed() >= after {
+            return Stop::Retry(format!(
+                "stalled: nothing was copied for {} minutes",
+                after.as_secs() / 60
+            ));
+        }
     }
-    place_all(pool, id, staged, placed).await
 }
 
 /// Puts each copied file in place, recording each as soon as it is.
@@ -74,7 +133,7 @@ async fn place_all(
             continue;
         };
         let target = file.target.clone();
-        blocking(move || {
+        blocking_in(&file.target, move || {
             std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o664))?;
             place(&partial, &target)
         })
@@ -112,6 +171,40 @@ pub(crate) async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|err| Stop::Retry(format!("a file-system task failed: {err}")))?
+}
+
+/// [`blocking`] for file work in the library `path` is in: refused at once while that library
+/// isn't responding, and given up on after the library check's time limit, which counts it as
+/// not responding. Either way the copy waits for it.
+pub(crate) async fn blocking_in<T: Send + 'static>(
+    path: &Path,
+    work: impl FnOnce() -> Result<T, Stop> + Send + 'static,
+) -> Result<T, Stop> {
+    health::within(path, health::LIMIT, work)
+        .await
+        .map_err(|down| Stop::Wait(waiting(&down)))?
+}
+
+/// A write into `dir`, given up on after `limit`: one that takes longer counts its library as
+/// not responding, and the copy waits for it.
+async fn in_time<T>(
+    dir: &Path,
+    limit: Duration,
+    write: impl Future<Output = std::io::Result<T>>,
+) -> Result<T, Stop> {
+    match tokio::time::timeout(limit, write).await {
+        Ok(done) => Ok(done?),
+        Err(_) => {
+            let why = format!(
+                "a write to its folder didn't finish within {} seconds",
+                limit.as_secs()
+            );
+            Err(match health::mark_at(dir, &why) {
+                Some(down) => Stop::Wait(waiting(&down)),
+                None => Stop::Retry(format!("writing to the library: {why}")),
+            })
+        }
+    }
 }
 
 /// Creates the destination and any folders above it that don't exist, as u=rwx,g=rwx,o=rx
@@ -262,9 +355,11 @@ pub(super) async fn fetch(
     };
     // Anything at the name (a file, a folder, even a dangling link) stops the copy, unless this
     // download put it there itself (and a restart came before the database heard).
-    match std::fs::symlink_metadata(&target) {
-        Ok(_) if placed.contains(&target_name) => return Ok(staged(None)),
-        Ok(_) => {
+    let at = target.clone();
+    let existing = blocking_in(dir, move || Ok(std::fs::symlink_metadata(&at).map(|_| ()))).await?;
+    match existing {
+        Ok(()) if placed.contains(&target_name) => return Ok(staged(None)),
+        Ok(()) => {
             return Err(Stop::Fail(format!(
                 "{} is already there and isn't this file; Melete doesn't replace files",
                 target.display()
@@ -280,11 +375,12 @@ pub(super) async fn fetch(
     let sftp = &connection.sftp;
     check_remote(sftp, file).await?;
 
-    let (local, done) = open_partial(&partial, file).await?;
+    let (local, done) = open_partial(dir, &partial, file).await?;
     // An earlier copy's part file counts from the start.
     tracker.copying(done, true).await?;
-    let done = fetch_rest(sftp, file, local, done, tracker).await?;
-    let written = std::fs::symlink_metadata(&partial)?.len();
+    let done = fetch_rest(sftp, file, dir, local, done, tracker).await?;
+    let at = partial.clone();
+    let written = blocking_in(dir, move || Ok(std::fs::symlink_metadata(&at)?.len())).await?;
     if done != file.size || written != file.size {
         return Err(Stop::Retry(format!(
             "{} came out {written} bytes, not {}",
@@ -324,33 +420,41 @@ async fn check_remote(sftp: &russh_sftp::client::SftpSession, file: &Planned) ->
     Ok(())
 }
 
-/// Opens the part file for writing, never through a link, cut back to what an earlier copy
-/// left of this file; returns it with how many bytes it keeps.
-async fn open_partial(partial: &Path, file: &Planned) -> Result<(tokio::fs::File, u64), Stop> {
-    let mut done = std::fs::symlink_metadata(partial)
-        .map(|m| m.len())
-        .unwrap_or(0);
-    if done > file.size {
-        done = 0;
-    }
-    // Never through a link: the partial is Melete's own file or nothing.
-    let mut local = tokio::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(partial)
-        .await
-        .map_err(|err| match err.raw_os_error() {
-            Some(libc::ELOOP) => Stop::Fail(format!(
-                "{} is a link; Melete won't write through it",
-                partial.display()
-            )),
-            _ => Stop::from(err),
-        })?;
-    local.set_len(done).await?;
-    local.seek(std::io::SeekFrom::Start(done)).await?;
-    Ok((local, done))
+/// Opens the part file in `dir` for writing, never through a link, cut back to what an earlier
+/// copy left of this file; returns it with how many bytes it keeps.
+async fn open_partial(
+    dir: &Path,
+    partial: &Path,
+    file: &Planned,
+) -> Result<(tokio::fs::File, u64), Stop> {
+    let (partial, size) = (partial.to_path_buf(), file.size);
+    let (local, done) = blocking_in(dir, move || {
+        let mut done = std::fs::symlink_metadata(&partial)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if done > size {
+            done = 0;
+        }
+        // Never through a link: the partial is Melete's own file or nothing.
+        let mut local = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&partial)
+            .map_err(|err| match err.raw_os_error() {
+                Some(libc::ELOOP) => Stop::Fail(format!(
+                    "{} is a link; Melete won't write through it",
+                    partial.display()
+                )),
+                _ => Stop::from(err),
+            })?;
+        local.set_len(done)?;
+        std::io::Seek::seek(&mut local, std::io::SeekFrom::Start(done))?;
+        Ok((local, done))
+    })
+    .await?;
+    Ok((tokio::fs::File::from_std(local), done))
 }
 
 /// Copies the rest of the file from the seedbox into the part file and makes sure it reached
@@ -358,6 +462,7 @@ async fn open_partial(partial: &Path, file: &Planned) -> Result<(tokio::fs::File
 async fn fetch_rest(
     sftp: &russh_sftp::client::SftpSession,
     file: &Planned,
+    dir: &Path,
     mut local: tokio::fs::File,
     mut done: u64,
     tracker: &mut Tracker<'_>,
@@ -379,14 +484,14 @@ async fn fetch_rest(
             break;
         }
         let take = read.min((file.size - done) as usize);
-        local.write_all(&buffer[..take]).await?;
+        in_time(dir, WRITE_LIMIT, local.write_all(&buffer[..take])).await?;
         done += take as u64;
         tracker.copying(done, false).await?;
     }
     // tokio writes in the background and reports a failed last write only on flush (sync_all
     // doesn't): a full disk must not pass for a finished copy.
-    local.flush().await?;
-    local.sync_all().await?;
+    in_time(dir, WRITE_LIMIT, local.flush()).await?;
+    in_time(dir, SYNC_LIMIT, local.sync_all()).await?;
     drop(local);
     Ok(done)
 }

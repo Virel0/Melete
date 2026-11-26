@@ -8,7 +8,7 @@ use super::*;
 /// across retries and restarts.
 pub(super) async fn make_dirs(pool: &SqlitePool, id: i64, dir: &Path) -> Result<(), Stop> {
     let probe = dir.to_path_buf();
-    let missing: Vec<PathBuf> = blocking(move || {
+    let missing: Vec<PathBuf> = blocking_in(dir, move || {
         Ok(probe
             .ancestors()
             .take_while(|d| std::fs::symlink_metadata(d).is_err())
@@ -27,8 +27,8 @@ pub(super) async fn make_dirs(pool: &SqlitePool, id: i64, dir: &Path) -> Result<
         .await
         .map_err(|err| Stop::Retry(format!("the database: {err}")))?;
     }
-    let dir = dir.to_path_buf();
-    blocking(move || create_dirs(&dir)).await
+    let at = dir.to_path_buf();
+    blocking_in(dir, move || create_dirs(&at)).await
 }
 
 /// Deletes the download's part files ([`delete_partials`]) and then the folders its copy made,
