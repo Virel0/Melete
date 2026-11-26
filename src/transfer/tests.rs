@@ -1046,3 +1046,99 @@ async fn a_series_download_naming_no_season_fails_closed() {
 }
 
 mod packs;
+
+#[tokio::test]
+async fn a_copy_waits_for_a_library_not_responding_without_using_up_its_tries() {
+    let r = rig().await;
+    let libraries: Vec<crate::library::Library> = ["movies", "shows"]
+        .iter()
+        .zip([1, 2])
+        .map(|(name, id)| crate::library::Library {
+            id,
+            name: (*name).into(),
+            kind: crate::library::LibraryKind::Movies,
+            path: r.local.path().join(name),
+        })
+        .collect();
+    crate::library::health::load(&r.pool, &libraries)
+        .await
+        .unwrap();
+    crate::library::health::mark_at(
+        &r.local.path().join("movies"),
+        "its folder didn't answer within 15 seconds",
+    )
+    .unwrap();
+    let files = r.seed(&[("Some.Movie.2024.1080p.mkv", data(500, 1))]);
+    let wanted = r.want_movie(None).await;
+    let id = r
+        .download(Some(wanted), None, "/home/user/Completed", &files)
+        .await;
+    for _ in 0..3 {
+        sqlx::query("UPDATE downloads SET next_attempt_at = 0 WHERE id = ?")
+            .bind(id)
+            .execute(&r.pool)
+            .await
+            .unwrap();
+        transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    }
+    let (state, message, _, attempts) = r.state(id).await;
+    assert_eq!((state.as_str(), attempts), ("completed", 0));
+    let message = message.unwrap();
+    assert!(
+        message.starts_with("waiting: the movies library isn't responding"),
+        "{message}"
+    );
+    // Nothing was started into it.
+    assert_eq!(
+        std::fs::read_dir(r.local.path().join("movies"))
+            .unwrap()
+            .count(),
+        1
+    );
+
+    // It answers again: the copy goes ahead.
+    crate::library::health::check(&r.pool, &libraries, crate::library::health::LIMIT)
+        .await
+        .unwrap();
+    transfer(&r.pool, &r.seedbox, None, id).await.unwrap();
+    assert_eq!(r.state(id).await.0, "imported");
+}
+
+#[tokio::test]
+async fn a_copy_with_no_progress_is_stalled_and_one_into_a_library_gone_quiet_waits() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let tick = Duration::from_millis(10);
+    let copied = AtomicU64::new(5);
+    let nowhere = Path::new("/no/library/here");
+    let stalled = watch(&copied, nowhere, Duration::from_millis(50), tick).await;
+    assert!(
+        matches!(&stalled, Stop::Retry(why) if why.starts_with("stalled: nothing was copied")),
+        "{stalled:?}"
+    );
+    // Moving on keeps it going: it stalls only once it stops moving.
+    let moving = async {
+        for n in 0..20 {
+            copied.store(100 + n, Ordering::Relaxed);
+            tokio::time::sleep(tick).await;
+        }
+    };
+    tokio::select! {
+        () = moving => {}
+        stop = watch(&copied, nowhere, Duration::from_millis(100), tick) => panic!("{stop:?}"),
+    }
+
+    let r = rig().await;
+    let movies = r.local.path().join("movies");
+    let library = crate::library::Library {
+        id: 1,
+        name: "movies".into(),
+        kind: crate::library::LibraryKind::Movies,
+        path: movies.clone(),
+    };
+    crate::library::health::load(&r.pool, &[library])
+        .await
+        .unwrap();
+    crate::library::health::mark_at(&movies, "its folder didn't answer within 15 seconds").unwrap();
+    let waits = watch(&copied, &movies, Duration::from_secs(60), tick).await;
+    assert!(matches!(waits, Stop::Wait(_)), "{waits:?}");
+}

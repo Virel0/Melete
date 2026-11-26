@@ -74,6 +74,9 @@ const SUBTITLES: &[&str] = &["srt", "ass", "ssa", "sub", "idx", "vtt", "sup"];
 pub(crate) enum Stop {
     /// Worth trying again later (the network, the seedbox, a read-only library).
     Retry(String),
+    /// Its library isn't responding: tried again in a minute, without counting as a try, and
+    /// saying why in the meantime.
+    Wait(String),
     /// Won't fix itself; the download is marked failed.
     Fail(String),
     /// It doesn't run as long as the title it's for, or how long it runs can't be read: it's
@@ -268,6 +271,10 @@ pub async fn transfer(
             ffprobe: fixes.map(|f| f.tools.ffprobe.clone()),
             measured: std::sync::Mutex::new(None),
         });
+    if let Some(waiting) = waiting_for(&plan.root) {
+        finish(pool, id, row.attempts, Err(waiting)).await?;
+        return Ok(None);
+    }
     let claimed = sqlx::query(
         "UPDATE downloads SET state = 'transferring', message = 'connecting to the seedbox', updated_at = ?
          WHERE id = ? AND state = 'completed'",
@@ -304,6 +311,21 @@ pub async fn transfer(
     )
     .await?;
     Ok(not_the_title.then(|| row.target()).flatten())
+}
+
+/// What a copy into the library at `root` waits on: that library not responding. Nothing is
+/// started into it until it answers again.
+pub(crate) fn waiting_for(root: &Path) -> Option<Stop> {
+    crate::library::health::down_at(root).map(|down| Stop::Wait(waiting(&down)))
+}
+
+/// A download's message while it waits for its library.
+pub(crate) fn waiting(down: &crate::library::health::Down) -> String {
+    format!(
+        "waiting: {} ({}); the copy starts once it answers",
+        down.saying(),
+        down.why
+    )
 }
 
 /// Fixes the album's tracks just placed ([`album_fix`]), and only those, before the download
@@ -363,6 +385,18 @@ pub(crate) async fn finish(
             .execute(pool)
             .await?;
         }
+        Err(Stop::Wait(why)) => {
+            sqlx::query(
+                "UPDATE downloads SET state = 'completed', next_attempt_at = ?, message = ?, updated_at = ?
+                 WHERE id = ?",
+            )
+            .bind(now + IDLE.as_secs() as i64)
+            .bind(why)
+            .bind(now)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        }
         Err(Stop::Retry(why)) if attempts + 1 >= MAX_ATTEMPTS => {
             sqlx::query(
                 "UPDATE downloads SET state = 'failed', message = ?, updated_at = ? WHERE id = ?",
@@ -393,9 +427,11 @@ pub(crate) async fn finish(
                 Stop::Held(why) => format!(
                     "nothing more put in the library, as it may be another title: {why}; the release is blocklisted"
                 ),
-                Stop::NotTheTitle(why) | Stop::Retry(why) | Stop::Fail(why) => format!(
-                    "not put in the library, as it may be another title: {why}; the release is blocklisted"
-                ),
+                Stop::NotTheTitle(why) | Stop::Retry(why) | Stop::Wait(why) | Stop::Fail(why) => {
+                    format!(
+                        "not put in the library, as it may be another title: {why}; the release is blocklisted"
+                    )
+                }
             };
             sqlx::query(
                 "UPDATE downloads SET state = 'failed', message = ?, updated_at = ? WHERE id = ?",

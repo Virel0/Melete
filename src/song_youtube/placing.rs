@@ -81,6 +81,10 @@ fn place(
 /// Why placing stopped, in words.
 fn why(stop: Stop) -> String {
     match stop {
-        Stop::Retry(why) | Stop::Fail(why) | Stop::NotTheTitle(why) | Stop::Held(why) => why,
+        Stop::Retry(why)
+        | Stop::Wait(why)
+        | Stop::Fail(why)
+        | Stop::NotTheTitle(why)
+        | Stop::Held(why) => why,
     }
 }

@@ -39,7 +39,7 @@ pub(crate) fn identity_of(path: &Path) -> Option<Identity> {
 /// Records that download `id` put the file now at `path` there.
 pub(crate) async fn record_placed(pool: &SqlitePool, id: i64, path: &Path) -> Result<(), Stop> {
     let at = path.to_path_buf();
-    let Some(identity) = blocking(move || Ok(identity_of(&at))).await? else {
+    let Some(identity) = blocking_in(path, move || Ok(identity_of(&at))).await? else {
         return Err(Stop::Retry(format!(
             "{} isn't a regular file just after it was put in place",
             path.display()
