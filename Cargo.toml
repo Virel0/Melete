@@ -35,7 +35,7 @@ regex = "=1.13.1"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json", "query", "form", "socks"] }
 # Email alerts to admins (SMTP with STARTTLS or TLS through rustls and aws-lc-rs, as the rest
 # of the build). No hostname feature: the greeting doesn't name the server.
-lettre = { version = "=0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+lettre = { version = "=0.11.24", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 russh = { version = "=0.65.0", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "=3.0.1"
 rustls = { version = "=0.23.46", default-features = false, features = ["aws_lc_rs", "std"] }
