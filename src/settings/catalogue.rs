@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod alerts;
 mod make_room;
 mod musicbrainz;
 mod proxy;
@@ -480,4 +481,6 @@ pub const SERVICES: &[Service] = &[
     },
     proxy::PROXY,
     vpn::VPN,
+    alerts::WEBHOOK,
+    alerts::EMAIL,
 ];

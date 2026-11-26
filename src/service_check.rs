@@ -53,6 +53,8 @@ pub fn connects(key: &str) -> bool {
             | "openrouter"
             | "opensubtitles"
             | "proxy"
+            | "webhook"
+            | "email"
             | "vpn"
     )
 }
@@ -157,6 +159,10 @@ async fn check_alone(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::R
                 Err(why) => wrong(why),
             },
         },
+        "webhook" | "email" => {
+            let (sent, message) = crate::alerts::test(key, &config.alerts).await;
+            if sent { ok(message) } else { wrong(message) }
+        }
         "vpn" => match &config.vpn {
             None => wrong("Set the control server's address and Melete's key first."),
             Some(vpn) => vpn_answers(vpn).await?,
