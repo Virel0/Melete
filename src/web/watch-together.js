@@ -382,7 +382,23 @@ function guestsPart(ctx) {
     return h("li", {}, `${g.name} (guest) `, away);
   });
   showLink();
-  return h("div", { class: "party-guests" }, guests.length ? h("ul", { class: "plain" }, guests) : null, invite, link, said);
+  // What a guest sees: an invite of its own, opened in a new tab as a guest would (a guest's
+  // pass is apart from this sign-in, so it works in this browser).
+  const preview = h("button", { type: "button", class: "quiet" }, "Open as a guest");
+  preview.addEventListener("click", async () => {
+    preview.disabled = true;
+    try {
+      const made = await api(`/watch-parties/${party.id}/invites`, { method: "POST" });
+      window.open(`${location.origin}${made.path}`, "_blank", "noopener");
+      said.textContent = "Opened as a guest in a new tab; it joins the party under the name you give. Send it away from here when you're done.";
+    } catch (err) {
+      if (err instanceof SignedOut) return ctx.signedOut();
+      said.textContent = err.message;
+    } finally {
+      preview.disabled = false;
+    }
+  });
+  return h("div", { class: "party-guests" }, guests.length ? h("ul", { class: "plain" }, guests) : null, h("div", { class: "form-actions" }, invite, preview), link, said);
 }
 
 // Joining with a code: the party's file opens and plays where the party is.
