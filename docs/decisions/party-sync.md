@@ -1,5 +1,0 @@
-Decision: Amends the watch party decisions. A player's clock is the server's as NTP reckons it: each answer timed from asking to arrival gives an offset from the request's midpoint, and of the latest eight within five minutes the one with the shortest round trip is used. Every second while the party plays, a player compares where it is with where the party is: under 80 ms it's left, up to 1.5 seconds (2.5 for a conversion) it plays at 1.05× or 0.95× until it's caught up, and beyond that it seeks. Any change leaving a party playing (play, a seek while playing, playing on after a wait) starts 0.4 seconds ahead on the server's clock; players wait for that moment. Starting a party gives no lead, as nobody else is in it yet.
-
-Why: Taking the server's time as it arrives was off by half a round trip, up to a tenth of a second for a guest far away; checking only when the party changed let a slow drift build up; jumping on every small drift is more noticeable than a slight change of speed, which keeps pitch; and starting as each player heard the news put them as far apart as their connections.
-
-Date: 2026-11-26

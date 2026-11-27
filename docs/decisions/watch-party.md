@@ -1,5 +1,0 @@
-Decision: Watch parties work as Listen Together does: the server keeps one state per party (the file, where in it at a server time, whether it plays, and a version every change is made against), each device follows it from the event stream and seeks when it's more than 1.5 seconds off, and nothing goes through anyone's device but Melete. Each device plays its own stream, so audio and subtitles stay each person's own choice. Anyone in a party plays, pauses and seeks; only the host, who started it, changes the file, and ends it for everyone (or an admin). Joining checks the account may watch what the party plays, so a party is no way round an account's limits. Whoever starts one may set a cap on guests' bitrate (`guest_max_bitrate`), kept for guests' streams. Devices are sign-in sessions; a party nobody is in, or unchanged for a day, ends.
-
-Why: Watching together needs one clock and one place everyone agrees on, which the server already is for music. Separate streams keep everyone's language choices and quality, where a relayed picture would force one, and keep any device from carrying another's video.
-
-Date: 2026-11-26
