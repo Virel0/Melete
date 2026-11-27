@@ -16,6 +16,8 @@ use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr};
 use super::*;
 
 const OWN: Ipv4Addr = Ipv4Addr::new(10, 73, 0, 1);
+/// The household user in the party, the only one there is.
+const ALICE: i64 = 1;
 
 /// What the tunnel serves in these tests: the party's route, saying who asked, and one route
 /// of the household's.
@@ -28,6 +30,11 @@ fn app() -> Router {
             }),
         )
         .route("/api/v1/movies", get(|| async { "the whole library" }))
+        .route(
+            "/",
+            get(|| async { "the page" }).post(|| async { "a change" }),
+        )
+        .route("/web/app.js", get(|| async { "the page's script" }))
 }
 
 /// A tunnel on a port of this machine's choosing, and a party with an open invite.
@@ -45,6 +52,7 @@ async fn started() -> (SqlitePool, Arc<Tunnel>, i64, String) {
     .await
     .unwrap();
     let user = crate::auth::testing::user(&pool, "alice", false).await;
+    assert_eq!(user.id, ALICE);
     let (token, _) =
         crate::auth::issue_token(&pool, user.id, crate::auth::TokenKind::Session, "tv")
             .await
@@ -219,10 +227,10 @@ fn own_only() -> Ipv4Network {
 }
 
 #[tokio::test]
-async fn a_guest_reaches_their_party_through_the_tunnel_and_nothing_else() {
+async fn a_guest_reaches_their_party_and_the_page_through_the_tunnel_and_nothing_else() {
     let (_pool, tunnel, party, invite) = started().await;
     let made = tunnel
-        .add_guest(party, crate::auth::token_hash(&invite))
+        .add_guest(party, crate::auth::token_hash(&invite), ALICE)
         .await
         .unwrap()
         .unwrap();
@@ -242,13 +250,100 @@ async fn a_guest_reaches_their_party_through_the_tunnel_and_nothing_else() {
         .unwrap();
     assert!(library.starts_with("HTTP/1.1 403"), "{library}");
     assert!(!library.contains("the whole library"));
+    // The web page itself loads, to follow the party in a browser; only read.
+    for (path, body) in [("/", "the page"), ("/web/app.js", "the page's script")] {
+        let page = client.ask((OWN, PORT), &get_request(path), WAIT).await;
+        let page = page.unwrap();
+        assert!(
+            page.starts_with("HTTP/1.1 200") && page.ends_with(body),
+            "{page}"
+        );
+    }
+    let post =
+        "POST / HTTP/1.1\r\nHost: 10.73.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let change = client.ask((OWN, PORT), post, WAIT).await.unwrap();
+    assert!(change.starts_with("HTTP/1.1 403"), "{change}");
+}
+
+#[tokio::test]
+async fn a_user_has_at_most_five_unused_tunnel_invites_to_a_party() {
+    let (_pool, tunnel, party, _invite) = started().await;
+    let hash = |n: u8| vec![n; 32];
+    for n in 0..5 {
+        let made = tunnel.add_guest(party, hash(n), ALICE).await.unwrap();
+        assert!(made.is_ok(), "{n}");
+    }
+    let sixth = tunnel.add_guest(party, hash(5), ALICE).await.unwrap();
+    assert_eq!(sixth.unwrap_err(), Refusal::TooManyUnused);
+    // Someone else's, and another party's, count apart.
+    assert!(
+        tunnel
+            .add_guest(party, hash(6), ALICE + 1)
+            .await
+            .unwrap()
+            .is_ok()
+    );
+    assert!(
+        tunnel
+            .add_guest(party + 1, hash(7), ALICE)
+            .await
+            .unwrap()
+            .is_ok()
+    );
+    // Once a guest has joined through one, it's no longer unused.
+    let first = Ipv4Addr::new(10, 73, 0, 2);
+    let arrival = Arrival {
+        peers: tunnel.peers.clone(),
+        address: first,
+    };
+    arrival.joined(party, 41);
+    assert!(
+        tunnel
+            .add_guest(party, hash(8), ALICE)
+            .await
+            .unwrap()
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn a_tunnel_connection_where_nothing_moves_is_ended_and_one_moving_isnt() {
+    use std::sync::atomic::Ordering;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let idle = Duration::from_millis(100);
+    let (mut stream, ends) = link::pair(Arc::default(), idle);
+    let to_server = ends.incoming.clone().unwrap();
+    // Bytes keep coming: each read is in time, however long it all takes.
+    for _ in 0..4 {
+        to_server
+            .send(bytes::Bytes::from_static(b"x"))
+            .await
+            .unwrap();
+        let mut one = [0u8; 1];
+        stream.read_exact(&mut one).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+    assert!(!ends.timed_out.load(Ordering::SeqCst));
+    // Then nothing: the read gives up, and the stack is told to drop the connection.
+    let mut one = [0u8; 1];
+    let err = stream.read_exact(&mut one).await.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+    assert!(ends.timed_out.load(Ordering::SeqCst));
+    // An answer the peer never takes (the stack's queue full) gives up the same way.
+    let (mut stream, ends) = link::pair(Arc::default(), idle);
+    let err = stream
+        .write_all(&vec![0u8; 8 * link::CHUNK])
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+    assert!(ends.timed_out.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
 async fn a_removed_peer_is_refused_at_once() {
     let (_pool, tunnel, party, invite) = started().await;
     let made = tunnel
-        .add_guest(party, crate::auth::token_hash(&invite))
+        .add_guest(party, crate::auth::token_hash(&invite), ALICE)
         .await
         .unwrap()
         .unwrap();
@@ -283,7 +378,7 @@ async fn nothing_but_meletes_own_http_is_reachable() {
     });
     let (_pool, tunnel, party, invite) = started().await;
     let made = tunnel
-        .add_guest(party, crate::auth::token_hash(&invite))
+        .add_guest(party, crate::auth::token_hash(&invite), ALICE)
         .await
         .unwrap()
         .unwrap();
@@ -343,7 +438,7 @@ async fn a_guests_peer_lasts_while_its_invite_is_open_then_while_the_guest_is_in
     let (pool, tunnel, party, invite) = started().await;
     let peer = |made: &Made| made.address;
     let unused = tunnel
-        .add_guest(party, crate::auth::token_hash(&invite))
+        .add_guest(party, crate::auth::token_hash(&invite), ALICE)
         .await
         .unwrap()
         .unwrap();
@@ -376,7 +471,7 @@ async fn a_guests_peer_lasts_while_its_invite_is_open_then_while_the_guest_is_in
         .unwrap()
         .unwrap();
     let used = tunnel
-        .add_guest(party, crate::auth::token_hash(&second))
+        .add_guest(party, crate::auth::token_hash(&second), ALICE)
         .await
         .unwrap()
         .unwrap();

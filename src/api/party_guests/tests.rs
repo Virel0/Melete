@@ -379,4 +379,20 @@ async fn a_tunnel_invite_needs_the_tunnel_and_comes_with_a_peer_for_the_guest() 
     let join = json!({"invite": made["invite"], "name": "Sam"});
     let (status, _, _) = send(&f, json_request("POST", "/api/v1/party/join", None, join)).await;
     assert_eq!(status, StatusCode::CREATED);
+    // No guest came through that one's peer, so it's still unused: four more, then no more.
+    for _ in 0..4 {
+        let (status, _, _) = send(&with_tunnel, ask()).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let invites = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM watch_party_invites")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap()
+    };
+    let before = invites().await;
+    let (status, _, refused) = send(&with_tunnel, ask()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{refused}");
+    // And it leaves no invite behind.
+    assert_eq!(invites().await, before);
 }

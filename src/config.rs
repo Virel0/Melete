@@ -240,8 +240,6 @@ impl Config {
         let openrouter = openrouter(&get)?;
         let opensubtitles = opensubtitles(&get)?;
         let proxy = crate::proxy::Setup::from_lookup(&get)?;
-        let vpn = crate::gluetun::Settings::from_lookup(&get)?;
-        let alerts = alerts::alerts(&get)?;
         Ok(Self {
             bind,
             data_dir,
@@ -277,8 +275,8 @@ impl Config {
             openrouter,
             opensubtitles,
             proxy,
-            vpn,
-            alerts,
+            vpn: crate::gluetun::Settings::from_lookup(&get)?,
+            alerts: alerts::alerts(&get)?,
             tunnel: crate::tunnel::Settings::from_lookup(&get)?,
         })
     }

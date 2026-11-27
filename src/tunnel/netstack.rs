@@ -10,6 +10,7 @@
 
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -40,6 +41,8 @@ const TX_BUFFER: usize = 256 * 1024;
 /// How long a connection may go without its peer answering.
 const TIMEOUT: Duration = Duration::from_secs(60);
 const KEEP_ALIVE: Duration = Duration::from_secs(20);
+/// How long the HTTP server keeps a connection on which no byte has been read or written.
+pub const IDLE_LIMIT: Duration = Duration::from_secs(60);
 /// The longest the stack waits with nothing to do.
 const IDLE: Duration = Duration::from_millis(500);
 
@@ -320,7 +323,7 @@ fn accept(
         socket.abort();
         return None;
     }
-    let (stream, ends) = link::pair(wake.clone());
+    let (stream, ends) = link::pair(wake.clone(), IDLE_LIMIT);
     let from = SocketAddr::new(ip.into(), endpoint.port);
     if accepted.try_send((stream, from)).is_err() {
         socket.abort();
@@ -379,11 +382,7 @@ fn from_server(socket: &mut tcp::Socket, ends: &mut Ends) {
             None => match ends.outgoing.try_recv() {
                 Ok(chunk) => chunk,
                 Err(TryRecvError::Empty) => return,
-                Err(TryRecvError::Disconnected) => {
-                    socket.close();
-                    ends.closed = true;
-                    return;
-                }
+                Err(TryRecvError::Disconnected) => return finish(socket, ends),
             },
         };
         let sent = match socket.can_send() {
@@ -395,4 +394,15 @@ fn from_server(socket: &mut tcp::Socket, ends: &mut Ends) {
             return;
         }
     }
+}
+
+/// The server's done with the connection: closed for sending, or dropped when it gave up on it
+/// as idle, as what's unsent would hold it open.
+fn finish(socket: &mut tcp::Socket, ends: &mut Ends) {
+    if ends.timed_out.load(Ordering::SeqCst) {
+        socket.abort();
+    } else {
+        socket.close();
+    }
+    ends.closed = true;
 }

@@ -207,15 +207,15 @@ MELETE_TUNNEL_ENDPOINT=melete.example
   own home network.
 - With ways in set (`MELETE_WAYS_IN`), add one for the range that opens `party`, such as
   `guests 10.73.0.0/24 party`; without it, the ways in refuse the tunnel. Whatever the ways
-  say, a guest's tunnel reaches the party's routes alone.
+  say, a guest's tunnel reaches the party's routes and the web page itself, and nothing else.
 
 Then, from a device in the party, `POST /api/v1/watch-parties/{id}/tunnel-invites` makes an
 invite as `…/invites` does, with a WireGuard config for the guest (`wireguard_config`, shown
-once). The guest imports it into a WireGuard app, and their player joins with the invite at
-`http://10.73.0.1/api/v1/party/join`. Their peer ends when the invite runs out unused, or when
-they leave, are sent away or the party ends, and with a restart. The web page can't be used
-through the tunnel yet: it's served at `/`, outside the party's routes, which is all a guest's
-tunnel reaches.
+once). The guest imports it into a WireGuard app and opens the invite's link at Melete's tunnel
+address, `http://10.73.0.1/#/guest/…`. Their peer ends when the invite runs out unused, or
+when they leave, are sent away or the party ends, and with a restart. Each household member
+may have five tunnel invites to a party that no guest has used yet. A tunnel connection on
+which nothing moves for a minute is closed.
 
 ## What each way shows to whom
 

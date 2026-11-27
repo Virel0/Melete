@@ -127,6 +127,15 @@ pub async fn still_in(pool: &SqlitePool, guest_id: i64) -> sqlx::Result<bool> {
         .await
 }
 
+/// Takes back the unused invite hashed as `invite_hash`: it lets no one in.
+pub async fn withdraw(pool: &SqlitePool, invite_hash: &[u8]) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM watch_party_invites WHERE invite_hash = ?")
+        .bind(invite_hash)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Whether the invite hashed as `invite_hash` is unused, good, and its party still going.
 pub async fn invite_open(pool: &SqlitePool, invite_hash: &[u8]) -> sqlx::Result<bool> {
     super::tidy(pool).await?;

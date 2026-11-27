@@ -1,6 +1,6 @@
 //! The tunnel's gate, and its watch party guests' peers. Every request through the tunnel
 //! comes from a peer's address; the gate refuses one whose peer is gone, holds a guest's peer
-//! to the party's routes (`Part::Party`), and notes the peer on the request ([`Arrival`]) so
+//! to the party's routes (`Part::Party`) and the web page's static files, and notes the peer on the request ([`Arrival`]) so
 //! joining a party can tie the peer to the guest who joined. A guest's peer is kept while its
 //! invite is unused and good, then while that guest is in their party, and removed as soon as
 //! the sweep finds otherwise.
@@ -11,7 +11,7 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use sqlx::SqlitePool;
@@ -65,13 +65,22 @@ pub(super) async fn guard(
         return refused("this tunnel peer has been removed");
     };
     match kind {
-        Kind::Guest(_) if part(request.uri().path()) != Part::Party => {
+        Kind::Guest(_) if !guest_reaches(&request) => {
             return refused("a watch party guest's tunnel reaches their party alone");
         }
         Kind::Guest(_) => {}
     }
     request.extensions_mut().insert(Arrival { peers, address });
     next.run(request).await
+}
+
+/// What a guest's peer reaches: the party's routes, and the web page itself (its static files,
+/// read only) to follow the party in a browser.
+fn guest_reaches(request: &Request) -> bool {
+    let path = request.uri().path();
+    let page = path == "/" || path.starts_with("/web/");
+    let reading = matches!(*request.method(), Method::GET | Method::HEAD);
+    part(path) == Part::Party || (page && reading)
 }
 
 fn refused(why: &str) -> Response {

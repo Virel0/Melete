@@ -10,6 +10,7 @@ use serde_json::json;
 use super::{PartyState, refused};
 use crate::api::ApiError;
 use crate::api::auth::CurrentUser;
+use crate::tunnel::{Refusal, UNUSED_PER_USER};
 use crate::watch_party::guests;
 
 /// Makes an invite as `invites` does, and a tunnel peer for the guest who'll use it: its
@@ -30,15 +31,27 @@ pub(super) async fn make(
     let (secret, expires_at) = guests::invite(&state.pool, (current.user.id, current.token_id), id)
         .await?
         .map_err(refused)?;
-    let made = tunnel
-        .add_guest(id, crate::auth::token_hash(&secret))
-        .await?
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "the tunnel has as many peers as it takes; try again once a party has ended",
-            )
-        })?;
+    let hash = crate::auth::token_hash(&secret);
+    let made = match tunnel.add_guest(id, hash.clone(), current.user.id).await? {
+        Ok(made) => made,
+        Err(refusal) => {
+            // No peer, so no invite either.
+            guests::withdraw(&state.pool, &hash).await?;
+            return Err(match refusal {
+                Refusal::Full => ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "the tunnel has as many peers as it takes; try again once a party has ended",
+                ),
+                Refusal::TooManyUnused => ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "you have {UNUSED_PER_USER} tunnel invites to this party that no guest \
+                         has used yet; wait for one to be used or run out"
+                    ),
+                ),
+            });
+        }
+    };
     let body = json!({
         "invite": secret,
         "path": format!("/#/guest/{secret}"),

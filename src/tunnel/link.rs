@@ -7,13 +7,16 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, ready};
+use std::time::Duration;
 
 use bytes::{Buf, Bytes, BytesMut};
 use gotatun::packet::{Ip, Packet, PacketBufPool};
 use gotatun::tun::{IpRecv, IpSend, MtuWatcher};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Notify, mpsc};
+use tokio::time::{Instant, Sleep};
 use tokio_util::sync::PollSender;
 
 /// The most a connection's chunk holds, either way.
@@ -59,13 +62,18 @@ impl IpRecv for FromStack {
     }
 }
 
-/// One connection through the tunnel, as the HTTP server reads and writes it.
+/// One connection through the tunnel, as the HTTP server reads and writes it. Once no byte has
+/// been read or written for its idle limit, reading or writing fails as timed out, so a peer
+/// that sends a request body slowly, or never reads its answer, doesn't hold the connection.
 pub struct Stream {
     incoming: mpsc::Receiver<Bytes>,
     unread: Bytes,
     outgoing: PollSender<Bytes>,
     /// Wakes the network stack when there's room or something to send.
     wake: Arc<Notify>,
+    idle: Duration,
+    deadline: Pin<Box<Sleep>>,
+    timed_out: Arc<AtomicBool>,
 }
 
 /// The network stack's side of a [`Stream`].
@@ -78,33 +86,52 @@ pub struct Ends {
     pub pending: Option<Bytes>,
     /// Whether the socket's been closed for sending.
     pub closed: bool,
+    /// Whether the server gave up on the connection as idle: it's dropped, not closed.
+    pub timed_out: Arc<AtomicBool>,
 }
 
-/// A connection's two sides, waking the network stack through `wake`.
-pub fn pair(wake: Arc<Notify>) -> (Stream, Ends) {
+/// A connection's two sides, waking the network stack through `wake`, ended once nothing has
+/// moved for `idle`.
+pub fn pair(wake: Arc<Notify>, idle: Duration) -> (Stream, Ends) {
     let (to_server, incoming) = mpsc::channel(4);
     let (outgoing, from_server) = mpsc::channel(4);
+    let timed_out = Arc::new(AtomicBool::new(false));
     let stream = Stream {
         incoming,
         unread: Bytes::new(),
         outgoing: PollSender::new(outgoing),
         wake,
+        idle,
+        deadline: Box::pin(tokio::time::sleep(idle)),
+        timed_out: timed_out.clone(),
     };
     let ends = Ends {
         incoming: Some(to_server),
         outgoing: from_server,
         pending: None,
         closed: false,
+        timed_out,
     };
     (stream, ends)
 }
 
-impl AsyncRead for Stream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        out: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+impl Stream {
+    fn moved(&mut self) {
+        self.deadline.as_mut().reset(Instant::now() + self.idle);
+    }
+
+    /// Waiting on the peer or the stack: an error once the idle limit has passed.
+    fn waited<R>(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<R>> {
+        ready!(self.deadline.as_mut().poll(cx));
+        self.timed_out.store(true, Ordering::SeqCst);
+        self.wake.notify_one();
+        Poll::Ready(Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "nothing moved on the tunnel connection for too long",
+        )))
+    }
+
+    fn read_now(&mut self, cx: &mut Context<'_>, out: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         if self.unread.is_empty() {
             match ready!(self.incoming.poll_recv(cx)) {
                 Some(chunk) => {
@@ -120,14 +147,8 @@ impl AsyncRead for Stream {
         self.unread.advance(n);
         Poll::Ready(Ok(()))
     }
-}
 
-impl AsyncWrite for Stream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        data: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    fn write_now(&mut self, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
         let gone = || io::Error::from(io::ErrorKind::BrokenPipe);
         ready!(self.outgoing.poll_reserve(cx)).map_err(|_| gone())?;
         let n = data.len().min(CHUNK);
@@ -136,6 +157,40 @@ impl AsyncWrite for Stream {
             .map_err(|_| gone())?;
         self.wake.notify_one();
         Poll::Ready(Ok(n))
+    }
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        match this.read_now(cx, out) {
+            Poll::Ready(done) => {
+                this.moved();
+                Poll::Ready(done)
+            }
+            Poll::Pending => this.waited(cx),
+        }
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        match this.write_now(cx, data) {
+            Poll::Ready(done) => {
+                this.moved();
+                Poll::Ready(done)
+            }
+            Poll::Pending => this.waited(cx),
+        }
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {

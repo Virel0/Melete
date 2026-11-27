@@ -9,7 +9,8 @@
 //! packets from, so a request's address says which peer sent it. Requests reach the API with
 //! it as their address, through the ways in (`MELETE_WAYS_IN`) like any other, so a way can be
 //! set for the tunnel's range. Before that, the tunnel's own gate refuses a peer it no longer
-//! has, and holds a watch party guest's peer to the party's routes, whatever the ways say.
+//! has, and holds a watch party guest's peer to the party's routes and the web page, whatever
+//! the ways say.
 //!
 //! Off unless the port is set. Melete's key is made from the OS's randomness and kept sealed;
 //! a peer's keys are made the same way, its private key handed once to whoever made it, in the
@@ -42,13 +43,16 @@ pub use settings::Settings;
 
 /// The most peers the tunnel has at once.
 pub const MAX_PEERS: usize = 250;
+/// The most guests' peers one household user has for one party that no guest has joined
+/// through yet.
+pub const UNUSED_PER_USER: usize = 5;
 
 type Transports = (UdpSocketFactory, link::ToStack, link::FromStack);
 
 /// What a peer is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
-    /// A watch party guest's: it reaches their party's routes alone.
+    /// A watch party guest's: it reaches their party's routes and the web page alone.
     Guest(GuestPeer),
 }
 
@@ -61,6 +65,24 @@ pub struct GuestPeer {
     pub invite_hash: Vec<u8>,
     /// The guest who joined through it.
     pub guest_id: Option<i64>,
+    /// The household user who made it.
+    pub made_by: i64,
+}
+
+impl GuestPeer {
+    /// Whether it's one of `made_by`'s for party `party_id` that no guest has joined through.
+    fn unused(&self, party_id: i64, made_by: i64) -> bool {
+        self.party_id == party_id && self.made_by == made_by && self.guest_id.is_none()
+    }
+}
+
+/// Why no peer was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The tunnel has [`MAX_PEERS`].
+    Full,
+    /// Its maker has [`UNUSED_PER_USER`] for the party that no guest has joined through.
+    TooManyUnused,
 }
 
 struct Entry {
@@ -174,32 +196,45 @@ impl Tunnel {
         self.device.read(async |d| d.listen_port()).await
     }
 
-    /// Makes a peer for a guest of party `party_id`, coming with the invite hashed as
-    /// `invite_hash`; None when the tunnel has all the peers it takes.
+    /// Makes a peer, for user `made_by`, for a guest of party `party_id` coming with the
+    /// invite hashed as `invite_hash`; refused when the tunnel is full, or the user has as
+    /// many unused for the party as they may.
     pub async fn add_guest(
         &self,
         party_id: i64,
         invite_hash: Vec<u8>,
-    ) -> anyhow::Result<Option<Made>> {
+        made_by: i64,
+    ) -> anyhow::Result<Result<Made, Refusal>> {
         let kind = Kind::Guest(GuestPeer {
             party_id,
             invite_hash,
             guest_id: None,
+            made_by,
         });
         self.add(kind).await
     }
 
-    async fn add(&self, kind: Kind) -> anyhow::Result<Option<Made>> {
+    async fn add(&self, kind: Kind) -> anyhow::Result<Result<Made, Refusal>> {
         let (secret, public_key) = keys::peer()?;
         let preshared = keys::random()?;
         let address = {
             let mut peers = self.peers.lock();
+            let Kind::Guest(new) = &kind;
+            let unused = peers
+                .values()
+                .filter(
+                    |e| matches!(&e.kind, Kind::Guest(g) if g.unused(new.party_id, new.made_by)),
+                )
+                .count();
+            if unused >= UNUSED_PER_USER {
+                return Ok(Err(Refusal::TooManyUnused));
+            }
             let free = self
                 .settings
                 .peer_addresses()
                 .find(|a| !peers.contains_key(a));
             let Some(address) = free.filter(|_| peers.len() < MAX_PEERS) else {
-                return Ok(None);
+                return Ok(Err(Refusal::Full));
             };
             peers.insert(address, Entry { public_key, kind });
             address
@@ -213,7 +248,7 @@ impl Tunnel {
             anyhow::bail!("the tunnel didn't take a new peer");
         }
         let config = self.config(address, &secret, &preshared);
-        Ok(Some(Made { address, config }))
+        Ok(Ok(Made { address, config }))
     }
 
     /// Removes the peer at `address`: its requests are refused, WireGuard forgets it, and its

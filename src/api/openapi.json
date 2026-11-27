@@ -8038,7 +8038,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "playback",
         "summary": "Invite a guest, with a tunnel for them",
-        "description": "Makes an invite as `invites` does, and a peer of Melete's own WireGuard tunnel for the guest who'll use it, so they reach this party from outside the household with no other way in. `wireguard_config` is the peer's config to import into a WireGuard app: it holds the peer's private key, made from the server's randomness and never kept, and is shown this once. Only Melete's tunnel address goes through it, and through it the peer reaches the party's routes (`/api/v1/party/…`) and its guests' stream links alone; when ways in are set (`MELETE_WAYS_IN`), one must open `party` for the tunnel's range. The peer goes when the invite runs out or is used by someone not coming through it, or once the guest who joined through it leaves, is sent away or the party ends; a restart ends it too. Off unless `MELETE_TUNNEL_PORT` is set.",
+        "description": "Makes an invite as `invites` does, and a peer of Melete's own WireGuard tunnel for the guest who'll use it, so they reach this party from outside the household with no other way in. `wireguard_config` is the peer's config to import into a WireGuard app: it holds the peer's private key, made from the server's randomness and never kept, and is shown this once. Only Melete's tunnel address goes through it, and through it the peer reaches the party's routes (`/api/v1/party/…`), its guests' stream links and the web page's static files (`/`, `/web/…`) alone, so the guest opens `{server}{path}`; each household user may have five such invites to a party that no guest has used yet, and a tunnel connection on which nothing moves for a minute is closed; when ways in are set (`MELETE_WAYS_IN`), one must open `party` for the tunnel's range. The peer goes when the invite runs out or is used by someone not coming through it, or once the guest who joined through it leaves, is sent away or the party ends; a restart ends it too. Off unless `MELETE_TUNNEL_PORT` is set.",
         "parameters": [
           {
             "name": "id",
@@ -8083,6 +8083,16 @@
           },
           "503": {
             "description": "The tunnel has as many peers as it takes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "This user has five tunnel invites to the party that no guest has used yet; no invite is made",
             "content": {
               "application/json": {
                 "schema": {
