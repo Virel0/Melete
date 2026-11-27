@@ -129,7 +129,24 @@ fn check_scores(input: &ProfileInput) -> anyhow::Result<Result<(), Refused>> {
     {
         return refuse("minimum_availability is announced, in_cinemas or released".into());
     }
+    if let Some(language) = &input.subtitles_language
+        && language != "none"
+        && crate::languages::Language::parse(language)
+            .is_none_or(|l| l.region.is_some() || l.base.len() != 2)
+    {
+        return refuse("subtitles_language is an ISO 639-1 code, such as en, or none".into());
+    }
     Ok(Ok(()))
+}
+
+/// A new profile's subtitles language: as asked ("none" for none), else English for anime,
+/// whose releases are mostly Japanese audio, and none for others.
+fn new_subtitles<'a>(asked: Option<&'a str>, service: &str) -> Option<&'a str> {
+    match asked {
+        Some("none") => None,
+        Some(code) => Some(code),
+        None => (service == "anime").then_some("en"),
+    }
 }
 
 /// Checks that each format the profile scores exists, is for its app, and is scored once.
@@ -228,8 +245,8 @@ pub(super) async fn write_profile(
             sqlx::query_scalar(
                 "INSERT INTO quality_profiles (source, service, name, upgrade_allowed, cutoff,
                      min_format_score, cutoff_format_score, min_upgrade_format_score, language,
-                     updated_at, origin, minimum_availability)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete', coalesce(?, 'released'))
+                     updated_at, origin, minimum_availability, subtitles_language)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'melete', coalesce(?, 'released'), ?)
                  RETURNING id",
             )
             .bind(checked.app.as_str())
@@ -243,13 +260,16 @@ pub(super) async fn write_profile(
             .bind(&input.language)
             .bind(unix_now())
             .bind(&input.minimum_availability)
+            .bind(new_subtitles(input.subtitles_language.as_deref(), checked.service))
             .fetch_one(&mut *tx)
             .await
         }
         Some(id) => sqlx::query(
             "UPDATE quality_profiles SET name = ?, upgrade_allowed = ?, cutoff = ?, min_format_score = ?,
                  cutoff_format_score = ?, min_upgrade_format_score = ?, language = ?, updated_at = ?,
-                 origin = 'melete', minimum_availability = coalesce(?, minimum_availability)
+                 origin = 'melete', minimum_availability = coalesce(?, minimum_availability),
+                 subtitles_language = CASE coalesce(?, '') WHEN '' THEN subtitles_language
+                     WHEN 'none' THEN NULL ELSE ? END
              WHERE id = ?",
         )
         .bind(&checked.name)
@@ -261,6 +281,8 @@ pub(super) async fn write_profile(
         .bind(&input.language)
         .bind(unix_now())
         .bind(&input.minimum_availability)
+        .bind(&input.subtitles_language)
+        .bind(&input.subtitles_language)
         .bind(id)
         .execute(&mut *tx)
         .await

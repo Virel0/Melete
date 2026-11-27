@@ -16196,7 +16196,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
-          "minimum_availability",
+          "minimum_availability", "subtitles_language",
           "origin",
           "items",
           "formats"
@@ -16227,6 +16227,7 @@
             "type": ["string", "null"],
             "description": "Audio language wanted: an ISO 639-1 code, original or any. Radarr profiles only."
           },
+          "subtitles_language": {"type": ["string", "null"], "description": "The language (ISO 639-1) a download needs subtitles in when its audio isn't in it, inside the file or beside it; signs and songs alone don't count. One with neither is set aside at import, blocklisted and searched again. null asks nothing of subtitles. Anime profiles start with en."},
           "minimum_availability": {
             "enum": ["announced", "in_cinemas", "released"],
             "description": "How far out a film must be before its releases are taken: any time, from its cinema release, or from its digital, disc or TV release. Whatever this says, a WEB or TV release before the film's digital or TV release, a disc release before its disc release and a cinema recording before its cinema release are refused as most likely fakes, when that date is known. Radarr profiles only; series profiles keep released and don't use it."
@@ -16898,7 +16899,7 @@
           "cutoff_format_score",
           "min_upgrade_format_score",
           "language",
-          "minimum_availability",
+          "minimum_availability", "subtitles_language",
           "items",
           "formats"
         ],
@@ -16921,6 +16922,7 @@
             "type": ["string", "null"],
             "description": "An ISO 639-1 code, original or any; null for none (as in Sonarr)."
           },
+          "subtitles_language": {"type": ["string", "null"], "description": "An ISO 639-1 code such as en, or none to ask nothing of subtitles. null: a new profile gets en for anime and none otherwise, and a changed one keeps its setting."},
           "minimum_availability": {
             "enum": ["announced", "in_cinemas", "released", null],
             "description": "How far out a film must be before a movie profile takes its releases. null for a series profile; null, a new profile gets released and a changed one keeps its setting (an older client that leaves it out gets the same)."

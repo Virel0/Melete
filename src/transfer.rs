@@ -38,6 +38,7 @@ mod copy;
 mod destination;
 mod extras;
 mod identity;
+mod needs;
 mod picking;
 mod place;
 mod seasons;
@@ -82,6 +83,10 @@ pub(crate) enum Stop {
     /// It doesn't run as long as the title it's for, or how long it runs can't be read: it's
     /// held back (nothing placed, its part files gone), marked failed and blocklisted.
     NotTheTitle(String),
+    /// The title, but nothing in it the profile's viewers understand: neither audio nor
+    /// subtitles in the language it needs (`needs`). Held back, failed and blocklisted as
+    /// [`Stop::NotTheTitle`] is, and searched for again, without counting against its runtime.
+    Unsuitable(String),
     /// Not the title, but an earlier try already put some of its files in the library: nothing
     /// more is placed, those stay, and it's marked failed and blocklisted for an admin to check,
     /// without searching again.
@@ -264,13 +269,14 @@ pub async fn transfer(
             return Ok(None);
         }
     };
-    let check = verify::expected(pool, &row)
-        .await?
-        .map(|expected| verify::Check {
-            expected,
-            ffprobe: fixes.map(|f| f.tools.ffprobe.clone()),
-            measured: std::sync::Mutex::new(None),
-        });
+    let expected = verify::expected(pool, &row).await?;
+    let needs = needs::needed(pool, &row).await?;
+    let check = (expected.is_some() || needs.is_some()).then(|| verify::Check {
+        expected,
+        needs,
+        ffprobe: fixes.map(|f| f.tools.ffprobe.clone()),
+        measured: std::sync::Mutex::new(None),
+    });
     if let Some(waiting) = waiting_for(&plan.root) {
         finish(pool, id, row.attempts, Err(waiting)).await?;
         return Ok(None);
@@ -294,11 +300,11 @@ pub async fn transfer(
         },
         Err(stop) => Err(stop),
     };
-    let not_the_title = matches!(outcome, Err(Stop::NotTheTitle(_)));
+    let not_the_title = matches!(outcome, Err(Stop::NotTheTitle(_) | Stop::Unsuitable(_)));
     // What won't be retried leaves no part files, and no empty folders it made.
     if matches!(
         outcome,
-        Err(Stop::Fail(_) | Stop::NotTheTitle(_) | Stop::Held(_))
+        Err(Stop::Fail(_) | Stop::NotTheTitle(_) | Stop::Unsuitable(_) | Stop::Held(_))
     ) {
         clean_up(pool, id).await;
     }
@@ -421,12 +427,15 @@ pub(crate) async fn finish(
             .execute(pool)
             .await?;
         }
-        Err(stop @ (Stop::NotTheTitle(_) | Stop::Held(_))) => {
+        Err(stop @ (Stop::NotTheTitle(_) | Stop::Unsuitable(_) | Stop::Held(_))) => {
             crate::blocklist::add(pool, crate::blocklist::From::Download(id)).await?;
             let message = match stop {
                 Stop::Held(why) => format!(
                     "nothing more put in the library, as it may be another title: {why}; the release is blocklisted"
                 ),
+                Stop::Unsuitable(why) => {
+                    format!("not put in the library: {why}; the release is blocklisted")
+                }
                 Stop::NotTheTitle(why) | Stop::Retry(why) | Stop::Wait(why) | Stop::Fail(why) => {
                     format!(
                         "not put in the library, as it may be another title: {why}; the release is blocklisted"
