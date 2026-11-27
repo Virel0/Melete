@@ -50,6 +50,25 @@
 /* A feature that uses another service, set in under that service's settings. */
 .subgroup.feature { margin-block-start: var(--space-4); padding-inline-start: var(--space-4); border-inline-start: 1px solid var(--line); }
 .subgroup.feature h4 { font-size: var(--step-0); margin-block: 0 var(--space-2); }
+/* Outside services and Features: a line for each, its name, what it's for and its state, the
+   whole line a link to its page; on a phone what it's for goes under its name and state. */
+.service-summary { margin: 0 0 var(--space-2); font-weight: 600; }
+.service-rows { list-style: none; margin: 0; padding: 0; }
+.service-rows > li + li { border-block-start: 1px solid var(--line); }
+.service-row { display: grid; grid-template-columns: minmax(8rem, 16rem) minmax(0, 1fr) auto; gap: var(--space-1) var(--space-4); align-items: baseline; padding-block: var(--space-3); color: var(--text); text-decoration: none; }
+.service-row:hover .service-name, .service-row:focus-visible .service-name { text-decoration: underline; }
+.service-name { font-weight: 600; min-width: 0; }
+.service-purpose { color: var(--muted); min-width: 0; }
+.service-row .state { font-size: var(--step--1); justify-self: end; text-align: end; }
+@media (max-width: 40rem) {
+  .service-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .service-purpose { grid-column: 1 / -1; grid-row: 2; }
+}
+/* A service's page: its state beside its name, and what leaves the server folded under it. */
+.service-heading .state { font-size: var(--step--1); font-weight: 400; vertical-align: middle; }
+.service-about { margin-block: 0 var(--space-4); }
+.service-about summary { cursor: pointer; color: var(--muted); }
+.service-about summary:hover { color: var(--text); }
 .rows details { margin-block-start: var(--space-2); }
 .rows summary { cursor: pointer; color: var(--muted); }
 .rows summary:hover { color: var(--text); }

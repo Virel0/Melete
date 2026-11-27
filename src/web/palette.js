@@ -11,6 +11,7 @@ import { SignedOut, api, h } from "/web/lib.js";
 import { clearSearches, recentSearches, rememberSearch } from "/web/palette-recent.js";
 import { musicCommands } from "/web/music-keys.js";
 import { musicAi, musicAskHref } from "/web/music-ask.js";
+import { serviceHref } from "/web/services.js";
 
 // Where everyone can go. `words` are other names people may type for the same place.
 const PAGES = [
@@ -43,6 +44,7 @@ const ADMIN = [
   { name: "System status", href: "#/admin/system/status", kind: "Manage", words: "admin overview health problems every service dashboard disk space free" },
   { name: "Tasks", href: "#/admin/system/tasks", kind: "Manage", words: "background jobs run now scan schedule" },
   { name: "Backups", href: "#/admin/system/backups", kind: "Manage", words: "database copies restore" },
+  { name: "Features", href: "#/admin/system/features", kind: "Manage", words: "library scans schedule intros credits skip seek-bar previews trickplay offline copies auto dj make room" },
   { name: "Downloading", href: "#/admin/system/downloading", kind: "Manage", words: "deluge seedbox sftp torrents" },
   { name: "Movies: library", href: "#/admin/movies/library", kind: "Manage", words: "radarr posters table missing downloading cutoff monitored" },
   { name: "Series: library", href: "#/admin/series/library", kind: "Manage", words: "sonarr shows posters table missing episodes" },
@@ -116,6 +118,8 @@ export function installPalette(me, opener) {
   // What the palette's parts share: its places, its parts, and what's shown and chosen.
   const pal = {
     places: me.is_admin ? [...PAGES, ...ADMIN] : PAGES,
+    admin: me.is_admin,
+    services: null,
     ...paletteParts(me),
     shown: [],
     active: 0,
@@ -315,6 +319,18 @@ function listen(pal) {
   dialog.addEventListener("close", () => pal.returnTo?.focus?.());
 }
 
+// Each outside service's and feature's own page, by its name: asked for the first time the
+// palette opens, again next time if that failed.
+function servicePlaces(pal) {
+  return api("/settings/services").then(
+    (all) => {
+      pal.places.push(...all.map((s) => ({ name: s.name, href: serviceHref(s), kind: "Manage", words: `${s.group} ${s.purpose}`.toLowerCase() })));
+      if (dialog.open) draw(pal);
+    },
+    () => (pal.services = null),
+  );
+}
+
 // Opens the palette empty, remembering where focus was to give it back on closing.
 function openPalette(pal) {
   if (dialog.open) return;
@@ -323,6 +339,7 @@ function openPalette(pal) {
   pal.titles = [];
   pal.playlists = null;
   musicAi().then((on) => (pal.ai = on));
+  if (pal.admin) pal.services ??= servicePlaces(pal);
   pal.active = 0;
   draw(pal);
   dialog.showModal();

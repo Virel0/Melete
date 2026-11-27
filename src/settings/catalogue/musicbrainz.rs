@@ -7,6 +7,8 @@ use super::*;
 pub(super) const MUSICBRAINZ: Service = Service {
     key: "musicbrainz",
     name: "MusicBrainz",
+    group: Group::Metadata,
+    purpose: "Matching music, its covers and artists' portraits",
     about: "Matching music, album covers, and looking up music to request. Album and track names leave the server.",
     fields: &[
         field(

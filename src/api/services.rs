@@ -299,6 +299,70 @@ mod tests {
         );
     }
 
+    /// Each service is in one group of a fixed set, which says the page it's on; the groups come
+    /// one after another, in their order; and the two pages hold every service once between
+    /// them, the Features page only Melete's own, which talk to nothing outside.
+    #[tokio::test]
+    async fn every_service_is_in_a_group_on_one_of_two_pages() {
+        const GROUPS: [(&str, &str); 10] = [
+            ("Metadata", "services"),
+            ("Lyrics", "services"),
+            ("Downloading", "services"),
+            ("Sign-in", "services"),
+            ("Alerts", "services"),
+            ("Watch parties", "services"),
+            ("AI", "services"),
+            ("Library", "features"),
+            ("Playback", "features"),
+            ("Music", "features"),
+        ];
+        let pool = db::open_in_memory().await;
+        let admin = token(&pool, "admin", true).await;
+        let app = routes(pool.clone(), rebuilds(true));
+        let (_, all) = send(&app, "GET", "/api/v1/settings/services", &admin, None).await;
+        let all = all.as_array().unwrap();
+        let mut groups: Vec<usize> = Vec::new();
+        for s in all {
+            let group = s["group"].as_str().unwrap();
+            let at = GROUPS.iter().position(|(g, _)| *g == group);
+            let at = at.unwrap_or_else(|| panic!("{}: no such group {group}", s["key"]));
+            assert_eq!(s["page"], json!(GROUPS[at].1), "{}", s["key"]);
+            assert!(!s["purpose"].as_str().unwrap().is_empty(), "{}", s["key"]);
+            if groups.last() != Some(&at) {
+                groups.push(at);
+            }
+        }
+        assert!(
+            groups.windows(2).all(|w| w[0] < w[1]),
+            "each group stands together, in the groups' order: {groups:?}"
+        );
+        let on = |page: &str| -> Vec<&str> {
+            let on_it = all.iter().filter(|s| s["page"] == page);
+            on_it.map(|s| s["key"].as_str().unwrap()).collect()
+        };
+        let (services, mut features) = (on("services"), on("features"));
+        let mut every: Vec<&str> = services.iter().chain(&features).copied().collect();
+        every.sort_unstable();
+        every.dedup();
+        assert_eq!(services.len() + features.len(), settings::SERVICES.len());
+        assert_eq!(every.len(), settings::SERVICES.len());
+        features.sort_unstable();
+        let own = [
+            "auto_dj",
+            "intro_detection",
+            "make_room",
+            "offline_copies",
+            "scans",
+            "trickplay",
+        ];
+        assert_eq!(features, own);
+        for s in all.iter().filter(|s| s["page"] == "features") {
+            let about = s["about"].as_str().unwrap().to_lowercase();
+            assert_eq!(s["testable"], json!(false), "{}", s["key"]);
+            assert!(about.contains("nothing leaves"), "{}", s["key"]);
+        }
+    }
+
     #[tokio::test]
     async fn tests_a_connection_with_unsaved_values_and_makes_keys() {
         let pool = db::open_in_memory().await;

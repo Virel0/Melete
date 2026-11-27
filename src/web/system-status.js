@@ -79,6 +79,9 @@ function fact(label, value, href, more) {
   return h("li", {}, h("span", { class: "fact-label" }, label), h("span", { class: "fact-value" }, value), href ? h("a", { href }, more) : null);
 }
 
+// How many outside services are in use; Melete's own features aren't counted.
+const outsideLine = (outside) => `${outside.filter((s) => s.on).length} of ${outside.length} in use.`;
+
 function tasksLine(tasks) {
   if (tasks.err) return couldNot("the tasks", tasks.err);
   const running = tasks.value.filter((t) => t.running).length;
@@ -138,7 +141,7 @@ export async function systemStatus(ctx) {
       "Outside services",
       services.err
         ? couldNot("the services", services.err)
-        : `${services.value.filter((s) => s.on).length} of ${services.value.length} in use.`,
+        : outsideLine(services.value.filter((s) => s.page === "services")),
       "#/admin/system/services",
       "See services",
     ),

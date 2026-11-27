@@ -14,7 +14,7 @@ import { activity } from "/web/progress.js";
 import { decide, imports, settings as requestSettings } from "/web/requests.js";
 import { libraries, matching } from "/web/settings.js";
 import { users } from "/web/users.js";
-import { services } from "/web/services.js";
+import { features, services } from "/web/services.js";
 import { diagnostics } from "/web/diagnostics.js";
 import { indexerAdd, indexerList, soulseek } from "/web/indexers.js";
 import { releaseTry } from "/web/release-try.js";
@@ -88,6 +88,7 @@ const PAGES = {
     users,
     libraries,
     services,
+    features,
     downloading,
     matching,
     backups: systemBackups,
@@ -131,10 +132,12 @@ export async function adminPage(parts, ctx) {
   const fill = async (message) => {
     // Movies, Series and Music narrow the pages they share to their own kind of title.
     const kind = ["movies", "series", "music"].includes(service.pagesOf ?? area) ? service.pagesOf ?? area : undefined;
-    const parts = await page({ ...ctx, kind, service, reload: (said) => fill(said).catch(failing) });
+    // What follows the page's key, such as the service on Outside services' page for one.
+    const id = parts[3];
+    const drawn = await page({ ...ctx, kind, service, id, reload: (said) => fill(said).catch(failing) });
     if (!ctx.current()) return;
     content.replaceChildren();
-    append(content, [message ? h("p", { class: "flash", role: "status" }, message) : null, ...parts]);
+    append(content, [message ? h("p", { class: "flash", role: "status" }, message) : null, ...drawn]);
   };
   const failing = (err) => {
     if (err instanceof SignedOut) return ctx.signedOut();

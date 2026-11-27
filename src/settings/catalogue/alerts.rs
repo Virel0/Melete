@@ -9,6 +9,8 @@ const WHAT: &str = "Only the library's name and what happened (it stopped respon
 pub(super) const WEBHOOK: Service = Service {
     key: "webhook",
     name: "Alerts by webhook",
+    group: Group::Alerts,
+    purpose: "Library alerts by webhook",
     about: "Telling admins when a library stops responding and when it answers again, by a POST to a webhook: an ntfy topic (with its phone app), Gotify, Discord, Home Assistant or anything that takes one. Off until its address is set. Only the library's name and what happened (it stopped responding, or answers again) leaves the server, to that address. Test sends a test message there.",
     fields: &[
         field(
@@ -34,6 +36,8 @@ pub(super) const WEBHOOK: Service = Service {
 pub(super) const EMAIL: Service = Service {
     key: "email",
     name: "Alerts by email",
+    group: Group::Alerts,
+    purpose: "Library alerts by email",
     about: "Telling admins when a library stops responding and when it answers again, by email through a mail server you choose. Off until its server is set. The connection is always encrypted (STARTTLS or TLS). Only the library's name and what happened (it stopped responding, or answers again) leaves the server, to that mail server and the addresses below. Test sends a test email.",
     fields: &[
         field(

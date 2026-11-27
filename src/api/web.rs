@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 176] = [
+const MODULES: [(&str, &str); 177] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -292,6 +292,10 @@ const MODULES: [(&str, &str); 176] = [
     ("search.js", include_str!("../web/search.js")),
     ("trending.js", include_str!("../web/trending.js")),
     ("services.js", include_str!("../web/services.js")),
+    (
+        "service-fields.js",
+        include_str!("../web/service-fields.js"),
+    ),
     ("vpn-card.js", include_str!("../web/vpn-card.js")),
     ("diagnostics.js", include_str!("../web/diagnostics.js")),
     ("admin.js", include_str!("../web/admin.js")),
@@ -1309,6 +1313,49 @@ mod tests {
             ("/web/library-rescan.js", "/rescan"),
             ("/web/library-sweep.js", "/scan-and-search"),
             ("/web/services.js", "#/admin/system/downloading"),
+        ] {
+            let request = Request::get(uri).body(Body::empty()).unwrap();
+            let response = routes().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                String::from_utf8_lossy(&body).contains(needle),
+                "{uri}: {needle}"
+            );
+        }
+    }
+
+    /// Outside services and Features list theirs group by group, each line a link to the
+    /// service's own page, where what leaves the server is folded away; links about one service
+    /// go to its page, and the palette finds each by name.
+    #[tokio::test]
+    async fn serves_the_services_and_features_pages_with_a_page_each() {
+        for (uri, needle) in [
+            (
+                "/web/manage-services.js",
+                r#"{ key: "features", name: "Features" }"#,
+            ),
+            ("/web/admin.js", "features,"),
+            ("/web/admin.js", "const id = parts[3];"),
+            (
+                "/web/services.js",
+                "`#/admin/system/${s.page}/${s.needs ?? s.key}`",
+            ),
+            ("/web/services.js", "groups.at(-1)?.name !== s.group"),
+            ("/web/services.js", r#""What leaves the server""#),
+            ("/web/services.js", "`${on} of ${listed.length} on.`"),
+            ("/web/services.js", r#"from "/web/service-fields.js""#),
+            (
+                "/web/service-fields.js",
+                "export function input(service, f)",
+            ),
+            (
+                "/web/health.js",
+                r##"tmdb_off: () => "#/admin/system/services/tmdb""##,
+            ),
+            ("/web/palette.js", "href: serviceHref(s)"),
+            ("/web/palette.js", r##"href: "#/admin/system/features""##),
+            ("/web/tools.css", ".service-row"),
         ] {
             let request = Request::get(uri).body(Body::empty()).unwrap();
             let response = routes().oneshot(request).await.unwrap();
