@@ -221,8 +221,8 @@ which nothing moves for a minute is closed.
 
 The same tunnel also takes the household's own devices, for when they're away from home. Each
 device is one person's, kept across restarts with the same address, and removed on its own.
-Set the tunnel up as in section 6, then add devices from an app (`POST
-/api/v1/tunnel/devices`).
+Set the tunnel up as in section 6, then add devices under **Settings → Your account → My
+devices**, or from an app (`POST /api/v1/tunnel/devices`).
 
 - Each device reaches signing in, its owner's own account and the web page, plus the parts it's
   given: **Full** (everything its owner can reach), **Video app** (video and requests), **Music
