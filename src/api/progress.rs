@@ -80,6 +80,8 @@ struct Watch<F> {
     pending: std::collections::VecDeque<Event>,
     until: tokio::time::Instant,
     first: bool,
+    /// Told of changes worth sending at once, rather than at the next look.
+    wake: Option<tokio::sync::watch::Receiver<u64>>,
 }
 
 /// What `load` gives, as `name` events: once at the start, then whenever it changes. It ends
@@ -97,7 +99,7 @@ where
     T: serde::Serialize,
 {
     let load = std::sync::Arc::new(load);
-    stream_of(pool, current, admin, move |pool| {
+    stream_of(pool, current, (admin, None), move |pool| {
         let load = load.clone();
         async move { Ok(vec![(name, serde_json::to_string(&load(pool).await?)?)]) }
     })
@@ -105,11 +107,12 @@ where
 
 /// Several kinds of event in one stream: `load` gives each kind's name and its data as JSON,
 /// and a kind is sent at the start and then whenever its data changes. A kind `load` leaves
-/// out is simply not sent. Ends as [`stream`] does.
+/// out is simply not sent. Ends as [`stream`] does. A change told through `wake` is looked
+/// for at once.
 pub(super) fn stream_of<F, Fut>(
     pool: SqlitePool,
     current: &CurrentUser,
-    admin: bool,
+    (admin, wake): (bool, Option<tokio::sync::watch::Receiver<u64>>),
     load: F,
 ) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>> + use<F, Fut>>
 where
@@ -125,6 +128,7 @@ where
         pending: std::collections::VecDeque::new(),
         until: tokio::time::Instant::now() + LIFETIME,
         first: true,
+        wake,
     };
     let stream = futures_util::stream::unfold(watch, move |mut watch| async move {
         loop {
@@ -132,7 +136,13 @@ where
                 return Some((Ok(event), watch));
             }
             if !watch.first {
-                tokio::time::sleep(EVERY).await;
+                match &mut watch.wake {
+                    Some(wake) => tokio::select! {
+                        () = tokio::time::sleep(EVERY) => {}
+                        _ = wake.changed() => {}
+                    },
+                    None => tokio::time::sleep(EVERY).await,
+                }
             }
             watch.first = false;
             if tokio::time::Instant::now() >= watch.until

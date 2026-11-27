@@ -7,7 +7,10 @@
 //   start set a moment ahead (so everyone starts together) comes.
 // - correct(video, p, clock, coarse): the player brought to the party gently: drift under 80 ms
 //   is left, up to the seek limit it's played a little faster or slower until it's gone, and
-//   past it the player seeks. Conversions (HLS) seek coarser, so their limit is looser.
+//   past it the player seeks. Conversions (HLS) seek coarser, so their limit is looser. A player
+//   not going yet (the party's play reached it after the start) seeks past 80 ms instead: a
+//   jump nobody sees, where a nudge would leave it behind for half a minute. A paused party
+//   has every player where it paused.
 
 // Samples kept, and how long each counts.
 const SAMPLES = 8;
@@ -51,11 +54,14 @@ export function expected(p, clock) {
 }
 
 // Brings `video` to the party. Answers what it did: "seek", "nudge", "wait" (a start ahead,
-// played when it comes) or "close".
+// played when it comes) or "close". A paused party has everyone where it paused, so it plays on
+// together; the caller pauses the player.
 export function correct(video, p, clock, coarse = false) {
   if (!p.playing) {
     video.playbackRate = 1;
-    return "close";
+    if (Math.abs(video.currentTime - p.position_ms / 1000) <= CLOSE) return "close";
+    video.currentTime = p.position_ms / 1000;
+    return "seek";
   }
   const ahead = startsIn(p, clock);
   if (ahead > 0) {
@@ -64,7 +70,8 @@ export function correct(video, p, clock, coarse = false) {
     return "wait";
   }
   const drift = expected(p, clock) - video.currentTime;
-  if (Math.abs(drift) > (coarse ? SEEK_COARSE : SEEK)) {
+  const limit = video.paused ? CLOSE : coarse ? SEEK_COARSE : SEEK;
+  if (Math.abs(drift) > limit) {
     video.currentTime = expected(p, clock);
     video.playbackRate = 1;
     return "seek";
