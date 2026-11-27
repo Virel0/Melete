@@ -41,6 +41,7 @@ pub(crate) fn move_without_replacing(from: &Path, to: &Path) -> Result<(), Strin
         | Stop::Wait(why)
         | Stop::Fail(why)
         | Stop::NotTheTitle(why)
+        | Stop::Unsuitable(why)
         | Stop::Held(why) => why,
     })
 }

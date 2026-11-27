@@ -68,6 +68,11 @@ pub struct ProfileInput {
     /// released and a changed one keeps its setting.
     #[serde(default)]
     pub minimum_availability: Option<String>,
+    /// The language a download needs subtitles in when its audio isn't in it (ISO 639-1), or
+    /// "none" to ask nothing of subtitles. Left out, a new profile asks nothing (an anime one,
+    /// English) and a changed one keeps its setting.
+    #[serde(default)]
+    pub subtitles_language: Option<String>,
     /// Lowest first.
     pub items: Vec<ItemInput>,
     /// Scores for custom formats of the same source; any other scores 0.
