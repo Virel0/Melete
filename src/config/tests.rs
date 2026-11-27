@@ -722,6 +722,39 @@ fn alerts_by_webhook_and_email_are_off_until_set_and_checked() {
 }
 
 #[test]
+fn https_is_off_until_its_address_certificate_and_key_are_all_set() {
+    let read = |vars: &[(&str, &str)]| {
+        let vars: std::collections::HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        tls::tls(&|k: &str| vars.get(k).cloned())
+    };
+    assert_eq!(read(&[]).unwrap(), None);
+    let all = [
+        ("MELETE_TLS_BIND", "0.0.0.0:8443"),
+        ("MELETE_TLS_CERT", "/certs/melete.crt"),
+        ("MELETE_TLS_KEY", "/certs/melete.key"),
+    ];
+    let set = read(&all).unwrap().unwrap();
+    assert_eq!((set.bind.port(), set.proxy_protocol), (8443, false));
+    let proxied = read(&[all[0], all[1], all[2], ("MELETE_TLS_PROXY_PROTOCOL", "on")])
+        .unwrap()
+        .unwrap();
+    assert!(proxied.proxy_protocol);
+    // One without the others, a relative path, or the PROXY protocol alone is refused.
+    assert!(
+        read(&all[..2])
+            .unwrap_err()
+            .to_string()
+            .contains("all needed")
+    );
+    assert!(read(&[all[0], ("MELETE_TLS_CERT", "melete.crt"), all[2]]).is_err());
+    assert!(read(&[("MELETE_TLS_PROXY_PROTOCOL", "on")]).is_err());
+    assert!(read(&[("MELETE_TLS_BIND", "8443"), all[1], all[2]]).is_err());
+}
+
+#[test]
 fn the_address_for_party_guests_is_an_address_alone() {
     let read = |value: &str| {
         reading::party_url(&|k: &str| (k == "MELETE_PARTY_URL").then(|| value.to_owned()))
