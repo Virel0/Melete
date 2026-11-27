@@ -208,6 +208,9 @@ lists for it:
   some other way, give Melete such a key.
 - `compose.tunnel.yaml`: no container of its own, but Melete's own WireGuard tunnel for watch
   party guests outside the household, on one published UDP port (docs/REMOTE-ACCESS.md).
+- `compose.tls.yaml`: no container of its own, but HTTPS served by Melete itself, with your
+  certificate, so a proxy in front can pass connections through without reading them
+  (docs/REMOTE-ACCESS.md, section 8).
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.trailers.yaml`: the trailer downloader, behind `compose.vpn.yaml`'s VPN (it
   shares Gluetun's network and won't start without it), converting on an NVIDIA GPU. With
