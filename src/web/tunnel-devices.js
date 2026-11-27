@@ -147,7 +147,11 @@ function addForm(ctx, refresh, limit) {
       added = await api("/tunnel/devices", { method: "POST", body: { name: typed, parts: chosen, public_key: publicKey } });
     } catch (err) {
       if (err.status === 400 && publicKey) {
-        key.fail(err.message);
+        key.fail("That isn't a WireGuard public key. Copy it again from the app: it's 44 characters ending in “=”.");
+        return null;
+      }
+      if (err.status === 409 && publicKey && /public key/.test(err.message)) {
+        key.fail("Another device already has this key. Make a new key pair in the app and paste its public key.");
         return null;
       }
       if (err.status === 429) throw new Error(`You have ${limit} devices, the most there can be. Remove one first.`);
