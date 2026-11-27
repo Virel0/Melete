@@ -20,6 +20,7 @@ const g = {
   loop: null,
   startTimer: null,
   ticks: 0,
+  quality: null,
   video: null,
   hls: null,
   source: null,
@@ -106,6 +107,7 @@ function enter(answer) {
   g.side = h("div", { class: "guest-side" });
   g.audio = null;
   g.file = null;
+  g.quality = keptQuality();
   took(answer);
   for (const e of ["play", "pause", "seeked"]) g.video.addEventListener(e, () => local(e));
   g.video.addEventListener("waiting", stalled);
@@ -129,15 +131,16 @@ async function load() {
     stalled();
     const own = g.audio === null || g.audio === defaultAudio(g.file);
     let base;
-    if (!g.file.max_bitrate && own) {
+    if (!g.file.max_bitrate && own && !g.quality) {
       base = (await api("/party/play", { method: "POST" })).stream_url;
       unHls();
       g.video.src = base;
     } else {
-      const ask = { ...(g.audio === null ? {} : { audio_stream: g.audio }) };
+      // The guest's own quality, held under the party's cap by the server.
+      const ask = { ...(g.audio === null ? {} : { audio_stream: g.audio }), ...(g.quality ? { max_bitrate: g.quality } : {}) };
       let made;
       try {
-        made = await api("/party/transcode", { method: "POST", body: g.file.max_bitrate ? ask : { ...ask, video_codec: "copy" } });
+        made = await api("/party/transcode", { method: "POST", body: g.file.max_bitrate || g.quality ? ask : { ...ask, video_codec: "copy" } });
       } catch (err) {
         if (err.status !== 422) throw err;
         made = await api("/party/transcode", { method: "POST", body: ask });
@@ -294,6 +297,40 @@ function stopAll() {
   g.waitingSaid = false;
 }
 
+// The guest's own quality: lower than the party allows, for a slow connection. Kept in this
+// browser for next time.
+const QUALITIES = [
+  [null, "As good as the party allows"],
+  [8_000_000, "8 Mbps (1080p)"],
+  [4_000_000, "4 Mbps (720p)"],
+  [2_000_000, "2 Mbps (480p)"],
+];
+const QUALITY_KEY = "melete-guest-quality";
+
+function keptQuality() {
+  try {
+    const kept = Number(localStorage.getItem(QUALITY_KEY));
+    return QUALITIES.some(([bits]) => bits === kept) ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
+function qualityPick() {
+  const pick = h("select", { id: "guest-quality" }, QUALITIES.map(([bits, label]) => h("option", { value: String(bits ?? ""), selected: bits === g.quality }, label)));
+  pick.addEventListener("change", () => {
+    g.quality = pick.value ? Number(pick.value) : null;
+    try {
+      if (g.quality) localStorage.setItem(QUALITY_KEY, String(g.quality));
+      else localStorage.removeItem(QUALITY_KEY);
+    } catch {
+      // Not kept: it still applies now.
+    }
+    load();
+  });
+  return h("div", { class: "field" }, h("label", { for: pick.id }, "Your quality"), pick);
+}
+
 // Who's waited for, the choices, who's in it, and Leave.
 function draw() {
   if (!g.side || !g.party) return;
@@ -318,6 +355,7 @@ function draw() {
   const parts = [
     pick ? h("div", { class: "field" }, h("label", { for: pick.id }, "Audio"), pick) : null,
     sub ? h("div", { class: "field" }, h("label", { for: sub.id }, "Subtitles"), sub) : null,
+    qualityPick(),
     p.max_bitrate ? h("p", { class: "note" }, `Your stream is held to ${Math.round(p.max_bitrate / 1_000_000)} Mbps by whoever started the party.`) : null,
     h("p", { class: "note" }, "In the party: ", people.join(", ")),
     leave,
