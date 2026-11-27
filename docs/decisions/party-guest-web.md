@@ -1,5 +1,0 @@
-Decision: An invite link opens the guests' own page, with no sign-in: a name, then a small player of the party's file, following it as the household's players do and saying when it's loading so the party waits. The link's secret is taken out of the address bar as soon as it's spent, so it stays in no history. The guest plays the file as it is when the party holds guests to no cap and its own audio is chosen; otherwise a conversion, its picture copied when there's no cap, so another audio track doesn't cost quality. Invite links begin with the address set for guests (`MELETE_PARTY_URL`, an address alone, under Outside services, Watch party guests), since a household device only knows the address it reached Melete by; without one, a link begins with that.
-
-Why: A friend outside the house opens a link and watches; anything more (an account, an app) is what guests were meant to need without. The page only knows the party's routes, so it can't reach anything else even if it tried.
-
-Date: 2026-11-26

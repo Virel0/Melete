@@ -7,6 +7,166 @@ are in the decisions table of [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
+### Added
+
+- A watch party guest chooses their own quality (as good as the party allows, 8, 4 or 2 Mbps),
+  so one friend on a slow connection doesn't decide it for everyone; it's kept in their browser
+  for next time, and held under the party's cap.
+- Open as a guest, in the player's Together panel: an invite of its own opened in a new tab,
+  to see the party as a guest does.
+- HTTPS served by Melete itself, beside plain HTTP: `MELETE_TLS_BIND` (e.g. `0.0.0.0:8443`),
+  with a certificate chain and key from PEM files (`MELETE_TLS_CERT`, `MELETE_TLS_KEY`), read
+  again within 10 minutes of being renewed, no restart needed. A proxy in front (a VPS) can pass
+  connections through as they are, unable to read them, and say who each client is with the
+  PROXY protocol (`MELETE_TLS_PROXY_PROTOCOL=on`), believed only from `MELETE_TRUSTED_PROXIES`.
+  For example, nginx on the VPS:
+      stream {
+          server {
+              listen 443;
+              proxy_pass 10.20.0.2:8443;   # Melete over the tunnel home
+              proxy_protocol on;
+          }
+      }
+- Alerts for admins when a library stops responding and when it answers again, by webhook,
+  by email, or both, set up under Outside services ("Alerts by webhook", "Alerts by email",
+  each with a Test that sends a test alert). The webhook takes an ntfy topic as plain text
+  with a title, or JSON for Gotify, Discord or Home Assistant (`MELETE_ALERT_WEBHOOK_URL`,
+  `MELETE_ALERT_WEBHOOK_FORMAT`). Email goes through a mail server of your choosing, always
+  encrypted (`MELETE_SMTP_HOST`, `MELETE_SMTP_PORT`, `MELETE_SMTP_SECURITY`,
+  `MELETE_SMTP_USERNAME`, `MELETE_SMTP_PASSWORD`, `MELETE_ALERT_EMAIL_FROM`,
+  `MELETE_ALERT_EMAIL_TO`). Both are off until set.
+- Each library's folder is read every minute, on a thread of its own and with a 15-second
+  limit. A library whose folder doesn't answer in time, can't be read or is empty (an
+  unmounted share looks empty) is marked as not responding until it answers again: System
+  shows it as a problem (`library_unreachable`), scans leave it alone, and playing one of its
+  files says "the movies library isn't responding" (503) instead of waiting. A restart keeps
+  what was known until the next read.
+- A quality profile can need subtitles in a language (Needs subtitles in, `subtitles_language`):
+  unless a download's audio is in that language, each video must have subtitles in it, inside
+  the file or beside it. A raw (no subtitles), or one with subtitles in other languages only, or
+  only signs and songs, is set aside at import, blocklisted and searched again. Anime profiles
+  start with English, existing ones included; others ask nothing.
+- New openings and endings play the first time. Each intro and credits found by listening is
+  recognised as one of the series' openings or endings, in any season, so a new season's new
+  opening, or one that changes partway through a season, is told apart from one heard before.
+  With automatic skipping on, the player leaves an opening you haven't heard yet alone, with
+  its Skip button, and skips it by itself from the next time once it has played through.
+  Segments carry `new`, and `PUT /api/v1/files/{id}/segments/seen` says one played through.
+- Guests' web page: an invite link opens it with no sign-in. The guest gives a name (the link's
+  secret leaves the address bar at once), and a small player follows the party, with their own
+  audio and subtitle choices; the party waits for them while they load. They see who's in and
+  can leave. The file plays as it is when there's no guest cap and its own audio is chosen;
+  otherwise as a conversion, held to the cap.
+- In the player's Together panel: Invite a guest, which makes a link to copy and send, and the
+  party's guests, each with Send away.
+- Outside services, Watch party guests: the address guests reach Melete at
+  (`MELETE_PARTY_URL`), which invite links begin with; without it a link begins with the page's
+  own address.
+- Watch party guests with no account: anyone in a party makes an invite link
+  (`POST /api/v1/watch-parties/{id}/invites`) that lets one guest in once, within a day. The
+  guest gives a name and gets a pass for that party alone (`/api/v1/party`): they follow it,
+  play, pause and seek, get their own stream or conversion of what plays with its subtitles,
+  and leave; they see the title, the other guests and how many from the household are
+  watching, never an account's name. Their pass and links end with the party, when they leave,
+  or when anyone in it sends them away. A party's guest cap holds their streams. A way in may
+  open `party` alone (`MELETE_WAYS_IN`), so guests reach their party through it and nothing of
+  the household.
+- A watch party waits for everyone: a player loading or buffering says so, and a playing party
+  pauses where it is for everyone ("Waiting for Sam…"), playing on together once everyone's
+  ready. A wait that lasts 30 seconds is let go, so one slow connection can't hold the room;
+  that player catches up when it can. Playing or pausing by hand ends any waiting. Guests are
+  told only that someone from the household is loading, never who.
+- Scan and search, for each movie or series library under Settings, Libraries: the library is
+  scanned (its new files matched and probed), then, as ticked, its missing films or episodes
+  are searched for, then upgrades of its files below their profile's cutoff, then the
+  subtitles its files lack are fetched in the languages set for imports. Each search step is a
+  Search all missing run for that library's titles alone, paced and followed the same way
+  (`POST`/`GET /api/v1/libraries/{name}/scan-and-search`; a missing search's `library_id`
+  says which library it was for).
+- Household devices on Melete's own WireGuard tunnel: each user adds their own (`POST
+  /api/v1/tunnel/devices`, at most 10), lists them (`GET`) and removes them (`DELETE
+  /api/v1/tunnel/devices/{id}`, an admin anyone's), and a "My devices" section on the account
+  page does the same. A device is kept across restarts with the same address, and reaches
+  signing in, its user's own account and the web page, plus the parts it's given (video,
+  music, requests, admin), as its own user alone. An app sends only its public key; without
+  one, Melete makes the pair and shows the config once. The preshared key is Melete's, kept
+  sealed and shown once. Removing a device, or deleting its user, cuts it off at once. See
+  docs/REMOTE-ACCESS.md.
+- A Tunnel page for admins under Manage → System: every peer on Melete's own WireGuard tunnel
+  now, household devices and watch party guests, with whose it is, whether it's connected, its
+  last handshake, data in and out, open connections, what it's doing (watching, listening, in
+  a party, downloading or browsing) and, only while it's connected, the outside address it
+  connects from. It updates every few seconds while open, and Remove cuts a peer off at once.
+  The same is in the API (`GET /api/v1/tunnel/peers`, `DELETE /api/v1/tunnel/peers/{address}`,
+  admins only).
+- Melete's own WireGuard tunnel, off unless `MELETE_TUNNEL_PORT` is set: Melete answers
+  WireGuard itself, in userspace, on one UDP port, with no TUN device or extra container
+  privileges, and serves only its own API through it. A device in a watch party can make an
+  invite that comes with a one-off WireGuard config for the guest (`POST
+  /api/v1/watch-parties/{id}/tunnel-invites`, five unused at most per person and party);
+  through it the guest reaches their party's routes and the web page, nothing else, through
+  their own invite and pass alone, and the peer ends with the invite unused, or with the
+  guest's pass. A tunnel connection on which nothing moves for a minute is closed, as is one
+  not made within 10 seconds or not closed within a minute of being answered, and one peer
+  holds at most 8 connections however far each has got. `MELETE_TUNNEL_ENDPOINT` says where
+  guests reach the port, and `MELETE_TUNNEL_NET` the range inside the tunnel (`10.73.0.0/24`
+  by default). See docs/REMOTE-ACCESS.md.
+- Watch together: a watch party plays one film or episode in step on every device in it. Start
+  one from the player's Together button; others join with its six-letter code (under Watch
+  together, or the same button). Anyone in it plays, pauses and seeks, and every player follows
+  within moments; the host alone moves it to another file, so opening the next episode takes
+  everyone there. Each device plays its own stream with its own audio and subtitles, so one can
+  watch dubbed and another subtitled. A party plays only what each account may watch, and
+  whoever starts it may hold guests' quality to a cap (`/api/v1/watch-parties`, the event
+  stream's `watch_party`).
+
+### Changed
+
+- A copy home into a library that isn't responding isn't started: the download waits, says
+  "waiting: the movies library isn't responding", and is looked at again each minute without
+  using up its tries. A copy already running stops and waits the same way once its library
+  stops responding, or once a write into it takes over a minute.
+- A copy that copies nothing for 10 minutes is marked as stalled ("stalled: nothing was
+  copied for 10 minutes") and starts again on its own, from where it stopped.
+- Copies home from the seedbox keep up to 32 MiB in flight instead of 2 MiB: one copy moves
+  about ten times as much per round trip, so a far seedbox that held copies to a few MB/s
+  no longer does.
+- Watch parties keep in step more closely. Each player sets its clock by the server's,
+  NTP-style (the answer with the shortest round trip among the latest few), checks itself
+  every second rather than only when the party changes, and closes a small drift by playing a
+  little faster or slower (0.95× to 1.05×) instead of jumping; past 1.5 seconds (2.5 for a
+  conversion, whose seeks are coarser) it still seeks. A party set playing starts 0.4 seconds
+  ahead, so everyone starts at the same moment rather than as the news reaches each. A player
+  the browser won't start by itself says "Press play to join in", and pressing play catches up
+  with the party.
+
+### Fixed
+
+- A copy's file steps (checking the library is mounted, making folders, opening and measuring
+  part files, putting files in place) run off the async threads with a time limit, so a
+  frozen share can't hold up every other transfer queued behind it.
+- A frozen library share no longer ties up Melete: streams, artwork from library folders,
+  the System page's disk space and admin health read library folders off the async threads
+  with a time limit, and a scan that was walking a library gives up once it stops answering,
+  so other libraries are still scanned.
+- A watch party's play, pause and seek reach every device and guest at once, rather than at
+  their event stream's next look up to two seconds later, so a play set to start a moment
+  ahead now starts everyone together.
+- A player that hears of a play after its start (it was slow to load, say) starts where the
+  party is, instead of from where it was paused and catching up slowly for half a minute.
+- When a party pauses, every player stops where it paused, so it plays on together.
+- An intro no longer starts under the last lines of the scene before it, and credits no longer
+  reach into a scene after them: a segment now starts and ends only where both episodes' audio
+  is close frame by frame. Episodes looked at before are looked at again in the background,
+  after any new ones, and what was found before is still served until then.
+
+### Security
+
+- The URL library (`url`, which Melete uses only through other libraries) is updated to 2.5.9
+  for RUSTSEC-2026-0592, a stack overflow in `Url::origin()` on nested `blob:` URLs.
+
 ## [0.9.5] - 2026-11-13
 
 ### Added
@@ -1049,7 +1209,8 @@ Compare links. After the first release, the pattern is:
 and for the first release:
 [0.1.0]: https://github.com/Virel0/Melete/releases/tag/v0.1.0
 -->
-[Unreleased]: https://github.com/Virel0/Melete/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/Virel0/Melete/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Virel0/Melete/compare/v0.9.5...v0.10.0
 [0.9.5]: https://github.com/Virel0/Melete/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Virel0/Melete/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Virel0/Melete/compare/v0.9.2...v0.9.3
