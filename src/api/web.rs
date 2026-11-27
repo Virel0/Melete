@@ -718,6 +718,37 @@ mod tests {
         assert!(palette.contains("musicAi().then((on) => (pal.ai = on));"));
     }
 
+    /// Every icon a module asks for by name, and every player control's panel (drawn as its
+    /// name's icon), is one the icon set has: an unknown name draws an empty button.
+    #[test]
+    fn every_icon_asked_for_is_drawn() {
+        let set = module("music-controls.js");
+        let known = |name: &str| {
+            set.contains(&format!("  {name}: \"")) || set.contains(&format!("  \"{name}\": \""))
+        };
+        let mut asked = Vec::new();
+        for (file, body) in MODULES {
+            for (prefix, end) in [("icon(\"", "\")"), ("{ name: \"", "\", label:")] {
+                for (at, _) in body.match_indices(prefix) {
+                    let rest = &body[at + prefix.len()..];
+                    if let Some(stop) = rest.find(end).filter(|&stop| stop < 30) {
+                        asked.push((file, rest[..stop].to_owned()));
+                    }
+                }
+            }
+        }
+        assert!(
+            asked.iter().any(|(_, name)| name == "together"),
+            "{asked:?}"
+        );
+        for (file, name) in asked {
+            assert!(
+                known(&name),
+                "{file} asks for the icon {name:?}, which isn't in the set"
+            );
+        }
+    }
+
     #[test]
     fn the_page_has_no_inline_script_or_style() {
         // The policy would block them; this says so before a browser does.
