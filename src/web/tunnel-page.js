@@ -104,7 +104,10 @@ export async function tunnelPage(ctx) {
     { class: "table-wrap stacks" },
     h("table", { class: "data" }, h("caption", { class: "visually-hidden" }, "Peers on the tunnel"), h("thead", {}, h("tr", {}, COLUMNS.map((c) => h("th", { scope: "col" }, c || h("span", { class: "visually-hidden" }, "Actions"))))), body),
   );
-  const empty = emptyState("No one is on the tunnel now. Household devices added under My devices on the account page, and watch party guests invited through the tunnel, show up here.", null);
+  const empty = emptyState(
+    "No one is on the tunnel now. Household devices show up here once they're added under My devices, on each person's account page, and watch party guests once they're invited through the tunnel from the player's Together panel.",
+    { href: "#/settings/account", label: "Add a device of yours" },
+  );
   const off = h("p", { class: "status" }, "Melete's own tunnel is off on this server. Set MELETE_TUNNEL_PORT to turn it on; the remote access guide says how.");
   const rows = new Map();
 

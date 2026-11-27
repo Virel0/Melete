@@ -1,0 +1,19 @@
+# HTTPS served by Melete itself, beside plain HTTP (docs/REMOTE-ACCESS.md, section 8), so a
+# proxy in front, such as a VPS, can pass connections through without reading them. Off unless
+# added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.tls.yaml
+# with MELETE_TLS_PORT and MELETE_TLS_CERT_DIR set there. The certificate's folder is mounted
+# read only, and its files must be readable by Melete's user; a renewed certificate is read
+# again within 10 minutes, with no restart.
+
+services:
+  melete:
+    ports:
+      - "${MELETE_TLS_PORT:?set MELETE_TLS_PORT in .env}:${MELETE_TLS_PORT}"
+    environment:
+      MELETE_TLS_BIND: 0.0.0.0:${MELETE_TLS_PORT}
+      MELETE_TLS_CERT: /tls/${MELETE_TLS_CERT_FILE:-fullchain.pem}
+      MELETE_TLS_KEY: /tls/${MELETE_TLS_KEY_FILE:-privkey.pem}
+      MELETE_TLS_PROXY_PROTOCOL: ${MELETE_TLS_PROXY_PROTOCOL:-}
+    volumes:
+      - ${MELETE_TLS_CERT_DIR:?set MELETE_TLS_CERT_DIR in .env}:/tls:ro
