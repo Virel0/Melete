@@ -919,6 +919,27 @@ mod tests {
     }
 
     #[test]
+    fn an_opening_new_to_the_user_plays_the_first_time_and_is_then_reported_seen() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        let next = module("player-next.js");
+        // Never passed over by itself, and Skip still works.
+        assert!(next.contains("if (part.new) skipped = true;"));
+        assert!(
+            next.contains("video.currentTime = part.end_seconds;\n      button.hidden = true;")
+        );
+        // Reported once playing carried it past its end, not after a seek or a Skip.
+        assert!(next.contains("const playing = step > 0 && step < 2;"));
+        assert!(next.contains("const crossed = playing && last < end && at >= end;"));
+        assert!(
+            next.contains("kind && part.new ? playedThrough(part, () => seenPart(fileId, kind))")
+        );
+        assert!(next.contains(
+            "api(`/files/${fileId}/segments/seen`, { method: \"PUT\", body: { kind } })"
+        ));
+        assert!(module("player.js").contains("skipButtons(s.video, segments, s.fileId)"));
+    }
+
+    #[test]
     fn the_player_keeps_what_it_saw_and_sends_it_only_when_asked() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
         let player = module("player.js");

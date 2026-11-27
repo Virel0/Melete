@@ -124,7 +124,7 @@ pub(super) async fn file_info(
         "modified_at": f.modified_at,
         "media": f.media,
         "max_bitrate": way_limit(limit),
-        "segments": super::super::segments::of_file(&state.pool, id).await?,
+        "segments": super::super::segments::of_file(&state.pool, id, current.user.id).await?,
         "chapters": probe::chapters_of(&state.pool, id).await?,
         "trickplay": crate::trickplay::made(&state.pool, id).await?,
         "offline": crate::settings::offline_copies(&state.pool).await?,

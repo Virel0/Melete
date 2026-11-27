@@ -129,7 +129,7 @@ export async function playerPage(fileId, params, ctx) {
 // The stage: the picture, what floats over it (Skip, the next episode) and the controls, which go
 // full screen together; and the keys, with C for the next subtitles and N for the next episode.
 function framed(s, { segments, episodes, upNext, pickSubtitles, panels, seek }) {
-  const stage = h("div", { class: "stage" }, s.video, h("div", { class: "stage-over" }, skipButtons(s.video, segments), upNext.card));
+  const stage = h("div", { class: "stage" }, s.video, h("div", { class: "stage-over" }, skipButtons(s.video, segments, s.fileId), upNext.card));
   const { fullscreen, onFullscreen } = stageFullscreen(s.video, stage);
   const controls = controlBar(s.video, stage, { seek, panels, fullscreen });
   s.controls = controls;

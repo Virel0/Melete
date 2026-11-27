@@ -11,7 +11,9 @@
 //! enough. Offsets are found by voting: each byte of a hash that equals the same byte of a hash
 //! in the other episode votes for the offset between them. In a shared stretch about one byte
 //! in ten agrees, against one in 256 by chance, so the true offset stands out. The best few
-//! offsets are then walked frame by frame, the bit errors smoothed over half a second.
+//! offsets are then walked frame by frame, the bit errors smoothed over half a second, and the
+//! stretch found has its edges brought in to where the two stay close an eighth of a second at a
+//! time, so lines spoken over music they share aren't counted in it.
 
 use std::collections::HashMap;
 
@@ -34,6 +36,16 @@ const MAX_ERRORS: f64 = 11.0;
 const GAP: usize = 16;
 /// Offsets walked, best voted first, each with its neighbours.
 const CANDIDATES: usize = 6;
+/// Hashes in the stricter test a stretch's edges must pass (an eighth of a second).
+const EDGE: usize = 4;
+/// The most average bit errors (of 32) in those for an edge to count as the same audio.
+const EDGE_ERRORS: f64 = 7.0;
+/// Such windows in a row where a stretch starts and where it ends, so one close by chance in
+/// lines spoken over shared music doesn't count.
+const EDGE_STEADY: usize = 3;
+/// How much more than the stretch's typical window an edge's may differ, for two episodes
+/// whose frames fall differently on the same audio and so differ more all along.
+const EDGE_MARGIN: f64 = 2.0;
 
 /// The seconds hash `index` of a fingerprint stands for, from the start of its audio: the
 /// middle of its frame.
@@ -205,12 +217,43 @@ fn along(a: &[u32], b: &[u32], offset: isize) -> Option<Shared> {
         }
     }
     let (start, end) = best?;
-    let (a_start, a_end) = (first + start, first + end + WINDOW);
+    let (a_start, a_end) = trim(a, b, offset, (first + start, first + end + WINDOW));
     let shift = |i: usize| (i as isize - offset) as usize;
     Some(Shared {
         a: (a_start, a_end),
         b: (shift(a_start), shift(a_end)),
     })
+}
+
+/// The stretch `[start, end)` of `a` (against `b[i - offset]`) with its edges brought in to
+/// where both are close frame by frame: where [`EDGE_STEADY`] windows of [`EDGE`] hashes in a
+/// row each average at most [`EDGE_ERRORS`] (or the stretch's typical window and
+/// [`EDGE_MARGIN`], when that's more). The half-second average finds a stretch even where
+/// music the two share starts under lines of their own; this keeps those lines out. As it was
+/// when nowhere in it is that close.
+fn trim(a: &[u32], b: &[u32], offset: isize, (start, end): (usize, usize)) -> (usize, usize) {
+    let span = EDGE * EDGE_STEADY;
+    if end - start < span {
+        return (start, end);
+    }
+    let errors = |i: usize| (a[i] ^ b[(i as isize - offset) as usize]).count_ones();
+    let average = |i: usize| f64::from((i..i + EDGE).map(errors).sum::<u32>()) / EDGE as f64;
+    // Frames that fall differently on the same audio differ more all along: the edges are held
+    // to the stretch's own typical closeness, never looser than the half-second test.
+    let mut all: Vec<f64> = (start..=end - EDGE).map(average).collect();
+    all.sort_by(f64::total_cmp);
+    let strict = EDGE_ERRORS
+        .max(all[all.len() / 2] + EDGE_MARGIN)
+        .min(MAX_ERRORS);
+    let steady = |i: usize| (0..EDGE_STEADY).all(|n| average(i + n * EDGE) <= strict);
+    let Some(from) = (start..=end - span).find(|&i| steady(i)) else {
+        return (start, end);
+    };
+    let to = (from..=end - span)
+        .rev()
+        .find(|&i| steady(i))
+        .map_or(end, |i| i + span);
+    (from, to)
 }
 
 #[cfg(test)]
@@ -322,6 +365,68 @@ pub(crate) mod tests {
         let b = fingerprint(&episode(4, 20.0, &intro, 10.0));
         assert!(shared(&a, &b, frames(5.0)).is_some());
         assert_eq!(shared(&a, &b, frames(15.0)), None);
+    }
+
+    /// Random hashes: audio that shares nothing.
+    fn unrelated(noise: &mut Noise, count: usize) -> Vec<u32> {
+        (0..count).map(|_| noise.next() as u32).collect()
+    }
+
+    /// `hashes` as another episode hears them: each with a few bits (from `fewest` to `most`)
+    /// different.
+    fn heard(noise: &mut Noise, hashes: &[u32], fewest: u64, most: u64) -> Vec<u32> {
+        hashes
+            .iter()
+            .map(|hash| {
+                let flips = fewest + noise.next() % (most - fewest + 1);
+                let mut mask = 0u32;
+                while u64::from(mask.count_ones()) < flips {
+                    mask |= 1 << (noise.next() % 32);
+                }
+                hash ^ mask
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_shared_stretch_keeps_its_length_within_a_frame_or_two() {
+        let mut noise = Noise::new(31);
+        let music = unrelated(&mut noise, 400);
+        let mut a = unrelated(&mut noise, 150);
+        a.extend_from_slice(&music);
+        a.extend(unrelated(&mut noise, 120));
+        let mut b = unrelated(&mut noise, 37);
+        b.extend(heard(&mut noise, &music, 0, 3));
+        b.extend(unrelated(&mut noise, 90));
+        let found = shared(&a, &b, 100).expect("the music is found");
+        assert!(found.a.0.abs_diff(150) <= 2, "{found:?}");
+        assert!(found.a.1.abs_diff(550) <= 2, "{found:?}");
+        assert!(found.b.0.abs_diff(37) <= 2, "{found:?}");
+    }
+
+    #[test]
+    fn lines_spoken_over_the_shared_music_are_left_out() {
+        let mut noise = Noise::new(32);
+        // Music the episodes share: lines over its first 4 seconds in one, a scene after it
+        // over its last 2, both still close on average, then its clean middle.
+        let music = unrelated(&mut noise, 600);
+        let mut a = unrelated(&mut noise, 80);
+        a.extend_from_slice(&music);
+        a.extend(unrelated(&mut noise, 80));
+        let mut b = unrelated(&mut noise, 21);
+        b.extend(heard(&mut noise, &music[..125], 6, 12));
+        b.extend(heard(&mut noise, &music[125..540], 0, 3));
+        b.extend(heard(&mut noise, &music[540..], 6, 12));
+        b.extend(unrelated(&mut noise, 50));
+        let found = shared(&a, &b, 100).expect("the music is found");
+        assert!(
+            found.a.0.abs_diff(80 + 125) <= 2,
+            "starts with the lines: {found:?}"
+        );
+        assert!(
+            found.a.1.abs_diff(80 + 540) <= 2,
+            "ends into the scene: {found:?}"
+        );
     }
 
     #[test]
