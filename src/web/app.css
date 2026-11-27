@@ -145,7 +145,7 @@ h1 { font-size: var(--step-3); }
 h2 { font-size: var(--step-2); }
 h3 { font-size: var(--step-1); }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
   color: inherit;
 }
@@ -173,7 +173,7 @@ button.quiet, .button.quiet {
 }
 button.quiet:hover, .button.quiet:hover { background: var(--surface-raised); }
 
-input, select {
+input, select, textarea {
   min-height: 2.5rem;
   padding: var(--space-2) var(--space-3);
   background: var(--surface);

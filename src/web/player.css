@@ -330,3 +330,7 @@ video.motion-cover.shown { opacity: 1; }
   flex: 1;
   min-width: 0;
 }
+
+/* A tunnel invite fits the Together panel: its config and link take the whole width. */
+.tunnel-invite ol { display: grid; gap: var(--space-3); margin: var(--space-2) 0; padding-inline-start: 1.25rem; }
+.tunnel-invite .secret { flex: 1 1 100%; width: 100%; }

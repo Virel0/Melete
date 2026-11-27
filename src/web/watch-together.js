@@ -17,6 +17,7 @@
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
 import { correct, partyClock, startsIn, timed } from "/web/party-clock.js";
+import { tunnelInvite } from "/web/party-tunnel.js";
 
 // Changes close together go as one.
 const SEND_AFTER_MS = 300;
@@ -398,7 +399,8 @@ function guestsPart(ctx) {
       preview.disabled = false;
     }
   });
-  return h("div", { class: "party-guests" }, guests.length ? h("ul", { class: "plain" }, guests) : null, h("div", { class: "form-actions" }, invite, preview), link, said);
+  const tunnel = tunnelInvite(party, ctx, said);
+  return h("div", { class: "party-guests" }, guests.length ? h("ul", { class: "plain" }, guests) : null, h("div", { class: "form-actions" }, invite, tunnel.button, preview), link, tunnel.box, said);
 }
 
 // Joining with a code: the party's file opens and plays where the party is.
