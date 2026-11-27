@@ -152,7 +152,9 @@ MELETE_TRUSTED_PROXIES=10.20.0.1
   - **music**: the music library, playing it, and everything the Aoide apps sync.
   - **requests**: asking for things, following them, importing playlists.
   - **admin**: settings, Wanted, downloads, users, approving requests.
-  - Signing in, your own account and the web page itself go through every way in. With the
+  - The web page itself goes through every way in. Signing in and your own account go through
+    every way that opens any of `video`, `music`, `requests` or `admin`; a way that opens only
+    `party`, for watch party guests who never sign in, has nothing to sign in to. With the
     example above, signing in at `music.example.org` works, music and requests work, and
     asking for a video or an admin page says it isn't open through that way.
   - Once it's set, an address in none of the ways reaches nothing. Leave it empty and every
@@ -296,8 +298,10 @@ MELETE_WAYS_IN=home 192.168.0.0/24 all; vps 10.20.0.1 party
   connection from one of them that doesn't start with one is refused, so turn it on at both
   ends together.
 - The ways in still go by the connection's own address, the VPS's, so `vps 10.20.0.1 party`
-  opens watch parties' guest routes alone through it. Signing in, one's own account and the
-  web page go through every way, this one too, encrypted to Melete like everything else.
+  opens watch parties' guest routes alone through it, and the web page itself. Signing in
+  doesn't go through a way that opens only `party`: strangers find no sign-in page there. A
+  way that also opens `music` or `requests` opens signing in too, encrypted to Melete like
+  everything else; that's where the PROXY protocol matters most.
 - Under **Manage → System → Outside services → Watch party guests**, set the address guests
   reach Melete at, `https://watch.example.org`, so invite links begin with it.
 

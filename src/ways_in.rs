@@ -5,8 +5,10 @@
 //! each opens are the admin's to set (`MELETE_WAYS_IN`); without them every address reaches
 //! everything, as before. With them, an address in none of them reaches nothing.
 //!
-//! Signing in, one's own account and the web page itself go through every way there is; the
-//! rest is video, music, requests or admin. A route nothing here names counts as admin, so a
+//! The web page itself goes through every way there is. Signing in and one's own account go
+//! through every way that opens any of video, music, requests or admin, so a way that opens
+//! watch parties alone (for guests, who never sign in) shows nothing to sign in to. The rest is
+//! video, music, requests or admin. A route nothing here names counts as admin, so a
 //! new one is shut rather than left open.
 //!
 //! Behind a reverse proxy every client arrives from the proxy's address. A proxy that's
@@ -23,8 +25,12 @@ use axum::response::{IntoResponse, Response};
 /// What a request reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Part {
-    /// Signing in and out, one's own account, the web page: through every way.
+    /// The web page itself (`/`, `/web/…`): through every way, guests' too.
     Always,
+    /// Signing in and out, one's own account and live updates: through every way that opens
+    /// any of the household's parts (video, music, requests or admin), so not through a way
+    /// that opens watch parties alone, where no one signs in.
+    Account,
     /// Movies and series: browsing, playing, streaming.
     Video,
     /// The music library, and Aoide's sync and the rest.
@@ -71,9 +77,9 @@ pub fn part(path: &str) -> Part {
     match first {
         "party" => Part::Party,
         // The event stream carries only what the way opens (`Opens`).
-        "health" | "openapi.json" | "auth" | "events" => Part::Always,
+        "health" | "openapi.json" | "auth" | "events" => Part::Account,
         // It measures the way in itself, whichever app asks.
-        "speedtest" => Part::Always,
+        "speedtest" => Part::Account,
         "me" if api.starts_with("me/continue")
             || api.starts_with("me/progress")
             || api.starts_with("me/next-up")
@@ -81,13 +87,13 @@ pub fn part(path: &str) -> Part {
         {
             Part::Video
         }
-        "me" => Part::Always,
+        "me" => Part::Account,
         // One's own devices on Melete's own tunnel, like one's own sessions and keys.
-        "tunnel" if api.starts_with("tunnel/devices") => Part::Always,
-        "users" if api == "users/directory" => Part::Always,
+        "tunnel" if api.starts_with("tunnel/devices") => Part::Account,
+        "users" if api == "users/directory" => Part::Account,
         // People's pictures go wherever their names do.
-        "users" if api.ends_with("/avatar") => Part::Always,
-        "avatars" => Part::Always,
+        "users" if api.ends_with("/avatar") => Part::Account,
+        "avatars" => Part::Account,
         "movies" | "series"
             if api.ends_with("/match")
                 || api.ends_with("/order")
@@ -109,7 +115,7 @@ pub fn part(path: &str) -> Part {
         }
         "music" | "playlists" | "smart-playlists" => Part::Music,
         // Whether AI is on: a flag, read by music and video apps alike.
-        "ai" if api == "ai" => Part::Always,
+        "ai" if api == "ai" => Part::Account,
         // Music filters and mixes by description.
         "ai" if api.starts_with("ai/music/") => Part::Music,
         // Finding movies and series by describing them.
@@ -194,11 +200,19 @@ pub struct Way {
 
 impl Way {
     fn opens(&self, part: Part) -> bool {
-        part == Part::Always
-            || self
-                .parts
-                .as_ref()
-                .is_none_or(|parts| parts.contains(&part))
+        opened(self.parts.as_deref(), part)
+    }
+}
+
+/// The household's own parts: a way that opens any of them opens signing in too.
+const HOUSEHOLD: [Part; 4] = [Part::Video, Part::Music, Part::Requests, Part::Admin];
+
+/// Whether a way that opens `parts` (None for everything) opens `part`.
+fn opened(parts: Option<&[Part]>, part: Part) -> bool {
+    match part {
+        Part::Always => true,
+        Part::Account => parts.is_none_or(|parts| parts.iter().any(|p| HOUSEHOLD.contains(p))),
+        _ => parts.is_none_or(|parts| parts.contains(&part)),
     }
 }
 
@@ -298,9 +312,10 @@ pub struct WaysIn {
 pub struct Opens(pub Option<Vec<Part>>);
 
 impl Opens {
-    /// Whether it opens `part`. [`Part::Always`] is open through every way.
+    /// Whether it opens `part`: the web page through every way, signing in through any way
+    /// that opens a part of the household's.
     pub fn has(&self, part: Part) -> bool {
-        part == Part::Always || self.0.as_ref().is_none_or(|parts| parts.contains(&part))
+        opened(self.0.as_deref(), part)
     }
 }
 
@@ -529,7 +544,7 @@ mod tests {
             for (method, op) in operations.as_object().unwrap() {
                 let tag = op["tags"][0].as_str().unwrap();
                 let expected = match tag {
-                    "System" | "Accounts" => Part::Always,
+                    "System" | "Accounts" => Part::Account,
                     "Browse" | "Playback" => Part::Video,
                     "Music" | "Aoide" => Part::Music,
                     "Requests" => Part::Requests,
@@ -605,6 +620,44 @@ mod tests {
     }
 
     #[test]
+    fn a_way_for_guests_alone_doesnt_open_signing_in() {
+        let ways = WaysIn {
+            ways: Some(parse_ways("home 192.168.0.0/24 all; vps 10.20.0.1 party").unwrap()),
+            proxies: Vec::new(),
+        };
+        let vps = ip("10.20.0.1");
+        // The web page itself, and a guest's routes, for guests to follow their party.
+        for open in ["/", "/web/app.js", "/api/v1/party/join", "/api/v1/party"] {
+            assert_eq!(ways.allows(vps, part(open)), Ok(()), "{open}");
+        }
+        // Nothing to sign in to, or to learn Melete's version from.
+        for shut in [
+            "/api/v1/auth/login",
+            "/api/v1/auth/web-login",
+            "/api/v1/auth/quick-connect",
+            "/api/v1/auth/oidc/start",
+            "/api/v1/me",
+            "/api/v1/events",
+            "/api/v1/health",
+            "/api/v1/openapi.json",
+            "/api/v1/tunnel/devices",
+        ] {
+            assert!(ways.allows(vps, part(shut)).is_err(), "{shut}");
+        }
+        assert!(!Opens(Some(vec![Part::Party])).has(Part::Account));
+        assert!(Opens(Some(vec![Part::Party])).has(Part::Always));
+        for household in [Part::Video, Part::Music, Part::Requests, Part::Admin] {
+            assert!(
+                Opens(Some(vec![household])).has(Part::Account),
+                "{household:?}"
+            );
+        }
+        assert!(Opens(None).has(Part::Account), "none set: as before");
+        // Home opens everything, signing in included.
+        assert_eq!(ways.allows(ip("192.168.0.20"), Part::Account), Ok(()));
+    }
+
+    #[test]
     fn each_way_opens_what_its_listed_with() {
         let ways = household();
         for part in [Part::Video, Part::Music, Part::Requests, Part::Admin] {
@@ -614,9 +667,9 @@ mod tests {
         assert_eq!(ways.allows(vps, Part::Music), Ok(()));
         assert_eq!(ways.allows(vps, Part::Requests), Ok(()));
         assert_eq!(
-            ways.allows(vps, Part::Always),
+            ways.allows(vps, Part::Account),
             Ok(()),
-            "signing in goes through every way"
+            "signing in goes through a way that opens the household's music"
         );
         assert_eq!(
             ways.allows(vps, Part::Video),

@@ -69,9 +69,11 @@ pub struct DevicePeer {
 
 impl DevicePeer {
     /// Whether a request for `part` may go through it: sign-in, one's own account and the
-    /// web page always, its own parts too, and a watch party guest's routes never.
+    /// web page always (a device has a part of the household's, so signing in is open to it),
+    /// its own parts too, and a watch party guest's routes never.
     pub fn reaches(&self, part: Part) -> bool {
-        part == Part::Always || (part != Part::Party && self.parts.contains(&part))
+        matches!(part, Part::Always | Part::Account)
+            || (part != Part::Party && self.parts.contains(&part))
     }
 }
 
