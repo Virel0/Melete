@@ -163,7 +163,7 @@ pub async fn set(
          WHERE id = ? AND version = ?",
     )
     .bind(position_ms)
-    .bind(now)
+    .bind(super::starts_at(now, playing))
     .bind(playing)
     .bind(now)
     .bind(guest.party_id)

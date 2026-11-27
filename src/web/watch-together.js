@@ -16,9 +16,8 @@
 // playing party pauses for it, playing on once everyone's ready (or after 30 seconds).
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
+import { correct, partyClock, startsIn, timed } from "/web/party-clock.js";
 
-// Off by more than this, in seconds, a player seeks to where the party is.
-const DRIFT = 1.5;
 // Changes close together go as one.
 const SEND_AFTER_MS = 300;
 // How long a followed change's own play, pause and seek events are left unsent.
@@ -34,7 +33,8 @@ const CAPS = [
 
 let party = null;
 let me = null;
-let skew = 0;
+const clock = partyClock();
+let startTimer = null;
 let source = null;
 let retry = null;
 let following = 0;
@@ -55,7 +55,6 @@ const onParty = () => Boolean(party && player && Number(player.fileId) === party
 
 // An answer with a party and the server's clock.
 function took(answer) {
-  skew = answer.server_time - Date.now();
   party = answer.party;
   listen();
   changed();
@@ -71,11 +70,6 @@ function ended(words) {
   source = null;
   announce(words);
   changed();
-}
-
-// Where the party's file is now, in seconds.
-function placeOf(p) {
-  return (p.position_ms + (p.playing ? Math.max(0, Date.now() + skew - p.position_at) : 0)) / 1000;
 }
 
 // This player's state, as the server takes it.
@@ -98,11 +92,30 @@ function follow(p) {
   const video = player.s.video;
   following++;
   try {
-    const at = placeOf(p);
-    if (Math.abs(video.currentTime - at) > DRIFT) video.currentTime = at;
-    if (p.playing && video.paused) video.play().catch(() => {});
+    clearTimeout(startTimer);
+    if (correct(video, p, clock, Boolean(player.s.hls)) === "wait") {
+      // A start set a moment ahead: played when it comes, with everyone.
+      startTimer = setTimeout(() => party && follow(party), startsIn(p, clock));
+    } else if (p.playing && video.paused) {
+      video.play().catch(() => (player.s.status.textContent = "Press play to join in."));
+    }
     if (!p.playing && !video.paused) video.pause();
   } finally {
+    setTimeout(() => following--, SETTLE_MS);
+  }
+}
+
+// Each second while the party plays here: the player kept to it, gently (see party-clock.js);
+// a seek of its own isn't sent as this viewer's. Each minute, the clock asked afresh.
+let ticks = 0;
+function keepInStep() {
+  ticks++;
+  if (!onParty()) return;
+  if (ticks % 60 === 0) timed(clock, () => api(`/watch-parties/${party.id}`)).catch(() => {});
+  const video = player.s.video;
+  if (!party.playing || video.paused || following) return;
+  if (correct(video, party, clock, Boolean(player.s.hls)) === "seek") {
+    following++;
     setTimeout(() => following--, SETTLE_MS);
   }
 }
@@ -110,7 +123,7 @@ function follow(p) {
 async function refresh() {
   if (!party) return;
   try {
-    took(await api(`/watch-parties/${party.id}`));
+    took(await timed(clock, () => api(`/watch-parties/${party.id}`)));
     follow(party);
   } catch (err) {
     if (err.status === 404) ended("The watch party has ended.");
@@ -120,7 +133,7 @@ async function refresh() {
 async function send(body = here()) {
   if (!party) return;
   try {
-    took(await api(`/watch-parties/${party.id}`, { method: "PUT", body: { version: party.version, ...body } }));
+    took(await timed(clock, () => api(`/watch-parties/${party.id}`, { method: "PUT", body: { version: party.version, ...body } })));
   } catch (err) {
     if (err.status === 409) return refresh();
     if (err.status === 404) return ended("The watch party has ended.");
@@ -139,7 +152,7 @@ async function sayWaiting(waiting) {
   if (!party || waiting === waitingSaid) return;
   waitingSaid = waiting;
   try {
-    took(await api(`/watch-parties/${party.id}/waiting`, { method: "PUT", body: { waiting } }));
+    took(await timed(clock, () => api(`/watch-parties/${party.id}/waiting`, { method: "PUT", body: { waiting } })));
   } catch (err) {
     if (err.status === 404) ended("The watch party has ended.");
   }
@@ -158,8 +171,13 @@ function ready() {
 }
 
 // Play, pause or a seek here: sent, unless it's this player following.
-function local() {
+function local(event) {
   if (!onParty() || following) return;
+  // Play while the party plays (the browser stopped it playing by itself, say) catches up.
+  if (event?.type === "play" && party.playing) {
+    player.s.status.textContent = "";
+    return follow(party);
+  }
   clearTimeout(sendTimer);
   sendTimer = setTimeout(send, SEND_AFTER_MS);
 }
@@ -198,6 +216,8 @@ async function pickUp() {
     if (mine[0] && !party) {
       party = mine[0];
       await refresh();
+      // A few samples to start from; the shortest round trip wins.
+      for (let i = 0; i < 3; i++) await timed(clock, () => api(`/watch-parties/${party.id}`)).catch(() => {});
     }
   } catch {
     // Starting or joining still works.
@@ -214,6 +234,7 @@ export function attachParty(s, ctx) {
   video.addEventListener("canplay", ready);
   video.addEventListener("playing", ready);
   const body = h("div", { class: "together" });
+  const loop = setInterval(keepInStep, 1000);
   const draw = () => body.replaceChildren(...panelBody(ctx).filter(Boolean));
   watchers.add(draw);
   draw();
@@ -241,6 +262,9 @@ export function attachParty(s, ctx) {
       video.removeEventListener("canplay", ready);
       video.removeEventListener("playing", ready);
       ready();
+      clearInterval(loop);
+      clearTimeout(startTimer);
+      if (video.playbackRate !== 1) video.playbackRate = 1;
       watchers.delete(draw);
       if (player?.s === s) player = null;
     },
@@ -261,7 +285,7 @@ function panelBody(ctx) {
     start.addEventListener("click", async () => {
       start.disabled = true;
       try {
-        took(await api("/watch-parties", { method: "POST", body: { ...here(), guest_max_bitrate: CAPS[Number(cap.value)][0] } }));
+        took(await timed(clock, () => api("/watch-parties", { method: "POST", body: { ...here(), guest_max_bitrate: CAPS[Number(cap.value)][0] } })));
         announce(`Watch party started. Its code is ${party.code.split("").join(" ")}.`);
       } catch (err) {
         failed(err, said, ctx);
@@ -369,7 +393,7 @@ function joinForm(ctx) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      took(await api("/watch-parties/join", { method: "POST", body: { code: input.value } }));
+      took(await timed(clock, () => api("/watch-parties/join", { method: "POST", body: { code: input.value } })));
       announce(`Joined ${party.host}'s watch party`);
       location.hash = partyHref(party);
     } catch (err) {

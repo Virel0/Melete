@@ -135,3 +135,25 @@ async fn only_the_host_ends_a_party_and_the_last_to_leave_ends_it_too() {
         Err(Refused::Invalid(_))
     ));
 }
+
+#[tokio::test]
+async fn a_party_set_playing_starts_a_moment_ahead_and_a_pause_at_once() {
+    let (pool, host, _) = setup().await;
+    let id = start(&pool, host, &FILM, None).await.unwrap().unwrap();
+    let at = |pool: SqlitePool| async move {
+        let at: i64 = sqlx::query_scalar("SELECT position_at FROM watch_parties")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        at - now_ms()
+    };
+    let paused = State {
+        playing: false,
+        ..FILM
+    };
+    set(&pool, host, id, 1, &paused).await.unwrap().unwrap();
+    assert!(at(pool.clone()).await <= 0, "a pause takes effect at once");
+    set(&pool, host, id, 2, &FILM).await.unwrap().unwrap();
+    let ahead = at(pool.clone()).await;
+    assert!((300..=START_LEAD_MS).contains(&ahead), "{ahead}");
+}

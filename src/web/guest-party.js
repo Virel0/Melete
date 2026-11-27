@@ -9,16 +9,17 @@
 
 import { SignedOut, announce, api, h, show } from "/web/lib.js";
 import { HLS_MODULE } from "/web/player-choice.js";
+import { correct, expected, partyClock, startsIn, timed } from "/web/party-clock.js";
 
-// Off by more than this, in seconds, the player seeks to where the party is.
-const DRIFT = 1.5;
 const SEND_AFTER_MS = 300;
 const SETTLE_MS = 800;
 const WAIT_AFTER_MS = 700;
 
 const g = {
   party: null,
-  skew: 0,
+  loop: null,
+  startTimer: null,
+  ticks: 0,
   video: null,
   hls: null,
   source: null,
@@ -39,7 +40,7 @@ export async function guestPage() {
   const invite = location.hash.match(/^#\/guest\/(mpi_[0-9a-f]+)$/)?.[1];
   if (invite) return joinForm(invite);
   try {
-    enter(await api("/party"));
+    enter(await timed(clock, () => api("/party")));
   } catch (err) {
     over(err instanceof SignedOut ? ENDED : `Couldn't open the watch party: ${err.message}`);
   }
@@ -70,7 +71,7 @@ function joinForm(invite) {
     }
     button.disabled = true;
     try {
-      const joined = await api("/party/join", { method: "POST", body: { invite, name: name.value } });
+      const joined = await timed(clock, () => api("/party/join", { method: "POST", body: { invite, name: name.value } }));
       // The link's secret is spent; it leaves the address bar and the history.
       history.replaceState(null, "", "#/guest");
       enter(joined);
@@ -89,10 +90,10 @@ function joinForm(invite) {
 }
 
 // Where the party's file is now, in seconds.
-const placeOf = (p) => (p.position_ms + (p.playing ? Math.max(0, Date.now() + g.skew - p.position_at) : 0)) / 1000;
+// The server's clock as this browser sees it (party-clock.js).
+const clock = partyClock();
 
 function took(answer) {
-  g.skew = answer.server_time - Date.now();
   g.party = answer.party;
   draw();
 }
@@ -111,7 +112,12 @@ function enter(answer) {
   g.video.addEventListener("canplay", ready);
   g.video.addEventListener("playing", ready);
   show("Watch party", h("h1", { class: "guest-title" }, g.party.title), h("div", { class: "stage guest-stage" }, g.video), g.note, g.side);
-  load().then(listen);
+  g.loop = setInterval(keepInStep, 1000);
+  load().then(async () => {
+    listen();
+    // A few samples to start from; the shortest round trip wins.
+    for (let i = 0; i < 3; i++) await timed(clock, () => api("/party")).catch(() => {});
+  });
 }
 
 // Plays the file the party plays: as it is, or a conversion; then where the party is.
@@ -161,7 +167,7 @@ async function playHls(url) {
     return;
   }
   const { default: Hls } = await import(HLS_MODULE);
-  g.hls = new Hls({ enableWorker: false, startPosition: placeOf(g.party) });
+  g.hls = new Hls({ enableWorker: false, startPosition: expected(g.party, clock) });
   g.hls.loadSource(url);
   g.hls.attachMedia(g.video);
 }
@@ -186,11 +192,28 @@ function follow(p) {
   if (!g.video || !p) return;
   g.following++;
   try {
-    const at = placeOf(p);
-    if (Number.isFinite(g.video.duration) && Math.abs(g.video.currentTime - at) > DRIFT) g.video.currentTime = at;
-    if (p.playing && g.video.paused) g.video.play().catch(() => (g.note.textContent = "Press play to join in."));
+    clearTimeout(g.startTimer);
+    if (correct(g.video, p, clock, Boolean(g.hls)) === "wait") {
+      // A start set a moment ahead: played when it comes, with everyone.
+      g.startTimer = setTimeout(() => g.party && follow(g.party), startsIn(p, clock));
+    } else if (p.playing && g.video.paused) {
+      g.video.play().catch(() => (g.note.textContent = "Press play to join in."));
+    }
     if (!p.playing && !g.video.paused) g.video.pause();
   } finally {
+    setTimeout(() => g.following--, SETTLE_MS);
+  }
+}
+
+// Each second while the party plays: the player kept to it, gently; a seek of its own isn't
+// sent as the guest's. Each minute, the clock asked afresh.
+function keepInStep() {
+  g.ticks++;
+  if (!g.party || !g.video) return;
+  if (g.ticks % 60 === 0) timed(clock, () => api("/party")).catch(() => {});
+  if (!g.party.playing || g.video.paused || g.following) return;
+  if (correct(g.video, g.party, clock, Boolean(g.hls)) === "seek") {
+    g.following++;
     setTimeout(() => g.following--, SETTLE_MS);
   }
 }
@@ -198,10 +221,10 @@ function follow(p) {
 async function send() {
   const v = g.video;
   try {
-    took(await api("/party", { method: "PUT", body: { version: g.party.version, position_ms: Math.round((v.currentTime || 0) * 1000), playing: !v.paused } }));
+    took(await timed(clock, () => api("/party", { method: "PUT", body: { version: g.party.version, position_ms: Math.round((v.currentTime || 0) * 1000), playing: !v.paused } })));
   } catch (err) {
     if (err instanceof SignedOut) return over(ENDED);
-    if (err.status === 409) took(await api("/party").catch(() => ({ party: g.party, server_time: Date.now() + g.skew })));
+    if (err.status === 409) took(await timed(clock, () => api("/party")).catch(() => ({ party: g.party, server_time: clock.now() })));
     follow(g.party);
   }
 }
@@ -219,7 +242,7 @@ async function sayWaiting(waiting) {
   if (!g.party || waiting === g.waitingSaid) return;
   g.waitingSaid = waiting;
   try {
-    took(await api("/party/waiting", { method: "PUT", body: { waiting } }));
+    took(await timed(clock, () => api("/party/waiting", { method: "PUT", body: { waiting } })));
   } catch (err) {
     if (err instanceof SignedOut) over(ENDED);
   }
@@ -261,6 +284,8 @@ function listen() {
 }
 
 function stopAll() {
+  clearInterval(g.loop);
+  clearTimeout(g.startTimer);
   g.source?.close();
   g.source = null;
   unHls();
