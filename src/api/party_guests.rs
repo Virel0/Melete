@@ -53,6 +53,7 @@ pub fn routes(pool: SqlitePool, ffprobe: PathBuf) -> Router {
     Router::new()
         .route("/api/v1/party/join", post(join))
         .merge(with_pass)
+        .layer(middleware::from_fn(super::watch_parties::wake_streams))
         .with_state(GuestState {
             pool,
             ffprobe: Arc::new(ffprobe),
@@ -315,39 +316,50 @@ async fn events(
     Extension(guest): Extension<Guest>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, std::convert::Infallible>>> {
     let until = tokio::time::Instant::now() + LIFETIME;
-    let start = (state.pool, guest, None::<String>, true, false);
-    let stream =
-        futures_util::stream::unfold(start, move |(pool, guest, sent, first, done)| async move {
-            if done || tokio::time::Instant::now() >= until {
+    // Woken by each change to a party, so a change reaches the guest at once; looked at every
+    // [`EVERY`] besides, for what changes without a request (a party ending unused).
+    let start = (
+        state.pool,
+        guest,
+        None::<String>,
+        true,
+        crate::watch_party::changes(),
+    );
+    let stream = futures_util::stream::unfold(Some(start), move |state| async move {
+        let (pool, guest, mut sent, mut first, mut wake) = state?;
+        if tokio::time::Instant::now() >= until {
+            return None;
+        }
+        loop {
+            if !first {
+                tokio::select! {
+                    () = tokio::time::sleep(EVERY) => {}
+                    _ = wake.changed() => {}
+                }
+            }
+            first = false;
+            let still = guests::still_in(&pool, guest.id).await.unwrap_or(false);
+            let seen = if still {
+                guests::view(&pool, &guest).await.ok().flatten()
+            } else {
+                None
+            };
+            let Some(seen) = seen else {
+                let event = Event::default().event("watch_party").data("null");
+                return Some((Ok(event), None));
+            };
+            let data = json!({ "party": seen, "server_time": crate::db::now_ms() });
+            let key = seen.to_string();
+            if sent.as_deref() != Some(&key) {
+                sent = Some(key);
+                let event = Event::default().event("watch_party").data(data.to_string());
+                return Some((Ok(event), Some((pool, guest, sent, false, wake))));
+            }
+            if tokio::time::Instant::now() >= until {
                 return None;
             }
-            let mut first = first;
-            loop {
-                if !first {
-                    tokio::time::sleep(EVERY).await;
-                }
-                first = false;
-                let still = guests::still_in(&pool, guest.id).await.unwrap_or(false);
-                let seen = if still {
-                    guests::view(&pool, &guest).await.ok().flatten()
-                } else {
-                    None
-                };
-                let Some(seen) = seen else {
-                    let event = Event::default().event("watch_party").data("null");
-                    return Some((Ok(event), (pool, guest, sent, false, true)));
-                };
-                let data = json!({ "party": seen, "server_time": crate::db::now_ms() });
-                let key = seen.to_string();
-                if sent.as_deref() != Some(&key) {
-                    let event = Event::default().event("watch_party").data(data.to_string());
-                    return Some((Ok(event), (pool, guest, Some(key), false, false)));
-                }
-                if tokio::time::Instant::now() >= until {
-                    return None;
-                }
-            }
-        });
+        }
+    });
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 

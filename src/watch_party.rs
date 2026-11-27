@@ -18,6 +18,22 @@ use crate::db::now_ms;
 pub mod guests;
 pub mod waits;
 
+/// Bumped at each change to a party, so the event streams send it at once instead of at their
+/// next look, up to two seconds later: a play set to start a moment ahead must reach everyone
+/// before it does.
+static CHANGES: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
+
+/// Wakes the event streams: a party changed.
+pub fn changed() {
+    CHANGES.send_modify(|n| *n = n.wrapping_add(1));
+}
+
+/// Told of each change to a party from now on.
+pub fn changes() -> tokio::sync::watch::Receiver<u64> {
+    CHANGES.subscribe()
+}
+
 /// How far ahead a party set playing starts, so every player starts at the same moment rather
 /// than as the news reaches each.
 pub const START_LEAD_MS: i64 = 400;
