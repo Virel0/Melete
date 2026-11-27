@@ -22,7 +22,7 @@ pub(super) async fn play(
         "resume_seconds": progress.position_seconds,
         "duration_seconds": progress.duration_seconds,
         "watched": progress.watched,
-        "segments": super::super::segments::of_file(&pool, file_id).await?,
+        "segments": super::super::segments::of_file(&pool, file_id, current.user.id).await?,
         "tracks": tracks,
         "max_bitrate": way_limit(limit),
     })))

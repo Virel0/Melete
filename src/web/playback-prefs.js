@@ -86,7 +86,7 @@ export async function playbackGroup() {
     "auto-skip",
     "Skip recaps, intros and previews by themselves",
     saved.auto_skip,
-    "Each once a play, as it starts. Never the credits: the next episode is offered then.",
+    "Each once a play, as it starts. Never the credits: the next episode is offered then. A new opening plays the first time you meet it.",
   );
   const countdown = field(
     "countdown-seconds",

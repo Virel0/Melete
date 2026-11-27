@@ -2329,7 +2329,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "read",
         "summary": "A file's intro and credits, to offer Skip",
-        "description": "An episode's intro is audio it shares with other episodes of its season in its first quarter (10 minutes at most), 15 seconds to 2½ minutes long; its credits are audio it shares with them in its last quarter (6 minutes at most), 15 seconds to 5 minutes long. Found in the background while `MELETE_INTRO_DETECTION` is on (off by default; Settings → Outside services → Intros and credits), each version of a file once, after a scan and probe; what was found is still served when it's off; an episode alone in its season waits for another for its intro. Movies, specials, an episode alone in its season and one whose credits matching didn't find are looked at alone: the end of the file (its last quarter, at most 12 minutes for a movie and 6 for an episode), read a second at a time (its picture and its sound), for a run of mostly black pictures (names on black) or near silence reaching the end, at least 30 seconds long; credits found by matching come first. Rolling credits over pictures with sound aren't found. `scanned` is true once the current version has been looked at either way.",
+        "description": "An episode's intro is audio it shares with other episodes of its season in its first quarter (10 minutes at most), 15 seconds to 2½ minutes long; its credits are audio it shares with them in its last quarter (6 minutes at most), 15 seconds to 5 minutes long; each starts and ends only where both episodes' audio is close frame by frame, so lines spoken over the music they share are left out. Found in the background while `MELETE_INTRO_DETECTION` is on (off by default; Settings → Outside services → Intros and credits), each version of a file once, after a scan and probe, and again once the way they are found improves (what was found before is served until then); what was found is still served when it's off; an episode alone in its season waits for another for its intro. Movies, specials, an episode alone in its season and one whose credits matching didn't find are looked at alone: the end of the file (its last quarter, at most 12 minutes for a movie and 6 for an episode), read a second at a time (its picture and its sound), for a run of mostly black pictures (names on black) or near silence reaching the end, at least 30 seconds long; credits found by matching come first. Rolling credits over pictures with sound aren't found. `scanned` is true once the current version has been looked at either way.",
         "parameters": [
           {
             "name": "id",
@@ -2343,6 +2343,51 @@
           "200": {
             "description": "OK",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FileSegments"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such file",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/files/{id}/segments/seen": {
+      "put": {
+        "tags": ["Playback"],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Say the user played a file's intro or credits through",
+        "description": "Notes, for the signed-in user, that they've seen the opening (or ending) found in the file's current version, so it isn't `new` to them in this or any episode it's in, of any season. A player says so once the part has played through to its end, not when it was skipped or seeked over. Nothing is noted when the file's part isn't told apart; the answer is the same.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "File id from a movie or episode's files.",
+            "schema": {"type": "integer"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": {"enum": ["intro", "credits"], "description": "Which part played through."}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Noted"},
+          "400": {
+            "description": "Not an intro or credits",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "404": {
@@ -14487,13 +14532,17 @@
           "scanned": {"type": "boolean", "description": "Whether the file as it is now has been looked at."},
           "intro": {
             "type": ["object", "null"],
-            "required": ["start_seconds", "end_seconds", "source"],
+            "required": ["start_seconds", "end_seconds", "source", "new"],
             "properties": {
               "start_seconds": {"type": "number", "minimum": 0},
               "end_seconds": {"type": "number"},
               "source": {
                 "enum": ["chapter", "audio", "ending"],
                 "description": "How it was found. chapter: a chapter of the file named as one (Opening, OP, Intro; Ending, ED, Credits), which counts ahead of the rest. audio: audio the episode shares with others of its season. ending: the file's black or silent ending, looked at alone (credits only)."
+              },
+              "new": {
+                "type": "boolean",
+                "description": "An opening the asking user hasn't played through in any episode. Each intro found by audio is told apart as one of the series' openings, in any season, by comparing the start of its fingerprint with those already known: the same song keeps its id, a new season's new opening or a change partway through a season gets a new one. A player skipping by itself (the user's `auto_skip`) leaves a new one alone and says so with PUT /api/v1/files/{id}/segments/seen once it has played through; Skip still works. False when it isn't told apart (found before openings were told apart, or from a chapter alone); a chapter's intro takes the newness of the intro found by audio in the same file."
               }
             },
             "additionalProperties": false,
@@ -14501,13 +14550,17 @@
           },
           "credits": {
             "type": ["object", "null"],
-            "required": ["start_seconds", "end_seconds", "source"],
+            "required": ["start_seconds", "end_seconds", "source", "new"],
             "properties": {
               "start_seconds": {"type": "number", "minimum": 0},
               "end_seconds": {"type": "number"},
               "source": {
                 "enum": ["chapter", "audio", "ending"],
                 "description": "How it was found. chapter: a chapter of the file named as one (Opening, OP, Intro; Ending, ED, Credits), which counts ahead of the rest. audio: audio the episode shares with others of its season. ending: the file's black or silent ending, looked at alone (credits only)."
+              },
+              "new": {
+                "type": "boolean",
+                "description": "An ending the asking user hasn't played through, told apart as `intro.new` says for openings. Always false for credits found by the file's ending alone."
               }
             },
             "additionalProperties": false,
@@ -22676,7 +22729,7 @@
           },
           "auto_skip": {
             "type": "boolean",
-            "description": "The player passes over a recap, an intro or a preview by itself as it starts (the parts `/files/{id}/segments` gives), once each a play: going back into one plays it, with its Skip button. Credits are never skipped this way; the next episode is offered then. Default false."
+            "description": "The player passes over a recap, an intro or a preview by itself as it starts (the parts `/files/{id}/segments` gives), once each a play: going back into one plays it, with its Skip button. An intro new to the user (`new`: an opening they haven't played through) plays, with its Skip button, until they have. Credits are never skipped this way; the next episode is offered then. Default false."
           }
         },
         "additionalProperties": false

@@ -5,7 +5,8 @@
 // when it reaches nothing, with Play now and Cancel. Cancelling keeps it away for this episode.
 // The user's playback preferences set the countdown's length, or turn it off: the card then
 // offers the next episode without starting it. With automatic skipping on, the recap, intro and
-// preview are passed over by themselves, once a play; the credits never are.
+// preview are passed over by themselves, once a play; the credits never are, nor an opening the
+// user hasn't heard yet.
 
 import { announce, api, episodeLabel, h } from "/web/lib.js";
 import { episodeCode } from "/web/watch-play.js";
@@ -47,8 +48,10 @@ async function neighbour(where, later) {
 // A Skip button for the recap, the intro, the credits and the preview, each shown while its
 // part plays (over the picture, so in full screen too); null when the episode has none of them.
 // With automatic skipping on, the recap, intro and preview are passed over as they start, each
-// once a play: going back into one plays it, with its button.
-export function skipButtons(video, segments) {
+// once a play: going back into one plays it, with its button. An opening or ending new to the
+// user (`new`) is never passed over by itself: it plays, with its button, and once it has played
+// through the server is told, so it's passed over from then on.
+export function skipButtons(video, segments, fileId) {
   const skip = h("div", { class: "skip-parts" });
   const skippable = [
     ["Skip recap", segments?.recap, "recap"],
@@ -60,6 +63,10 @@ export function skipButtons(video, segments) {
   if (skippable.length) preferences(video).then((prefs) => (auto = Boolean(prefs.auto_skip)));
   for (const [label, part, passedOver] of skippable) {
     let skipped = !passedOver;
+    // New to this user: heard in full the first time, unless they press Skip.
+    if (part.new) skipped = true;
+    const kind = part === segments.intro ? "intro" : part === segments.credits ? "credits" : null;
+    const heard = kind && part.new ? playedThrough(part, () => seenPart(fileId, kind)) : null;
     const button = h("button", { type: "button", hidden: true }, label);
     button.addEventListener("click", () => {
       video.currentTime = part.end_seconds;
@@ -69,6 +76,7 @@ export function skipButtons(video, segments) {
     // Offered from the part's start until a second before its end.
     video.addEventListener("timeupdate", () => {
       const at = video.currentTime;
+      heard?.(at);
       const within = at >= part.start_seconds && at < part.end_seconds - 1;
       if (within && auto && !skipped) {
         skipped = true;
@@ -81,6 +89,34 @@ export function skipButtons(video, segments) {
     skip.append(button);
   }
   return skippable.length ? skip : null;
+}
+
+// Calls `done` once `part` has played through: playing carried the picture past its end (a
+// second before it, where its button goes), having played at least half of it. A seek or a Skip
+// over it doesn't count. Returns what each time update passes the time to.
+function playedThrough(part, done) {
+  const end = part.end_seconds - 1;
+  let last = null;
+  let played = 0;
+  let told = false;
+  return (at) => {
+    const step = last === null ? 0 : at - last;
+    // Only small steps forward are playing; a bigger one is a seek or a Skip.
+    const playing = step > 0 && step < 2;
+    if (playing && last >= part.start_seconds && last < part.end_seconds) played += step;
+    const crossed = playing && last < end && at >= end;
+    last = at;
+    if (!told && crossed && played >= (part.end_seconds - part.start_seconds) / 2) {
+      told = true;
+      done();
+    }
+  };
+}
+
+// Tells the server the user has seen the file's intro or credits; if that fails, it's only
+// left alone once more.
+function seenPart(fileId, kind) {
+  api(`/files/${fileId}/segments/seen`, { method: "PUT", body: { kind } }).catch(() => {});
 }
 
 // Where an episode found by `neighbour` plays.

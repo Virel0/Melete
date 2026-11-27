@@ -394,6 +394,7 @@ async fn hidden_files_cant_be_played_or_changed_and_their_links_stop() {
                 "track-choice",
                 json!({ "audio_language": null, "subtitle": null }),
             ),
+            ("segments/seen", json!({ "kind": "intro" })),
         ];
         for (route, body) in changes {
             let uri = format!("/api/v1/files/{id}/{route}");

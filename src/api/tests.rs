@@ -540,14 +540,27 @@ mod openapi {
                      season, episode, first_seen_generation, seen_generation)
                      VALUES (1, 1, 'Show/S01E01.mkv', 1, 1, 1, 1, 1, 1, 1);
                  INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at)
-                     VALUES (1, 1, 1, 0);",
+                     VALUES (1, 1, 1, 0);
+                 INSERT INTO segment_themes (id, series_id, kind, fingerprint, created_at)
+                     VALUES (1, 1, 'intro', x'01020304', 0);
+                 INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds, theme_id)
+                     VALUES (1, 'intro', 20.0, 110.0, 1), (1, 'credits', 1300.0, 1390.0, NULL);",
         )
         .execute(&pool)
         .await
         .unwrap();
         let get = user_get(&pool, &app).await;
         let segments = get("/api/v1/files/1/segments".into()).await;
-        assert_shape(&spec(), "FileSegments", &segments);
+        let spec = spec();
+        assert_shape(&spec, "FileSegments", &segments);
+        // The intro and credits objects, documented inline.
+        let parts = &spec["components"]["schemas"]["FileSegments"]["properties"];
+        for part in ["intro", "credits"] {
+            let inline = json!({ "components": { "schemas": { part: parts[part] } } });
+            assert_shape(&inline, part, &segments[part]);
+        }
+        assert_eq!(segments["intro"]["new"], json!(true));
+        assert_eq!(segments["credits"]["new"], json!(false));
     }
 
     #[tokio::test]
