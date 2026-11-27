@@ -50,7 +50,7 @@ const EMAIL: &[&str] = &[
 ];
 
 /// An address as far as can be told without sending to it: something@a.domain, nothing else.
-fn address(value: &str) -> bool {
+pub(super) fn address(value: &str) -> bool {
     value.split_once('@').is_some_and(|(user, domain)| {
         !user.is_empty()
             && domain.contains('.')

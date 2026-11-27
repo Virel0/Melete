@@ -124,7 +124,47 @@ fn load(cert: &Path, key: &Path) -> anyhow::Result<CertifiedKey> {
     Ok(certified)
 }
 
+/// Wakes HTTPS to read its files again at once: Melete wrote a certificate it got itself.
+static WRITTEN: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Has HTTPS take up the certificate Melete just wrote, rather than within [`RELOAD_EVERY`].
+pub fn written() {
+    WRITTEN.notify_waiters();
+}
+
+/// A certificate for no name anyone reaches Melete at, served only until the first one Melete
+/// gets itself is written: a client's handshake then fails its check, as it would with none.
+fn stand_in() -> anyhow::Result<CertifiedKey> {
+    let made = rcgen::generate_simple_self_signed(vec!["melete.invalid".to_owned()])?;
+    let private = PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(
+        made.signing_key.serialize_der(),
+    ));
+    let signing = provider().key_provider.load_private_key(private)?;
+    Ok(CertifiedKey::new(vec![made.cert.der().clone()], signing))
+}
+
 impl Certificate {
+    /// The certificate Melete gets itself, once it's written; a stand-in until then, and while
+    /// what's there doesn't load (the next one written replaces it).
+    fn awaited(tls: &Tls) -> anyhow::Result<Self> {
+        match Self::open(tls) {
+            Ok(certificate) => Ok(certificate),
+            Err(err) => {
+                if tls.cert.exists() {
+                    tracing::warn!(
+                        error = format!("{err:#}"),
+                        "HTTPS waits for a new certificate: the one kept doesn't load"
+                    );
+                }
+                Ok(Certificate {
+                    cert: tls.cert.clone(),
+                    key: tls.key.clone(),
+                    current: RwLock::new((Arc::new(stand_in()?), None)),
+                })
+            }
+        }
+    }
+
     fn open(tls: &Tls) -> anyhow::Result<Self> {
         let first = load(&tls.cert, &tls.key)?;
         Ok(Certificate {
@@ -193,7 +233,16 @@ impl Ready {
 
 /// Reads the certificate and takes HTTPS's address.
 pub async fn prepare(tls: &Tls) -> anyhow::Result<Ready> {
-    let certificate = Arc::new(Certificate::open(tls)?);
+    prepare_with(tls, Certificate::open(tls)?).await
+}
+
+/// Takes HTTPS's address for the certificate Melete gets itself, which may not be written yet.
+pub async fn prepare_awaiting(tls: &Tls) -> anyhow::Result<Ready> {
+    prepare_with(tls, Certificate::awaited(tls)?).await
+}
+
+async fn prepare_with(tls: &Tls, certificate: Certificate) -> anyhow::Result<Ready> {
+    let certificate = Arc::new(certificate);
     let mut config = rustls::ServerConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()?
         .with_no_client_auth()
@@ -221,7 +270,10 @@ pub async fn serve(ready: Ready, router: Router, trusted: Vec<Net>) {
     let watched = certificate.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(RELOAD_EVERY).await;
+            tokio::select! {
+                () = tokio::time::sleep(RELOAD_EVERY) => {}
+                () = WRITTEN.notified() => {}
+            }
             let certificate = watched.clone();
             let _ = tokio::task::spawn_blocking(move || certificate.reload()).await;
         }

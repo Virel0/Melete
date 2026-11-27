@@ -15,6 +15,7 @@ mod auth;
 mod avatars;
 mod blocklist;
 mod calendar;
+mod certificates;
 mod credits;
 mod diagnostics;
 mod discover;
@@ -252,6 +253,7 @@ pub fn server_with(
         .merge(music_stems::routes(pool.clone(), stems_dir))
         .merge(services::routes(pool.clone(), reload))
         .merge(vpn::routes(pool.clone()))
+        .merge(certificates::routes(pool.clone()))
         .merge(system)
         .merge(trickplay::routes(
             pool.clone(),

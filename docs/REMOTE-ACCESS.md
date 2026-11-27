@@ -255,8 +255,9 @@ inside.
 
 ### The certificate, at home
 
-Melete doesn't get certificates itself, so get one at home, not on the VPS (a certificate the
-VPS holds would let it read everything again). With certbot's DNS challenge, nothing needs
+Get the certificate at home, not on the VPS: a certificate the VPS holds would let it read
+everything again. Melete can get it and renew it itself (next part), or you can get one with
+certbot. With certbot's DNS challenge, nothing needs
 opening at home: `certbot certonly --manual --preferred-challenges dns -d watch.example.org`,
 or a DNS plugin for your provider so renewals run on their own. Certificates are public:
 every one issued is listed in Certificate Transparency logs, name included.
@@ -272,6 +273,43 @@ certbot certonly --manual --preferred-challenges dns -d watch.example.org \
 
 Melete reads a renewed certificate within 10 minutes, with no restart.
 
+### Or let Melete get the certificate
+
+Melete can get the certificate from Let's Encrypt and renew it itself, off until it's set up
+under **Manage → System → Outside services → Certificates**. It proves the domain with the DNS
+challenge through deSEC: it sets a TXT record at `_acme-challenge.example.org` with deSEC's
+API, waits until deSEC's own nameservers answer it, then two minutes more (**Wait after deSEC
+answers**: Let's Encrypt checks from several places, and some can still miss the record for a
+while), lets Let's Encrypt look, and removes it again.
+Nothing needs opening at home, and it works before the VPS is set up.
+
+- The certificate is a wildcard, `*.example.org`, with `example.org` itself. Certificate
+  Transparency logs then list only those, not the name Melete is reached at.
+- In deSEC's Token management, make a token for Melete and scope it with a policy to the
+  `_acme-challenge` TXT record under the domain alone (recommended: it can then change
+  nothing else in the zone). Its **Test** adds a value there and takes it out
+  again, without asking for a certificate.
+- Start on the **staging server** (the default): its certificates aren't trusted by browsers,
+  but a first try can't run into Let's Encrypt's rate limits. Once a staging certificate comes
+  through (**Get one now** shows it), switch to Let's Encrypt itself, and save.
+- Use `compose.tls-acme.yaml` instead of `compose.tls.yaml` below: it sets `MELETE_TLS_BIND`
+  and no certificate files, which Melete refuses beside Certificates. Leave out
+  `MELETE_TLS_CERT_DIR`. The certificate and key are kept in the config folder, under `acme/`
+  (the key readable by Melete's user alone), and backups leave them out.
+- Melete renews at the time Let's Encrypt's renewal information suggests, else two-thirds
+  through the certificate's life, and takes the new one up at once. If renewing fails, it tries
+  again later and later, and tells admins through Alerts (webhook or email), saying when the
+  certificate in use runs out; set one of those up, as Let's Encrypt no longer sends expiry
+  emails. It says so again once a renewal works.
+- The Certificates page shows the ACME account's URI, with CAA records to add at deSEC, such as
+  `example.org. CAA 0 issue "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/123"`
+  (and the same with `issuewild`): Let's Encrypt then issues certificates for the domain to
+  Melete's account alone. The staging server's account is another one.
+- What leaves the server: the domain's names, to Let's Encrypt and to deSEC; the challenge's
+  TXT values, to deSEC (anyone can look the record up while it's there); the deSEC token, to
+  deSEC alone. No email goes to Let's Encrypt unless you set one. Turning it on agrees to Let's
+  Encrypt's Subscriber Agreement.
+
 ### Telling Melete
 
 In `.env`, beside section 4's settings:
@@ -285,7 +323,8 @@ MELETE_TRUSTED_PROXIES=10.20.0.1
 MELETE_WAYS_IN=home 192.168.0.0/24 all; vps 10.20.0.1 party
 ```
 
-- `compose.tls.yaml` publishes `MELETE_TLS_PORT` and mounts the certificate's folder read only.
+- `compose.tls.yaml` publishes `MELETE_TLS_PORT` and mounts the certificate's folder read only
+  (with Certificates on, `compose.tls-acme.yaml` publishes the port alone).
   The files are `fullchain.pem` and `privkey.pem` unless `MELETE_TLS_CERT_FILE` and
   `MELETE_TLS_KEY_FILE` name others. With Melete's own tunnel as well, list both:
   `COMPOSE_FILE=compose.yaml:compose.tunnel.yaml:compose.tls.yaml`.

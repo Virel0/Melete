@@ -1,0 +1,14 @@
+# HTTPS served by Melete itself with a certificate Melete gets from Let's Encrypt (Outside
+# services, Certificates; docs/REMOTE-ACCESS.md, section 8), in place of compose.tls.yaml's
+# certificate from a folder. Off unless added to compose.yaml in .env:
+#   COMPOSE_FILE=compose.yaml:compose.tls-acme.yaml
+# with MELETE_TLS_PORT set there. The certificate and its key are kept in the config folder,
+# under acme/, and a renewed one is taken up at once, with no restart.
+
+services:
+  melete:
+    ports:
+      - "${MELETE_TLS_PORT:?set MELETE_TLS_PORT in .env}:${MELETE_TLS_PORT}"
+    environment:
+      MELETE_TLS_BIND: 0.0.0.0:${MELETE_TLS_PORT}
+      MELETE_TLS_PROXY_PROTOCOL: ${MELETE_TLS_PROXY_PROTOCOL:-}

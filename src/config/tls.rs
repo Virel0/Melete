@@ -57,3 +57,41 @@ pub(super) fn tls(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Optio
         proxy_protocol,
     }))
 }
+
+/// HTTPS as set, where Melete gets its certificate itself when `acme` (the folder that
+/// certificate is kept in) is given: then only `MELETE_TLS_BIND` is set, and a certificate and
+/// key given too are refused, as two would disagree.
+pub(super) fn tls_with(
+    get: &impl Fn(&str) -> Option<String>,
+    acme: Option<&std::path::Path>,
+) -> anyhow::Result<Option<Tls>> {
+    let Some(folder) = acme else {
+        return tls(get);
+    };
+    let value = |key: &str| {
+        get(key)
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    anyhow::ensure!(
+        value("MELETE_TLS_CERT").is_none() && value("MELETE_TLS_KEY").is_none(),
+        "Certificates is on, so Melete gets HTTPS's certificate itself, but MELETE_TLS_CERT or MELETE_TLS_KEY is set too: remove them from .env, or turn Certificates off"
+    );
+    let proxy_protocol = switch(get, "MELETE_TLS_PROXY_PROTOCOL")?;
+    let Some(bind) = value("MELETE_TLS_BIND") else {
+        anyhow::ensure!(
+            !proxy_protocol,
+            "MELETE_TLS_PROXY_PROTOCOL is on, but HTTPS isn't set up (MELETE_TLS_BIND)"
+        );
+        return Ok(None);
+    };
+    let bind: SocketAddr = bind
+        .parse()
+        .with_context(|| format!("MELETE_TLS_BIND={bind:?} is not an address like 0.0.0.0:8443"))?;
+    Ok(Some(Tls {
+        bind,
+        cert: folder.join(super::acme::CERT_FILE),
+        key: folder.join(super::acme::KEY_FILE),
+        proxy_protocol,
+    }))
+}

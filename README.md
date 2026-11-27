@@ -211,6 +211,8 @@ lists for it:
 - `compose.tls.yaml`: no container of its own, but HTTPS served by Melete itself, with your
   certificate, so a proxy in front can pass connections through without reading them
   (docs/REMOTE-ACCESS.md, section 8).
+- `compose.tls-acme.yaml`: the same HTTPS, with the certificate Melete gets and renews from
+  Let's Encrypt itself (Outside services, Certificates) instead of a folder of your own.
 - `compose.stems.yaml`: the stem separator (needs an NVIDIA GPU), for Auto DJ and sing-along.
 - `compose.trailers.yaml`: the trailer downloader, behind `compose.vpn.yaml`'s VPN (it
   shares Gluetun's network and won't start without it), converting on an NVIDIA GPU. With
