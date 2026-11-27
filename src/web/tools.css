@@ -55,13 +55,16 @@
 .service-summary { margin: 0 0 var(--space-2); font-weight: 600; }
 .service-rows { list-style: none; margin: 0; padding: 0; }
 .service-rows > li + li { border-block-start: 1px solid var(--line); }
-.service-row { display: grid; grid-template-columns: minmax(8rem, 16rem) minmax(0, 1fr) auto; gap: var(--space-1) var(--space-4); align-items: baseline; padding-block: var(--space-3); color: var(--text); text-decoration: none; }
+.service-row { display: grid; grid-template-columns: minmax(8rem, 16rem) minmax(0, 1fr) auto auto; gap: var(--space-1) var(--space-4); align-items: baseline; margin-inline: calc(-1 * var(--space-2)); padding: var(--space-3) var(--space-2); border-radius: var(--radius-s); color: var(--text); text-decoration: none; }
+.service-row:hover, .service-row:focus-visible { background: var(--surface-raised); }
 .service-row:hover .service-name, .service-row:focus-visible .service-name { text-decoration: underline; }
+.service-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.service-go { color: var(--muted); font-size: var(--step-1); line-height: 1; }
 .service-name { font-weight: 600; min-width: 0; }
 .service-purpose { color: var(--muted); min-width: 0; }
 .service-row .state { font-size: var(--step--1); justify-self: end; text-align: end; }
 @media (max-width: 40rem) {
-  .service-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .service-row { grid-template-columns: minmax(0, 1fr) auto auto; }
   .service-purpose { grid-column: 1 / -1; grid-row: 2; }
 }
 /* A service's page: its state beside its name, and what leaves the server folded under it. */

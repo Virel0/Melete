@@ -165,7 +165,7 @@ export function serviceHref(s) {
 }
 
 // One service's line in the list: its name, what it's for and its state, the whole line a
-// link to its page.
+// link to its page, with a chevron saying so.
 function serviceRow(s) {
   const away = ELSEWHERE[s.key];
   return h(
@@ -177,6 +177,7 @@ function serviceRow(s) {
       h("span", { class: "service-name" }, s.name),
       h("span", { class: "service-purpose" }, away ? `${s.purpose}. Set up under ${away.name}.` : s.purpose),
       chip(s),
+      h("span", { class: "service-go", "aria-hidden": "true" }, "›"),
     ),
   );
 }

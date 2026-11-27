@@ -1356,6 +1356,11 @@ mod tests {
             ("/web/palette.js", "href: serviceHref(s)"),
             ("/web/palette.js", r##"href: "#/admin/system/features""##),
             ("/web/tools.css", ".service-row"),
+            (
+                "/web/services.js",
+                r#"class: "service-go", "aria-hidden": "true""#,
+            ),
+            ("/web/tools.css", ".service-row:focus-visible"),
         ] {
             let request = Request::get(uri).body(Body::empty()).unwrap();
             let response = routes().oneshot(request).await.unwrap();
