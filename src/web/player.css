@@ -304,3 +304,29 @@ video.motion-cover.shown { opacity: 1; }
 .together-code-row { display: flex; gap: var(--space-2); }
 .together-code-row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: 0.1em; }
 .together-ask { display: grid; gap: var(--space-2); }
+
+/* A watch party guest's player: the picture across its column, the choices beneath. */
+.guest-stage video {
+  display: block;
+  width: 100%;
+  max-height: 75vh;
+  background: var(--bg);
+}
+
+.guest-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: end;
+  margin-top: 0.75rem;
+}
+
+.invite-link {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-link input {
+  flex: 1;
+  min-width: 0;
+}

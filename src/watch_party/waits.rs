@@ -85,13 +85,14 @@ pub async fn settle(pool: &SqlitePool, party: i64) -> sqlx::Result<()> {
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "UPDATE watch_parties SET playing = 1, held = 0, position_at = ?1,
+        "UPDATE watch_parties SET playing = 1, held = 0, position_at = ?3,
              version = version + 1, updated_at = ?1
          WHERE id = ?2 AND held = 1
            AND NOT EXISTS (SELECT 1 FROM watch_party_waits WHERE party_id = ?2)",
     )
     .bind(now)
     .bind(party)
+    .bind(super::starts_at(now, true))
     .execute(&mut *tx)
     .await?;
     tx.commit().await

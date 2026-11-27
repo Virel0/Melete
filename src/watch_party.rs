@@ -18,6 +18,15 @@ use crate::db::now_ms;
 pub mod guests;
 pub mod waits;
 
+/// How far ahead a party set playing starts, so every player starts at the same moment rather
+/// than as the news reaches each.
+pub const START_LEAD_MS: i64 = 400;
+
+/// When a change made `now` takes effect: a moment ahead when it leaves the party playing.
+pub(crate) fn starts_at(now: i64, playing: bool) -> i64 {
+    if playing { now + START_LEAD_MS } else { now }
+}
+
 /// A party unchanged this long ends.
 const IDLE_MS: i64 = 24 * 3600 * 1000;
 /// Letters and digits that can't be mistaken for one another, as Listen Together's.
@@ -118,6 +127,7 @@ pub async fn start(
         .bind(user_id)
         .bind(state.file_id)
         .bind(state.position_ms)
+        // Nobody else is in it yet: no lead to give.
         .bind(now)
         .bind(state.playing)
         .bind(guest_max_bitrate)
@@ -256,7 +266,7 @@ pub async fn set(
     )
     .bind(state.file_id)
     .bind(state.position_ms)
-    .bind(now)
+    .bind(starts_at(now, state.playing))
     .bind(state.playing)
     .bind(now)
     .bind(id)

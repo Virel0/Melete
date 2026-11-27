@@ -22,6 +22,7 @@ import { installPalette, paletteKeys } from "/web/palette.js";
 import { favouritesPage } from "/web/favourites.js";
 import { playerPage } from "/web/player.js";
 import { togetherPage } from "/web/watch-together.js";
+import { guestPage } from "/web/guest-party.js";
 import { requestsPage } from "/web/requests.js";
 import { searchPage } from "/web/search.js";
 import { calendarPage } from "/web/calendar.js";
@@ -340,6 +341,8 @@ let saving;
 const saveScroll = () => history.replaceState({ scroll: window.scrollY }, "", location.hash);
 history.scrollRestoration = "manual";
 addEventListener("hashchange", () => {
+  // A watch party guest's page is its own, signed in or not.
+  if (location.hash.startsWith("#/guest")) return guestPage();
   clearTimeout(saving);
   settled = false;
   render();
@@ -372,6 +375,8 @@ document.querySelector(".skip").addEventListener("click", (event) => {
 });
 
 (async () => {
+  // Someone with no account, in by a watch party invite: their page alone, no sign-in.
+  if (location.hash.startsWith("#/guest")) return guestPage();
   // Linking's outcome is the account page's to show; any other is for the sign-in page.
   const outcome = oidcOutcome({ keep: true });
   try {
