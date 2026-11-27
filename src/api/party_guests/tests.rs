@@ -341,3 +341,43 @@ async fn a_capped_party_refuses_guests_a_stream_over_its_cap_and_invites_are_spe
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }
+
+#[tokio::test]
+async fn a_guest_hears_of_a_change_at_once_not_at_the_next_look() {
+    let f = fixture(None).await;
+    let (pass, _) = guest_in(&f, "Sam").await;
+    let request = Request::get("/api/v1/party/events")
+        .header(header::AUTHORIZATION, format!("Bearer {pass}"))
+        .body(Body::empty())
+        .unwrap();
+    let mut body = f.app.clone().oneshot(request).await.unwrap().into_body();
+    let next = async |body: &mut Body| loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        if let Ok(data) = frame.into_data() {
+            break String::from_utf8(data.to_vec()).unwrap();
+        }
+    };
+    assert!(next(&mut body).await.contains("watch_party"));
+    // Paused by the host just after a look: the next look is most of a second away.
+    let asked = std::time::Instant::now();
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}", f.party);
+    let pause = json!({"version": 1, "file_id": 1, "position_ms": 5000, "playing": false});
+    let (status, _, _) = send(
+        &f,
+        json_request("PUT", &uri, Some(("authorization", &bearer)), pause),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let changed = next(&mut body).await;
+    assert!(changed.contains(r#""playing":false"#), "{changed}");
+    assert!(
+        asked.elapsed() < Duration::from_millis(500),
+        "heard {:?} after the change",
+        asked.elapsed()
+    );
+}
