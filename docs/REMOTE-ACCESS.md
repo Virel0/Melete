@@ -151,7 +151,9 @@ MELETE_TRUSTED_PROXIES=10.20.0.1
   - **music**: the music library, playing it, and everything the Aoide apps sync.
   - **requests**: asking for things, following them, importing playlists.
   - **admin**: settings, Wanted, downloads, users, approving requests.
-  - Signing in, your own account and the web page itself go through every way in. With the
+  - The web page itself goes through every way in. Signing in and your own account go through
+    every way that opens any of `video`, `music`, `requests` or `admin`; a way that opens only
+    `party`, for watch party guests who never sign in, has nothing to sign in to. With the
     example above, signing in at `music.example.org` works, music and requests work, and
     asking for a video or an admin page says it isn't open through that way.
   - Once it's set, an address in none of the ways reaches nothing. Leave it empty and every
