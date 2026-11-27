@@ -85,6 +85,8 @@ div.stacks table.data th button.sort:hover, div.stacks table.data th[aria-sort] 
   div.stacks table.data tbody td.tick { grid-row: 1; grid-column: 1; }
   div.stacks tbody td.tick + th { grid-column: 2; }
   div.stacks table.data tbody td[data-label] { display: contents; }
+  /* A number's label lines up with the others once stacked, not at the end as its column does. */
+  div.stacks table.data tbody td.r[data-label] { text-align: start; }
   div.stacks td[data-label]::before { content: attr(data-label); color: var(--muted); }
 }
 
