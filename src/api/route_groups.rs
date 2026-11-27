@@ -123,6 +123,7 @@ pub(super) fn account_routes(
         .merge(watch_parties::routes_with(
             pool.clone(),
             kept.join_codes.clone(),
+            kept.tunnel.clone(),
         ))
         .merge(oidc::routes(pool.clone(), oidc_client, limiter))
         .merge(ai::routes_with(

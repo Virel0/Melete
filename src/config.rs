@@ -119,6 +119,9 @@ pub struct Config {
     /// Telling admins what needs them, by webhook or email (`MELETE_ALERT_*`, `MELETE_SMTP_*`);
     /// neither by default.
     pub alerts: Alerts,
+    /// Melete's own WireGuard tunnel (`MELETE_TUNNEL_PORT`, `MELETE_TUNNEL_ENDPOINT`,
+    /// `MELETE_TUNNEL_NET`); off unless the port is set.
+    pub tunnel: Option<crate::tunnel::Settings>,
 }
 
 /// A value kept out of `Debug` output, so logging the config cannot leak it.
@@ -241,7 +244,6 @@ impl Config {
         let openrouter = openrouter(&get)?;
         let opensubtitles = opensubtitles(&get)?;
         let proxy = crate::proxy::Setup::from_lookup(&get)?;
-        let alerts = alerts::alerts(&get)?;
         Ok(Self {
             bind,
             tls: tls::tls(&get)?,
@@ -279,7 +281,8 @@ impl Config {
             opensubtitles,
             proxy,
             vpn: crate::gluetun::Settings::from_lookup(&get)?,
-            alerts,
+            alerts: alerts::alerts(&get)?,
+            tunnel: crate::tunnel::Settings::from_lookup(&get)?,
         })
     }
 }

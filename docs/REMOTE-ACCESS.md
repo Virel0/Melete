@@ -1,6 +1,7 @@
 # Reaching Melete from outside
 
-Melete doesn't open anything to the internet itself. You choose the ways in, and Melete tells
+Melete doesn't open anything to the internet itself, unless you turn on its own tunnel for
+watch party guests (section 6). You choose the ways in, and Melete tells
 them apart by the address each connection comes from, opening only what you've listed for each
 (decision 76). A common setup is two ways in, besides home:
 
@@ -179,6 +180,43 @@ If `peer` is your device's WireGuard address, it works; put the full list back. 
 address (`172.x.x.x`), Melete can't tell the ways apart as it runs. Running it with
 `network_mode: host` keeps the addresses.
 
+## 6. Melete's own tunnel, for watch party guests
+
+A friend who isn't at home can join a watch party through a WireGuard tunnel that Melete runs
+itself: no WireGuard on the router or the host, and no extra privileges for the container, only
+one published UDP port. It's off unless the port is set. Each guest gets a one-off WireGuard
+config, and through it they reach their party and nothing else: no other part of Melete, and
+nothing on the home network, the host or the internet.
+
+In `.env`:
+
+```sh
+COMPOSE_FILE=compose.yaml:compose.tunnel.yaml
+MELETE_TUNNEL_PORT=51820
+MELETE_TUNNEL_ENDPOINT=melete.example
+```
+
+- `compose.tunnel.yaml` publishes the port and hands Melete these settings.
+- `MELETE_TUNNEL_PORT` is the UDP port Melete listens on, published as the same port on the
+  host. Forward it on the router like any other port.
+- `MELETE_TUNNEL_ENDPOINT` is where guests reach that port from outside: a host name or
+  address, with `:port` when it differs from `MELETE_TUNNEL_PORT`. It goes into each guest's
+  config.
+- `MELETE_TUNNEL_NET` is the range inside the tunnel, `10.73.0.0/24` unless set. Melete has its
+  first address (`10.73.0.1`), guests the rest. Pick a private range unlikely to be a guest's
+  own home network.
+- With ways in set (`MELETE_WAYS_IN`), add one for the range that opens `party`, such as
+  `guests 10.73.0.0/24 party`; without it, the ways in refuse the tunnel. Whatever the ways
+  say, a guest's tunnel reaches the party's routes and the web page itself, and nothing else.
+
+Then, from a device in the party, `POST /api/v1/watch-parties/{id}/tunnel-invites` makes an
+invite as `…/invites` does, with a WireGuard config for the guest (`wireguard_config`, shown
+once). The guest imports it into a WireGuard app and opens the invite's link at Melete's tunnel
+address, `http://10.73.0.1/#/guest/…`. Their peer ends when the invite runs out unused, or
+when they leave, are sent away or the party ends, and with a restart. Each household member
+may have five tunnel invites to a party that no guest has used yet. A tunnel connection on
+which nothing moves for a minute is closed.
+
 ## What each way shows to whom
 
 - Over WireGuard, traffic is encrypted end to end between your device and home.
@@ -187,3 +225,6 @@ address (`172.x.x.x`), Melete can't tell the ways apart as it runs. Running it w
   trust it with.
 - Nothing here sends anything to anyone else; Melete itself is still the only thing at home
   talking to the proxy.
+- Through Melete's own tunnel, traffic is encrypted between the guest's device and Melete
+  itself. The guest's config holds their own key, so treat it as you'd treat the invite: send it
+  only to them.

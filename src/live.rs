@@ -456,6 +456,11 @@ impl Live {
     }
 
     /// The API as it stands, for each request to be handed to.
+    /// Where the API finds Melete's own tunnel once it's started.
+    pub fn tunnel(&self) -> Arc<crate::tunnel::Slot> {
+        self.kept.tunnel.clone()
+    }
+
     pub fn service(self: &Arc<Self>) -> Router {
         let live = self.clone();
         Router::new().fallback_service(tower::service_fn(move |request: Request| {

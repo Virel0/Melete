@@ -343,6 +343,114 @@ async fn a_capped_party_refuses_guests_a_stream_over_its_cap_and_invites_are_spe
 }
 
 #[tokio::test]
+async fn a_tunnel_invite_needs_the_tunnel_and_comes_with_a_peer_for_the_guest() {
+    let f = fixture(None).await;
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}/tunnel-invites", f.party);
+    let ask = || json_request("POST", &uri, Some(("authorization", &bearer)), Value::Null);
+    let (status, _, off) = send(&f, ask()).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{off}");
+
+    let slot = Arc::new(crate::tunnel::Slot::default());
+    let settings = crate::tunnel::Settings {
+        port: 0,
+        endpoint: "melete.example:51820".into(),
+        net: (std::net::Ipv4Addr::new(10, 73, 0, 0), 24),
+    };
+    let tunnel = crate::tunnel::Tunnel::start(&f.pool, settings, Router::new())
+        .await
+        .unwrap();
+    slot.set(tunnel);
+    let with_tunnel = Fixture {
+        app: super::super::watch_parties::routes_with(f.pool.clone(), Arc::default(), slot),
+        pool: f.pool.clone(),
+        host: f.host.clone(),
+        party: f.party,
+        _library: tempfile::tempdir().unwrap(),
+    };
+    let (status, _, made) = send(&with_tunnel, ask()).await;
+    assert_eq!(status, StatusCode::CREATED, "{made}");
+    assert_eq!(made["address"], "10.73.0.2");
+    assert_eq!(made["server"], "http://10.73.0.1");
+    let config = made["wireguard_config"].as_str().unwrap();
+    assert!(config.starts_with("[Interface]\nPrivateKey = "), "{config}");
+    assert!(config.contains("\nAllowedIPs = 10.73.0.1/32\nEndpoint = melete.example:51820\n"));
+    // Its invite lets a guest in as any other does.
+    let join = json!({"invite": made["invite"], "name": "Sam"});
+    let (status, _, _) = send(&f, json_request("POST", "/api/v1/party/join", None, join)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    // No guest came through that one's peer, so it's still unused: four more, then no more.
+    for _ in 0..4 {
+        let (status, _, _) = send(&with_tunnel, ask()).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+    let invites = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM watch_party_invites")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap()
+    };
+    let before = invites().await;
+    let (status, _, refused) = send(&with_tunnel, ask()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{refused}");
+    // And it leaves no invite behind.
+    assert_eq!(invites().await, before);
+}
+
+#[tokio::test]
+async fn a_guests_tunnel_peer_takes_its_own_invite_and_carries_its_own_guest_alone() {
+    let f = fixture(None).await;
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}/invites", f.party);
+    let mut invites = Vec::new();
+    for _ in 0..2 {
+        let (_, _, made) = send(
+            &f,
+            json_request("POST", &uri, Some(("authorization", &bearer)), Value::Null),
+        )
+        .await;
+        invites.push(made["invite"].as_str().unwrap().to_owned());
+    }
+    let (own, other) = (&invites[0], &invites[1]);
+    let arrival = crate::tunnel::Arrival::guest_for_testing(f.party, crate::auth::token_hash(own));
+    let through = |mut request: Request| {
+        request.extensions_mut().insert(arrival.clone());
+        request
+    };
+    let join = |invite: &str, name: &str| {
+        json_request(
+            "POST",
+            "/api/v1/party/join",
+            None,
+            json!({"invite": invite, "name": name}),
+        )
+    };
+    // Another invite through this peer is refused, and isn't spent.
+    let (status, _, _) = send(&f, through(join(other, "Kim"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, kims) = send(&f, join(other, "Kim")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _, sams) = send(&f, through(join(own, "Sam"))).await;
+    assert_eq!(status, StatusCode::CREATED, "{sams}");
+    // The peer carries Sam, who joined through it, and no one else.
+    let party = |pass: &Value| {
+        let auth = format!("Bearer {}", pass.as_str().unwrap());
+        json_request(
+            "GET",
+            "/api/v1/party",
+            Some(("authorization", &auth)),
+            Value::Null,
+        )
+    };
+    let (status, _, _) = send(&f, through(party(&sams["pass"]))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = send(&f, through(party(&kims["pass"]))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = send(&f, party(&kims["pass"])).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn a_guest_hears_of_a_change_at_once_not_at_the_next_look() {
     let f = fixture(None).await;
     let (pass, _) = guest_in(&f, "Sam").await;
