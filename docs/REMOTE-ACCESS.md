@@ -298,8 +298,10 @@ MELETE_WAYS_IN=home 192.168.0.0/24 all; vps 10.20.0.1 party
   connection from one of them that doesn't start with one is refused, so turn it on at both
   ends together.
 - The ways in still go by the connection's own address, the VPS's, so `vps 10.20.0.1 party`
-  opens watch parties' guest routes alone through it. Signing in, one's own account and the
-  web page go through every way, this one too, encrypted to Melete like everything else.
+  opens watch parties' guest routes alone through it, and the web page itself. Signing in
+  doesn't go through a way that opens only `party`: strangers find no sign-in page there. A
+  way that also opens `music` or `requests` opens signing in too, encrypted to Melete like
+  everything else; that's where the PROXY protocol matters most.
 - Under **Manage → System → Outside services → Watch party guests**, set the address guests
   reach Melete at, `https://watch.example.org`, so invite links begin with it.
 
