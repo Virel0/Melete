@@ -5,8 +5,11 @@
 //! What it sends goes back into the tunnel, to the peer it's for, or nowhere.
 //!
 //! Its sockets are few and fixed in size: a handful listening, at most [`MAX_CONNECTIONS`]
-//! open, [`PER_PEER`] of them for one peer, each with buffers of a set size; a connection
-//! that stops answering is dropped after a minute, and a removed peer's are dropped at once.
+//! open, [`PER_PEER`] of them for one peer, each with buffers of a set size. A socket counts
+//! toward its peer from its first packet, while it's connecting, served or closing: one that
+//! hasn't connected within [`HANDSHAKE`], or closed within [`CLOSING`] of the server being
+//! done with it, is dropped, as is one that stops answering for a minute, and a removed
+//! peer's are dropped at once.
 
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -43,6 +46,11 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 const KEEP_ALIVE: Duration = Duration::from_secs(20);
 /// How long the HTTP server keeps a connection on which no byte has been read or written.
 pub const IDLE_LIMIT: Duration = Duration::from_secs(60);
+/// How long a connection may take to be made, from its first packet.
+pub const HANDSHAKE: Duration = Duration::from_secs(10);
+/// How long a connection may take to close once the server is done with it: room for what's
+/// still unsent, at a slow peer's pace.
+pub const CLOSING: Duration = IDLE_LIMIT;
 /// The longest the stack waits with nothing to do.
 const IDLE: Duration = Duration::from_millis(500);
 
@@ -130,6 +138,9 @@ impl Device for Queues {
 struct Conn {
     handle: SocketHandle,
     peer: Option<(Ipv4Addr, Ends)>,
+    /// Since when it's been connecting (out of listening, not yet handed to the server), then
+    /// closing (the server done with it); None while it listens or is served.
+    since: Option<Instant>,
 }
 
 /// The stack and what it's joined to.
@@ -251,7 +262,11 @@ impl Stack {
                 return;
             }
             let handle = self.sockets.add(socket);
-            self.conns.push(Conn { handle, peer: None });
+            self.conns.push(Conn {
+                handle,
+                peer: None,
+                since: None,
+            });
         }
     }
 
@@ -278,8 +293,11 @@ impl Stack {
     }
 
     /// Hands new connections to the HTTP server, moves data both ways, and lets closed
-    /// sockets go.
+    /// sockets go: one connecting or closing too long, or past its peer's [`PER_PEER`], goes
+    /// too.
     fn serve(&mut self) {
+        let now = self.now();
+        // Each peer's sockets out of listening: those served, then the rest as they come.
         let mut open: Vec<Ipv4Addr> = self
             .conns
             .iter()
@@ -288,16 +306,35 @@ impl Stack {
         let mut kept = Vec::with_capacity(self.conns.len());
         for mut conn in std::mem::take(&mut self.conns) {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
-            if conn.peer.is_none() && socket.state() == tcp::State::Established {
-                conn.peer = accept(socket, &open, &self.accepted, &self.forget.wake);
-                if let Some((ip, _)) = &conn.peer {
-                    open.push(*ip);
+            // One closed since the last poll stays for the next, which sends the peer its
+            // reset when it was aborted.
+            let closed = socket.state() == tcp::State::Closed;
+            if conn.peer.is_none() && !socket.is_listening() {
+                let since = *conn.since.get_or_insert(now);
+                let room = remote(socket)
+                    .is_some_and(|ip| open.iter().filter(|o| **o == ip).count() < PER_PEER);
+                match socket.state() {
+                    // Made, or made and already finished sending: the server answers it.
+                    tcp::State::Established | tcp::State::CloseWait => {
+                        conn.peer = accept(socket, &open, &self.accepted, &self.forget.wake);
+                        conn.since = None;
+                    }
+                    tcp::State::SynReceived if room && now - since < HANDSHAKE.into() => {}
+                    _ => socket.abort(),
+                }
+                if socket.state() != tcp::State::Closed
+                    && let Some(ip) = remote(socket)
+                {
+                    open.push(ip);
                 }
             }
             if let Some((_, ends)) = &mut conn.peer {
                 pump(socket, ends);
+                if ends.closed && now - *conn.since.get_or_insert(now) >= CLOSING.into() {
+                    socket.abort();
+                }
             }
-            if socket.state() == tcp::State::Closed {
+            if closed {
                 self.sockets.remove(conn.handle);
             } else {
                 kept.push(conn);
@@ -406,3 +443,6 @@ fn finish(socket: &mut tcp::Socket, ends: &mut Ends) {
     }
     ends.closed = true;
 }
+
+#[cfg(test)]
+mod tests;

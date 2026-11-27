@@ -396,3 +396,56 @@ async fn a_tunnel_invite_needs_the_tunnel_and_comes_with_a_peer_for_the_guest() 
     // And it leaves no invite behind.
     assert_eq!(invites().await, before);
 }
+
+#[tokio::test]
+async fn a_guests_tunnel_peer_takes_its_own_invite_and_carries_its_own_guest_alone() {
+    let f = fixture(None).await;
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}/invites", f.party);
+    let mut invites = Vec::new();
+    for _ in 0..2 {
+        let (_, _, made) = send(
+            &f,
+            json_request("POST", &uri, Some(("authorization", &bearer)), Value::Null),
+        )
+        .await;
+        invites.push(made["invite"].as_str().unwrap().to_owned());
+    }
+    let (own, other) = (&invites[0], &invites[1]);
+    let arrival = crate::tunnel::Arrival::guest_for_testing(f.party, crate::auth::token_hash(own));
+    let through = |mut request: Request| {
+        request.extensions_mut().insert(arrival.clone());
+        request
+    };
+    let join = |invite: &str, name: &str| {
+        json_request(
+            "POST",
+            "/api/v1/party/join",
+            None,
+            json!({"invite": invite, "name": name}),
+        )
+    };
+    // Another invite through this peer is refused, and isn't spent.
+    let (status, _, _) = send(&f, through(join(other, "Kim"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, kims) = send(&f, join(other, "Kim")).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _, sams) = send(&f, through(join(own, "Sam"))).await;
+    assert_eq!(status, StatusCode::CREATED, "{sams}");
+    // The peer carries Sam, who joined through it, and no one else.
+    let party = |pass: &Value| {
+        let auth = format!("Bearer {}", pass.as_str().unwrap());
+        json_request(
+            "GET",
+            "/api/v1/party",
+            Some(("authorization", &auth)),
+            Value::Null,
+        )
+    };
+    let (status, _, _) = send(&f, through(party(&sams["pass"]))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = send(&f, through(party(&kims["pass"]))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = send(&f, party(&kims["pass"])).await;
+    assert_eq!(status, StatusCode::OK);
+}

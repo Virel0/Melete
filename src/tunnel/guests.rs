@@ -34,6 +34,24 @@ pub struct Arrival {
 }
 
 impl Arrival {
+    /// Whether the invite hashed `invite_hash` may be used through this peer: a guest's peer
+    /// takes the invite it was made with, before anyone has joined through it, and no other.
+    pub fn may_join(&self, invite_hash: &[u8]) -> bool {
+        matches!(
+            self.peers.kind_of(self.address),
+            Some(Kind::Guest(guest)) if guest.guest_id.is_none() && guest.invite_hash == invite_hash
+        )
+    }
+
+    /// Whether guest `guest_id`'s pass may be used through this peer: a guest's peer carries
+    /// the guest who joined through it alone.
+    pub fn carries(&self, guest_id: i64) -> bool {
+        matches!(
+            self.peers.kind_of(self.address),
+            Some(Kind::Guest(guest)) if guest.guest_id == Some(guest_id)
+        )
+    }
+
     /// Ties the peer, when it's a guest's of party `party_id` that no guest has joined
     /// through yet, to `guest_id`, who just did: it lasts as long as they're in the party.
     pub fn joined(&self, party_id: i64, guest_id: i64) {
@@ -45,6 +63,28 @@ impl Arrival {
         {
             guest.guest_id = Some(guest_id);
         }
+    }
+}
+
+#[cfg(test)]
+impl Arrival {
+    /// A request through a guest's peer for party `party_id`, made with the invite hashed
+    /// `invite_hash`, that no guest has joined through yet.
+    pub fn guest_for_testing(party_id: i64, invite_hash: Vec<u8>) -> Arrival {
+        let peers = Arc::new(Peers::default());
+        let address = Ipv4Addr::new(10, 73, 0, 2);
+        let secret = gotatun::x25519::StaticSecret::from([7; 32]);
+        let kind = Kind::Guest(GuestPeer {
+            party_id,
+            invite_hash,
+            guest_id: None,
+            made_by: 1,
+        });
+        let public_key = gotatun::x25519::PublicKey::from(&secret);
+        peers
+            .lock()
+            .insert(address, super::Entry { public_key, kind });
+        Arrival { peers, address }
     }
 }
 

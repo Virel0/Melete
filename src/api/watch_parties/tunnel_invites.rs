@@ -32,11 +32,14 @@ pub(super) async fn make(
         .await?
         .map_err(refused)?;
     let hash = crate::auth::token_hash(&secret);
-    let made = match tunnel.add_guest(id, hash.clone(), current.user.id).await? {
+    let added = tunnel.add_guest(id, hash.clone(), current.user.id).await;
+    if !matches!(added, Ok(Ok(_))) {
+        // No peer, so no invite either.
+        guests::withdraw(&state.pool, &hash).await?;
+    }
+    let made = match added? {
         Ok(made) => made,
         Err(refusal) => {
-            // No peer, so no invite either.
-            guests::withdraw(&state.pool, &hash).await?;
             return Err(match refusal {
                 Refusal::Full => ApiError::new(
                     StatusCode::SERVICE_UNAVAILABLE,

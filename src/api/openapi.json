@@ -8196,6 +8196,16 @@
               }
             }
           },
+          "403": {
+            "description": "Through Melete's own tunnel, with a config made for another invite: a guest's tunnel peer takes its own invite alone, and then carries that guest's pass alone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "404": {
             "description": "The invite is unknown, used, past its day, or its party has ended",
             "content": {
