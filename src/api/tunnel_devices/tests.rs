@@ -257,3 +257,31 @@ async fn the_eleventh_device_is_refused() {
     let (status, _) = send(&h.on, alice, "POST", DEVICES, body).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
+
+#[tokio::test]
+async fn a_device_reaches_no_more_than_the_way_it_was_added_through_opens() {
+    let h = household().await;
+    let through = |opens: Vec<Part>, parts: Value| {
+        let mut request = Request::post(DEVICES)
+            .header("authorization", format!("Bearer {}", h.alice.1))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "name": "Laptop", "parts": parts }).to_string(),
+            ))
+            .unwrap();
+        request.extensions_mut().insert(Opens(Some(opens)));
+        request
+    };
+    let status = async |request: Request| h.on.clone().oneshot(request).await.unwrap().status();
+    // A way that opens watch parties alone, a VPS's say: signing in works there, but a device
+    // made through it can't reach the library.
+    let party_way = through(vec![Part::Party], json!(["video"]));
+    assert_eq!(status(party_way).await, StatusCode::FORBIDDEN);
+    let (_, listed) = send(&h.on, (&h.alice.1, None), "GET", DEVICES, Value::Null).await;
+    assert_eq!(listed["devices"], json!([]), "nothing was added");
+    let music_way = || vec![Part::Music, Part::Requests];
+    let wider = through(music_way(), json!(["music", "video"]));
+    assert_eq!(status(wider).await, StatusCode::FORBIDDEN);
+    let same = through(music_way(), json!(["music", "requests"]));
+    assert_eq!(status(same).await, StatusCode::CREATED);
+}

@@ -18,6 +18,7 @@ use sqlx::SqlitePool;
 use super::auth::{AppState, CurrentUser, require_user};
 use super::{ApiError, bad_request};
 use crate::tunnel::{self, Arrival, MAX_PER_USER, NewDevice, Refusal, Slot};
+use crate::ways_in::Opens;
 use crate::ways_in::Part;
 
 /// The longest a device's name is.
@@ -131,12 +132,14 @@ pub(super) fn public_key_of(text: &str) -> Result<[u8; 32], ApiError> {
     Ok(key)
 }
 
-/// Adds a device for the caller, as its body says; through a device's own tunnel, one that
-/// reaches no more than that device does.
+/// Adds a device for the caller, as its body says: one that reaches no more than the way in it's
+/// added through opens (a way that opens only watch parties can't make a device that reaches
+/// the library), and through a device's own tunnel, no more than that device does.
 async fn add(
     State(state): State<DeviceState>,
     Extension(current): Extension<CurrentUser>,
     arrival: Option<Extension<Arrival>>,
+    opens: Option<Extension<Opens>>,
     Json(body): Json<NewBody>,
 ) -> Result<Response, ApiError> {
     let tunnel = state.tunnel.get().cloned().ok_or_else(|| {
@@ -148,6 +151,18 @@ async fn add(
     let name = name_of(&body.name)?.to_owned();
     let parts = tunnel::device_parts(&body.parts).map_err(|e| bad_request(&e))?;
     let public_key = body.public_key.as_deref().map(public_key_of).transpose()?;
+    if let Some(Extension(opens)) = &opens
+        && let Some(shut) = parts.iter().find(|p| !opens.has(**p))
+    {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            format!(
+                "the way you came in by doesn't open {}, so a device added through it can't \
+                 reach it; add it from home, or give it only what this way opens",
+                tunnel::part_name(*shut)
+            ),
+        ));
+    }
     if let Some(Extension(arrival)) = &arrival
         && let Some(through) = arrival.device()
         && !parts.iter().all(|p| through.parts.contains(p))
