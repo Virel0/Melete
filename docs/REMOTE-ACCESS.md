@@ -237,6 +237,10 @@ devices**, or from an app (`POST /api/v1/tunnel/devices`).
   devices need as well as `party`: replace section 6's `guests 10.73.0.0/24 party` with, say,
   `tunnel 10.73.0.0/24 video,music,requests,party`. A device then reaches what both the way
   and the device open, and a guest still reaches their party alone.
+- Admins see every peer on the tunnel, devices and guests, under **Manage → System → Tunnel**:
+  who it is, whether it's connected, its data and connections, what it's doing and, only while
+  it's connected, the outside address it connects from (never kept). **Remove** there cuts any
+  peer off at once; a device is deleted, and a guest leaves their party.
 
 ## What each way shows to whom
 

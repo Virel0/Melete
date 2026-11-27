@@ -72,6 +72,21 @@ impl Forget {
     }
 }
 
+/// How many connections each peer has open, as of the stack's last turn: read by the admins'
+/// tunnel page without waiting on the stack.
+#[derive(Default)]
+pub struct Open(Mutex<Vec<(Ipv4Addr, usize)>>);
+
+impl Open {
+    /// The connections `address` has open.
+    pub fn of(&self, address: Ipv4Addr) -> usize {
+        let open = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        open.iter()
+            .find(|(a, _)| *a == address)
+            .map_or(0, |(_, n)| *n)
+    }
+}
+
 /// Whether a decrypted packet may reach the stack: IPv4, whole, TCP, to Melete's own address
 /// and port.
 pub fn admits(own: Ipv4Addr, packet: &[u8]) -> bool {
@@ -155,6 +170,9 @@ pub struct Stack {
     accepted: mpsc::Sender<(Stream, SocketAddr)>,
     forget: Arc<Forget>,
     started: std::time::Instant,
+    /// Where each turn's count of connections goes, and that count.
+    open: Arc<Open>,
+    counted: Vec<(Ipv4Addr, usize)>,
 }
 
 /// The ends of the stack's queues, for WireGuard and the HTTP server.
@@ -190,7 +208,15 @@ impl Stack {
             accepted: joins.accepted,
             forget,
             started: std::time::Instant::now(),
+            open: Arc::default(),
+            counted: Vec::new(),
         }
+    }
+
+    /// The stack, counting each peer's connections into `open`.
+    pub fn counting(mut self, open: Arc<Open>) -> Stack {
+        self.open = open;
+        self
     }
 
     fn now(&self) -> Instant {
@@ -232,6 +258,34 @@ impl Stack {
             for packet in self.queues.outgoing.drain(..) {
                 let _ = self.to_tunnel.try_send(packet);
             }
+            self.count();
+        }
+    }
+
+    /// Counts each peer's sockets out of listening and not closed, as [`PER_PEER`] does, into
+    /// [`Open`] when the count changed.
+    fn count(&mut self) {
+        self.counted.clear();
+        for conn in &self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            if socket.is_listening() || socket.state() == tcp::State::Closed {
+                continue;
+            }
+            let from = conn
+                .peer
+                .as_ref()
+                .map(|(ip, _)| *ip)
+                .or_else(|| remote(socket));
+            let Some(ip) = from else { continue };
+            match self.counted.iter_mut().find(|(a, _)| *a == ip) {
+                Some((_, n)) => *n += 1,
+                None => self.counted.push((ip, 1)),
+            }
+        }
+        self.counted.sort_unstable();
+        let mut open = self.open.0.lock().unwrap_or_else(|e| e.into_inner());
+        if *open != self.counted {
+            open.clone_from(&self.counted);
         }
     }
 

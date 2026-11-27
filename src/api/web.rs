@@ -26,7 +26,7 @@ const MORE_STYLES: [(&str, &str); 8] = [
 /// The tab's icon, in the page's ink and brass.
 const ICON: &str = include_str!("../web/icon.svg");
 /// The page's modules, by the name they're served under in `/web/`.
-const MODULES: [(&str, &str); 175] = [
+const MODULES: [(&str, &str); 176] = [
     ("app.js", include_str!("../web/app.js")),
     ("shell.js", include_str!("../web/shell.js")),
     ("sides.js", include_str!("../web/sides.js")),
@@ -118,6 +118,7 @@ const MODULES: [(&str, &str); 175] = [
         "tunnel-devices.js",
         include_str!("../web/tunnel-devices.js"),
     ),
+    ("tunnel-page.js", include_str!("../web/tunnel-page.js")),
     ("licences.js", include_str!("../web/licences.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),
     ("sign-in-code.js", include_str!("../web/sign-in-code.js")),
@@ -1308,6 +1309,29 @@ mod tests {
             ("/web/library-rescan.js", "/rescan"),
             ("/web/library-sweep.js", "/scan-and-search"),
             ("/web/services.js", "#/admin/system/downloading"),
+        ] {
+            let request = Request::get(uri).body(Body::empty()).unwrap();
+            let response = routes().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(
+                String::from_utf8_lossy(&body).contains(needle),
+                "{uri}: {needle}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn serves_the_tunnel_page_and_lists_it_under_system() {
+        for (uri, needle) in [
+            (
+                "/web/manage-services.js",
+                r#"{ key: "tunnel", name: "Tunnel" }"#,
+            ),
+            ("/web/admin.js", "tunnel: tunnelPage"),
+            ("/web/tunnel-page.js", "/tunnel/peers/${row.p.address}"),
+            ("/web/tunnel-page.js", "visibilitychange"),
+            ("/web/tunnel-page.js", "confirmInline"),
         ] {
             let request = Request::get(uri).body(Body::empty()).unwrap();
             let response = routes().oneshot(request).await.unwrap();

@@ -221,8 +221,7 @@ impl Tunnel {
         self.forget_peer(address, entry).await;
     }
 
-    /// What the peer at `address` is, for tests outside the tunnel.
-    #[cfg(test)]
+    /// What the peer at `address` is; None when there's none.
     pub fn kind_of(&self, address: Ipv4Addr) -> Option<Kind> {
         self.peers.kind_of(address)
     }
@@ -262,8 +261,7 @@ impl Tunnel {
             if clash || peers.len() >= MAX_PEERS {
                 return Ok(Err("the tunnel has no room for it"));
             }
-            let kind = None;
-            peers.insert(address, Entry { public_key, kind });
+            peers.insert(address, Entry::held(public_key));
         }
         let parts = row.parts();
         let kind = Kind::Device(DevicePeer {

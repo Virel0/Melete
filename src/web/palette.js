@@ -97,6 +97,7 @@ const ADMIN = [
   { name: "Outside services", href: "#/admin/system/services", kind: "Manage", words: "tmdb musicbrainz flaresolverr openrouter identity provider oidc lyrics" },
   { name: "Matching titles by hand", href: "#/admin/system/matching", kind: "Manage", words: "unmatched tmdb fix" },
   { name: "Searches and downloads", href: "#/admin/system/activity", kind: "Manage", words: "activity progress importing" },
+  { name: "Tunnel", href: "#/admin/system/tunnel", kind: "Manage", words: "wireguard peers devices guests connected remove" },
   { name: "Trash", href: "#/admin/system/trash", kind: "Manage", words: "put back restore upgrades" },
   { name: "Diagnostics", href: "#/admin/system/diagnostics", kind: "Manage", words: "reports logs errors" },
 ];

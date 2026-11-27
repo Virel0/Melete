@@ -671,6 +671,56 @@
         }
       }
     },
+    "/api/v1/tunnel/peers": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Every peer on Melete's own tunnel, now",
+        "description": "Every peer Melete's own WireGuard tunnel has now, by address: household devices (`kind` `device`, with the device and its user) and watch party guests (`kind` `guest`, with the party, the guest once one has joined through it, and as `user` the household user who made the invite). For each: whether it's connected (a handshake within the last 3 minutes), how long ago its last handshake was, the bytes received from it and sent to it since it was added (a restart starts them again), its connections open now, and what it's doing (`activity`, from its requests as the tunnel's gate sees them: `watching` for a video stream or transcode, `listening` for a track's stream, `in_party` for a watch party guest's routes, `downloading` for an offline copy's download, each for 90 seconds after its last such request, else `browsing`; null before its first request) with when its last request came. `endpoint`, the outside address and port it connects from, is given only while it's connected and is never kept or logged. No key is in the answer.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TunnelPeers"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "Melete's own tunnel isn't set up on this server",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/tunnel/peers/{address}": {
+      "delete": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Remove a peer from Melete's own tunnel",
+        "description": "Removes the peer at `address` at once: its requests are refused, WireGuard forgets it and its connections are dropped. A household device is deleted too, so it doesn't come back when the tunnel starts again. A watch party guest's peer takes the guest out of their party, as sending them away does (their pass and stream links end); one no guest has joined through yet takes its invite with it.",
+        "parameters": [
+          {"name": "address", "in": "path", "required": true, "description": "The peer's address in the tunnel, such as `10.73.0.2`, from the peer list.", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "204": {"description": "Removed"},
+          "400": {
+            "description": "Not an IPv4 address",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {
+            "description": "The tunnel has no peer at that address",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Melete's own tunnel isn't set up on this server",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/auth/quick-connect": {
       "post": {
         "tags": ["Accounts"],
@@ -14357,6 +14407,65 @@
           "endpoint": {"type": "string", "description": "Where the device reaches the tunnel, `host:port`."},
           "preshared_key": {"type": "string", "description": "The peer's preshared key, base64, made by Melete and kept sealed; shown this once."},
           "wireguard_config": {"type": ["string", "null"], "description": "When Melete made the key pair: the device's WireGuard config (`[Interface]` with its private key and address; `[Peer]` with Melete's public key, the preshared key, Melete's tunnel address as the only allowed IP, and the endpoint), shown this once; the private key isn't kept. Null when the device sent its own public key."}
+        },
+        "additionalProperties": false
+      },
+      "TunnelPeers": {
+        "type": "object",
+        "required": ["max_peers", "peers"],
+        "properties": {
+          "max_peers": {"type": "integer", "description": "The most peers the tunnel has at once, devices and guests together."},
+          "peers": {"type": "array", "items": {"$ref": "#/components/schemas/TunnelPeer"}}
+        },
+        "additionalProperties": false
+      },
+      "TunnelPeer": {
+        "type": "object",
+        "required": ["address", "kind", "user", "device", "guest", "connected", "last_handshake", "rx_bytes", "tx_bytes", "connections", "activity", "last_request_at", "endpoint"],
+        "properties": {
+          "address": {"type": "string", "description": "Its address in the tunnel, such as `10.73.0.2`."},
+          "kind": {"type": "string", "enum": ["device", "guest"]},
+          "user": {"$ref": "#/components/schemas/TunnelPeerUser"},
+          "device": {"oneOf": [{"$ref": "#/components/schemas/TunnelPeerDevice"}, {"type": "null"}], "description": "For a household device."},
+          "guest": {"oneOf": [{"$ref": "#/components/schemas/TunnelPeerGuest"}, {"type": "null"}], "description": "For a watch party guest."},
+          "connected": {"type": "boolean", "description": "Whether its last handshake was within the last 3 minutes."},
+          "last_handshake": {"type": ["integer", "null"], "description": "Seconds since its last handshake; null before its first."},
+          "rx_bytes": {"type": "integer", "description": "Bytes received from it through WireGuard since it was added or Melete started."},
+          "tx_bytes": {"type": "integer", "description": "Bytes sent to it the same way."},
+          "connections": {"type": "integer", "description": "Its TCP connections to Melete open now, at most 8."},
+          "activity": {"type": ["string", "null"], "enum": ["browsing", "watching", "listening", "in_party", "downloading", null], "description": "What it's doing, from its requests: see the operation."},
+          "last_request_at": {"type": ["integer", "null"], "description": "When its last request came; null before its first."},
+          "endpoint": {"type": ["string", "null"], "description": "The outside address and port it connects from, such as `192.168.1.10:51000`, while it's connected alone; never kept or logged."}
+        },
+        "additionalProperties": false
+      },
+      "TunnelPeerUser": {
+        "type": "object",
+        "required": ["id", "username"],
+        "properties": {
+          "id": {"type": "integer"},
+          "username": {"type": ["string", "null"], "description": "Null when the user is gone."}
+        },
+        "description": "Whose it is: a device's user, or the household user who made a guest's invite.",
+        "additionalProperties": false
+      },
+      "TunnelPeerDevice": {
+        "type": "object",
+        "required": ["id", "name", "parts"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": ["string", "null"], "description": "Such as \"Living room iPad\"; null when the device was just deleted."},
+          "parts": {"type": "array", "items": {"$ref": "#/components/schemas/TunnelDevicePart"}}
+        },
+        "additionalProperties": false
+      },
+      "TunnelPeerGuest": {
+        "type": "object",
+        "required": ["party_id", "guest_id", "name"],
+        "properties": {
+          "party_id": {"type": "integer"},
+          "guest_id": {"type": ["integer", "null"], "description": "The guest who joined through it; null before anyone has."},
+          "name": {"type": ["string", "null"], "description": "What the guest called themselves; null before anyone has joined."}
         },
         "additionalProperties": false
       },

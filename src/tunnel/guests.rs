@@ -1,10 +1,11 @@
 //! The tunnel's gate, and its watch party guests' peers. Every request through the tunnel
 //! comes from a peer's address; the gate refuses one whose peer is gone, holds a guest's peer
 //! to the party's routes (`Part::Party`) and the web page's static files, and a household
-//! device's to its parts, and notes the peer on the request ([`Arrival`]) so joining a party
-//! can tie the peer to the guest who joined, and signing in can hold a device to its user. A
-//! guest's peer is kept while its invite is unused and good, then while that guest is in their
-//! party, and removed as soon as the sweep finds otherwise.
+//! device's to its parts, notes what each request is for (for the admins' tunnel page), and
+//! notes the peer on the request ([`Arrival`]) so joining a party can tie the peer to the guest
+//! who joined, and signing in can hold a device to its user. A guest's peer is kept while its
+//! invite is unused and good, then while that guest is in their party, and removed as soon as
+//! the sweep finds otherwise.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -99,9 +100,9 @@ impl Arrival {
             made_by: 1,
         }));
         let public_key = gotatun::x25519::PublicKey::from(&secret);
-        peers
-            .lock()
-            .insert(address, super::Entry { public_key, kind });
+        let mut entry = super::Entry::held(public_key);
+        entry.kind = kind;
+        peers.lock().insert(address, entry);
         Arrival { peers, address }
     }
 
@@ -116,9 +117,9 @@ impl Arrival {
             parts,
         }));
         let public_key = gotatun::x25519::PublicKey::from(&secret);
-        peers
-            .lock()
-            .insert(address, super::Entry { public_key, kind });
+        let mut entry = super::Entry::held(public_key);
+        entry.kind = kind;
+        peers.lock().insert(address, entry);
         Arrival { peers, address }
     }
 }
@@ -149,6 +150,7 @@ pub(super) async fn guard(
         }
         Kind::Device(_) => {}
     }
+    peers.note(address, request.uri().path());
     request.extensions_mut().insert(Arrival { peers, address });
     next.run(request).await
 }
