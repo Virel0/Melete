@@ -195,7 +195,10 @@ async fn events(
     let listened = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let watched = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let scanned = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let stream = super::progress::stream_of(pool, &current, false, move |pool| {
+    // A watch party's changes are sent at once: a play set a moment ahead must reach every
+    // device before it starts.
+    let wake = video.then(crate::watch_party::changes);
+    let stream = super::progress::stream_of(pool, &current, (false, wake), move |pool| {
         let device = device.clone();
         let access = access.clone();
         let listened = listened.clone();
@@ -685,6 +688,58 @@ mod tests {
         assert_eq!(
             (kind(&left), left.lines().nth(1)),
             ("watch_party", Some("data: []"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_watch_party_change_is_sent_at_once_not_at_the_next_look() {
+        let pool = crate::db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'films', 'movies', '/f');
+             INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation)
+                 VALUES (1, 1, 'Film', 'Film', 1);
+             INSERT INTO media_files (id, library_id, rel_path, size, modified_at, movie_id,
+                 first_seen_generation, seen_generation) VALUES (1, 1, 'Film/f.mkv', 1, 0, 1, 1, 1);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (alice, token) = user(&pool, "alice").await;
+        let token_id: i64 = sqlx::query_scalar("SELECT id FROM tokens WHERE user_id = ?")
+            .bind(alice)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let paused = crate::watch_party::State {
+            file_id: 1,
+            position_ms: 0,
+            playing: false,
+        };
+        let id = crate::watch_party::start(&pool, (alice, token_id), &paused, None)
+            .await
+            .unwrap()
+            .unwrap();
+        let app = routes(pool.clone()).merge(crate::api::watch_parties::routes(pool.clone()));
+        let (first, mut body) = open(&app, &token, "/api/v1/events", None).await;
+        assert!(first.iter().any(|e| kind(e) == "watch_party"));
+        // Played through the API just after a look: the next look is over a second away.
+        let asked = std::time::Instant::now();
+        let play = Request::put(format!("/api/v1/watch-parties/{id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"version":1,"file_id":1,"position_ms":0,"playing":true}"#,
+            ))
+            .unwrap();
+        let answered = app.clone().oneshot(play).await.unwrap();
+        assert_eq!(answered.status(), StatusCode::OK);
+        let changed = next_event(&mut body).await;
+        assert_eq!(kind(&changed), "watch_party");
+        assert!(changed.contains(r#""playing":true"#), "{changed}");
+        assert!(
+            asked.elapsed() < Duration::from_millis(700),
+            "sent {:?} after the change",
+            asked.elapsed()
         );
     }
 }
