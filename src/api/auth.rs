@@ -139,7 +139,7 @@ pub async fn require_user(
     };
     #[cfg(test)]
     note_scope(&request, needed);
-    let current = signed_in(&state, request.method(), request.headers(), needed).await?;
+    let current = signed_in(&state, Asked::of(&request), needed).await?;
     Ok(run(current, request, next).await)
 }
 
@@ -160,7 +160,7 @@ pub async fn require_playback(
     };
     #[cfg(test)]
     note_scope(&request, needed);
-    let current = signed_in(&state, request.method(), request.headers(), needed).await?;
+    let current = signed_in(&state, Asked::of(&request), needed).await?;
     Ok(run(current, request, next).await)
 }
 
@@ -176,13 +176,7 @@ pub async fn require_music_sync(
 ) -> Result<Response, ApiError> {
     #[cfg(test)]
     note_scope(&request, Scope::MusicSync);
-    let current = signed_in(
-        &state,
-        request.method(),
-        request.headers(),
-        Scope::MusicSync,
-    )
-    .await?;
+    let current = signed_in(&state, Asked::of(&request), Scope::MusicSync).await?;
     Ok(run(current, request, next).await)
 }
 
@@ -199,21 +193,47 @@ pub async fn require_admin(
     note_admin_route(&request);
     #[cfg(test)]
     note_scope(&request, Scope::Full);
-    let current = signed_in(&state, request.method(), request.headers(), Scope::Full).await?;
+    let current = signed_in(&state, Asked::of(&request), Scope::Full).await?;
     if !current.user.is_admin {
         return Err(ApiError::new(StatusCode::FORBIDDEN, "admins only"));
     }
     Ok(run(current, request, next).await)
 }
 
-/// Who's signed in for a request, when their token reaches what the route needs.
+/// What signing in reads of a request: how it asks, its headers, and the tunnel peer it came
+/// through, if any.
+struct Asked<'a> {
+    method: &'a Method,
+    headers: &'a HeaderMap,
+    arrival: Option<crate::tunnel::Arrival>,
+}
+
+impl<'a> Asked<'a> {
+    fn of(request: &'a Request) -> Self {
+        Asked {
+            method: request.method(),
+            headers: request.headers(),
+            arrival: request.extensions().get().cloned(),
+        }
+    }
+}
+
+/// Who's signed in for a request, when their token reaches what the route needs. Through a
+/// household device's tunnel peer, only the device's own user is.
 async fn signed_in(
     state: &AppState,
-    method: &Method,
-    headers: &HeaderMap,
+    asked: Asked<'_>,
     needed: Scope,
 ) -> Result<CurrentUser, ApiError> {
-    let current = authenticate(&state.pool, method, headers).await?;
+    let current = authenticate(&state.pool, asked.method, asked.headers).await?;
+    if let Some(arrival) = asked.arrival
+        && !arrival.signs_in(current.user.id)
+    {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "this tunnel config is another user's device; sign in as its user, or use your own",
+        ));
+    }
     if !current.scope.reaches(needed) {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,

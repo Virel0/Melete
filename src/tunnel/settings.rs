@@ -77,6 +77,13 @@ impl Settings {
         let last = u32::from(self.net.0) + (1u32 << (32 - self.net.1)) - 2;
         (first..=last).map(Ipv4Addr::from)
     }
+
+    /// Whether `address` is one peers may be given.
+    pub fn is_peer_address(&self, address: Ipv4Addr) -> bool {
+        let first = u32::from(self.net.0) + 2;
+        let last = u32::from(self.net.0) + (1u32 << (32 - self.net.1)) - 2;
+        (first..=last).contains(&u32::from(address))
+    }
 }
 
 /// A range as `MELETE_TUNNEL_NET` gives it: private IPv4, from /16 to /29, written from its

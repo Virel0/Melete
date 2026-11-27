@@ -594,6 +594,83 @@
         }
       }
     },
+    "/api/v1/tunnel/devices": {
+      "get": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "read",
+        "summary": "Your devices on Melete's own tunnel",
+        "description": "Your household devices on Melete's own WireGuard tunnel, oldest first, with no keys. `enabled` says whether the tunnel is set up on this server (`MELETE_TUNNEL_PORT`), so whether one can be added.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TunnelDevices"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"}
+        }
+      },
+      "post": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Add a device to Melete's own tunnel",
+        "description": "Adds a household device of yours to Melete's own WireGuard tunnel, kept across restarts with the same address. An app sends its own `public_key`, so its private key never leaves the device; without one, Melete makes the pair and returns a `wireguard_config` holding the private key, which isn't kept. Melete always makes the preshared key, returns it here and keeps it sealed. Both are shown this once. Through the tunnel the device reaches sign-in, your own account, the event stream and the web page, plus the `parts` it's given, as you alone: a request signed in as anyone else, or for another part, is refused with 403, and admin routes still need you to be an admin. When ways in are set (`MELETE_WAYS_IN`), one must open those parts for the tunnel's range. Through a device's own tunnel, a new device may reach no more than that one does. Each user has at most 10 devices.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewTunnelDevice"}}}
+        },
+        "responses": {
+          "201": {
+            "description": "Added",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TunnelDeviceAdded"}}}
+          },
+          "400": {
+            "description": "Bad name, an unknown part or none, or a public key that isn't 32 bytes in base64",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {
+            "description": "Through a device's tunnel, a new device that would reach more than it does",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "409": {
+            "description": "Melete's own tunnel isn't set up on this server, or the public key is already on it",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "429": {
+            "description": "You have 10 devices on the tunnel",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "503": {
+            "description": "The tunnel has as many peers as it takes",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/tunnel/devices/{id}": {
+      "delete": {
+        "tags": ["Accounts"],
+        "x-melete-access": "user",
+        "x-melete-scope": "full",
+        "summary": "Remove a device from Melete's own tunnel",
+        "description": "Removes one of your devices, or anyone's for an admin. Its peer is gone from the tunnel and its connections are dropped at once. Deleting a user removes their devices too.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "Device id from the device list.", "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "204": {"description": "Removed"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "404": {
+            "description": "No such device of yours",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/auth/quick-connect": {
       "post": {
         "tags": ["Accounts"],
@@ -14228,6 +14305,60 @@
       "KeyScope": {
         "enum": ["read", "playback", "music-sync", "full"],
         "description": "What a token may reach: an operation's `x-melete-scope` names the scope it needs. `read`: reading (GET and HEAD) what any signed-in user may. `playback`: that, plus playing and reporting progress. `music-sync`: Aoide's routes alone. `full`: everything its user may do. Sessions are always full; a key below full never reaches an admin route, even an admin's."
+      },
+      "TunnelDevicePart": {
+        "enum": ["video", "music", "requests", "admin"],
+        "description": "A part of Melete a tunnel device reaches, as `MELETE_WAYS_IN` names them. A music app's device wants `music` and `requests`, a video app's `video` and `requests`, and a full config all four."
+      },
+      "TunnelDevice": {
+        "type": "object",
+        "required": ["id", "name", "parts", "address", "created_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string", "description": "1-60 characters, e.g. \"Living room iPad\"."},
+          "parts": {"type": "array", "items": {"$ref": "#/components/schemas/TunnelDevicePart"}},
+          "address": {"type": ["string", "null"], "description": "The device's own address in the tunnel, such as `10.73.0.2`, the same across restarts."},
+          "created_at": {"type": "integer"}
+        },
+        "additionalProperties": false
+      },
+      "TunnelDevices": {
+        "type": "object",
+        "required": ["enabled", "limit", "devices"],
+        "properties": {
+          "enabled": {"type": "boolean", "description": "Whether Melete's own tunnel is set up on this server, so whether a device can be added."},
+          "limit": {"type": "integer", "description": "The most devices one user has."},
+          "devices": {"type": "array", "items": {"$ref": "#/components/schemas/TunnelDevice"}}
+        },
+        "additionalProperties": false
+      },
+      "NewTunnelDevice": {
+        "type": "object",
+        "required": ["name", "parts", "public_key"],
+        "properties": {
+          "name": {"type": "string", "description": "1-60 characters, e.g. \"Living room iPad\"."},
+          "parts": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/TunnelDevicePart"}},
+          "public_key": {"type": ["string", "null"], "description": "The device's own WireGuard public key, 32 bytes in base64. Null (or left out) for Melete to make the key pair and return a `wireguard_config`."}
+        },
+        "additionalProperties": false
+      },
+      "TunnelDeviceAdded": {
+        "type": "object",
+        "required": ["id", "name", "parts", "address", "created_at", "server_public_key", "server_address", "server", "endpoint", "preshared_key", "wireguard_config"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string"},
+          "parts": {"type": "array", "items": {"$ref": "#/components/schemas/TunnelDevicePart"}},
+          "address": {"type": "string", "description": "The device's own address in the tunnel, such as `10.73.0.2`: its interface's address, and the only one its packets may come from."},
+          "created_at": {"type": "integer"},
+          "server_public_key": {"type": "string", "description": "Melete's WireGuard public key, base64."},
+          "server_address": {"type": "string", "description": "Melete's address in the tunnel, such as `10.73.0.1`: the only allowed IP for the device's peer."},
+          "server": {"type": "string", "description": "Melete as the device reaches it through the tunnel, such as `http://10.73.0.1`."},
+          "endpoint": {"type": "string", "description": "Where the device reaches the tunnel, `host:port`."},
+          "preshared_key": {"type": "string", "description": "The peer's preshared key, base64, made by Melete and kept sealed; shown this once."},
+          "wireguard_config": {"type": ["string", "null"], "description": "When Melete made the key pair: the device's WireGuard config (`[Interface]` with its private key and address; `[Peer]` with Melete's public key, the preshared key, Melete's tunnel address as the only allowed IP, and the endpoint), shown this once; the private key isn't kept. Null when the device sent its own public key."}
+        },
+        "additionalProperties": false
       },
       "QuickConnectRequest": {
         "type": "object",
