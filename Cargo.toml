@@ -35,7 +35,9 @@ hmac = "=0.13.0"
 # CONNECT handshakes, and TLS to an HTTPS proxy, checked as reqwest checks it. All in the build
 # already through reqwest, at these versions and with these features: naming them adds no crate.
 http = "=1.5.0"
-hyper-util = { version = "=0.1.21", default-features = false, features = ["client-legacy", "client-proxy", "tokio"] }
+# HTTPS served by Melete itself: hyper's HTTP/1.1 server under the TLS listener (src/tls.rs).
+hyper = { version = "=1.12.0", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", default-features = false, features = ["client-legacy", "client-proxy", "tokio", "server", "http1", "service"] }
 libc = "=0.2.191"
 quick-xml = "=0.42.0"
 regex = "=1.13.1"
@@ -74,4 +76,6 @@ tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
 http-body-util = "=0.1.5"
+# Throwaway certificates for the HTTPS tests, made as they run rather than kept in the repo.
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 tempfile = "=3.27.0"

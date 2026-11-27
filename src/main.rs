@@ -109,6 +109,7 @@ mod stems;
 mod subtitles;
 mod sweep;
 mod tasks;
+mod tls;
 mod tmdb;
 mod tmdb_status;
 mod torznab;
@@ -223,6 +224,17 @@ async fn main() -> anyhow::Result<()> {
     spawn_background_jobs(&pool, &config, libraries, tmdb);
     start_tunnel(&pool, &config, &live).await?;
 
+    // HTTPS beside plain HTTP, when it's set up: the same service, over TLS.
+    if let Some(tls) = &config.tls {
+        let ready = tls::prepare(tls).await?;
+        let bound = ready.local_addr()?;
+        tracing::info!(%bound, proxy_protocol = tls.proxy_protocol, "HTTPS listening");
+        tokio::spawn(tls::serve(
+            ready,
+            live.service(),
+            config.ways_in.proxies.clone(),
+        ));
+    }
     // Connection info gives sign-in lockouts and the ways in the caller's address.
     let app = live
         .service()

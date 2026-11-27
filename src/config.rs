@@ -15,11 +15,13 @@ mod alerts;
 mod libraries;
 mod reading;
 mod services;
+mod tls;
 
 pub use alerts::*;
 use libraries::*;
 pub use reading::*;
 pub use services::*;
+pub use tls::Tls;
 
 const DEFAULT_BIND: SocketAddr =
     SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 8100);
@@ -29,6 +31,8 @@ const DEFAULT_BIND: SocketAddr =
 pub struct Config {
     /// The address and port the HTTP server listens on (`MELETE_BIND`, default 0.0.0.0:8100).
     pub bind: SocketAddr,
+    /// HTTPS served by Melete itself (`MELETE_TLS_*`); none by default.
+    pub tls: Option<Tls>,
     /// Where `melete.db` lives (`MELETE_DATA_DIR`, default `/config`).
     pub data_dir: PathBuf,
     /// One per `MELETE_LIBRARY_<NAME>=<kind>:<path>` variable, sorted by name.
@@ -242,6 +246,7 @@ impl Config {
         let proxy = crate::proxy::Setup::from_lookup(&get)?;
         Ok(Self {
             bind,
+            tls: tls::tls(&get)?,
             data_dir,
             libraries: Vec::new(),
             library_categories: Vec::new(),
