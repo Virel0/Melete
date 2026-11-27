@@ -13,7 +13,9 @@
 //! One file at a time, in the background after each scan and probe, each version of a file
 //! once, while it's turned on (`MELETE_INTRO_DETECTION`, off by default, as the first run
 //! decodes part of every episode). An episode alone in its season waits for another. Turned
-//! off, nothing new is looked for, and what was found is still served.
+//! off, nothing new is looked for, and what was found is still served. Each scan keeps the way
+//! it was done ([`DETECTION`]); once that changes, files looked at an older way are looked at
+//! again, after any never looked at, while what was found the old way is still served.
 //!
 //! Each intro and credits found by matching is told apart as one of the series' openings or
 //! endings ([`themes`]), so a player can leave alone, the first time, one a user hasn't heard.
@@ -52,6 +54,10 @@ const CREDITS_LENGTH: (f64, f64) = (15.0, 300.0);
 /// Other episodes each one is compared with.
 const PARTNERS: usize = 3;
 const DECODE_TIMEOUT: Duration = Duration::from_secs(300);
+/// The way intros and credits are found, kept with each scan: a file looked at an older way is
+/// looked at again, after files never looked at. 2: a stretch's edges trimmed to where both
+/// episodes' audio is close frame by frame.
+const DETECTION: i64 = 2;
 
 /// What a pass of intro and credits detection did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -86,7 +92,22 @@ struct Row {
     season: i64,
     episode: i64,
     duration: f64,
-    current: bool,
+    /// This version of the file was looked at,
+    looked_at: bool,
+    /// and the way it's done now ([`DETECTION`]).
+    this_way: bool,
+}
+
+impl Row {
+    /// Whether there's nothing more to do for it.
+    fn current(&self) -> bool {
+        self.looked_at && self.this_way
+    }
+
+    /// Looked at before, the way it was done then: what was found is still served meanwhile.
+    fn outdated(&self) -> bool {
+        self.looked_at && !self.this_way
+    }
 }
 
 /// An episode's fingerprints: of its opening and, from `credits_from` seconds, of its end.
@@ -137,7 +158,8 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Re
         "SELECT f.id, l.path AS root, f.rel_path, f.size, f.modified_at, f.series_id, f.season,
              f.episode, json_extract(p.info, '$.duration_seconds') AS duration,
              (s.file_id IS NOT NULL AND s.size = f.size AND s.modified_at = f.modified_at)
-                 AS current
+                 AS looked_at,
+             coalesce(s.version = ?, 0) AS this_way
          FROM media_files f
          JOIN libraries l ON l.id = f.library_id
          JOIN media_probes p ON p.file_id = f.id AND p.size = f.size
@@ -147,6 +169,7 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Re
            AND json_extract(p.info, '$.duration_seconds') >= ?
          ORDER BY f.series_id, f.season, f.episode, f.id",
     )
+    .bind(DETECTION)
     .bind(SHORTEST)
     .fetch_all(pool)
     .await?;
@@ -162,12 +185,15 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Re
         }
     }
     seasons.retain(|season| {
-        let pending = season.iter().any(|r| !r.current);
+        let pending = season.iter().any(|r| !r.current());
         let mut numbers: Vec<i64> = season.iter().map(|r| r.episode).collect();
         numbers.dedup();
         pending && numbers.len() >= 2
     });
-    let total = seasons.iter().flatten().filter(|r| !r.current).count();
+    // Seasons with an episode never looked at (or changed) first; then those only looked at
+    // an older way, a season at a time.
+    seasons.sort_by_key(|season| season.iter().all(|r| r.current() || r.outdated()));
+    let total = seasons.iter().flatten().filter(|r| !r.current()).count();
     let pace = Pace::start("segments", "looking for intros and credits", total);
     let mut report = Report::default();
     for season in seasons {
@@ -187,8 +213,12 @@ async fn look_through(
     pace: &Pace,
 ) -> anyhow::Result<()> {
     let mut prints: HashMap<i64, Decoded> = HashMap::new();
-    let mut fresh: Vec<i64> = season.iter().filter(|r| r.current).map(|r| r.id).collect();
-    for row in season.iter().filter(|r| !r.current) {
+    let mut fresh: Vec<i64> = season
+        .iter()
+        .filter(|r| r.current())
+        .map(|r| r.id)
+        .collect();
+    for row in season.iter().filter(|r| !r.current()) {
         let item = pace.item();
         if let Entry::Vacant(entry) = prints.entry(row.id) {
             entry.insert(decode(ffmpeg, row).await);
@@ -354,17 +384,18 @@ async fn record(
 ) -> anyhow::Result<(Option<i64>, Option<i64>)> {
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at, error)
-         VALUES (?, ?, ?, ?, ?)
+        "INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at, error, version)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (file_id) DO UPDATE SET size = excluded.size,
              modified_at = excluded.modified_at, scanned_at = excluded.scanned_at,
-             error = excluded.error",
+             error = excluded.error, version = excluded.version",
     )
     .bind(row.id)
     .bind(row.size)
     .bind(row.modified_at)
     .bind(unix_now())
     .bind(error)
+    .bind(DETECTION)
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM media_segments WHERE file_id = ?")

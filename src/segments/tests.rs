@@ -319,3 +319,42 @@ async fn openings_and_endings_are_told_apart_across_seasons() {
     assert_eq!(again.scanned, 1);
     assert_eq!(themes_of(&s.pool, "intro").await, intros);
 }
+
+#[tokio::test]
+async fn files_looked_at_an_older_way_are_looked_at_again_and_served_meanwhile() {
+    let s = season().await;
+    assert_eq!(
+        find_pending(&s.pool, Path::new("ffmpeg"))
+            .await
+            .unwrap()
+            .scanned,
+        3
+    );
+    let versions = || {
+        sqlx::query_scalar::<_, i64>("SELECT version FROM media_segment_scans ORDER BY file_id")
+            .fetch_all(&s.pool)
+    };
+    assert_eq!(versions().await.unwrap(), vec![DETECTION; 3]);
+    // Found the first way, with no openings told apart.
+    sqlx::raw_sql(
+        "UPDATE media_segment_scans SET version = 1;
+         UPDATE media_segments SET theme_id = NULL;",
+    )
+    .execute(&s.pool)
+    .await
+    .unwrap();
+    let (intro, _) = of_file(&s.pool, 2).await.unwrap().unwrap();
+    assert!(intro.is_some(), "still served until it's looked at again");
+    let again = find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap();
+    assert_eq!((again.scanned, again.intros), (3, 3));
+    assert_eq!(versions().await.unwrap(), vec![DETECTION; 3]);
+    let themes = themes_of(&s.pool, "intro").await;
+    assert!(
+        themes[..3].iter().all(|t| t.is_some() && *t == themes[0]),
+        "{themes:?}"
+    );
+    assert_eq!(
+        find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap(),
+        Report::default()
+    );
+}
