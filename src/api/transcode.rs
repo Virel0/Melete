@@ -384,25 +384,31 @@ async fn hls(
         return Err(gone());
     }
     let settings: Settings = serde_json::from_str(&settings)?;
-    // A guest's conversion is held to the party's cap as it is now: lowered since, it's asked
-    // for again.
-    if let Some(guest) = guest_id
-        && let Some(cap) = super::playback::guest_cap(&state.pool, guest).await?
-        && settings.max_bitrate.is_none_or(|bits| bits > cap)
-    {
-        return Err(gone());
-    }
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
     let media = file
         .media
         .clone()
         .ok_or_else(|| unprocessable("ffprobe can no longer read this file"))?;
+    // A guest's conversion is held to the party's cap as it is now: lowered since, it's asked
+    // for again. Copied video is the file's own, so the file must be within it.
+    if let Some(guest) = guest_id
+        && let Some(cap) = super::playback::guest_cap(&state.pool, guest).await?
+    {
+        let bits = match settings.video_codec {
+            Some(VideoCodec::Copy) => overall_bitrate(file.size, Some(&media)),
+            _ => settings.max_bitrate,
+        };
+        if bits.is_none_or(|bits| bits > cap) {
+            return Err(gone());
+        }
+    }
     let path = resolve(&file.root, &file.rel_path).await?;
     let mut plan = transcode::plan(path.clone(), &media, &settings, state.transcoder.hardware())
         .map_err(unprocessable)?;
     if plan.codec == VideoCodec::Copy {
         plan.keyframes = Some(keyframes_of(&state, &file, &path, &media).await?);
     }
+    plan.about.source_bitrate = overall_bitrate(file.size, Some(&media));
 
     if name == "main.m3u8" {
         let headers = [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")];
@@ -460,6 +466,8 @@ enum Ask {
 
 #[cfg(test)]
 mod tests {
+    mod guests;
+
     use axum::body::Body;
     use axum::extract::Request;
     use http_body_util::BodyExt;

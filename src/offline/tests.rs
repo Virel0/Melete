@@ -22,6 +22,7 @@ fn plan_of(codec: VideoCodec, bitrate: i64, channels: i64) -> Plan {
         channels,
         burn: None,
         audio_filter: None,
+        about: crate::transcode::About::default(),
     }
 }
 

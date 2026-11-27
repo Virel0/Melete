@@ -109,7 +109,7 @@ pub fn ffmpeg_args_for(
     args
 }
 
-/// The video filters: upload to the GPU, tone mapping, scaling and the pixel format.
+/// The video filters: upload to the GPU, scaling, tone mapping and the pixel format.
 pub(super) fn video_filters(plan: &Plan, hw: Hardware, abilities: Abilities) -> Vec<String> {
     let mut filters: Vec<String> = Vec::new();
     match hw {
@@ -121,28 +121,10 @@ pub(super) fn video_filters(plan: &Plan, hw: Hardware, abilities: Abilities) -> 
                 }
                 filters.push("hwupload_cuda".into());
             }
-            if plan.tonemap {
-                filters.push(
-                    "tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0"
-                        .into(),
-                );
-            }
-            let format = if plan.ten_bit { "p010le" } else { "nv12" };
-            match plan.height {
-                Some(h) => filters.push(format!("scale_cuda=w=-2:h={h}:format={format}")),
-                None if plan.high_bit_depth && !plan.tonemap && !plan.ten_bit => {
-                    filters.push("scale_cuda=format=nv12".into())
-                }
-                None => {}
-            }
+            filters.extend(cuda_scale_and_tonemap(plan));
         }
         Hardware::Software => {
-            if plan.tonemap {
-                filters.push(software_tonemap(plan, abilities).into());
-            }
-            if let Some(h) = plan.height {
-                filters.push(format!("scale=-2:{h}"));
-            }
+            filters.extend(software_scale_and_tonemap(plan, abilities));
             filters.push(
                 if plan.ten_bit {
                     "format=yuv420p10le"
@@ -154,6 +136,46 @@ pub(super) fn video_filters(plan: &Plan, hw: Hardware, abilities: Abilities) -> 
         }
     }
     filters
+}
+
+/// tonemap_cuda's HDR to SDR.
+const TONEMAP_CUDA: &str =
+    "tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0";
+
+/// Scaling and tone mapping on the GPU, frames already there. Scaled first, kept in 10 bits for
+/// tone mapping, so tone mapping works on the smaller picture; a 10-bit source otherwise
+/// becomes 8-bit unless kept so.
+pub(super) fn cuda_scale_and_tonemap(plan: &Plan) -> Vec<String> {
+    let mut steps: Vec<String> = Vec::new();
+    let format = if plan.ten_bit || plan.tonemap {
+        "p010le"
+    } else {
+        "nv12"
+    };
+    match plan.height {
+        Some(h) => steps.push(format!("scale_cuda=w=-2:h={h}:format={format}")),
+        None if plan.high_bit_depth && !plan.tonemap && !plan.ten_bit => {
+            steps.push("scale_cuda=format=nv12".into())
+        }
+        None => {}
+    }
+    if plan.tonemap {
+        steps.push(TONEMAP_CUDA.into());
+    }
+    steps
+}
+
+/// Scaling and tone mapping on the CPU: scaled first, so tone mapping works on the smaller
+/// picture.
+pub(super) fn software_scale_and_tonemap(plan: &Plan, abilities: Abilities) -> Vec<String> {
+    let mut steps: Vec<String> = Vec::new();
+    if let Some(h) = plan.height {
+        steps.push(format!("scale=-2:{h}"));
+    }
+    if plan.tonemap {
+        steps.push(software_tonemap(plan, abilities).into());
+    }
+    steps
 }
 
 /// The video encoder, its profile and bitrate, and keyframes on segment boundaries.
@@ -376,20 +398,7 @@ pub(super) fn burn_graph(
     let mut before: Vec<String> = Vec::new();
     let encoder_format = match hw {
         Hardware::Nvenc => {
-            let mut gpu: Vec<String> = Vec::new();
-            if plan.tonemap {
-                gpu.push(
-                    "tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0"
-                        .into(),
-                );
-            }
-            match plan.height {
-                Some(h) => gpu.push(format!("scale_cuda=w=-2:h={h}:format=nv12")),
-                None if plan.high_bit_depth && !plan.tonemap => {
-                    gpu.push("scale_cuda=format=nv12".into())
-                }
-                None => {}
-            }
+            let gpu = cuda_scale_and_tonemap(plan);
             if !gpu.is_empty() {
                 // tonemap_cuda won't take 10-bit frames uploaded as yuv420p10le.
                 if plan.tonemap {
@@ -402,12 +411,7 @@ pub(super) fn burn_graph(
             "format=nv12"
         }
         Hardware::Software => {
-            if plan.tonemap {
-                before.push(software_tonemap(plan, abilities).into());
-            }
-            if let Some(h) = plan.height {
-                before.push(format!("scale=-2:{h}"));
-            }
+            before.extend(software_scale_and_tonemap(plan, abilities));
             "format=yuv420p"
         }
     };

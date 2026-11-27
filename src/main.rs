@@ -316,6 +316,7 @@ fn start_transcoder(config: &config::Config) -> anyhow::Result<Arc<transcode::Tr
         config.max_transcodes,
     );
     transcoder.spawn_supervisor();
+    transcoder.put_viewers_first();
     Ok(transcoder)
 }
 

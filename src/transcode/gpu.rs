@@ -59,6 +59,7 @@ pub fn gpu_check_args() -> Vec<OsString> {
         channels: 2,
         burn: None,
         audio_filter: None,
+        about: About::default(),
     };
     let mut filters =
         vec!["setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc".to_owned()];
