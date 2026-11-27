@@ -28,6 +28,9 @@ pub struct Profile {
     /// For a movie profile, how far out a film must be before its releases are taken:
     /// "announced", "in_cinemas" or "released".
     pub minimum_availability: String,
+    /// The language (ISO 639-1) a download needs subtitles in when its audio isn't in it; one
+    /// with neither is set aside at import. None asks nothing of subtitles.
+    pub subtitles_language: Option<String>,
     /// "imported" from Radarr or Sonarr, or "melete" when made or edited here (re-imports
     /// leave those alone).
     pub origin: String,
@@ -73,13 +76,14 @@ struct ProfileRow {
     language: Option<String>,
     origin: String,
     minimum_availability: String,
+    subtitles_language: Option<String>,
 }
 
 /// Every quality profile, both apps', by app then name.
 pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Profile>> {
     let rows: Vec<ProfileRow> = sqlx::query_as(
         "SELECT id, source, service, name, upgrade_allowed, cutoff, min_format_score, cutoff_format_score,
-                min_upgrade_format_score, language, origin, minimum_availability
+                min_upgrade_format_score, language, origin, minimum_availability, subtitles_language
          FROM quality_profiles ORDER BY source, service DESC, name",
     )
     .fetch_all(pool)
@@ -95,7 +99,7 @@ pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Profile>> {
 pub async fn get(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<Profile>> {
     let row: Option<ProfileRow> = sqlx::query_as(
         "SELECT id, source, service, name, upgrade_allowed, cutoff, min_format_score, cutoff_format_score,
-                min_upgrade_format_score, language, origin, minimum_availability
+                min_upgrade_format_score, language, origin, minimum_availability, subtitles_language
          FROM quality_profiles WHERE id = ?",
     )
     .bind(id)
@@ -149,6 +153,7 @@ async fn fill(pool: &SqlitePool, row: ProfileRow) -> anyhow::Result<Profile> {
         min_upgrade_format_score: row.min_upgrade_format_score,
         language: row.language,
         minimum_availability: row.minimum_availability,
+        subtitles_language: row.subtitles_language,
         origin: row.origin,
         items: items.into_iter().map(|(_, item)| item).collect(),
         formats: formats

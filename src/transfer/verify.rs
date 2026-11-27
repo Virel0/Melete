@@ -31,7 +31,10 @@ pub(crate) enum Expected {
 /// What a check needs: the runtimes to expect, and ffprobe to read the files' (None when it
 /// isn't known, which holds a checked download back).
 pub(crate) struct Check {
-    pub(crate) expected: Expected,
+    /// The runtimes to expect; None when TMDB has none (nothing to compare).
+    pub(crate) expected: Option<Expected>,
+    /// The language the profile needs audio or subtitles in (`needs`); None for none.
+    pub(crate) needs: Option<crate::languages::Language>,
     pub(crate) ffprobe: Option<PathBuf>,
     /// How long the longest video ran when it was checked, for an admin's later override.
     pub(crate) measured: std::sync::Mutex<Option<f64>>,
@@ -184,7 +187,11 @@ pub(crate) struct Video<'a> {
 /// Checks the download's videos run as long as the title: Ok when they do, a stop that holds it
 /// back as not the title when they don't or a running time can't be read, and a retry when
 /// ffprobe can't run or the file can't be opened (which says nothing about the file).
-pub(crate) async fn check(check: &Check, videos: &[Video<'_>]) -> Result<(), Stop> {
+pub(crate) async fn check(
+    check: &Check,
+    videos: &[Video<'_>],
+    beside: &[&str],
+) -> Result<(), Stop> {
     let Some(ffprobe) = check.ffprobe.as_deref() else {
         return Err(Stop::Retry(
             "ffprobe isn't available to check how long it runs".into(),
@@ -193,7 +200,14 @@ pub(crate) async fn check(check: &Check, videos: &[Video<'_>]) -> Result<(), Sto
     let mut durations = Vec::with_capacity(videos.len());
     for video in videos {
         let seconds = match crate::probe::probe(ffprobe, video.path).await {
-            Ok(info) => info.duration_seconds.filter(|s| *s > 0.0),
+            Ok(info) => {
+                if let Some(needed) = &check.needs
+                    && let Some(why) = super::needs::lacking(video.name, &info, beside, needed)
+                {
+                    return Err(Stop::Unsuitable(why));
+                }
+                info.duration_seconds.filter(|s| *s > 0.0)
+            }
             Err(crate::probe::ProbeError::Failed(why)) => {
                 return Err(unreadable(video.name, &why));
             }
@@ -212,7 +226,10 @@ pub(crate) async fn check(check: &Check, videos: &[Video<'_>]) -> Result<(), Sto
     if let Ok(mut measured) = check.measured.lock() {
         *measured = durations.iter().map(|d| d.1).reduce(f64::max);
     }
-    match &check.expected {
+    let Some(expected) = &check.expected else {
+        return Ok(());
+    };
+    match expected {
         Expected::Movie {
             seconds: film,
             longer_cut,
@@ -358,12 +375,19 @@ pub(super) async fn check_staged(check: &Check, staged: &[Staged]) -> Result<(),
         .filter(|s| s.partial.is_none())
         .map(|s| s.target.display().to_string())
         .collect();
-    match self::check(check, &videos).await {
-        Err(Stop::NotTheTitle(why)) if !placed.is_empty() => Err(Stop::Held(format!(
-            "{why}; an earlier try already put {} in the library, so it's held for an admin to check {}",
-            placed.join(", "),
-            if placed.len() == 1 { "it" } else { "them" }
-        ))),
+    let beside: Vec<&str> = staged
+        .iter()
+        .filter(|s| has_extension(&s.name, SUBTITLES))
+        .map(|s| s.name.as_str())
+        .collect();
+    match self::check(check, &videos, &beside).await {
+        Err(Stop::NotTheTitle(why) | Stop::Unsuitable(why)) if !placed.is_empty() => {
+            Err(Stop::Held(format!(
+                "{why}; an earlier try already put {} in the library, so it's held for an admin to check {}",
+                placed.join(", "),
+                if placed.len() == 1 { "it" } else { "them" }
+            )))
+        }
         checked => checked,
     }
 }

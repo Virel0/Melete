@@ -277,3 +277,64 @@ async fn an_episode_running_another_length_is_held_back() {
         "neither episode is placed"
     );
 }
+
+#[tokio::test]
+async fn a_release_with_neither_audio_nor_subtitles_the_profile_needs_is_held_back() {
+    let r = rig().await;
+    let converted = crate::profiles::import::tests::converted(App::Radarr);
+    profiles::save(&r.pool, App::Radarr, &converted)
+        .await
+        .unwrap();
+    // The profile needs English audio or subtitles.
+    sqlx::query("UPDATE quality_profiles SET subtitles_language = 'en'")
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    let dune = want_dune(&r.pool).await;
+    sqlx::query("UPDATE wanted_movies SET library_id = 1 WHERE id = ?")
+        .bind(dune)
+        .execute(&r.pool)
+        .await
+        .unwrap();
+    r.runtime(dune, 2).await;
+    let raw = "Dune.Part.Two.2024.1080p.WEB-DL-RAW";
+    // The right length, but silent, with no subtitles: nothing to understand it by.
+    let files = r.seed(&[(&format!("{raw}/{raw}.mkv"), clip(120))]);
+    let id = r.movie_download(dune, raw, &files).await;
+    bring_home(&r.pool, &r.seedbox, Some(&fixes()), &Default::default(), id)
+        .await
+        .unwrap();
+    let (state, message, destination, _) = r.state(id).await;
+    let message = message.unwrap();
+    assert_eq!(state, "failed", "{message}");
+    assert!(message.starts_with("not put in the library: "), "{message}");
+    assert!(
+        message.contains("no subtitles, and the profile needs en audio or subtitles"),
+        "{message}"
+    );
+    assert_eq!(destination, None);
+    assert!(r.movies().is_empty(), "{:?}", r.movies());
+    assert_eq!(r.blocklisted().await, [raw]);
+    // Not a runtime failure: it isn't counted against the film's length.
+    let checks: i64 = sqlx::query_scalar("SELECT count(*) FROM runtime_checks")
+        .fetch_one(&r.pool)
+        .await
+        .unwrap_or(0);
+    assert_eq!(checks, 0);
+
+    // The same with English subtitles beside it: placed.
+    let subbed = "Dune.Part.Two.2024.1080p.WEB-DL-SUBBED";
+    let files = r.seed(&[
+        (&format!("{subbed}/{subbed}.mkv"), clip(120)),
+        (
+            &format!("{subbed}/{subbed}.en.srt"),
+            b"1\n00:00:01,000 --> 00:00:02,000\nHello\n".to_vec(),
+        ),
+    ]);
+    let id = r.movie_download(dune, subbed, &files).await;
+    bring_home(&r.pool, &r.seedbox, Some(&fixes()), &Default::default(), id)
+        .await
+        .unwrap();
+    let (state, message, ..) = r.state(id).await;
+    assert_eq!(state, "imported", "{message:?}");
+}

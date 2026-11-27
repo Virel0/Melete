@@ -42,6 +42,7 @@ export function blankProfile(source, service = source === "radarr" ? "movies" : 
     min_upgrade_format_score: 1,
     language: source === "radarr" ? "original" : null,
     minimum_availability: "released",
+    subtitles_language: service === "anime" ? "en" : "none",
     items: QUALITIES.map((q) => ({ name: q, qualities: [q], allowed: false })),
     formats: [],
   };
@@ -55,7 +56,7 @@ export function profileEditor({ profile, formats, done, ctx }) {
   const upgrades = check(uid("profile-upgrades"), "Upgrade files until they reach the cutoff", profile.upgrade_allowed);
   const q = qualityEditor(profile);
   const scores = scoreFields(profile);
-  const { minScore, cutoffScore, stepScore, language, availability } = scores;
+  const { minScore, cutoffScore, stepScore, language, availability, subtitles } = scores;
   const { ofKind, scoreInputs } = formatScores(profile, formats);
 
   const foot = actions(editing ? "Save profile" : "Make profile", () => done(null));
@@ -78,6 +79,7 @@ export function profileEditor({ profile, formats, done, ctx }) {
     h("div", { hidden: !ofKind.length }, minScore.box, cutoffScore.box, stepScore.box),
     language?.box,
     availability?.box,
+    subtitles.box,
     foot.el,
   );
 
@@ -233,6 +235,17 @@ function splitGroup(q, index) {
 }
 
 // When a movie profile starts taking a film's releases (src/search/availability.rs).
+// What a profile may need subtitles in: nothing, or a language.
+const SUBTITLES = [
+  ["none", "Nothing asked"],
+  ["en", "English"],
+  ["es", "Spanish"],
+  ["pt", "Portuguese"],
+  ["fr", "French"],
+  ["de", "German"],
+  ["it", "Italian"],
+];
+
 const AVAILABILITY = [
   ["released", "Once it's out digitally or on disc"],
   ["in_cinemas", "Once it's in cinemas"],
@@ -255,7 +268,13 @@ function scoreFields(profile) {
     profile.source === "radarr"
       ? field(uid("profile-availability"), "Take a film's releases", h("select", {}, AVAILABILITY.map(([value, label]) => h("option", { value, selected: value === wanted }, label))), "Before then its releases are turned down. Whatever this says, a WEB or disc release before the film is out that way is refused as a likely fake.")
       : null;
-  return { minScore, cutoffScore, stepScore, language, availability };
+  const subtitles = field(
+    uid("profile-subtitles"),
+    "Needs subtitles in",
+    h("select", {}, SUBTITLES.map(([value, label]) => h("option", { value, selected: value === (profile.subtitles_language ?? "none") }, label))),
+    "Unless its audio is in this language, a download must have subtitles in it, inside the file or beside it (signs and songs alone don't count). One without, a raw say, is set aside, blocklisted and searched again.",
+  );
+  return { minScore, cutoffScore, stepScore, language, availability, subtitles };
 }
 
 // What custom formats are and where they're made: the whole section while there are none, a
@@ -287,7 +306,7 @@ function formatScores(profile, formats) {
 
 // The profile as the form has it, for the API; null after marking what needs fixing.
 function readProfile(profile, { name, upgrades, q, scores, scoreInputs, foot }) {
-  const { minScore, cutoffScore, stepScore, language, availability } = scores;
+  const { minScore, cutoffScore, stepScore, language, availability, subtitles } = scores;
   const body = {
     source: profile.source,
     service: profile.service,
@@ -299,6 +318,7 @@ function readProfile(profile, { name, upgrades, q, scores, scoreInputs, foot }) 
     min_upgrade_format_score: whole(stepScore.input),
     language: language ? language.input.value.trim() || null : null,
     minimum_availability: availability ? availability.input.value : null,
+    subtitles_language: subtitles.input.value,
     items: q.items.map(({ name, qualities, allowed }) => ({ name, qualities, allowed })),
     formats: [],
   };

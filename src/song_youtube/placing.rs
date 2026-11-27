@@ -85,6 +85,7 @@ fn why(stop: Stop) -> String {
         | Stop::Wait(why)
         | Stop::Fail(why)
         | Stop::NotTheTitle(why)
+        | Stop::Unsuitable(why)
         | Stop::Held(why) => why,
     }
 }

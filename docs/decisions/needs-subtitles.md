@@ -1,0 +1,5 @@
+Decision: A quality profile may need subtitles in a language (`subtitles_language`, ISO 639-1). At import, alongside the running-time check, each video's tracks are read with ffprobe: it passes with audio tagged in that language, or with a subtitle track in it that isn't forced or signs-and-songs only, or with a subtitle file beside it naming that language (".en.ass", "[English]") or no language at all. An untagged subtitle track counts unless its title names another language, as many fansubs tag nothing; untagged audio never counts. A download failing it is held back as one that isn't the title is (nothing placed, blocklisted, searched again), with its own message, and isn't counted against the title's runtime. Anime profiles start with English (existing ones by migration); others with nothing.
+
+Why: Anime releases rarely say in their names which subtitles they carry, so the anime preset takes a release naming none; a raw then came home with Japanese audio and nothing to read, and a release with only Spanish subtitles would too. Only the file says, and the import already reads it.
+
+Date: 2026-11-27

@@ -997,6 +997,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subtitles_needed_default_to_english_for_anime_and_are_kept_unless_sent() {
+        let f = fixture().await;
+        let profile = |service: &str, subtitles: Option<&str>| {
+            let mut body = json!({
+                "source": "sonarr", "service": service, "name": format!("{service} profile"),
+                "upgrade_allowed": false, "cutoff": "HDTV-1080p",
+                "min_format_score": 0, "cutoff_format_score": 0, "min_upgrade_format_score": 1,
+                "language": null,
+                "items": [{ "name": "HDTV-1080p", "qualities": ["HDTV-1080p"], "allowed": true }],
+                "formats": []
+            });
+            if let Some(s) = subtitles {
+                body["subtitles_language"] = json!(s);
+            }
+            body
+        };
+        let (status, anime) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile("anime", None)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{anime}");
+        assert_eq!(anime["subtitles_language"], "en");
+        let (_, series) = send(
+            &f,
+            "POST",
+            "/api/v1/profiles",
+            &f.admin,
+            Some(profile("series", None)),
+        )
+        .await;
+        assert_eq!(series["subtitles_language"], Value::Null);
+
+        let uri = format!("/api/v1/profiles/{}", anime["id"]);
+        let (_, kept) = send(&f, "PUT", &uri, &f.admin, Some(profile("anime", None))).await;
+        assert_eq!(kept["subtitles_language"], "en", "left out, kept");
+        let (_, spanish) = send(
+            &f,
+            "PUT",
+            &uri,
+            &f.admin,
+            Some(profile("anime", Some("es"))),
+        )
+        .await;
+        assert_eq!(spanish["subtitles_language"], "es");
+        let (_, none) = send(
+            &f,
+            "PUT",
+            &uri,
+            &f.admin,
+            Some(profile("anime", Some("none"))),
+        )
+        .await;
+        assert_eq!(none["subtitles_language"], Value::Null);
+        for bad in ["english", "pt-BR", "x"] {
+            let (status, _) =
+                send(&f, "PUT", &uri, &f.admin, Some(profile("anime", Some(bad)))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+        }
+    }
+
+    #[tokio::test]
     async fn minimum_availability_defaults_to_released_and_is_kept_unless_sent() {
         let f = fixture().await;
         let profile = |availability: Option<&str>| {
