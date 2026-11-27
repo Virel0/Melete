@@ -68,11 +68,26 @@ pub fn routes_with(
             axum::routing::delete(send_away),
         )
         .route_layer(middleware::from_fn_with_state(auth, require_playback))
+        .layer(middleware::from_fn(wake_streams))
         .with_state(PartyState {
             pool,
             limiter,
             tunnel,
         })
+}
+
+/// After a request that changed a party (anything but a read, answered with success), wakes
+/// the event streams to send the change now.
+pub(super) async fn wake_streams(
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> Response {
+    let changes = !request.method().is_safe();
+    let response = next.run(request).await;
+    if changes && response.status().is_success() {
+        watch_party::changed();
+    }
+    response
 }
 
 #[derive(Deserialize)]
