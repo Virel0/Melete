@@ -32,6 +32,7 @@ import { MANAGE, managePage } from "/web/manage.js";
 import { requestsOverview } from "/web/admin-overviews.js";
 import { systemStatus } from "/web/system-status.js";
 import { downloading, systemBackups, systemTasks } from "/web/system-upkeep.js";
+import { tunnelPage } from "/web/tunnel-page.js";
 
 // What every service has the same way: Add new, Needs a match, its Activity, Taken off, its
 // Requests and the settings it shows from where they're shared.
@@ -83,6 +84,7 @@ const PAGES = {
     status: systemStatus,
     tasks: systemTasks,
     activity,
+    tunnel: tunnelPage,
     users,
     libraries,
     services,

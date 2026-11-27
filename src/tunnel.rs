@@ -16,7 +16,8 @@
 //! a guest's peer's keys are made the same way, its private key handed once to whoever made it,
 //! in the peer's config, and never kept. Guests' peers live in memory: a restart ends them.
 //! Household devices' are kept in the database (`devices`) and come back with the tunnel. A
-//! removed peer is gone from WireGuard and its connections are dropped at once.
+//! removed peer is gone from WireGuard and its connections are dropped at once. What each
+//! peer is doing now (`status`) is for admins alone.
 
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -38,11 +39,13 @@ mod keys;
 mod link;
 mod netstack;
 mod settings;
+mod status;
 
 pub use devices::{DevicePeer, MAX_PER_USER, NewDevice, device_parts, part_name, stored_address};
 pub use guests::Arrival;
 pub use netstack::PORT;
 pub use settings::Settings;
+pub use status::{Activity, PeerNow};
 
 /// The most peers the tunnel has at once.
 pub const MAX_PEERS: usize = 250;
@@ -98,6 +101,20 @@ struct Entry {
     public_key: PublicKey,
     /// None while the address is held for a peer being made.
     kind: Option<Kind>,
+    /// Its requests, as the gate notes them.
+    seen: status::Seen,
+}
+
+impl Entry {
+    /// An address held for a peer with `public_key` being made.
+    fn held(public_key: PublicKey) -> Entry {
+        let (kind, seen) = (None, status::Seen::default());
+        Entry {
+            public_key,
+            kind,
+            seen,
+        }
+    }
 }
 
 /// The tunnel's peers, by their address in it.
@@ -139,6 +156,8 @@ pub struct Tunnel {
     device: Device<Transports>,
     peers: Arc<Peers>,
     forget: Arc<netstack::Forget>,
+    /// Each peer's connections open now, as the stack counts them.
+    open: Arc<netstack::Open>,
 }
 
 /// The tunnel once it's started, for the API; empty while it's off.
@@ -178,7 +197,9 @@ impl Tunnel {
             to_tunnel,
             accepted,
         };
-        tokio::spawn(netstack::Stack::new(own, settings.net.1, joins, forget.clone()).run());
+        let open = Arc::new(netstack::Open::default());
+        let stack = netstack::Stack::new(own, settings.net.1, joins, forget.clone());
+        tokio::spawn(stack.counting(open.clone()).run());
         let peers = Arc::new(Peers::default());
         let tunnel = Arc::new(Tunnel {
             settings,
@@ -186,6 +207,7 @@ impl Tunnel {
             device,
             peers: peers.clone(),
             forget,
+            open,
         });
         let listener = link::Listener {
             accepted: connections,
@@ -259,8 +281,7 @@ impl Tunnel {
         let Some(address) = free.filter(|_| peers.len() < MAX_PEERS) else {
             return Err(Refusal::Full);
         };
-        let kind = None;
-        peers.insert(address, Entry { public_key, kind });
+        peers.insert(address, Entry::held(public_key));
         Ok(address)
     }
 

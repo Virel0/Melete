@@ -81,6 +81,7 @@ mod title_artwork;
 mod transcode;
 mod trickplay;
 mod tunnel_devices;
+mod tunnel_peers;
 mod unstyled_subtitles;
 mod vpn;
 mod wanted_removed;

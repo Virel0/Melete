@@ -115,7 +115,14 @@ export const SERVICES = [
     moved: { overview: "status" },
     groups: [
       { items: [{ key: "status", name: "Status" }] },
-      { name: "Activity", items: [{ key: "tasks", name: "Tasks" }, { key: "activity", name: "Searches and downloads" }] },
+      {
+        name: "Activity",
+        items: [
+          { key: "tasks", name: "Tasks" },
+          { key: "activity", name: "Searches and downloads" },
+          { key: "tunnel", name: "Tunnel" },
+        ],
+      },
       {
         // Each service has its own requests pages now; these keep their old addresses, every
         // service's requests together, without being listed.
