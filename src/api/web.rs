@@ -118,6 +118,7 @@ const MODULES: [(&str, &str); 177] = [
         "tunnel-devices.js",
         include_str!("../web/tunnel-devices.js"),
     ),
+    ("party-tunnel.js", include_str!("../web/party-tunnel.js")),
     ("tunnel-page.js", include_str!("../web/tunnel-page.js")),
     ("licences.js", include_str!("../web/licences.js")),
     ("two-factor.js", include_str!("../web/two-factor.js")),

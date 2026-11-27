@@ -1,7 +1,8 @@
 # Reaching Melete from outside
 
 Melete doesn't open anything to the internet itself, unless you turn on its own tunnel for
-watch party guests and household devices (sections 6 and 7). You choose the ways in, and
+watch party guests and household devices (sections 6 and 7). A VPS in front can carry HTTPS
+that only Melete reads (section 8). You choose the ways in, and
 Melete tells them apart by the address each connection comes from, opening only what you've
 listed for each (decision 76). A common setup is two ways in, besides home:
 
@@ -242,12 +243,110 @@ devices**, or from an app (`POST /api/v1/tunnel/devices`).
   it's connected, the outside address it connects from (never kept). **Remove** there cuts any
   peer off at once; a device is deleted, and a guest leaves their party.
 
+## 8. HTTPS through the VPS, read by Melete alone
+
+With section 3, HTTPS ends on the VPS, so whoever runs the VPS could read what passes through
+it, sign-ins included. Instead, the VPS can pass each connection through as it is, still
+encrypted, and Melete serves HTTPS itself with a certificate only it holds. The VPS then sees
+that someone connects, from where, when and how much, and the name they asked for, but nothing
+inside.
+
+### The certificate, at home
+
+Melete doesn't get certificates itself, so get one at home, not on the VPS (a certificate the
+VPS holds would let it read everything again). With certbot's DNS challenge, nothing needs
+opening at home: `certbot certonly --manual --preferred-challenges dns -d watch.example.org`,
+or a DNS plugin for your provider so renewals run on their own. Certificates are public:
+every one issued is listed in Certificate Transparency logs, name included.
+
+Melete runs as its own user (`10001` unless `MELETE_USER` says otherwise), and certbot keeps
+the key readable by root alone, so copy both files into a folder of their own after each
+renewal, with a deploy hook:
+
+```sh
+certbot certonly --manual --preferred-challenges dns -d watch.example.org \
+  --deploy-hook 'install -m 640 -g 10001 "$RENEWED_LINEAGE"/fullchain.pem "$RENEWED_LINEAGE"/privkey.pem /path/to/melete-tls/'
+```
+
+Melete reads a renewed certificate within 10 minutes, with no restart.
+
+### Telling Melete
+
+In `.env`, beside section 4's settings:
+
+```sh
+COMPOSE_FILE=compose.yaml:compose.tls.yaml
+MELETE_TLS_PORT=8443
+MELETE_TLS_CERT_DIR=/path/to/melete-tls
+MELETE_TLS_PROXY_PROTOCOL=on
+MELETE_TRUSTED_PROXIES=10.20.0.1
+MELETE_WAYS_IN=home 192.168.0.0/24 all; vps 10.20.0.1 party
+```
+
+- `compose.tls.yaml` publishes `MELETE_TLS_PORT` and mounts the certificate's folder read only.
+  The files are `fullchain.pem` and `privkey.pem` unless `MELETE_TLS_CERT_FILE` and
+  `MELETE_TLS_KEY_FILE` name others. With Melete's own tunnel as well, list both:
+  `COMPOSE_FILE=compose.yaml:compose.tunnel.yaml:compose.tls.yaml`.
+- Plain HTTP stays on port 8100 for home and WireGuard.
+- `MELETE_TLS_PROXY_PROTOCOL=on`: a connection passed through arrives from the VPS, and Melete
+  can't read `X-Forwarded-For` inside it, so the VPS says who each client is in a PROXY
+  protocol header ahead of the encryption. Without it, every visitor through the VPS looks
+  like the VPS: a few wrong passwords from one of them would lock everyone else out of that
+  account for 15 minutes. The header is believed only from `MELETE_TRUSTED_PROXIES`, and a
+  connection from one of them that doesn't start with one is refused, so turn it on at both
+  ends together.
+- The ways in still go by the connection's own address, the VPS's, so `vps 10.20.0.1 party`
+  opens watch parties' guest routes alone through it. Signing in, one's own account and the
+  web page go through every way, this one too, encrypted to Melete like everything else.
+- Under **Manage → System → Outside services → Watch party guests**, set the address guests
+  reach Melete at, `https://watch.example.org`, so invite links begin with it.
+
+### The VPS
+
+Point `watch.example.org` at the VPS, and pass port 443 through to Melete's HTTPS port over
+the tunnel home. With nginx's stream module (on Debian and Ubuntu, `libnginx-mod-stream`), at
+the top level of `/etc/nginx/nginx.conf`, not inside `http`:
+
+```nginx
+stream {
+    server {
+        listen 443;
+        proxy_pass 10.20.0.2:8443;
+        proxy_protocol on;
+    }
+}
+```
+
+Or with HAProxy:
+
+```haproxy
+frontend https
+    mode tcp
+    bind :443
+    default_backend melete
+
+backend melete
+    mode tcp
+    server home 10.20.0.2:8443 send-proxy-v2
+```
+
+If the same VPS also serves section 3's name on 443, nginx can tell the two apart by the name
+asked for, without decrypting anything: `ssl_preread on;` and a `map $ssl_preread_server_name`
+choosing between Melete's HTTPS port and the `http` server, moved to another local port.
+
+### Checking it
+
+`curl -v https://watch.example.org/api/v1/health` from outside answers, and the certificate it
+shows is the one at home. No certificate for `watch.example.org` is on the VPS.
+
 ## What each way shows to whom
 
 - Over WireGuard, traffic is encrypted end to end between your device and home.
-- Through the VPS, the tunnel to home is encrypted, but HTTPS ends on the VPS: whoever runs the
-  VPS could see what passes through it, sign-ins included. Open through it only what you'd
-  trust it with.
+- Through the VPS as in section 3, the tunnel to home is encrypted, but HTTPS ends on the VPS:
+  whoever runs the VPS could see what passes through it, sign-ins included. Open through it
+  only what you'd trust it with.
+- Through the VPS passing HTTPS through (section 8), only Melete can read what passes; the VPS
+  sees who connects, when, how much, and the name asked for.
 - Nothing here sends anything to anyone else; Melete itself is still the only thing at home
   talking to the proxy.
 - Through Melete's own tunnel, traffic is encrypted between the guest's device and Melete

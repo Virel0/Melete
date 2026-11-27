@@ -37,6 +37,7 @@ const PAGES = [
   { name: "Change your password", href: "#/settings/account", kind: "Setting" },
   { name: "Sign in a device with a code", href: "#/settings/account", kind: "Setting", words: "quick connect tv" },
   { name: "API keys", href: "#/settings/account", kind: "Setting", words: "token" },
+  { name: "My devices", href: "#/settings/account", kind: "Setting", words: "wireguard tunnel vpn away from home phone add device config" },
 ];
 
 // Admins' areas, pages and settings, by the names on them.
@@ -96,7 +97,8 @@ const ADMIN = [
   { name: "Where requests go", href: "#/admin/requests/settings", kind: "Manage", words: "auto approve defaults" },
   { name: "Users", href: "#/admin/system/users", kind: "Manage", words: "accounts reset password admin api keys scopes" },
   { name: "Libraries", href: "#/admin/system/libraries", kind: "Manage", words: "scan folders rescan title folder" },
-  { name: "Outside services", href: "#/admin/system/services", kind: "Manage", words: "tmdb musicbrainz flaresolverr openrouter identity provider oidc lyrics" },
+  { name: "Outside services", href: "#/admin/system/services", kind: "Manage", words: "tmdb musicbrainz flaresolverr openrouter identity provider oidc lyrics alerts webhook email" },
+  { name: "Alerts", href: "#/admin/system/services", kind: "Manage", words: "webhook email ntfy gotify discord home assistant notify library down not responding" },
   { name: "Matching titles by hand", href: "#/admin/system/matching", kind: "Manage", words: "unmatched tmdb fix" },
   { name: "Searches and downloads", href: "#/admin/system/activity", kind: "Manage", words: "activity progress importing" },
   { name: "Tunnel", href: "#/admin/system/tunnel", kind: "Manage", words: "wireguard peers devices guests connected remove" },
