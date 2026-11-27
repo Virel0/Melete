@@ -11052,7 +11052,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Outside services and their settings",
-        "description": "TMDB, MusicBrainz, lyrics, slskd, Deluge, the seedbox's SFTP, FlareSolverr and a song's album, each with its settings: from .env (which wins), saved here, or the default. Secrets are only said to be set.",
+        "description": "TMDB, MusicBrainz, lyrics, slskd, Deluge, the seedbox's SFTP, FlareSolverr and the rest, and Melete's own features, each with its settings: from .env (which wins), saved here, or the default. Secrets are only said to be set. They come group by group, in the order the groups are listed, and within a group in a fixed order.",
         "responses": {
           "200": {
             "description": "The services",
@@ -21356,7 +21356,7 @@
       },
       "OutsideService": {
         "type": "object",
-        "required": ["key", "name", "about", "on", "testable", "component", "fields", "needs"],
+        "required": ["key", "name", "group", "page", "purpose", "about", "on", "testable", "component", "fields", "needs"],
         "properties": {
           "key": {
             "type": "string",
@@ -21390,6 +21390,17 @@
             ]
           },
           "name": {"type": "string"},
+          "group": {
+            "type": "string",
+            "enum": ["Metadata", "Lyrics", "Downloading", "Sign-in", "Alerts", "Watch parties", "AI", "Library", "Playback", "Music"],
+            "description": "The group it's listed in, by what it's for, as the web UI names it; the groups come in this order."
+          },
+          "page": {
+            "type": "string",
+            "enum": ["services", "features"],
+            "description": "The admin page it's set up on, which its group says: services (Outside services) for what talks to something outside the server, features (Features) for Melete's own features, which talk to nothing."
+          },
+          "purpose": {"type": "string", "description": "A few words on what it's for, for its line in the list."},
           "about": {"type": "string", "description": "What it's for, and what leaves the server when it's on."},
           "on": {
             "type": "boolean",

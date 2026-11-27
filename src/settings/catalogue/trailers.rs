@@ -5,6 +5,8 @@ use super::*;
 pub(super) const TRAILERS: Service = Service {
     key: "trailers",
     name: "Trailer downloads",
+    group: Group::Downloading,
+    purpose: "Trailers, and songs as a last resort, from YouTube",
     about: "Each movie's, series' and anime's trailer, downloaded once from YouTube and kept while the title is in the library, so the hero and title pages play it like a trailer in its folder (which always wins). Which trailer is picked from TMDB's list of the title's videos; only those video ids go to YouTube, and only through the VPN the trailer downloader runs behind.",
     fields: &[
         field(

@@ -359,7 +359,7 @@ function underWay(swapping, downloads) {
     ].filter(Boolean);
     return h("li", {}, h("strong", {}, s.title), `: ${parts.join(", ")}.`);
   };
-  const off = !downloads && waiting ? h("p", { class: "note" }, "Downloads are off, so swaps wait. Turn them on in System → Outside services → Deluge.") : "";
+  const off = !downloads && waiting ? h("p", { class: "note" }, "Downloads are off, so swaps wait. Turn them on in System → Downloading.") : "";
   return h("section", { class: "swaps", "aria-label": "Swaps under way" }, h("h2", {}, "Swaps"), off, h("ul", {}, swapping.map(line)));
 }
 

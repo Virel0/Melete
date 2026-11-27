@@ -141,6 +141,7 @@ export const SERVICES = [
           { key: "users", name: "Users" },
           { key: "libraries", name: "Libraries" },
           { key: "services", name: "Outside services" },
+          { key: "features", name: "Features" },
           { key: "downloading", name: "Downloading" },
           { key: "matching", name: "Matching" },
         ],

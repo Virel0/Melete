@@ -40,6 +40,12 @@ pub struct ServiceView {
     pub key: &'static str,
     /// What the web UI calls it.
     pub name: &'static str,
+    /// The group it's listed in.
+    pub group: Group,
+    /// The admin page it's set up on, which its group says.
+    pub page: Page,
+    /// A few words on what it's for, for its line in the list.
+    pub purpose: &'static str,
     /// What it's for, and what leaves the server when it's on.
     pub about: &'static str,
     /// Whether it's in use as things stand.
@@ -126,17 +132,23 @@ pub(super) fn on(config: &Config, key: &str) -> bool {
     }
 }
 
-/// Every service as it's set up, `config` being what's running.
+/// Every service as it's set up, `config` being what's running: group by group, in the order
+/// the groups are listed, and within one in the catalogue's order.
 pub fn views(
     config: &Config,
     stored: &HashMap<String, String>,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<ServiceView> {
-    SERVICES
-        .iter()
+    let mut services: Vec<&Service> = SERVICES.iter().collect();
+    services.sort_by_key(|s| s.group);
+    services
+        .into_iter()
         .map(|service| ServiceView {
             key: service.key,
             name: service.name,
+            group: service.group,
+            page: service.group.page(),
+            purpose: service.purpose,
             about: service.about,
             on: on(config, service.key) && needs(service.key).is_none_or(|n| on(config, n)),
             testable: crate::service_check::connects(service.key),

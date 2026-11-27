@@ -1,78 +1,48 @@
-// Outside services, for admins: TMDB, MusicBrainz, slskd, Deluge, the seedbox and the
-// rest, each with its settings, a connection test that can try values before they're saved,
-// and saving, which takes effect without a restart. A setting from .env wins and is shown, not
-// changed, naming its variable and the way to unlock it; a secret is only ever said to be set.
+// Outside services and Melete's own features, for admins. Outside services (TMDB, MusicBrainz,
+// the proxy, alerts and the rest) and Features (scans, seek-bar previews, Auto DJ…) each list
+// theirs group by group, one line each with its state, and each opens its own page: its
+// settings, a connection test that can try values before they're saved, and saving, which takes
+// effect without a restart. The server says which group and page each is in. A setting from .env
+// wins and is shown, not changed, naming its variable and the way to unlock it; a secret is only
+// ever said to be set.
 
-import { field, form, group, secret } from "/web/forms.js";
+import { form, group, secret } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
+import { emptyState, stateLabel } from "/web/page-parts.js";
+import { input, values } from "/web/service-fields.js";
 import { vpnCard } from "/web/vpn-card.js";
 
-// Why a setting given in .env can't be changed here: its variable, and the way back.
-const locked = (f) => ["Locked by ", h("code", {}, f.name), " in .env. Remove that line and restart Melete to change it here."];
+// The pages, by the name the server gives them.
+const PAGES = { services: "Outside services", features: "Features" };
 
-// One field's input, and how to read what's to be saved from it: a value, null to clear, or
-// undefined to leave it as it is.
-function input(service, f) {
-  const id = `service-${f.name.toLowerCase()}`;
-  const fixed = f.from === "environment";
-  if (f.input.toggle) {
-    const note = fixed ? locked(f) : f.hint || null;
-    const box = h("input", { type: "checkbox", id, checked: f.value === f.input.toggle.on, disabled: fixed, "aria-describedby": note ? `${id}-hint` : null });
-    const el = h("div", { class: "check" }, box, h("label", { for: id }, f.label));
-    return {
-      box: h("div", { class: "field" }, el, note ? h("p", { class: "note", id: `${id}-hint` }, note) : null),
-      input: box,
-      clear() {},
-      fail() {},
-      read: () => (fixed ? undefined : box.checked ? f.input.toggle.on : "off"),
-    };
-  }
-  if (f.input.choice) {
-    const { options } = f.input.choice;
-    const current = f.value ?? options[0]?.value;
-    const select = h("select", { disabled: fixed }, options.map((o) => h("option", { value: o.value, selected: o.value === current }, o.label)));
-    const made = field(id, f.label, select, fixed ? locked(f) : f.hint || null);
-    // Only a change is sent, so saving the service's other settings doesn't judge every title again.
-    return { ...made, read: () => (fixed || select.value === current ? undefined : select.value) };
-  }
-  if (f.input === "secret") {
-    const hint = fixed ? locked(f) : f.set ? `Set. Leave it empty to keep it.${f.hint ? ` ${f.hint}` : ""}` : f.hint || "Not set.";
-    const made = field(id, f.label, h("input", { type: "password", autocomplete: "new-password", spellcheck: "false", disabled: fixed }), hint);
-    const removeId = `${id}-remove`;
-    const remove = h("input", { type: "checkbox", id: removeId });
-    if (f.set && f.from === "settings") {
-      made.box.append(h("div", { class: "check" }, remove, h("label", { for: removeId }, "Remove it")));
-    }
-    return {
-      ...made,
-      read: () => (fixed ? undefined : remove.checked ? null : made.input.value.trim() || undefined),
-    };
-  }
-  const made = field(
-    id,
-    f.label,
-    h("input", {
-      value: f.value ?? "",
-      inputmode: f.input === "number" ? "numeric" : null,
-      autocomplete: "off",
-      spellcheck: "false",
-      disabled: fixed,
-      class: f.input === "number" ? "year" : null,
-    }),
-    fixed ? locked(f) : f.hint || null,
-  );
-  return { ...made, read: () => (fixed ? undefined : made.input.value.trim() || null) };
+// "an address", "a host": what a setting is called, after "Needs".
+function aOrAn(label) {
+  const words = /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label;
+  return /address/i.test(words) ? "an address" : `${/^[aeiouAEIOU]/.test(words) ? "an" : "a"} ${words}`;
 }
 
-// The values to send: only what's changed or to be cleared.
-function values(inputs) {
-  const out = {};
-  for (const [name, i] of inputs) {
-    const value = i.read();
-    if (value !== undefined) out[name] = value;
-  }
-  return out;
+// What a service is waiting for when it's off though something of it is set: the first of its
+// settings to type in (its address, key or host), while that one isn't set.
+function missing(s) {
+  const started = s.fields.some((f) => (f.input.toggle ? f.value === f.input.toggle.on : f.set));
+  const first = s.fields.find((f) => !f.input.toggle && !f.input.choice);
+  return started && first && !first.set ? aOrAn(first.label) : null;
 }
+
+// A service's state, as [the state's mark, its words]: what it needs first, then a lock by
+// .env, then on or off. `all` holds the service it needs, when there's one.
+export function stateOf(s, all = []) {
+  const needed = s.needs ? all.find((n) => n.key === s.needs) : null;
+  if (needed && !needed.on) return ["waiting", `Needs ${needed.name}`];
+  const turnedOn = s.fields.some((f) => f.input.toggle && f.value === f.input.toggle.on);
+  if (s.component && !s.component.set_up && turnedOn) return ["waiting", `Needs the ${s.component.name}`];
+  if (s.fields.length && s.fields.every((f) => f.from === "environment")) return ["notyet", "Locked by .env"];
+  if (s.on) return ["have", "On"];
+  const wants = missing(s);
+  return wants ? ["waiting", `Needs ${wants}`] : ["off", "Off"];
+}
+
+const chip = (s, all) => stateLabel(...stateOf(s, all));
 
 // Why a feature can't be turned on while the service it needs is off.
 const NEEDS_WHY = {
@@ -91,10 +61,12 @@ function blocked(inputs, saving, test, why) {
   test.hidden = true;
 }
 
-// One service's settings, test and save; Indexers → Soulseek shows slskd's. A feature that only
-// works with another service (`needed`) is drawn under that one's, a heading lower, and is
-// blocked while that one is off; `features` are the ones drawn under this one.
-export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
+// One service's settings, test and save, under its name, state and purpose, with what leaves
+// the server folded under them; its own page draws it, and Indexers → Soulseek shows slskd's. A
+// feature that only works with another service (`needed`) is drawn under that one's, a heading
+// lower, and is blocked while that one is off; `features` are the ones drawn under this one.
+// `heading` is the heading's level, and `note` a paragraph to put above the settings.
+export function serviceSection(ctx, s, { needed = null, features = [], heading = needed ? "h4" : "h3", note = null } = {}) {
   const inputs = s.fields.map((f) => [f.name, input(s, f)]);
   const tested = h("p", { class: "form-result", role: "status" });
   const test = h("button", { type: "button", class: "quiet" }, "Test connection");
@@ -159,9 +131,11 @@ export function serviceSection(ctx, s, { needed = null, features = [] } = {}) {
   if (why) blocked(inputs, saving, test, why);
   return h(
     "section",
-    { class: needed ? "subgroup feature" : "subgroup", "aria-labelledby": id },
-    h(needed ? "h4" : "h3", { id }, s.name, " ", h("span", { class: "badge" }, s.on ? "On" : "Off")),
-    h("p", { class: "note" }, s.about),
+    { class: heading === "h2" ? "group" : needed ? "subgroup feature" : "subgroup", "aria-labelledby": id },
+    h(heading, { id, class: "service-heading" }, s.name, " ", chip(s, needed ? [needed] : [])),
+    h("p", {}, s.purpose),
+    h("details", { class: "service-about" }, h("summary", {}, "What leaves the server"), h("p", { class: "note" }, s.about)),
+    note,
     why,
     s.component && h("p", { class: "note" }, s.component.set_up ? `The ${s.component.name} is set up.` : `The ${s.component.name} isn't set up, so this can't run yet.`),
     saving,
@@ -184,30 +158,82 @@ const ELSEWHERE = {
   seedbox: { href: "#/admin/system/downloading", name: "System, Downloading" },
 };
 
-export async function services(ctx) {
+// Where a service is set up: its own page, the page of the one it needs (a feature of TMDB's
+// is on TMDB's), or where it lives when it isn't here.
+export function serviceHref(s) {
+  return ELSEWHERE[s.key]?.href ?? `#/admin/system/${s.page}/${s.needs ?? s.key}`;
+}
+
+// One service's line in the list: its name, what it's for and its state, the whole line a
+// link to its page, with a chevron saying so.
+function serviceRow(s) {
+  const away = ELSEWHERE[s.key];
+  return h(
+    "li",
+    {},
+    h(
+      "a",
+      { class: "service-row", href: serviceHref(s) },
+      h("span", { class: "service-name" }, s.name),
+      h("span", { class: "service-purpose" }, away ? `${s.purpose}. Set up under ${away.name}.` : s.purpose),
+      chip(s),
+      h("span", { class: "service-go", "aria-hidden": "true" }, "›"),
+    ),
+  );
+}
+
+// Why a setting is locked, on a page that has one.
+const LOCKED = [
+  "A setting here that is also given in .env is locked, since .env wins, and names its variable. To set it here, remove that line from .env and restart Melete with ",
+  h("code", {}, "docker compose up -d"),
+  " (",
+  h("code", {}, "docker compose restart"),
+  " keeps the old values).",
+];
+
+// One service's own page: back to the list, then its settings and the features that use it.
+function servicePage(ctx, all, page) {
+  const asked = all.find((s) => s.key === ctx.id);
+  // A feature that needs another service is set up on that one's page.
+  const s = asked?.needs ? all.find((n) => n.key === asked.needs) : asked;
+  const home = s?.page ?? page;
+  const back = h("p", { class: "back" }, h("a", { href: `#/admin/system/${home}` }, `Back to ${PAGES[home]}`));
+  if (!s) return [back, emptyState(`There's no service called “${ctx.id}”.`, { href: `#/admin/system/${page}`, label: `See ${PAGES[page]}` })];
+  const away = ELSEWHERE[s.key];
+  if (away) return [back, h("p", {}, `${s.name} is set up under `, h("a", { href: away.href }, away.name), ".")];
+  const locked = s.fields.some((f) => f.from === "environment") ? h("p", { class: "note" }, ...LOCKED.map((part) => (typeof part === "string" ? part : part.cloneNode(true)))) : null;
+  return [back, serviceSection(ctx, s, { heading: "h2", note: locked, features: all.filter((f) => f.needs === s.key) })];
+}
+
+// What each page says above its list.
+const INTRO = {
+  services:
+    ".env holds what Melete needs before it starts, and is the only place to set it: its folders (libraries, data, transcoding), the address it listens on, the ways in, and the helpers running beside it. Each service below is set up on its own page instead, and takes effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were.",
+  features: "Melete's own features, worked out on the server: none of them sends anything outside it. Each is set up on its own page, and takes effect when saved, without a restart.",
+};
+
+// A page's list, group by group in the server's order, or with `ctx.id` one service's page.
+async function listing(ctx, page) {
   const all = await api("/settings/services");
   if (!ctx.current()) return [];
-  const moved = all.filter((s) => ELSEWHERE[s.key]);
+  if (ctx.id) return servicePage(ctx, all, page);
+  // A feature that needs another service is listed with that one, on its page.
+  const listed = all.filter((s) => s.page === page && !s.needs);
+  const groups = [];
+  for (const s of listed) {
+    if (groups.at(-1)?.name !== s.group) groups.push({ name: s.group, items: [] });
+    groups.at(-1).items.push(s);
+  }
+  const on = listed.filter((s) => s.on).length;
   return [
-    group(
-      "Outside services",
-      h(
-        "p",
-        { class: "note" },
-        ".env holds what Melete needs before it starts, and is the only place to set it: its folders (libraries, data, transcoding), the address it listens on, the ways in, and the helpers running beside it. Everything below is set here instead, and takes effect when saved, without a restart: playback and scans carry on, and downloads and imports take up where they were.",
-      ),
-      h(
-        "p",
-        { class: "note" },
-        "A setting below that is also given in .env is locked, since .env wins, and names its variable. To set it here, remove that line from .env and restart Melete with ",
-        h("code", {}, "docker compose up -d"),
-        " (",
-        h("code", {}, "docker compose restart"),
-        " keeps the old values).",
-      ),
-      moved.map((s) => h("p", { class: "note" }, `${s.name} is set up under `, h("a", { href: ELSEWHERE[s.key].href }, ELSEWHERE[s.key].name), ".")),
-      // A feature that needs another service is drawn under that one, not on its own.
-      ...all.filter((s) => !ELSEWHERE[s.key] && !s.needs).map((s) => serviceSection(ctx, s, { features: all.filter((f) => f.needs === s.key) })),
+    h("p", { class: "service-summary" }, `${on} of ${listed.length} on.`),
+    h("p", { class: "note" }, INTRO[page]),
+    // In each group, the services set up elsewhere come last.
+    groups.map((g) =>
+      group(g.name, h("ul", { class: "service-rows" }, [...g.items.filter((s) => !ELSEWHERE[s.key]), ...g.items.filter((s) => ELSEWHERE[s.key])].map(serviceRow))),
     ),
   ];
 }
+
+export const services = (ctx) => listing(ctx, "services");
+export const features = (ctx) => listing(ctx, "features");

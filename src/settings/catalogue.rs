@@ -3,6 +3,7 @@
 use super::*;
 
 mod alerts;
+mod features;
 mod make_room;
 mod musicbrainz;
 mod party;
@@ -57,13 +58,55 @@ pub struct Field {
     pub input: Input,
 }
 
-/// One outside service and its settings.
+/// The group a service is listed in, by what it's for, as the web UI names it. The order here
+/// is the order the groups are listed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub enum Group {
+    Metadata,
+    Lyrics,
+    Downloading,
+    #[serde(rename = "Sign-in")]
+    SignIn,
+    Alerts,
+    #[serde(rename = "Watch parties")]
+    WatchParties,
+    #[serde(rename = "AI")]
+    Ai,
+    Library,
+    Playback,
+    Music,
+}
+
+/// The admin page a service is set up on: Outside services for what talks to something
+/// outside the server, Features for Melete's own features, which talk to nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Page {
+    Services,
+    Features,
+}
+
+impl Group {
+    /// The page its services are on.
+    pub const fn page(self) -> Page {
+        match self {
+            Group::Library | Group::Playback | Group::Music => Page::Features,
+            _ => Page::Services,
+        }
+    }
+}
+
+/// One outside service, or one of Melete's own features, and its settings.
 #[derive(Debug, Clone, Copy)]
 pub struct Service {
     /// The service's id in the API, e.g. "tmdb".
     pub key: &'static str,
     /// What the web UI calls it.
     pub name: &'static str,
+    /// The group it's listed in, which says the page it's on.
+    pub group: Group,
+    /// A few words on what it's for, for its line in the list.
+    pub purpose: &'static str,
     /// What it's for, and what leaves the server when it's on.
     pub about: &'static str,
     /// Its settings, in the order they're shown.
@@ -91,6 +134,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "tmdb",
         name: "TMDB",
+        group: Group::Metadata,
+        purpose: "Titles, posters and episode lists",
         about: "Titles, posters, episode lists and content ratings for movies and series. Titles to look up leave the server, and the language chosen for them.",
         fields: &[
             field(
@@ -119,6 +164,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "lyrics",
         name: "Lyrics (LRCLIB)",
+        group: Group::Lyrics,
+        purpose: "Synced lyrics for music",
         about: "Synced lyrics for imported music, and lyrics for the apps of tracks that have none of their own. The title, artist, album and length of each track looked up leave the server, once per track.",
         fields: &[field(
             "MELETE_LYRICS",
@@ -130,6 +177,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "translation",
         name: "Lyrics translation (LibreTranslate)",
+        group: Group::Lyrics,
+        purpose: "Translating lyrics",
         about: "Translating lyrics into the language an app asks for. The lines of each song translated leave the server, to the LibreTranslate set here; run one yourself to keep them in the household.",
         fields: &[
             field(
@@ -149,6 +198,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "romanisation",
         name: "Lyrics pronunciation",
+        group: Group::Lyrics,
+        purpose: "Lyrics' pronunciation in Latin letters",
         about: "Lyrics in Japanese, Korean or Cyrillic shown with their pronunciation in Latin letters, beside the line and its translation, for apps that ask. Worked out on the server; nothing leaves it.",
         fields: &[field(
             "MELETE_LYRICS_ROMANISATION",
@@ -160,6 +211,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "slskd",
         name: "Soulseek (slskd)",
+        group: Group::Downloading,
+        purpose: "Album and song searches on Soulseek",
         about: "Album and song searches on Soulseek, through slskd running beside Melete. Search words go to the Soulseek network under slskd's account.",
         fields: &[
             field(
@@ -185,6 +238,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "downloads",
         name: "Deluge",
+        group: Group::Downloading,
+        purpose: "Grabbing torrents on the seedbox",
         about: "Grabbing torrents with Deluge on the seedbox, and removing them once imported when you choose to.",
         fields: &[
             field(
@@ -240,6 +295,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "seedbox",
         name: "Seedbox (SFTP)",
+        group: Group::Downloading,
+        purpose: "Copying finished torrents home",
         about: "Copying finished torrents home from the seedbox. Without it, downloads are followed but stay on the seedbox.",
         fields: &[
             field("MELETE_SEEDBOX_HOST", "Host", "", Input::Text),
@@ -268,6 +325,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "flaresolverr",
         name: "FlareSolverr",
+        group: Group::Downloading,
+        purpose: "Trackers behind Cloudflare's check",
         about: "Reaching trackers behind Cloudflare's browser check (Uindex), through FlareSolverr or a solver that copies its API, such as Byparr. The Test checks the solver answers and fetches no page, so whether it gets past a check shows on the first search through it.",
         fields: &[field(
             "MELETE_FLARESOLVERR_URL",
@@ -276,9 +335,14 @@ pub const SERVICES: &[Service] = &[
             Input::Text,
         )],
     },
+    proxy::PROXY,
+    vpn::VPN,
+    trailers::TRAILERS,
     Service {
         key: "oidc",
         name: "Sign-in through an identity provider (OIDC)",
+        group: Group::SignIn,
+        purpose: "Signing in through your own account provider",
         about: "Signing in through your own account provider (Authentik, Authelia, Keycloak and the like) with OpenID Connect. Each user links their account under Settings first. Only Melete's client id and secret and the sign-in's code go to the provider, and only an opaque id for the user comes back.",
         fields: &[
             field(
@@ -322,6 +386,8 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "openrouter",
         name: "AI features (OpenRouter)",
+        group: Group::Ai,
+        purpose: "Finding by description, mixes and picks",
         about: "Finding movies, series and music by describing them, and mixes from a mood, with one key on the server so no device needs its own. What someone types to describe what they're after goes to OpenRouter and the model it picks; for music, also the names of the library's genres they may see, so the model uses the library's own; nothing else about the library or who asked. With AI picks on, \"Featured for you\" and titles like one are chosen there too: for each person, the titles they finished or are watching recently (about 15) with their year and up to three genres, and candidate titles from the library they may see, each with its year, up to three genres and a premise of about 12 words; with trending and similar titles on (TMDB's settings), also up to 20 of this week's trending titles not in the library that they may be shown, told the same way, which they may then ask for. Never a name, an account, a file path or anything else about the household. OpenRouter is asked to use only providers that don't keep or train on it. Each search or mix costs a little on the OpenRouter account; each user may make 30 an hour. Picks are kept and made again at most once a day for each person while what they watch stays the same, and titles like one once a week; each person may start 30 such requests an hour, and at most 2 run at once.",
         fields: &[
             field(
@@ -344,22 +410,12 @@ pub const SERVICES: &[Service] = &[
             ),
         ],
     },
-    trailers::TRAILERS,
-    make_room::MAKE_ROOM,
-    Service {
-        key: "auto_dj",
-        name: "Auto DJ",
-        about: "Mixing from one track into the next, like a DJ: Melete splits music into its parts (voice, drums, bass, guitar, other) with the stem separator and plans the transitions. Nothing leaves the server.",
-        fields: &[field(
-            "MELETE_AUTO_DJ",
-            "Turn on Auto DJ",
-            "Needs the stem separator (compose.stems.yaml) to split music into its parts.",
-            Input::Toggle { on: "on" },
-        )],
-    },
+    features::AUTO_DJ,
     Service {
         key: "discovery",
         name: "Trending and similar titles",
+        group: Group::Metadata,
+        purpose: "Trending rows and titles like one",
         about: "Rows of what's trending on TMDB and of titles like one being looked at, and the films of a franchise that aren't in the library, each marked playable, requested or available to request. Only which chart (today's or this week's), a title's TMDB id or a collection's TMDB id leaves the server, never anything about the household.",
         fields: &[
             field(
@@ -376,71 +432,16 @@ pub const SERVICES: &[Service] = &[
             ),
         ],
     },
-    Service {
-        key: "scans",
-        name: "Library scans",
-        about: "How often every library is scanned whole, to find files put there by hand or by other tools. A whole scan lists every folder, which wakes sleeping disks; what Melete imports, and a folder an admin rescans, is picked up at once on its own. A folder holding a .ignore or .melete-ignore file is skipped, and what's recorded under it stays. Nothing leaves the server.",
-        fields: &[
-            field(
-                "MELETE_SCAN_SCHEDULE",
-                "Scan every library",
-                "Every so many hours, such as 6h (the default) or 24h, or once a day at a time on the server's clock, such as 04:00.",
-                Input::Text,
-            ),
-            field(
-                "MELETE_SCAN_WATCH",
-                "Watch the folders for changes",
-                "Scans a title's folder about 30 seconds after something in it changes, without waiting for the schedule. Best effort: network and pooled filesystems often don't report changes, and a large library may need fs.inotify.max_user_watches raised, so the schedule still runs. Turning it on lists every folder once.",
-                Input::Toggle { on: "on" },
-            ),
-        ],
-    },
-    Service {
-        key: "intro_detection",
-        name: "Intros and credits",
-        about: "Finding intros and credits, so players can offer to skip them: each episode's opening and end are compared with others of its season, and the end of a movie, or of an episode whose credits that didn't find, is looked at alone for a long run of black or silent seconds. Nothing leaves the server.",
-        fields: &[field(
-            "MELETE_INTRO_DETECTION",
-            "Look for intros and credits",
-            "The first run reads part of every episode's audio and the end of every movie, which takes a while on a large library.",
-            Input::Toggle { on: "on" },
-        )],
-    },
-    Service {
-        key: "trickplay",
-        name: "Seek-bar previews",
-        about: "Small pictures on the seek bar, so you can see where a seek lands: one every 10 seconds of each video, from its keyframes, about 50 to 100 KB a minute of video at 320 pixels wide (5 to 10 MB for a two-hour film), kept in the data folder (trickplay/) and removed when the file changes or goes. Nothing leaves the server.",
-        fields: &[
-            field(
-                "MELETE_TRICKPLAY",
-                "Make seek-bar previews",
-                "The first run reads every video once, one at a time, which takes a while on a large library.",
-                Input::Toggle { on: "on" },
-            ),
-            field(
-                crate::trickplay::WIDTH_SETTING,
-                "Preview width",
-                "Wider pictures look sharper on large screens and take more room. A change makes every preview again in the background, one file at a time; the old ones are shown until then.",
-                Input::Choice {
-                    options: crate::trickplay::WIDTH_CHOICES,
-                },
-            ),
-        ],
-    },
-    Service {
-        key: "offline_copies",
-        name: "Offline copies",
-        about: "Converted copies of a film or an episode a device can download and keep, to watch without a connection: made on request in the background, one at a time and only while live conversions leave room, as one MP4 with the subtitles asked for beside it. Kept in the transcode folder (offline/), never in the library: a copy is about as big as its bitrate over its length (some 4.5 GB an hour at 1080p, 2.3 GB at 720p, 1.2 GB at 480p; the size is estimated before it's made), 20 at most per person, and deleted 7 days after its last download, or when the one who asked deletes it. Nothing leaves the server.",
-        fields: &[field(
-            "MELETE_OFFLINE_COPIES",
-            "Let devices ask for offline copies",
-            "Copies take room in the transcode folder until they're deleted.",
-            Input::Toggle { on: "on" },
-        )],
-    },
+    features::SCANS,
+    make_room::MAKE_ROOM,
+    features::INTRO_DETECTION,
+    features::TRICKPLAY,
+    features::OFFLINE_COPIES,
     Service {
         key: "opensubtitles",
         name: "OpenSubtitles",
+        group: Group::Metadata,
+        purpose: "Subtitles a file lacks",
         about: "Subtitles a file lacks, from OpenSubtitles.com: anyone signed in can search for a language and fetch one of what's found, once per file and language. What leaves the server: the video's OpenSubtitles hash (worked out from its size and its first and last 64 KB, which can't be turned back into the video), its TMDB or IMDb id with the season and episode, the language, and which subtitle to download. Nothing about who asked. The key and the login stay on the server. Fetched subtitles are kept in the data folder (subtitles/fetched/), never in the library. With languages set for new imports, the same is sent without anyone asking for each film or episode Melete imports that has no text subtitle in one of them, once per file and language, and a subtitle is fetched only when it was made for that very file; these count against the day's downloads like any other.",
         fields: &[
             field(
@@ -472,7 +473,9 @@ pub const SERVICES: &[Service] = &[
     Service {
         key: "song_albums",
         name: "A song's album",
-        about: "Once a requested song is in, want its album too, fetched after everything else.",
+        group: Group::Downloading,
+        purpose: "A requested song's album after it",
+        about: "Once a requested song is in, want its album too, fetched after everything else: it's searched for on the indexers and Soulseek like any wanted album, which sends them its artist and title.",
         fields: &[field(
             "MELETE_SONG_ALBUMS",
             "Want a song's album after it",
@@ -480,8 +483,6 @@ pub const SERVICES: &[Service] = &[
             Input::Toggle { on: "on" },
         )],
     },
-    proxy::PROXY,
-    vpn::VPN,
     alerts::WEBHOOK,
     alerts::EMAIL,
     party::PARTY,

@@ -67,7 +67,7 @@ export async function indexerList(ctx) {
       "p",
       { class: "note" },
       "Proxy: an indexer switched on goes through the proxy set under ",
-      h("a", { href: "#/admin/system/services" }, "Outside services"),
+      h("a", { href: "#/admin/system/services/proxy" }, "Outside services, Proxy"),
       ", and so do the torrents its results link to. It never goes direct: with the proxy down or unset, it fails. Uindex's pages are fetched by FlareSolverr 3.2.0 or later, which is handed the proxy's address (HTTP or SOCKS5, and never a password); a proxy with a login, an HTTPS one or an older FlareSolverr stops the search. Prowlarr's indexers are reached through Prowlarr, which is what asks the tracker, so their proxy is Prowlarr's own setting: switch one on here only when Prowlarr itself sits elsewhere, reached over the internet.",
     ),
     page.table,

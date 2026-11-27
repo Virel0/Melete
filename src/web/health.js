@@ -31,10 +31,10 @@ const WHERE = {
   backup_failed: () => "#/admin/system/backups",
   backup_old: () => "#/admin/system/backups",
   gpu_unavailable: () => "#/admin/system/tasks",
-  opensubtitles_used_up: () => "#/admin/system/services",
-  tmdb_off: () => "#/admin/system/services",
-  tmdb_refused: () => "#/admin/system/services",
-  tmdb_failing: () => "#/admin/system/services",
+  opensubtitles_used_up: () => "#/admin/system/services/opensubtitles",
+  tmdb_off: () => "#/admin/system/services/tmdb",
+  tmdb_refused: () => "#/admin/system/services/tmdb",
+  tmdb_failing: () => "#/admin/system/services/tmdb",
   // Each service has its own Needs a match.
   titles_unmatched: (area) => `#/admin/${area}/match`,
   // Each service has its own Where they go.
