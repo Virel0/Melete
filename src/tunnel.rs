@@ -9,13 +9,14 @@
 //! packets from, so a request's address says which peer sent it. Requests reach the API with
 //! it as their address, through the ways in (`MELETE_WAYS_IN`) like any other, so a way can be
 //! set for the tunnel's range. Before that, the tunnel's own gate refuses a peer it no longer
-//! has, and holds a watch party guest's peer to the party's routes and the web page, whatever
-//! the ways say.
+//! has, holds a watch party guest's peer to the party's routes and the web page, and a
+//! household device's to the parts it was given, whatever the ways say.
 //!
 //! Off unless the port is set. Melete's key is made from the OS's randomness and kept sealed;
-//! a peer's keys are made the same way, its private key handed once to whoever made it, in the
-//! peer's config, and never kept. Peers live in memory: a restart ends them. A removed peer is
-//! gone from WireGuard and its connections are dropped at once.
+//! a guest's peer's keys are made the same way, its private key handed once to whoever made it,
+//! in the peer's config, and never kept. Guests' peers live in memory: a restart ends them.
+//! Household devices' are kept in the database (`devices`) and come back with the tunnel. A
+//! removed peer is gone from WireGuard and its connections are dropped at once.
 
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -31,12 +32,14 @@ use ipnetwork::{IpNetwork, Ipv4Network};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 
+mod devices;
 mod guests;
 mod keys;
 mod link;
 mod netstack;
 mod settings;
 
+pub use devices::{DevicePeer, MAX_PER_USER, NewDevice, device_parts, part_name, stored_address};
 pub use guests::Arrival;
 pub use netstack::PORT;
 pub use settings::Settings;
@@ -54,6 +57,8 @@ type Transports = (UdpSocketFactory, link::ToStack, link::FromStack);
 pub enum Kind {
     /// A watch party guest's: it reaches their party's routes and the web page alone.
     Guest(GuestPeer),
+    /// A household device's: it reaches the parts it was given, as its user alone.
+    Device(DevicePeer),
 }
 
 /// A guest's peer: made with an invite, and kept while it's unused, then while the guest who
@@ -83,11 +88,16 @@ pub enum Refusal {
     Full,
     /// Its maker has [`UNUSED_PER_USER`] for the party that no guest has joined through.
     TooManyUnused,
+    /// The user has [`MAX_PER_USER`] devices.
+    TooManyDevices,
+    /// Another peer, or Melete itself, has the public key.
+    KeyInUse,
 }
 
 struct Entry {
     public_key: PublicKey,
-    kind: Kind,
+    /// None while the address is held for a peer being made.
+    kind: Option<Kind>,
 }
 
 /// The tunnel's peers, by their address in it.
@@ -101,7 +111,7 @@ impl Peers {
 
     /// What the peer at `address` is for; None when there's none.
     pub fn kind_of(&self, address: Ipv4Addr) -> Option<Kind> {
-        self.lock().get(&address).map(|e| e.kind.clone())
+        self.lock().get(&address).and_then(|e| e.kind.clone())
     }
 }
 
@@ -181,6 +191,7 @@ impl Tunnel {
             accepted: connections,
             local: SocketAddr::new(own.into(), PORT),
         };
+        devices::load(&tunnel, pool).await?;
         tokio::spawn(serve(listener, app, peers));
         tokio::spawn(guests::sweep(Arc::downgrade(&tunnel), pool.clone()));
         Ok(tunnel)
@@ -205,39 +216,69 @@ impl Tunnel {
         invite_hash: Vec<u8>,
         made_by: i64,
     ) -> anyhow::Result<Result<Made, Refusal>> {
+        let (secret, public_key) = keys::peer()?;
+        let preshared = keys::random()?;
+        let held = self.hold(public_key, &[], |peers| {
+            let unused = peers
+                .values()
+                .filter(|e| matches!(&e.kind, Some(Kind::Guest(g)) if g.unused(party_id, made_by)))
+                .count();
+            (unused >= UNUSED_PER_USER).then_some(Refusal::TooManyUnused)
+        });
+        let address = match held {
+            Ok(address) => address,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
         let kind = Kind::Guest(GuestPeer {
             party_id,
             invite_hash,
             guest_id: None,
             made_by,
         });
-        self.add(kind).await
+        self.admit(address, kind, preshared).await?;
+        let config = self.config(address, &secret, &preshared);
+        Ok(Ok(Made { address, config }))
     }
 
-    async fn add(&self, kind: Kind) -> anyhow::Result<Result<Made, Refusal>> {
-        let (secret, public_key) = keys::peer()?;
-        let preshared = keys::random()?;
-        let address = {
+    /// Holds a free address for a new peer with `public_key`, one not in `taken` either, unless
+    /// `refuse` finds a reason not to, or the tunnel is full.
+    fn hold(
+        &self,
+        public_key: PublicKey,
+        taken: &[Ipv4Addr],
+        refuse: impl FnOnce(&BTreeMap<Ipv4Addr, Entry>) -> Option<Refusal>,
+    ) -> Result<Ipv4Addr, Refusal> {
+        let mut peers = self.peers.lock();
+        if let Some(refusal) = refuse(&peers) {
+            return Err(refusal);
+        }
+        let free = self
+            .settings
+            .peer_addresses()
+            .find(|a| !peers.contains_key(a) && !taken.contains(a));
+        let Some(address) = free.filter(|_| peers.len() < MAX_PEERS) else {
+            return Err(Refusal::Full);
+        };
+        let kind = None;
+        peers.insert(address, Entry { public_key, kind });
+        Ok(address)
+    }
+
+    /// Gives the address held for a peer its `kind`, and adds the peer to WireGuard; the
+    /// address is let go when WireGuard doesn't take it.
+    async fn admit(
+        &self,
+        address: Ipv4Addr,
+        kind: Kind,
+        preshared: [u8; 32],
+    ) -> anyhow::Result<()> {
+        let public_key = {
             let mut peers = self.peers.lock();
-            let Kind::Guest(new) = &kind;
-            let unused = peers
-                .values()
-                .filter(
-                    |e| matches!(&e.kind, Kind::Guest(g) if g.unused(new.party_id, new.made_by)),
-                )
-                .count();
-            if unused >= UNUSED_PER_USER {
-                return Ok(Err(Refusal::TooManyUnused));
-            }
-            let free = self
-                .settings
-                .peer_addresses()
-                .find(|a| !peers.contains_key(a));
-            let Some(address) = free.filter(|_| peers.len() < MAX_PEERS) else {
-                return Ok(Err(Refusal::Full));
-            };
-            peers.insert(address, Entry { public_key, kind });
-            address
+            let entry = peers
+                .get_mut(&address)
+                .context("the tunnel let go of an address held for a new peer")?;
+            entry.kind = Some(kind);
+            entry.public_key
         };
         let peer = Peer::new(public_key)
             .with_allowed_ip(IpNetwork::V4(Ipv4Network::new(address, 32)?))
@@ -247,14 +288,18 @@ impl Tunnel {
             self.peers.lock().remove(&address);
             anyhow::bail!("the tunnel didn't take a new peer");
         }
-        let config = self.config(address, &secret, &preshared);
-        Ok(Ok(Made { address, config }))
+        Ok(())
     }
 
     /// Removes the peer at `address`: its requests are refused, WireGuard forgets it, and its
     /// connections are dropped, at once.
     pub async fn remove(&self, address: Ipv4Addr) {
         let entry = self.peers.lock().remove(&address);
+        self.forget_peer(address, entry).await;
+    }
+
+    /// WireGuard forgets a peer taken out of [`Peers`], and its connections are dropped.
+    async fn forget_peer(&self, address: Ipv4Addr, entry: Option<Entry>) {
         if let Some(entry) = entry {
             let _ = self.device.remove_peer(&entry.public_key).await;
         }

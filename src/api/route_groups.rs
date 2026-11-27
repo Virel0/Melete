@@ -100,8 +100,8 @@ pub(super) fn title_routes(
 }
 
 /// What a signed-in user keeps and does: progress, languages, favourites, playlists, events,
-/// listening together, signing in through a provider, and AI searches; and what each user may
-/// see, which admins set.
+/// listening together, devices on Melete's own tunnel, signing in through a provider, and AI
+/// searches; and what each user may see, which admins set.
 pub(super) fn account_routes(
     router: Router,
     pool: &SqlitePool,
@@ -125,6 +125,7 @@ pub(super) fn account_routes(
             kept.join_codes.clone(),
             kept.tunnel.clone(),
         ))
+        .merge(tunnel_devices::routes(pool.clone(), kept.tunnel.clone()))
         .merge(oidc::routes(pool.clone(), oidc_client, limiter))
         .merge(ai::routes_with(
             pool.clone(),

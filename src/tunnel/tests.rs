@@ -497,3 +497,5 @@ async fn a_guests_peer_lasts_while_its_invite_is_open_then_while_the_guest_is_in
     sweep(&mut spent).await;
     assert_eq!(tunnel.peers.kind_of(peer(&used)), None);
 }
+
+mod device_peers;

@@ -52,6 +52,11 @@ pub(super) async fn make(
                          has used yet; wait for one to be used or run out"
                     ),
                 ),
+                // A guest's peer has keys of its own, and isn't a device.
+                Refusal::TooManyDevices | Refusal::KeyInUse => ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "the tunnel didn't take a new peer; try again",
+                ),
             });
         }
     };

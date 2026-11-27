@@ -82,6 +82,8 @@ pub fn part(path: &str) -> Part {
             Part::Video
         }
         "me" => Part::Always,
+        // One's own devices on Melete's own tunnel, like one's own sessions and keys.
+        "tunnel" if api.starts_with("tunnel/devices") => Part::Always,
         "users" if api == "users/directory" => Part::Always,
         // People's pictures go wherever their names do.
         "users" if api.ends_with("/avatar") => Part::Always,

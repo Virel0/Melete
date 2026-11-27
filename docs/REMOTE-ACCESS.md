@@ -1,9 +1,9 @@
 # Reaching Melete from outside
 
 Melete doesn't open anything to the internet itself, unless you turn on its own tunnel for
-watch party guests (section 6). You choose the ways in, and Melete tells
-them apart by the address each connection comes from, opening only what you've listed for each
-(decision 76). A common setup is two ways in, besides home:
+watch party guests and household devices (sections 6 and 7). You choose the ways in, and
+Melete tells them apart by the address each connection comes from, opening only what you've
+listed for each (decision 76). A common setup is two ways in, besides home:
 
 - **WireGuard for your own devices.** A WireGuard server on the media server's host. Phones and
   laptops connect to it and reach Melete as if they were at home: video, music, everything.
@@ -203,8 +203,8 @@ MELETE_TUNNEL_ENDPOINT=melete.example
   address, with `:port` when it differs from `MELETE_TUNNEL_PORT`. It goes into each guest's
   config.
 - `MELETE_TUNNEL_NET` is the range inside the tunnel, `10.73.0.0/24` unless set. Melete has its
-  first address (`10.73.0.1`), guests the rest. Pick a private range unlikely to be a guest's
-  own home network.
+  first address (`10.73.0.1`), guests and household devices (section 7) the rest. Pick a
+  private range unlikely to be a guest's own home network.
 - With ways in set (`MELETE_WAYS_IN`), add one for the range that opens `party`, such as
   `guests 10.73.0.0/24 party`; without it, the ways in refuse the tunnel. Whatever the ways
   say, a guest's tunnel reaches the party's routes and the web page itself, and nothing else.
@@ -217,6 +217,27 @@ when they leave, are sent away or the party ends, and with a restart. Each house
 may have five tunnel invites to a party that no guest has used yet. A tunnel connection on
 which nothing moves for a minute is closed.
 
+## 7. Melete's own tunnel, for household devices
+
+The same tunnel also takes the household's own devices, for when they're away from home. Each
+device is one person's, kept across restarts with the same address, and removed on its own.
+Set the tunnel up as in section 6, then add devices from an app (`POST
+/api/v1/tunnel/devices`).
+
+- Each device reaches signing in, its owner's own account and the web page, plus the parts it's
+  given: **Full** (everything its owner can reach), **Video app** (video and requests), **Music
+  app** (music and requests), or parts chosen one by one. Admin pages still need an admin.
+- Every signed-in request through a device must be its owner's: someone else's sign-in through
+  it is refused.
+- An app that makes its own WireGuard key sends only its public key, so the private key never
+  leaves the device. Without one, Melete makes the key pair and shows the whole config once,
+  to import into a WireGuard app. Either way, the preshared key is shown once.
+- Each person may have 10 devices. Removing one, or deleting its owner, cuts it off at once.
+- With ways in set (`MELETE_WAYS_IN`), the way for the tunnel's range must open the parts the
+  devices need as well as `party`: replace section 6's `guests 10.73.0.0/24 party` with, say,
+  `tunnel 10.73.0.0/24 video,music,requests,party`. A device then reaches what both the way
+  and the device open, and a guest still reaches their party alone.
+
 ## What each way shows to whom
 
 - Over WireGuard, traffic is encrypted end to end between your device and home.
@@ -227,4 +248,5 @@ which nothing moves for a minute is closed.
   talking to the proxy.
 - Through Melete's own tunnel, traffic is encrypted between the guest's device and Melete
   itself. The guest's config holds their own key, so treat it as you'd treat the invite: send it
-  only to them.
+  only to them. A household device's config made by Melete holds that device's key in the same
+  way: keep it to that device.
