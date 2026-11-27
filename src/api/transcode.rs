@@ -315,7 +315,7 @@ async fn start(
         "duration_seconds": ready.duration_seconds,
         "resume_seconds": progress.position_seconds,
         "watched": progress.watched,
-        "segments": super::segments::of_file(&state.pool, file_id).await?,
+        "segments": super::segments::of_file(&state.pool, file_id, current.user.id).await?,
         "max_bitrate": ready.limit,
         "burned_subtitle": ready.burned_subtitle,
         "burn_reason": ready.burn_reason,

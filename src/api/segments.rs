@@ -1,21 +1,23 @@
-//! A file's intro, credits, recap and preview, for a Skip button.
+//! A file's intro, credits, recap and preview, for a Skip button, and the player saying an
+//! intro or credits played through.
 
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-#[cfg(test)]
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Extension, Json, Router, middleware};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use super::ApiError;
-use super::auth::{AppState, CurrentUser, require_user};
+use super::auth::{AppState, CurrentUser, require_playback};
+use super::{ApiError, bad_request};
 use crate::probe::{Chapter, chapters_of, named_recap_and_preview, named_segments};
-use crate::segments::{self, Found, Segment};
+use crate::segments::{self, Found, Segment, themes};
 
-/// The intro and credits route, for everyone signed in.
+/// The intro and credits routes, for everyone signed in; an API key for playback may say one
+/// was seen, as it reports progress.
 pub fn routes(pool: SqlitePool) -> Router {
     let auth = AppState {
         pool: pool.clone(),
@@ -23,18 +25,20 @@ pub fn routes(pool: SqlitePool) -> Router {
     };
     Router::new()
         .route("/api/v1/files/{id}/segments", get(file_segments))
-        .route_layer(middleware::from_fn_with_state(auth, require_user))
+        .route("/api/v1/files/{id}/segments/seen", put(seen))
+        .route_layer(middleware::from_fn_with_state(auth, require_playback))
         .with_state(pool)
 }
 
-/// A segment as the API gives it, saying how it was found (`source`).
-fn segment(found: Option<(Segment, Found)>) -> Value {
+/// A segment as the API gives it, saying how it was found (`source`) and whether it's an
+/// opening or ending new to the user (`new`).
+fn segment(found: Option<(Segment, Found)>, new: bool) -> Value {
     found.map_or(Value::Null, |(s, how)| {
         let source = match how {
             Found::Audio => "audio",
             Found::Ending => "ending",
         };
-        json!({ "start_seconds": s.start, "end_seconds": s.end, "source": source })
+        json!({ "start_seconds": s.start, "end_seconds": s.end, "source": source, "new": new })
     })
 }
 
@@ -46,31 +50,67 @@ async fn file_segments(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
     super::playback::require_file(&pool, &current.access, id).await?;
-    Ok(Json(of_file(&pool, id).await?))
+    Ok(Json(of_file(&pool, id, current.user.id).await?))
 }
 
-/// A segment from a chapter the file's author named, which says so (`source`).
-fn from_chapter(chapter: &Chapter) -> Value {
-    json!({ "start_seconds": chapter.start, "end_seconds": chapter.end, "source": "chapter" })
+/// Which part played through.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Seen {
+    kind: String,
 }
 
-/// A file's intro and credits as the API gives them, each saying how it was found; file info and
-/// play answers carry it too. Chapters named as an intro or credits come ahead of what listening
-/// found: the file's author marked them.
-pub(super) async fn of_file(pool: &SqlitePool, id: i64) -> Result<Value, ApiError> {
+/// Notes that the user played the file's intro or credits through, so a player may skip that
+/// opening or ending by itself from now on, in every episode it's in.
+async fn seen(
+    State(pool): State<SqlitePool>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+    Json(body): Json<Seen>,
+) -> Result<StatusCode, ApiError> {
+    if !matches!(body.kind.as_str(), "intro" | "credits") {
+        return Err(bad_request("kind must be intro or credits"));
+    }
+    super::playback::require_file(&pool, &current.access, id).await?;
+    themes::seen(&pool, id, current.user.id, &body.kind).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// A segment from a chapter the file's author named, which says so (`source`); `new` as for
+/// the one listening found, the same part of the file.
+fn from_chapter(chapter: &Chapter, new: bool) -> Value {
+    json!({ "start_seconds": chapter.start, "end_seconds": chapter.end, "source": "chapter",
+            "new": new })
+}
+
+/// A recap or preview from a chapter: never told apart, so never new.
+fn named(chapter: Option<&Chapter>) -> Value {
+    chapter.map_or(
+        Value::Null,
+        |c| json!({ "start_seconds": c.start, "end_seconds": c.end, "source": "chapter" }),
+    )
+}
+
+/// A file's intro and credits as the API gives them to a user, each saying how it was found
+/// and whether it's new to them; file info and play answers carry it too. Chapters named as an
+/// intro or credits come ahead of what listening found: the file's author marked them.
+pub(super) async fn of_file(pool: &SqlitePool, id: i64, user_id: i64) -> Result<Value, ApiError> {
     let found = segments::sourced(pool, id).await?;
     let (intro, credits) = found.unwrap_or((None, None));
     let intro = intro.map(|s| (s, Found::Audio));
+    let (new_intro, new_credits) = themes::new_to(pool, id, user_id).await?;
     let chapters = chapters_of(pool, id).await?;
     let (intro_chapter, credits_chapter) = named_segments(&chapters);
     // Only chapters name a recap or a preview: listening finds neither.
     let (recap, preview) = named_recap_and_preview(&chapters);
     Ok(json!({
         "scanned": found.is_some(),
-        "intro": intro_chapter.map_or_else(|| segment(intro), from_chapter),
-        "credits": credits_chapter.map_or_else(|| segment(credits), from_chapter),
-        "recap": recap.map_or(Value::Null, from_chapter),
-        "preview": preview.map_or(Value::Null, from_chapter),
+        "intro": intro_chapter
+            .map_or_else(|| segment(intro, new_intro), |c| from_chapter(c, new_intro)),
+        "credits": credits_chapter
+            .map_or_else(|| segment(credits, new_credits), |c| from_chapter(c, new_credits)),
+        "recap": named(recap),
+        "preview": named(preview),
     }))
 }
 
@@ -133,7 +173,8 @@ mod tests {
                 StatusCode::OK,
                 json!({
                     "scanned": true,
-                    "intro": { "start_seconds": 20.5, "end_seconds": 110.0, "source": "audio" },
+                    "intro": { "start_seconds": 20.5, "end_seconds": 110.0, "source": "audio",
+                               "new": false },
                     "credits": null,
                     "recap": null,
                     "preview": null,
@@ -202,17 +243,17 @@ mod tests {
             .await
             .unwrap();
         }
-        let intro = json!({ "start_seconds": 30.0, "end_seconds": 120.0, "source": "chapter" });
-        let credits =
-            json!({ "start_seconds": 1300.0, "end_seconds": 1390.0, "source": "chapter" });
+        let intro = json!({ "start_seconds": 30.0, "end_seconds": 120.0, "source": "chapter",
+                            "new": false });
+        let credits = json!({ "start_seconds": 1300.0, "end_seconds": 1390.0, "source": "chapter", "new": false });
         let recap = json!({ "start_seconds": 0.0, "end_seconds": 30.0, "source": "chapter" });
         assert_eq!(
-            of_file(&pool, 1).await.ok().unwrap(),
+            of_file(&pool, 1, 1).await.ok().unwrap(),
             json!({ "scanned": true, "intro": intro, "credits": credits, "recap": recap,
                     "preview": null })
         );
         assert_eq!(
-            of_file(&pool, 2).await.ok().unwrap(),
+            of_file(&pool, 2, 1).await.ok().unwrap(),
             json!({ "scanned": false, "intro": intro, "credits": credits, "recap": recap,
                     "preview": null }),
             "reading chapters needs no listening"
@@ -223,7 +264,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            of_file(&pool, 2).await.ok().unwrap(),
+            of_file(&pool, 2, 1).await.ok().unwrap(),
             json!({ "scanned": false, "intro": null, "credits": null, "recap": null,
                     "preview": null })
         );
@@ -245,10 +286,105 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            of_file(&pool, 1).await.ok().unwrap(),
+            of_file(&pool, 1, 1).await.ok().unwrap(),
             json!({ "scanned": true, "intro": null, "credits":
-                { "start_seconds": 5400.0, "end_seconds": 5600.0, "source": "ending" },
+                { "start_seconds": 5400.0, "end_seconds": 5600.0, "source": "ending",
+                  "new": false },
                 "recap": null, "preview": null })
         );
+    }
+
+    #[tokio::test]
+    async fn an_opening_is_new_to_each_user_until_they_have_played_it_through() {
+        let pool = db::open_in_memory().await;
+        sqlx::raw_sql(
+            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'shows', 'shows', '/s');
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation)
+                 VALUES (1, 1, 'Show', 'Show', 1);
+             INSERT INTO media_files (id, library_id, rel_path, size, modified_at, series_id,
+                 season, episode, first_seen_generation, seen_generation) VALUES
+                 (1, 1, 'S01E01.mkv', 10, 1, 1, 1, 1, 1, 1),
+                 (2, 1, 'S02E01.mkv', 10, 1, 1, 2, 1, 1, 1),
+                 (3, 1, 'S01E02.mkv', 10, 1, 1, 1, 2, 1, 1);
+             INSERT INTO segment_themes (id, series_id, kind, fingerprint, created_at) VALUES
+                 (7, 1, 'intro', x'01020304', 0), (8, 1, 'credits', x'01020304', 0);
+             INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at)
+                 VALUES (1, 10, 1, 0), (2, 10, 1, 0), (3, 10, 1, 0);
+             INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds, theme_id)
+                 VALUES (1, 'intro', 20.0, 110.0, 7), (1, 'credits', 1300.0, 1390.0, 8),
+                     (2, 'intro', 5.0, 95.0, 7), (3, 'intro', 20.0, 110.0, NULL);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut tokens = Vec::new();
+        for name in ["alice", "sam"] {
+            let user = crate::auth::testing::user(&pool, name, false).await;
+            let (_, token) = auth::issue_token(&pool, user.id, TokenKind::Session, "t")
+                .await
+                .unwrap();
+            tokens.push(token);
+        }
+        let app = routes(pool.clone());
+        let send = |method: &str, uri: &str, token: &str, body: Option<Value>| {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body.map_or_else(Body::empty, |b| Body::from(b.to_string())))
+                .unwrap();
+            let app = app.clone();
+            async move {
+                let response = app.oneshot(request).await.unwrap();
+                let status = response.status();
+                let bytes = response.into_body().collect().await.unwrap().to_bytes();
+                let body = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+                (status, body)
+            }
+        };
+        let new = |file: i64, token: &str| {
+            let uri = format!("/api/v1/files/{file}/segments");
+            let token = token.to_owned();
+            let send = &send;
+            async move {
+                let (_, body) = send("GET", &uri, &token, None).await;
+                (body["intro"]["new"].clone(), body["credits"]["new"].clone())
+            }
+        };
+        let (alice, sam) = (tokens[0].as_str(), tokens[1].as_str());
+        assert_eq!(new(1, alice).await, (json!(true), json!(true)));
+        assert_eq!(
+            new(3, alice).await.0,
+            json!(false),
+            "found before: never new"
+        );
+        let seen = |file: i64, kind: &str, token: &str| {
+            let uri = format!("/api/v1/files/{file}/segments/seen");
+            send("PUT", &uri, token, Some(json!({ "kind": kind })))
+        };
+        assert_eq!(seen(1, "intro", alice).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(new(1, alice).await, (json!(false), json!(true)));
+        assert_eq!(
+            new(2, alice).await.0,
+            json!(false),
+            "the same opening in the next season"
+        );
+        assert_eq!(new(2, sam).await.0, json!(true), "each user their own");
+        assert_eq!(seen(1, "intro", alice).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(seen(3, "intro", alice).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(seen(1, "credits", sam).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(new(1, sam).await, (json!(true), json!(false)));
+        assert_eq!(
+            seen(1, "recap", sam).await.0,
+            StatusCode::BAD_REQUEST,
+            "only intros and credits are told apart"
+        );
+        assert_eq!(seen(9, "intro", sam).await.0, StatusCode::NOT_FOUND);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM segment_themes_seen")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
     }
 }

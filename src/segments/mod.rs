@@ -14,9 +14,18 @@
 //! once, while it's turned on (`MELETE_INTRO_DETECTION`, off by default, as the first run
 //! decodes part of every episode). An episode alone in its season waits for another. Turned
 //! off, nothing new is looked for, and what was found is still served.
+//!
+//! Each intro and credits found by matching is told apart as one of the series' openings or
+//! endings ([`themes`]), so a player can leave alone, the first time, one a user hasn't heard.
 
 pub mod ending;
 pub mod fingerprint;
+mod served;
+pub mod themes;
+
+#[cfg(test)]
+pub use served::of_file;
+pub use served::{Found, sourced};
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -230,33 +239,71 @@ async fn look_through(
                 credits = Some((a, partner.id, b));
             }
         }
-        record(
+        // The start of each one's fingerprint, to tell which opening or ending it is.
+        let Decoded::Prints(mine) = &prints[&own] else {
+            continue;
+        };
+        let intro = intro.map(|(a, p, b)| (a, p, b, themes::excerpt(&mine.intro, 0.0, a)));
+        let credits = credits.map(|(a, p, b)| {
+            (
+                a,
+                p,
+                b,
+                themes::excerpt(&mine.credits, mine.credits_from, a),
+            )
+        });
+        let told = record(
             pool,
             row,
             None,
-            intro.map(|(a, _, _)| a),
-            credits.map(|(a, _, _)| a),
+            intro
+                .as_ref()
+                .map(|(a, _, _, print)| (*a, print.as_slice())),
+            credits
+                .as_ref()
+                .map(|(a, _, _, print)| (*a, print.as_slice())),
         )
         .await?;
         fresh.push(row.id);
         report.scanned += 1;
         report.intros += usize::from(intro.is_some());
         report.credits += usize::from(credits.is_some());
-        // A partner looked at before that found nothing of the kind gets what it shares.
-        for (kind, found) in [("intro", intro), ("credits", credits)] {
-            if let Some((_, partner, theirs)) = found
-                && fresh.contains(&partner)
+        let shares = [
+            ("intro", intro.map(|(_, p, b, _)| (p, b)), told.0),
+            ("credits", credits.map(|(_, p, b, _)| (p, b)), told.1),
+        ];
+        share(pool, &fresh, shares).await?;
+    }
+    Ok(())
+}
+
+/// What an episode shares of one kind ("intro" or "credits"): the partner it was found with and
+/// that partner's stretch, if any, and the opening or ending id the episode's was told apart as.
+type Share<'a> = (&'a str, Option<(i64, Segment)>, Option<i64>);
+
+/// A partner looked at before that found nothing of the kind gets what it shares, as the same
+/// opening or ending.
+async fn share(pool: &SqlitePool, fresh: &[i64], shares: [Share<'_>; 2]) -> sqlx::Result<()> {
+    let mut conn = pool.acquire().await?;
+    for (kind, found, theme) in shares {
+        if let Some((partner, theirs)) = found
+            && fresh.contains(&partner)
+        {
+            let added = sqlx::query(
+                "INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds, theme_id)
+                 VALUES (?, ?, ?, ?, ?) ON CONFLICT (file_id, kind) DO NOTHING",
+            )
+            .bind(partner)
+            .bind(kind)
+            .bind(theirs.start)
+            .bind(theirs.end)
+            .bind(theme)
+            .execute(&mut *conn)
+            .await?;
+            if let Some(theme) = theme
+                && added.rows_affected() > 0
             {
-                sqlx::query(
-                    "INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds)
-                     VALUES (?, ?, ?, ?) ON CONFLICT (file_id, kind) DO NOTHING",
-                )
-                .bind(partner)
-                .bind(kind)
-                .bind(theirs.start)
-                .bind(theirs.end)
-                .execute(pool)
-                .await?;
+                themes::reached_past(&mut conn, partner, theme, theirs.end).await?;
             }
         }
     }
@@ -296,14 +343,15 @@ fn round(seconds: f64) -> f64 {
     (seconds * 1000.0).round() / 1000.0
 }
 
-/// Keeps what was found in this version of a file, replacing what was found before.
+/// Keeps what was found in this version of a file, replacing what was found before, each with
+/// the start of its fingerprint to tell which opening or ending it is; returns their ids.
 async fn record(
     pool: &SqlitePool,
     row: &Row,
     error: Option<&str>,
-    intro: Option<Segment>,
-    credits: Option<Segment>,
-) -> anyhow::Result<()> {
+    intro: Option<(Segment, &[u32])>,
+    credits: Option<(Segment, &[u32])>,
+) -> anyhow::Result<(Option<i64>, Option<i64>)> {
     let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at, error)
@@ -323,22 +371,31 @@ async fn record(
         .bind(row.id)
         .execute(&mut *tx)
         .await?;
-    for (kind, segment) in [("intro", intro), ("credits", credits)] {
-        if let Some(segment) = segment {
+    let mut told = [None, None];
+    for ((kind, found), theme) in [("intro", intro), ("credits", credits)]
+        .into_iter()
+        .zip(&mut told)
+    {
+        if let Some((segment, print)) = found {
+            *theme = themes::recognise(&mut tx, row.series_id, kind, print).await?;
             sqlx::query(
-                "INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO media_segments (file_id, kind, start_seconds, end_seconds, theme_id)
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(row.id)
             .bind(kind)
             .bind(segment.start)
             .bind(segment.end)
+            .bind(*theme)
             .execute(&mut *tx)
             .await?;
+            if let Some(theme) = *theme {
+                themes::reached_past(&mut tx, row.id, theme, segment.end).await?;
+            }
         }
     }
     tx.commit().await?;
-    Ok(())
+    Ok((told[0], told[1]))
 }
 
 /// An episode's opening and end, fingerprinted.
@@ -408,268 +465,5 @@ async fn audio(
     ))
 }
 
-/// A file's intro and credits, when its current version has been looked at: `None` when it
-/// hasn't been, by matching episodes or alone. Credits found by matching come first; those
-/// found in the file alone count where matching found none. The API asks [`sourced`].
 #[cfg(test)]
-pub async fn of_file(
-    pool: &SqlitePool,
-    file_id: i64,
-) -> anyhow::Result<Option<(Option<Segment>, Option<Segment>)>> {
-    let found = sourced(pool, file_id).await?;
-    Ok(found.map(|(intro, credits)| (intro, credits.map(|(c, _)| c))))
-}
-
-/// How a segment was found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Found {
-    /// By matching audio an episode shares with others of its season.
-    Audio,
-    /// By the black or silent ending of the file alone.
-    Ending,
-}
-
-/// As [`of_file`], with how the credits were found (an intro is only found by matching).
-pub async fn sourced(
-    pool: &SqlitePool,
-    file_id: i64,
-) -> anyhow::Result<Option<(Option<Segment>, Option<(Segment, Found)>)>> {
-    let scanned: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM media_segment_scans s JOIN media_files f ON f.id = s.file_id
-             WHERE s.file_id = ? AND s.size = f.size AND s.modified_at = f.modified_at)",
-    )
-    .bind(file_id)
-    .fetch_one(pool)
-    .await?;
-    let alone: Option<(Option<f64>, Option<f64>)> = sqlx::query_as(
-        "SELECT c.start_seconds, c.end_seconds FROM media_credit_scans c
-         JOIN media_files f ON f.id = c.file_id
-         WHERE c.file_id = ? AND c.size = f.size AND c.modified_at = f.modified_at",
-    )
-    .bind(file_id)
-    .fetch_optional(pool)
-    .await?;
-    let alone_credits = match alone {
-        Some((Some(start), Some(end))) => Some((Segment { start, end }, Found::Ending)),
-        _ => None,
-    };
-    if !scanned {
-        return Ok(alone.map(|_| (None, alone_credits)));
-    }
-    let rows: Vec<(String, f64, f64)> = sqlx::query_as(
-        "SELECT kind, start_seconds, end_seconds FROM media_segments WHERE file_id = ?",
-    )
-    .bind(file_id)
-    .fetch_all(pool)
-    .await?;
-    let find = |kind: &str| {
-        rows.iter()
-            .find(|(k, _, _)| k == kind)
-            .map(|(_, start, end)| Segment {
-                start: *start,
-                end: *end,
-            })
-    };
-    let matched = find("credits").map(|c| (c, Found::Audio));
-    Ok(Some((find("intro"), matched.or(alone_credits))))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::fingerprint::tests::{Noise, episode};
-    use super::*;
-    use crate::db;
-
-    /// Writes mono 16-bit audio at the fingerprints' rate as a WAV file, then, for `lossy`,
-    /// makes it an AAC file instead, as a broadcast would be.
-    fn write_audio(path: &Path, samples: &[f32], lossy: bool) {
-        let wav = path.with_extension("wav");
-        let mut bytes = Vec::with_capacity(44 + samples.len() * 2);
-        let data_len = (samples.len() * 2) as u32;
-        bytes.extend_from_slice(b"RIFF");
-        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-        bytes.extend_from_slice(b"WAVEfmt ");
-        bytes.extend_from_slice(&16u32.to_le_bytes());
-        bytes.extend_from_slice(&1u16.to_le_bytes());
-        bytes.extend_from_slice(&1u16.to_le_bytes());
-        bytes.extend_from_slice(&fingerprint::RATE.to_le_bytes());
-        bytes.extend_from_slice(&(fingerprint::RATE * 2).to_le_bytes());
-        bytes.extend_from_slice(&2u16.to_le_bytes());
-        bytes.extend_from_slice(&16u16.to_le_bytes());
-        bytes.extend_from_slice(b"data");
-        bytes.extend_from_slice(&data_len.to_le_bytes());
-        for s in samples {
-            bytes.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
-        }
-        std::fs::write(&wav, bytes).unwrap();
-        if lossy {
-            let status = std::process::Command::new("ffmpeg")
-                .args(["-loglevel", "error", "-y", "-i"])
-                .arg(&wav)
-                .args(["-c:a", "aac", "-b:a", "96k"])
-                .arg(path)
-                .status()
-                .expect("ffmpeg runs");
-            assert!(status.success());
-            std::fs::remove_file(&wav).unwrap();
-        } else {
-            std::fs::rename(&wav, path).unwrap();
-        }
-    }
-
-    struct Season {
-        pool: SqlitePool,
-        _dir: tempfile::TempDir,
-    }
-
-    /// Three 6-minute episodes of one season sharing a 40-second intro and a 30-second ending
-    /// song at different times, plus a special and an episode of another show alone in its
-    /// season.
-    async fn season() -> Season {
-        let dir = tempfile::tempdir().unwrap();
-        let intro = Noise::new(7).tune(40.0);
-        let song = Noise::new(8).tune(30.0);
-        // (file, before the intro, after it until the song, after the song)
-        let layout = [
-            ("S01E01.m4a", 20.0, 225.0, 45.0),
-            ("S01E02.wav", 45.3, 195.0, 49.7),
-            ("S01E03.wav", 5.0, 240.0, 45.0),
-            ("S00E01.wav", 20.0, 225.0, 45.0),
-            ("Other.S01E01.wav", 20.0, 225.0, 45.0),
-        ];
-        for (n, (name, before, middle, after)) in layout.iter().enumerate() {
-            let mut samples = episode(n as u64 + 1, *before, &intro, *middle);
-            samples.extend_from_slice(&song);
-            samples.extend(Noise::new(n as u64 + 50).tune(*after));
-            write_audio(&dir.path().join(name), &samples, name.ends_with(".m4a"));
-        }
-        let pool = db::open_in_memory().await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'shows', 'shows', '{}');
-             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation) VALUES
-                 (1, 1, 'Show', 'Show', 1), (2, 1, 'Other', 'Other', 1);
-             INSERT INTO media_files (id, library_id, rel_path, size, modified_at, series_id,
-                 season, episode, first_seen_generation, seen_generation) VALUES
-                 (1, 1, 'S01E01.m4a', 1, 1, 1, 1, 1, 1, 1),
-                 (2, 1, 'S01E02.wav', 1, 1, 1, 1, 2, 1, 1),
-                 (3, 1, 'S01E03.wav', 1, 1, 1, 1, 3, 1, 1),
-                 (4, 1, 'S00E01.wav', 1, 1, 1, 0, 1, 1, 1),
-                 (5, 1, 'Other.S01E01.wav', 1, 1, 2, 1, 1, 1, 1);
-             INSERT INTO media_probes (file_id, size, modified_at, probed_at, info)
-                 SELECT id, 1, 1, 0, '{{\"duration_seconds\": 360.0}}' FROM media_files;",
-            dir.path().display()
-        )))
-        .execute(&pool)
-        .await
-        .unwrap();
-        Season { pool, _dir: dir }
-    }
-
-    async fn segments(pool: &SqlitePool) -> Vec<(i64, String, f64, f64)> {
-        sqlx::query_as(
-            "SELECT file_id, kind, start_seconds, end_seconds FROM media_segments
-             ORDER BY file_id, kind DESC",
-        )
-        .fetch_all(pool)
-        .await
-        .unwrap()
-    }
-
-    fn near(actual: f64, expected: f64) -> bool {
-        (actual - expected).abs() < 1.0
-    }
-
-    #[tokio::test]
-    async fn finds_a_seasons_intros_and_credits_once() {
-        let s = season().await;
-        let report = find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap();
-        assert_eq!(
-            report,
-            Report {
-                scanned: 3,
-                intros: 3,
-                credits: 3,
-                failed: 0
-            },
-            "the special and the lone episode wait"
-        );
-        let found = segments(&s.pool).await;
-        let expected = [
-            (1, "intro", 20.0, 60.0),
-            (1, "credits", 285.0, 315.0),
-            (2, "intro", 45.3, 85.3),
-            (2, "credits", 280.3, 310.3),
-            (3, "intro", 5.0, 45.0),
-            (3, "credits", 285.0, 315.0),
-        ];
-        assert_eq!(found.len(), expected.len(), "{found:?}");
-        for ((file, kind, start, end), (e_file, e_kind, e_start, e_end)) in
-            found.iter().zip(expected)
-        {
-            assert_eq!((*file, kind.as_str()), (e_file, e_kind));
-            assert!(
-                near(*start, e_start) && near(*end, e_end),
-                "{file} {kind}: {start}-{end}, not {e_start}-{e_end}"
-            );
-        }
-        let (intro, credits) = of_file(&s.pool, 2).await.unwrap().unwrap();
-        assert!(near(intro.unwrap().start, 45.3));
-        assert!(credits.is_some());
-        assert_eq!(of_file(&s.pool, 5).await.unwrap(), None, "not looked at");
-
-        // Nothing more to do until a file changes.
-        let again = find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap();
-        assert_eq!(again, Report::default());
-        sqlx::query("UPDATE media_files SET size = 2 WHERE id = 3")
-            .execute(&s.pool)
-            .await
-            .unwrap();
-        assert_eq!(of_file(&s.pool, 3).await.unwrap(), None, "a changed file");
-        sqlx::query("UPDATE media_probes SET size = 2 WHERE file_id = 3")
-            .execute(&s.pool)
-            .await
-            .unwrap();
-        let changed = find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap();
-        assert_eq!(changed.scanned, 1);
-    }
-
-    #[tokio::test]
-    async fn nothing_is_looked_for_until_it_is_turned_on() {
-        let s = season().await;
-        let report = run(&s.pool, Path::new("ffmpeg")).await.unwrap();
-        assert_eq!(report, Report::default());
-        let scans: i64 = sqlx::query_scalar("SELECT count(*) FROM media_segment_scans")
-            .fetch_one(&s.pool)
-            .await
-            .unwrap();
-        assert_eq!(scans, 0);
-        sqlx::query(
-            "INSERT INTO settings (name, value, updated_at) VALUES ('MELETE_INTRO_DETECTION', 'on', 0)",
-        )
-        .execute(&s.pool)
-        .await
-        .unwrap();
-        assert_eq!(run(&s.pool, Path::new("ffmpeg")).await.unwrap().scanned, 3);
-    }
-
-    #[tokio::test]
-    async fn an_unreadable_episode_is_kept_with_why() {
-        let s = season().await;
-        std::fs::write(s._dir.path().join("S01E03.wav"), b"not audio").unwrap();
-        let report = find_pending(&s.pool, Path::new("ffmpeg")).await.unwrap();
-        assert_eq!((report.scanned, report.failed), (2, 1));
-        let error: Option<String> =
-            sqlx::query_scalar("SELECT error FROM media_segment_scans WHERE file_id = 3")
-                .fetch_one(&s.pool)
-                .await
-                .unwrap();
-        assert!(error.is_some_and(|e| !e.is_empty()));
-        assert_eq!(of_file(&s.pool, 3).await.unwrap(), Some((None, None)));
-        assert!(
-            find_pending(&s.pool, Path::new("no-such-ffmpeg"))
-                .await
-                .is_err(),
-            "without ffmpeg nothing is recorded"
-        );
-    }
-}
+mod tests;
