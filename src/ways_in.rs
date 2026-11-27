@@ -307,6 +307,13 @@ impl Opens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoLimit(pub Option<i64>);
 
+/// Who the client of an HTTPS connection is (`crate::tls`): the client a trusted proxy's PROXY
+/// header named, else the connection's own address. Put on the connection's requests by the
+/// listener, so `X-Forwarded-For`, which on a connection passed through only the client could
+/// have written, is never believed there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProxiedClient(pub IpAddr);
+
 /// The client's own address: the connection's, or what a trusted proxy says it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClientAddr(pub IpAddr);
@@ -431,7 +438,10 @@ pub async fn guard(
         tracing::info!(%peer, path = request.uri().path(), why, "refused by the ways in");
         return refused(why);
     }
-    let client = ways.client(peer, request.headers());
+    let client = match request.extensions().get::<ProxiedClient>() {
+        Some(ProxiedClient(client)) => *client,
+        None => ways.client(peer, request.headers()),
+    };
     request.extensions_mut().insert(ClientAddr(client));
     request.extensions_mut().insert(ways.opens(peer));
     request.extensions_mut().insert(ways.video_limit(peer));
