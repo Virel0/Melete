@@ -2,7 +2,7 @@
 // Before importing, what the library has of the file is shown; "Also make a playlist" makes
 // an Aoide playlist of it too, filled as the import runs.
 
-import { confirmInline, field, form, group, when } from "/web/forms.js";
+import { confirmInline, field, fileButton, form, group, when } from "/web/forms.js";
 import { SignedOut, announce, api, h, plural } from "/web/lib.js";
 import { seesAllMusic } from "/web/music-access.js";
 import { playlistHref } from "/web/music-playlists.js";
@@ -178,6 +178,7 @@ function importForm(ctx, draw) {
     h("input", { type: "file", accept: ".csv,text/csv" }),
     "Export the playlist with Exportify (exportify.net), then choose the file it saved.",
   );
+  file.input.after(fileButton(file.input, "Choose a file")[1]);
   const name = field("import-name", "Name", h("input", { autocomplete: "off", maxlength: 200 }), "Taken from the file's name unless you change it.");
   // Playlists, and the library-wide match the preview uses, are closed to someone who may see
   // only some music libraries; they import as before.

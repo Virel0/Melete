@@ -9,7 +9,7 @@
 }
 .sign-in h1 { margin-block-end: var(--space-5); }
 .sign-in form > div { margin-block-end: var(--space-4); }
-.sign-in input { width: 100%; }
+.sign-in input { width: 100%; min-height: 3rem; }
 .sign-in button { width: 100%; margin-block-start: var(--space-2); }
 .sign-in .other-way { margin-block-start: var(--space-5); text-align: center; }
 .sign-in .other-way + .other-way { margin-block-start: var(--space-2); }

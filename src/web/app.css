@@ -261,15 +261,46 @@ button.icon.filled.tip-end[aria-label]:is(:hover, :focus-visible)::before { inse
 /* The thin line between a title's main actions and its tertiary ones. */
 .action-divider { width: 1px; height: 1.75rem; margin-inline: var(--space-1); background: color-mix(in srgb, var(--text) 20%, transparent); }
 
+/* Fields: 44 px, an outline drawn inside, the page's colour on a card and the surface on the
+   page. A label sits above its field at 14 px. */
 input, select, textarea {
-  min-height: 2.5rem;
+  min-height: 2.75rem;
   padding: var(--space-2) var(--space-3);
   background: var(--surface);
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-l);
 }
+.group :is(input, textarea) { background: var(--bg); }
 
-label { display: block; font-weight: 600; margin-block-end: var(--space-1); }
+label { display: block; font-size: 0.875rem; font-weight: 600; margin-block-end: var(--space-1); }
+
+/* A select looks like a secondary button with its chevron: a pill with a tonal fill. The
+   chevron is drawn by two gradients, the page's policy refusing images that aren't files. */
+select:not([multiple], [size]) {
+  appearance: none;
+  padding-inline: var(--space-4) 2.5rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-raised);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); /* check-ui: ignore the chevron, drawn without an image file */
+  background-position: right 1.3rem center, right 1rem center;
+  background-size: 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+  font-weight: 600;
+  cursor: pointer;
+}
+select:not([multiple], [size]):hover { background-color: var(--surface-hover); }
+select[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--danger); }
+
+/* A file field: the browser's picker hidden, a secondary button with an upload icon in its
+   place (fileButton in forms.js), and the chosen file's name after it. The keyboard reaches the
+   input itself, so its focus is drawn on the button. */
+.file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.file-pick { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.file-input:focus-visible + .file-pick .file-button { outline: 3px solid var(--accent); outline-offset: 2px; }
+.file-chosen { color: var(--muted); font-size: var(--step--1); overflow-wrap: anywhere; }
+/* The searches a page is for (Ask for something, Add new, Search) stand out at 56 px. */
+:is(#ask-q, #add-q, #search-words) { min-height: 3.5rem; padding-inline: var(--space-4); }
 
 .visually-hidden {
   position: absolute;
@@ -416,12 +447,12 @@ button.danger, .button.danger { background: var(--danger); color: var(--danger-i
 .settings-nav a {
   display: block;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-m);
   text-decoration: none;
   color: var(--muted);
 }
 .settings-nav a:hover { color: var(--text); background: var(--surface-raised); }
-.settings-nav a[aria-current="page"] { color: var(--text); background: var(--surface-raised); box-shadow: inset 3px 0 0 var(--accent); }
+.settings-nav a[aria-current="page"] { color: var(--text); background: var(--surface-raised); font-weight: 600; }
 .flash {
   margin: 0 0 var(--space-4);
   padding: var(--space-3) var(--space-4);
@@ -445,7 +476,7 @@ button.danger, .button.danger { background: var(--danger); color: var(--danger-i
 .check { display: flex; align-items: center; gap: var(--space-2); margin-block-end: var(--space-4); }
 .toolbar .check { margin-block-end: var(--space-2); }
 .check input { flex: none; min-height: auto; width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
-.check label { font-weight: 400; margin: 0; }
+.check label { font-size: inherit; font-weight: 400; margin: 0; }
 /* A hint under a checkbox, lined up with its label. */
 .check:has(+ .check-hint) { margin-block-end: var(--space-1); }
 .check-hint { margin: 0 0 var(--space-4); padding-inline-start: calc(1.25rem + var(--space-2)); }

@@ -25,6 +25,7 @@ import { smartEditor } from "/web/music-smart-editor.js";
 import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 import { emptyState, hold, placeholders, release } from "/web/page-parts.js";
 import { seesAllMusic } from "/web/music-access.js";
+import { fileButton } from "/web/forms.js";
 
 const path = (p) => `/playlists/${encodeURIComponent(p.id)}`;
 
@@ -110,7 +111,7 @@ function pictureForm(p, page) {
       { class: "field" },
       h("label", { for: "playlist-picture" }, p.image_url ? "Choose another picture" : "Choose a picture"),
       h("p", { class: "note", id: "playlist-picture-hint" }, "JPEG, PNG or WebP, up to 5 MB. Your Aoide devices show it after they next sync."),
-      input,
+      fileButton(input, "Choose a file"),
     ),
     h("div", { class: "form-actions" }, remove, h("button", { type: "button", class: "quiet", onclick: () => page.draw(p, null, "", "picture") }, "Done")),
     said,

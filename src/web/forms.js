@@ -157,3 +157,22 @@ export async function sectioned({ title, base, sections }, section, ctx) {
   };
   await fill().catch(failed);
 }
+
+// A file field drawn as a secondary button with an upload icon, never the browser's own
+// picker: the input stays where it is, with its label, hidden from sight but not from the
+// keyboard or screen readers, and the button beside it (which the keyboard skips, the input
+// being its stop) opens it. The chosen file's name shows after it. Returns the nodes to put
+// where the input was.
+export function fileButton(input, words) {
+  input.classList.add("file-input");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "lines");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M12 15V4M7.5 8.5 12 4l4.5 4.5M5 15v4h14v-4");
+  svg.append(path);
+  const button = h("button", { type: "button", class: "quiet with-icon file-button", tabindex: "-1", "aria-hidden": "true", onclick: () => input.click() }, svg, words);
+  const chosen = h("span", { class: "file-chosen" });
+  input.addEventListener("change", () => (chosen.textContent = input.files?.[0]?.name ?? ""));
+  return [input, h("span", { class: "file-pick" }, button, chosen)];
+}
