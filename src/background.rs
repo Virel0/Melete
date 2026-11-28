@@ -36,6 +36,11 @@ pub(crate) async fn housekeeping(
             None
         });
     jobs::scans::remember(last);
+    // On before its first scan too: the Tasks page shows when that's due, or that it waits to
+    // be asked, rather than the task as off.
+    let schedule = scan_schedule(&pool).await;
+    let next = jobs::scans::next_whole(schedule, crate::db::unix_now());
+    crate::tasks::waiting("library", next);
     // The first scan knows which libraries answer, and what changed while Melete was down is
     // asked for (`library::changed`).
     library::health::checked().await;
