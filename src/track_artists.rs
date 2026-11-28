@@ -377,7 +377,7 @@ pub async fn refresh(pool: &SqlitePool) -> anyhow::Result<usize> {
         .zip(&saids)
         .map(|(track, said)| credits(said, &known, album_artist(track).map(|(_, name)| name)))
         .collect();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("DELETE FROM music_track_artists")
         .execute(&mut *tx)
         .await?;

@@ -249,7 +249,7 @@ async fn status(
             .fetch_one(&state.pool)
             .await?;
         // A real write that changes nothing: the same path a push takes.
-        let mut tx = state.pool.begin().await?;
+        let mut tx = crate::db::write(&state.pool).await?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(&mut *tx)
             .await?;

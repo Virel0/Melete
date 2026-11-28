@@ -7,7 +7,7 @@ use super::*;
 /// unless another import lists them too; approved ones stay, as they're on their way. One
 /// being worked through stops before its next track. Returns how many were taken back.
 pub async fn remove(pool: &SqlitePool, id: i64, user: &User) -> anyhow::Result<Option<u64>> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let owner: Option<i64> =
         sqlx::query_scalar("SELECT user_id FROM playlist_imports WHERE id = ?")
             .bind(id)

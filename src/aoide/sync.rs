@@ -190,7 +190,7 @@ pub async fn push(
     ops: Vec<Op>,
     now: i64,
 ) -> sqlx::Result<Pushed> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let mut denied = Vec::new();
     let mut kept = Vec::with_capacity(ops.len());
     for op in ops {

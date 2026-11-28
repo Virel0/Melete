@@ -72,7 +72,7 @@ pub async fn start(
         return Ok(Err(NotStarted::NothingToCompress));
     }
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for file in &files {
         sqlx::query(
             "INSERT INTO compressions (file_id, state, started_at) VALUES (?, 'waiting', ?)
@@ -203,10 +203,17 @@ pub(crate) async fn compress(tools: &Tools<'_>, source: &Path, out: &Path) -> Re
     let after = probe::probe(ffprobe, out)
         .await
         .map_err(|err| format!("reading the copy: {err}"))?;
-    let (old_size, new_size) = (
-        std::fs::metadata(source).map_or(0, |m| m.len()),
-        std::fs::metadata(out).map_or(0, |m| m.len()),
-    );
+    // The library file's size is read off the async threads, with the library check's limit.
+    let (source_at, out_at) = (source.to_path_buf(), out.to_path_buf());
+    let (old_size, new_size) =
+        crate::library::health::within(source, crate::library::health::LIMIT, move || {
+            (
+                std::fs::metadata(source_at).map_or(0, |m| m.len()),
+                std::fs::metadata(out_at).map_or(0, |m| m.len()),
+            )
+        })
+        .await
+        .map_err(|down| format!("{}: {}", down.saying(), down.why))?;
     check(&before, &after, old_size, new_size)
 }
 

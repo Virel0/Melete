@@ -163,6 +163,7 @@ pub async fn level_some(
     .fetch_all(pool)
     .await?;
     for (id, file) in &due {
+        crate::transcode::after_viewers().await;
         let Some(name) = plain_name(file) else {
             continue;
         };

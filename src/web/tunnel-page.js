@@ -41,7 +41,10 @@ function named(p) {
 
 function connection(p) {
   if (p.connected) return stateLabel("have", "Connected now");
-  return p.last_handshake === null ? stateLabel("notyet", "Never connected") : stateLabel("off", "Not connected");
+  // Traffic, or a handshake seen once, means it has connected, even if WireGuard has since let a
+  // quiet session lapse.
+  const ever = p.last_handshake !== null || p.rx_bytes > 0;
+  return ever ? stateLabel("off", "Not connected") : stateLabel("notyet", "Never connected");
 }
 
 function doing(p) {
@@ -54,7 +57,7 @@ function cells(p) {
   return [
     p.kind === "device" ? "Device" : "Guest",
     connection(p),
-    secondsAgo(p.last_handshake),
+    p.last_handshake === null && p.rx_bytes > 0 ? "earlier" : secondsAgo(p.last_handshake),
     `${size(p.rx_bytes)} in / ${size(p.tx_bytes)} out`,
     String(p.connections),
     doing(p),
