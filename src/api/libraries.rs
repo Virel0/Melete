@@ -61,8 +61,9 @@ pub(super) struct UnmatchedRow {
     pub(super) candidates: Option<String>,
 }
 
-/// Titles TMDB matching could not settle, with the candidates for ambiguous ones. Titles the
-/// admin already decided by hand are not listed.
+/// Titles TMDB matching could not settle, with the candidates for ambiguous ones, and matched
+/// titles whose TMDB entry TMDB no longer has (`gone`, even when matched by hand: that entry is
+/// no answer any more). Other titles the admin already decided by hand are not listed.
 pub(super) async fn list_unmatched(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
@@ -78,6 +79,16 @@ pub(super) async fn list_unmatched(
          FROM series s JOIN libraries l ON l.id = s.library_id
          WHERE s.missing_since IS NULL AND s.match_status IN ('unmatched', 'ambiguous')
            AND s.match_method IS NOT 'manual'
+         UNION ALL
+         SELECT 'movie', m.id, l.name, m.rel_path, m.parsed_title, m.parsed_year, 'gone', NULL
+         FROM movies m JOIN libraries l ON l.id = m.library_id
+         JOIN tmdb_movies t ON t.tmdb_id = m.match_tmdb_id
+         WHERE m.missing_since IS NULL AND m.match_status = 'matched' AND t.gone_at IS NOT NULL
+         UNION ALL
+         SELECT 'series', s.id, l.name, s.rel_path, s.parsed_title, s.parsed_year, 'gone', NULL
+         FROM series s JOIN libraries l ON l.id = s.library_id
+         JOIN tmdb_series t ON t.tmdb_id = s.match_tmdb_id
+         WHERE s.missing_since IS NULL AND s.match_status = 'matched' AND t.gone_at IS NOT NULL
          ORDER BY library, rel_path",
     )
     .fetch_all(&pool)

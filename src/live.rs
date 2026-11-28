@@ -88,7 +88,9 @@ fn build(fixed: &Fixed, kept: &api::Kept, config: &Config) -> anyhow::Result<Bui
     let flaresolverr = config
         .flaresolverr
         .as_deref()
-        .map(flaresolverr::Client::new)
+        .map(|url| {
+            flaresolverr::Client::new(url).map(|c| c.behind_vpn(config.flaresolverr_behind_vpn))
+        })
         .transpose()?;
     // Album covers from the Cover Art Archive come with MusicBrainz matching, and only then.
     let coverart = match config.musicbrainz {

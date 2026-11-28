@@ -154,16 +154,14 @@ pub(super) async fn refresh_airing_series(
     .fetch_all(pool)
     .await?;
     let airing = with_unfilled(pool, Among::Wanted, tmdb.language(), now, airing).await?;
+    let airing = not_gone_today(pool, Cached::Series, airing, now).await?;
     for id in airing {
         match fetch_series(tmdb, id).await {
             Ok(Some((details, seasons))) => {
                 store_series(pool, &details, &seasons, now).await?;
                 report.refreshed += 1;
             }
-            Ok(None) => tracing::warn!(
-                tmdb_id = id,
-                "TMDB no longer has this series; keeping the cached copy"
-            ),
+            Ok(None) => gone(pool, Cached::Series, id, now).await?,
             Err(err) => skip(err, "series refresh", &id.to_string(), report)?,
         }
     }

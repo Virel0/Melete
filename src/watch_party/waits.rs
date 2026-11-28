@@ -110,10 +110,29 @@ pub async fn clear(pool: &SqlitePool, party: i64) -> sqlx::Result<()> {
 /// What a guest is told of a household device the party waits for: never an account's name.
 pub const SOMEONE: &str = "someone from the household";
 
-/// Who the party waits for, by name, first first, each with whether it's a guest; settled
-/// first when it's waiting at all, so a wait that's over shows as over. Writes nothing when
-/// nobody waits.
+/// One wait, as kept: who (their name, whether a guest, and the waiter's key) and since when.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct Wait {
+    pub name: String,
+    pub guest: bool,
+    pub waiter: String,
+    pub since: i64,
+}
+
+/// Who the party waits for, by name, first first, each with whether it's a guest, as
+/// [`waits`] has them.
+#[cfg(test)]
 pub async fn names(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<(String, bool)>> {
+    Ok(waits(pool, party)
+        .await?
+        .into_iter()
+        .map(|w| (w.name, w.guest))
+        .collect())
+}
+
+/// The party's waits, first first; settled first when it's waiting at all, so a wait that's
+/// over shows as over. Writes nothing when nobody waits.
+pub async fn waits(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<Wait>> {
     let any: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM watch_party_waits WHERE party_id = ?1)
              OR EXISTS (SELECT 1 FROM watch_parties WHERE id = ?1 AND held = 1)",
@@ -126,11 +145,40 @@ pub async fn names(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<(String, b
     }
     settle(pool, party).await?;
     sqlx::query_as(
-        "SELECT name, waiter GLOB 'g*' FROM watch_party_waits WHERE party_id = ? ORDER BY since",
+        "SELECT name, waiter GLOB 'g*' AS guest, waiter, since FROM watch_party_waits
+         WHERE party_id = ? ORDER BY since",
     )
     .bind(party)
     .fetch_all(pool)
     .await
+}
+
+/// `waits` as `viewer` is shown them: `{name, guest, you, since, ends_at}` each, `ends_at` when
+/// the party gives up waiting ([`MOST_MS`] on). A guest is told a household device is
+/// [`SOMEONE`].
+pub fn view(waits: &[Wait], viewer: super::last_change::Viewer) -> Vec<serde_json::Value> {
+    use super::last_change::Viewer;
+    let me = match viewer {
+        Viewer::Device { token, .. } => Waiter::Device(token).key(),
+        Viewer::Guest(guest) => Waiter::Guest(guest).key(),
+    };
+    waits
+        .iter()
+        .map(|w| {
+            let name = if w.guest || matches!(viewer, Viewer::Device { .. }) {
+                w.name.as_str()
+            } else {
+                SOMEONE
+            };
+            serde_json::json!({
+                "name": name,
+                "guest": w.guest,
+                "you": w.waiter == me,
+                "since": w.since,
+                "ends_at": w.since + MOST_MS,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

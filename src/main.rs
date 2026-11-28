@@ -81,6 +81,7 @@ mod probe;
 mod profiles;
 mod progress;
 mod proxy;
+mod qr;
 mod quick_connect;
 mod ratings;
 mod release;

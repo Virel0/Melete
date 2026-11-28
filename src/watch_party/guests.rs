@@ -178,6 +178,9 @@ pub async fn set(
     if position_ms < 0 {
         return Ok(Err(Refused::Invalid("position_ms is 0 or more".into())));
     }
+    let Some(before) = super::last_change::before(pool, guest.party_id).await? else {
+        return Ok(Err(Refused::Stale));
+    };
     let now = now_ms();
     let changed = sqlx::query(
         "UPDATE watch_parties SET position_ms = ?, position_at = ?, playing = ?, held = 0,
@@ -195,6 +198,11 @@ pub async fn set(
     .rows_affected();
     if changed != 1 {
         return Ok(Err(Refused::Stale));
+    }
+    let made = (before.file_id, position_ms, playing);
+    if let Some(kind) = super::last_change::kind(&before, made, now) {
+        let by = super::last_change::By::Guest(guest.id, &guest.name);
+        super::last_change::note(pool, guest.party_id, by, kind, now).await?;
     }
     super::waits::clear(pool, guest.party_id).await?;
     Ok(Ok(()))
@@ -275,14 +283,15 @@ struct Seen {
 /// The guest's party as they see it: what plays (its title), where and whether, the other
 /// guests by name, and how many of the household's devices are in it.
 pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value>> {
-    let waiting: Vec<String> = super::waits::names(pool, guest.party_id)
-        .await?
-        .into_iter()
-        .map(|(name, guest)| {
-            if guest {
-                name
+    let viewer = super::last_change::Viewer::Guest(guest.id);
+    let waits = super::waits::waits(pool, guest.party_id).await?;
+    let waiting: Vec<&str> = waits
+        .iter()
+        .map(|w| {
+            if w.guest {
+                w.name.as_str()
             } else {
-                super::waits::SOMEONE.to_owned()
+                super::waits::SOMEONE
             }
         })
         .collect();
@@ -325,6 +334,8 @@ pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value
         "household": seen.household,
         "held": seen.held,
         "waiting": waiting,
+        "waits": super::waits::view(&waits, viewer),
+        "last_change": super::last_change::view(pool, guest.party_id, viewer).await?,
         "guests": guests,
     })))
 }

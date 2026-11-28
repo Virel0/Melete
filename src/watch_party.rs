@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use crate::db::now_ms;
 
 pub mod guests;
+pub mod last_change;
 pub mod waits;
 
 /// Bumped at each change to a party, so the event streams send it at once instead of at their
@@ -289,11 +290,10 @@ pub async fn set(
     let Some(host) = host_for(pool, token_id, id).await? else {
         return Ok(Err(Refused::NotFound));
     };
-    let file: i64 = sqlx::query_scalar("SELECT file_id FROM watch_parties WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
-    if file != state.file_id && host != user_id {
+    let Some(before) = last_change::before(pool, id).await? else {
+        return Ok(Err(Refused::NotFound));
+    };
+    if before.file_id != state.file_id && host != user_id {
         return Ok(Err(Refused::NotHost(
             "only whoever started the party changes what it plays",
         )));
@@ -319,6 +319,10 @@ pub async fn set(
     .rows_affected();
     if changed != 1 {
         return Ok(Err(Refused::Stale));
+    }
+    let made = (state.file_id, state.position_ms, state.playing);
+    if let Some(kind) = last_change::kind(&before, made, now) {
+        last_change::note(pool, id, last_change::By::User(user_id), kind, now).await?;
     }
     // Played or paused by hand: that ends any waiting.
     waits::clear(pool, id).await?;
@@ -352,14 +356,18 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             .bind(token_id)
             .fetch_all(pool)
             .await?;
+    let user: i64 = sqlx::query_scalar("SELECT user_id FROM tokens WHERE id = ?")
+        .bind(token_id)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or_default();
+    let viewer = last_change::Viewer::Device {
+        user,
+        token: token_id,
+    };
     let mut waiting = std::collections::HashMap::new();
     for id in ids {
-        let names: Vec<String> = waits::names(pool, id)
-            .await?
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect();
-        waiting.insert(id, names);
+        waiting.insert(id, waits::waits(pool, id).await?);
     }
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT p.id, p.code, u.username AS host, p.file_id, f.movie_id, f.series_id, f.season,
@@ -386,6 +394,7 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
         .bind(row.id)
         .fetch_all(pool)
         .await?;
+        let waits_of = waiting.remove(&row.id).unwrap_or_default();
         parties.push(json!({
             "id": row.id,
             "code": row.code,
@@ -401,7 +410,9 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "version": row.version,
             "guest_max_bitrate": row.guest_max_bitrate,
             "held": row.held,
-            "waiting": waiting.remove(&row.id).unwrap_or_default(),
+            "waiting": waits_of.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(),
+            "waits": waits::view(&waits_of, viewer),
+            "last_change": last_change::view(pool, row.id, viewer).await?,
             "guests": guests::of_party(pool, row.id).await?,
             "members": members.into_iter().map(|(user_id, user, device, you)| json!({
                 "username": user, "avatar_url": pictures.get(&user_id), "device": device,

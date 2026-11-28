@@ -249,7 +249,7 @@ fn check_copyable(info: &MediaInfo, video: &crate::probe::VideoStream) -> Result
 }
 
 /// The bitrate for a picture this many lines high, before any limit the settings set.
-fn default_bitrate(out_height: i64) -> i64 {
+pub(super) fn default_bitrate(out_height: i64) -> i64 {
     match out_height {
         h if h >= 2160 => 25_000_000,
         h if h >= 1440 => 16_000_000,
