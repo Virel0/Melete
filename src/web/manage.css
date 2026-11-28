@@ -46,7 +46,7 @@
 .library-grid { margin-block-start: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(8rem, 40vw), 1fr)); }
 .library-card { position: relative; display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
 .library-card .art.square { aspect-ratio: 1 / 1; }
-.library-card .art { aspect-ratio: 2 / 3; border-radius: var(--radius-m); overflow: hidden; background: var(--surface-raised); box-shadow: var(--shadow); }
+.library-card .art { aspect-ratio: 2 / 3; border-radius: var(--radius-l); overflow: hidden; background: var(--surface-raised); }
 .library-card .art img { width: 100%; height: 100%; object-fit: cover; }
 .library-card .title-link { margin-block-start: var(--space-1); font-weight: 600; min-width: 0; }
 .library-card .meta { color: var(--muted); font-size: var(--step--1); }
@@ -57,9 +57,9 @@
 .tick-none { display: inline-block; width: 1.5rem; }
 
 /* A table that scrolls sideways in its own box when the page is narrower than it. */
-div.stacks table.data { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: var(--step--1); }
-div.stacks table.data th, div.stacks table.data td { padding: var(--space-2); border-block-end: 1px solid var(--line); text-align: start; vertical-align: middle; }
-div.stacks table.data thead th { color: var(--muted); font-weight: 600; border-block-end-color: var(--line-strong); white-space: nowrap; }
+div.stacks table.data { width: 100%; min-width: 44rem; font-size: var(--step--1); }
+div.stacks table.data th, div.stacks table.data td { padding: var(--space-2) var(--space-3); text-align: start; vertical-align: middle; }
+div.stacks table.data thead th { color: var(--muted); font-weight: 600; white-space: nowrap; }
 div.stacks table.data tbody th { font-weight: 600; max-width: 22rem; }
 div.stacks table.data .r { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
 div.stacks table.data .num { font-variant-numeric: tabular-nums; }
@@ -82,8 +82,9 @@ div.stacks table.data th button.sort:hover, div.stacks table.data th[aria-sort] 
   div.stacks { overflow-x: visible; }
   div.stacks table.data { min-width: 0; }
   div.stacks thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  div.stacks tbody tr { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); padding-block: var(--space-3); border-block-end: 1px solid var(--line); }
-  div.stacks table.data tbody th, div.stacks table.data tbody td { display: block; padding: 0; border: 0; text-align: start; }
+  div.stacks table.data { border-spacing: 0; }
+  div.stacks tbody tr { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin-block-end: var(--space-1); padding: var(--space-3) var(--space-4); background: var(--surface-sunk); border-radius: var(--radius-l); }
+  div.stacks table.data tbody th, div.stacks table.data tbody td { display: block; padding: 0; border: 0; border-radius: 0; background: none; text-align: start; }
   div.stacks tbody th { grid-column: 1 / -1; max-width: none; }
   div.stacks table.data tbody td.tick { grid-row: 1; grid-column: 1; }
   div.stacks tbody td.tick + th { grid-column: 2; }
@@ -95,7 +96,7 @@ div.stacks table.data th button.sort:hover, div.stacks table.data th[aria-sort] 
 
 /* A title's page: poster beside its facts and what can be done with it. */
 .manage-head { display: grid; grid-template-columns: minmax(6rem, 11rem) minmax(0, 1fr); gap: var(--space-5); align-items: start; }
-.manage-head > .art { aspect-ratio: 2 / 3; border-radius: var(--radius-m); overflow: hidden; background: var(--surface-raised); box-shadow: var(--shadow); }
+.manage-head > .art { aspect-ratio: 2 / 3; border-radius: var(--radius-l); overflow: hidden; background: var(--surface-raised); }
 .manage-head > .art img { width: 100%; height: 100%; object-fit: cover; }
 .manage-head > .art.square { aspect-ratio: 1 / 1; }
 .title-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
@@ -107,7 +108,7 @@ div.stacks table.data th button.sort:hover, div.stacks table.data th[aria-sort] 
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .title-actions { margin-block: var(--space-3) var(--space-2); }
 .title-panel:empty { display: none; }
-.title-panel { margin-block-start: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.title-panel { margin-block-start: var(--space-3); padding: var(--space-4) var(--space-5); border-radius: var(--radius-l); background: var(--surface); }
 h2.part { font-size: var(--step-1); margin-block: var(--space-6) var(--space-2); }
 .title-panel h2.part { margin-block-start: 0; }
 /* A series' episode orders, one under another, each with how it fits the files. */
@@ -136,7 +137,7 @@ table.releases tr.accepted th .path { font-weight: 600; }
 .choose h3 { font-size: var(--step-0); }
 
 /* A series' seasons, each opening onto its episodes. */
-.season { margin-block-start: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.season { margin-block-start: var(--space-3); border-radius: var(--radius-l); background: var(--surface); }
 .season > header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-2) var(--space-4); }
 .season > header h3 { font-size: var(--step-0); }
 .season > header .row-actions { margin-inline-start: auto; }
@@ -146,7 +147,7 @@ table.releases tr.accepted th .path { font-weight: 600; }
 
 /* Add new: how a result stands here, and the form to add it. */
 .marks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-1) 0 0; font-size: var(--step--1); }
-.add-form { margin-block-start: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.add-form { margin-block-start: var(--space-3); padding: var(--space-4) var(--space-5); border-radius: var(--radius-l); background: var(--surface); }
 .add-form select, .add-form input:not([type="checkbox"]) { width: min(100%, 24rem); }
 /* Add new's search as you type: a group per kind, each result with its poster or cover. */
 .find-words input { width: min(100%, 28rem); }

@@ -23,8 +23,9 @@
   --accent-ink: #121417;
   --danger: #f09484;
   --danger-ink: #121417;
-  /* A notice about something you are part of, on the accent's tint. */
+  /* A notice about something you are part of, on the accent's tint; a failure on the danger's. */
   --accent-tint: #2a2418;
+  --danger-tint: #2a1f1e;
   /* The managing side's states (shell.css draws their marks). Each colour always comes with
      words and a mark of its own shape, so no state is told by colour alone. */
   --state-have: #8cc9a0;     /* in the library: a filled circle */
@@ -38,6 +39,9 @@
   /* contrast: --text on --surface-sunk */
   /* contrast: --muted on --surface-sunk */
   /* contrast: --text on --accent-tint */
+  /* contrast: --text on --danger-tint */
+  /* contrast: --text-soft on --danger-tint */
+  /* contrast: --text-soft on --surface-sunk */
   /* contrast: --danger on --surface-raised */
   /* contrast: --muted on --surface-raised */
   /* contrast: --text on --surface-hover */
@@ -84,6 +88,8 @@
   /* contrast: --stage-line on --stage ui (borders only) */
 
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  /* Codes, keys and file paths, where each character counts. */
+  --font-mono: ui-monospace, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -140,6 +146,7 @@
   --danger: #a8321f;
   --danger-ink: #ffffff;
   --accent-tint: #f5e9d6;
+  --danger-tint: #f8e4df;
   --state-have: #2c6a44;
   --state-coming: #275d92;
   --state-waiting: #8a5a12;
@@ -397,7 +404,8 @@ main:focus { outline: none; }
 .up-next p { margin-block: var(--space-2); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 
-button.danger { background: var(--danger); color: var(--danger-ink); }
+button.danger, .button.danger { background: var(--danger); color: var(--danger-ink); }
+:is(button, .button).danger:hover { background: color-mix(in srgb, var(--danger) 85%, var(--text)); }
 
 /* Settings: a side list of sections (Aoide's layout), each a column of groups. */
 .settings {
@@ -446,15 +454,17 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .form-result { margin: 0; color: var(--muted); }
 .form-result.error { color: var(--danger); }
-.rows { list-style: none; margin: 0; padding: 0; }
+/* A list of things, each a row on the sunk surface with a little room between, not lines. */
+.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
 .rows > li {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: var(--space-3);
-  padding-block: var(--space-3);
-  border-block-end: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunk);
+  border-radius: var(--radius-l);
 }
 .rows > li > div:first-child { flex: 1 1 18rem; min-width: 0; }
 .rows p { margin: var(--space-1) 0 0; }
@@ -465,34 +475,3 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 .secret-box { margin-block-start: var(--space-4); }
 .secret-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .secret { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, monospace; }
-/* Two-factor setup: the QR code beside the key, under it on a phone. The code stays black on
-   white whatever the theme, as scanners need. */
-.two-factor-key { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); margin-block: var(--space-3); }
-.two-factor-key > div:last-child { flex: 1 1 16rem; min-width: 0; }
-.two-factor-key .secret-box { margin-block-start: 0; }
-.qr-code { flex: none; width: min(12rem, 100%); }
-.qr-code svg { display: block; width: 100%; height: auto; border-radius: var(--radius-s); }
-/* A two-factor code: digits kept apart so six are easy to check against the app. */
-input.code { font-family: ui-monospace, monospace; letter-spacing: 0.2em; max-width: 14ch; }
-.report-details { margin: var(--space-2) 0 0; padding: var(--space-3); max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: var(--step--1); background: var(--surface-raised); border-radius: var(--radius-s); }
-.matching .choices { list-style: none; padding: 0; margin: var(--space-2) 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.search-row { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); margin-block-start: var(--space-3); }
-.search-row input.year { width: 6rem; }
-.results { margin-block-start: var(--space-2); }
-select.compact { min-height: 2rem; padding-block: var(--space-1); }
-.plain { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
-.plain > li + li { margin-block-start: var(--space-1); }
-button.link {
-  min-height: 1.5rem;
-  padding: 0;
-  background: none;
-  color: var(--text);
-  font-weight: 400;
-  text-align: start;
-  text-decoration: underline;
-}
-.search-results { margin-block-start: var(--space-3); }
-.search-results .rows > li.accepted { box-shadow: inset 3px 0 0 var(--accent); padding-inline-start: var(--space-3); }
-progress { accent-color: var(--accent); width: min(16rem, 60%); vertical-align: middle; }
-.badge.state-failed { color: var(--danger); }
-a.badge { text-decoration: none; color: var(--text); }
