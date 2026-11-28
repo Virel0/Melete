@@ -53,7 +53,10 @@ pub async fn take_out(pool: &SqlitePool, acme: &Acme, reach: &Reach) -> anyhow::
         return Ok(());
     }
     let ours: Vec<String> = serde_json::from_str(&ours)?;
-    let desec = crate::desec::Client::new(&api, acme.desec_token.clone())?;
+    let Some(token) = acme.desec_token.clone() else {
+        return Ok(());
+    };
+    let desec = crate::desec::Client::new(&api, token)?;
     let Some(_held) = super::issue::Claim::take(&api, &zone, &subname) else {
         return Ok(());
     };
