@@ -273,7 +273,12 @@ shapes, in the table at the end.
   button. A failure sits on `--danger-tint` and its button is the danger fill; anything else
   sits on `--surface` with a secondary button.
 - A finding about many titles lists them in a `<details>` under its text, at most six names
-  and "and N more", each name a link.
+  and "and N more", each name a link. The server sends one finding per title; the page joins
+  those of one kind into one card, and reads the names when the fold is first opened. The bold
+  part is the finding's first sentence (to its first `:`, `;` or `.`), the rest is the why.
+- `--danger-tint` is `#2a1f1e` dark and `#f8e4df` light.
+- Tables (Indexers, System, Manage's table view) keep their columns, with each row on
+  `--surface-sunk`, its ends rounded and 4 px between rows, instead of lines.
 - Filters over a list are chips: pills 36 to 40 px high, `--surface` when off, `--text` fill
   with `--bg` ink when on, `aria-pressed`.
 - States keep their shapes: a filled circle for in the library, a ring for on its way, a

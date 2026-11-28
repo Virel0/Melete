@@ -1,9 +1,7 @@
 // Pieces Manage's pages are built from. For the Indexers and System pages (styles in tools.css):
 //
-// - attentionStrip(findings, here): what needs attention in a service, from the admin health
-//   (health.js), as a slim strip at the top of its first page: each finding in words with the
-//   mark of its level, and a link to where it's dealt with unless that's the page itself (`here`,
-//   its address). Nothing at all when there's nothing to say.
+// - attentionStrip(findings, here): what needs attention in a service, as cards at the top of
+//   its first page (attention.js).
 // - onOff({ on, label, change }): a switch for turning something on or off at once, its state
 //   in words beside it. `change(next)` does it, answering false to leave the switch as it was
 //   (having said why itself).
@@ -22,32 +20,8 @@
 import { SignedOut, airDate, announce, api, fileName, h, languageName, plural, size } from "/web/lib.js";
 import { stateLabel } from "/web/page-parts.js";
 
-const LEVELS = { problem: ["failed", "Problem"], waiting: ["waiting", "Waiting"], note: ["off", "Note"] };
-const ORDER = { problem: 0, waiting: 1, note: 2 };
-
-export function attentionStrip(findings, here) {
-  if (!findings?.length) return null;
-  const sorted = [...findings].sort((a, b) => ORDER[a.level] - ORDER[b.level]);
-  return h(
-    "section",
-    { class: "attention", "aria-labelledby": "attention-title" },
-    h("h2", { id: "attention-title" }, "Needs attention"),
-    h(
-      "ul",
-      {},
-      sorted.map((f) => {
-        const [state, word] = LEVELS[f.level] ?? LEVELS.note;
-        return h(
-          "li",
-          {},
-          stateLabel(state, word),
-          h("span", {}, f.text),
-          f.href && f.href !== here ? h("a", { href: f.href }, "Deal with it") : null,
-        );
-      }),
-    ),
-  );
-}
+// The cards of what needs attention are attention.js.
+export { attentionStrip } from "/web/attention.js";
 
 export function onOff({ on, label, change }) {
   const words = h("span", { class: "switch-words" }, on ? "On" : "Off");

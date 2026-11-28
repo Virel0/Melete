@@ -156,37 +156,44 @@
 .indexer-rows .error { margin-block-start: var(--space-1); }
 .form-actions + .indexer-rows { margin-block-start: var(--space-3); border-block-start: 1px solid var(--line); }
 
-/* Indexers and System (manage-parts.js): what needs attention as a slim strip over the page,
-   tables whose rows stack on a phone, and on-off switches. */
-.attention {
+/* What needs attention (attention.js), over a service's first page: a card each, a failure on
+   the danger tint, the rest on the surface; then Indexers' and System's tables (manage-parts.js),
+   whose rows stack on a phone, and on-off switches. */
+.attention { margin-block-end: var(--space-5); }
+.attention h2 { margin-block-end: var(--space-3); font-size: 1.25rem; }
+.attention > ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.attention-card {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  align-items: baseline;
-  margin-block-end: var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4) var(--space-5);
   background: var(--surface);
   border-radius: var(--radius-l);
-  font-size: var(--step--1);
 }
-.attention h2 { font-size: var(--step--1); }
-.attention ul { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin: 0; padding: 0; list-style: none; }
-.attention li { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; }
-.attention a { color: var(--accent); }
+.attention-card.level-problem { background: var(--danger-tint); }
+.attention-words { flex: 1 1 22rem; display: grid; gap: var(--space-1); min-width: 0; }
+.attention-why { color: var(--text-soft); }
+.attention-fold summary { width: fit-content; min-height: 1.5rem; color: var(--muted); cursor: pointer; }
+.attention-fold summary:hover { color: var(--text); }
+.attention-titles { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.attention-more { color: var(--muted); }
 .admin-body:has(table.data) { max-width: 72rem; }
 .admin-content > .toolbar { align-items: center; gap: var(--space-2) var(--space-3); margin-block: 0 var(--space-3); }
 .table-wrap { overflow-x: auto; margin-block: var(--space-3) var(--space-5); }
-table.data { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
+/* A table's rows on the sunk surface, a little apart, their ends rounded, without lines. */
+table.data { width: 100%; border-collapse: separate; border-spacing: 0 var(--space-1); font-size: var(--step--1); }
 table.data thead th {
   text-align: start;
   color: var(--muted);
   font-weight: 600;
-  padding: var(--space-2);
-  border-block-end: 1px solid var(--line-strong);
+  padding: var(--space-1) var(--space-3);
 }
-table.data tbody th, table.data td { text-align: start; padding: var(--space-2); vertical-align: middle; }
+table.data tbody th, table.data td { text-align: start; padding: var(--space-3); vertical-align: middle; background: var(--surface-sunk); }
+table.data tbody tr > :first-child { border-start-start-radius: var(--radius-l); border-end-start-radius: var(--radius-l); }
+table.data tbody tr > :last-child { border-start-end-radius: var(--radius-l); border-end-end-radius: var(--radius-l); }
 table.data tbody th { font-weight: 600; }
-table.data tbody { border-block-end: 1px solid var(--line); }
 table.data .row-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: end; }
 table.data .row-actions button { min-height: 2.25rem; padding-inline: var(--space-3); }
 .row-more:has(.row-room:empty) { display: none; }
