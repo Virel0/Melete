@@ -17,6 +17,8 @@
   position: relative;
   isolation: isolate;
   display: grid;
+  /* As wide as the screen, never as wide as its longest row of controls (nor is its body). */
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   min-height: min(34rem, 72vh);
   margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
@@ -44,6 +46,7 @@
 }
 .hero-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: var(--space-3);
   width: min(100%, 38rem);
@@ -74,12 +77,15 @@
 .hero-play[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
 
 /* Stepping between picks: previous, a dot each (the current one longer as well as brass), next,
-   and Pause. */
-.hero-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-block-start: var(--space-2); }
-.hero-dots { display: flex; }
-.hero-dot { min-height: 0; width: 1.75rem; height: 1.75rem; padding: 0; background: none; border: 0; }
-.hero-dot span { display: block; width: 1.125rem; height: 3px; margin-inline: auto; border-radius: 2px; background: var(--line-strong); }
-.hero-dot[aria-current="true"] span { width: 1.5rem; height: 5px; background: var(--accent); }
+   and Pause. Always one row: the dots narrow to fit, down to marks a few pixels wide on a
+   phone, rather than wrap. Narrow dots are fine as targets, since Previous and Next do the same
+   at full size. */
+.hero-steps { display: flex; align-items: center; gap: var(--space-1); width: 100%; margin-block-start: var(--space-2); }
+.hero-steps > * { flex: none; }
+.hero-steps > .hero-dots { flex: 0 1 auto; display: flex; min-width: 0; }
+.hero-dot { flex: 0 1 auto; width: 1.75rem; min-width: 0.625rem; min-height: 0; height: 1.75rem; padding: 0; background: none; border: 0; }
+.hero-dot span { display: block; width: min(1.125rem, 70%); height: 3px; margin-inline: auto; border-radius: 2px; background: var(--line-strong); }
+.hero-dot[aria-current="true"] span { width: min(1.5rem, 100%); height: 5px; background: var(--accent); }
 .hero-step svg { width: 1.25rem; height: 1.25rem; }
 .hero-pause { min-height: 2rem; padding-block: 0; margin-inline-start: var(--space-2); font-size: var(--step--1); }
 .hero-pause[aria-pressed="true"] { border-color: var(--accent); }
