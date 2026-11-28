@@ -80,6 +80,44 @@ PersistentKeepalive = 25
 
 The VPS then reaches Melete at `http://10.20.0.2:8100`, and Melete sees it come from `10.20.0.1`.
 
+### Keeping the tunnel to what it's for
+
+Whoever runs the VPS, or gets into it, can send anything down this tunnel. On the media
+server, let through only what the VPS needs, with firewall rules that come and go with `wg1`.
+Docker's published ports are filtered in the `DOCKER-USER` chain, and the host's own services
+(SSH among them) in `INPUT`. In `wg1.conf`, under `[Interface]`, with Melete's HTTPS port
+(section 8; the HTTP port `8100` instead, if the VPS reverse-proxies as in section 3):
+
+```ini
+PostUp = iptables -I DOCKER-USER -i %i -j DROP
+PostUp = iptables -I DOCKER-USER -i %i -p tcp --dport 8443 -j ACCEPT
+PostUp = iptables -I DOCKER-USER -i %i -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostUp = iptables -I INPUT -i %i -j DROP
+PostUp = iptables -I INPUT -i %i -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostDown = iptables -D DOCKER-USER -i %i -j DROP
+PostDown = iptables -D DOCKER-USER -i %i -p tcp --dport 8443 -j ACCEPT
+PostDown = iptables -D DOCKER-USER -i %i -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostDown = iptables -D INPUT -i %i -j DROP
+PostDown = iptables -D INPUT -i %i -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+Each `-I` goes to the top of its chain, ahead of any rule already there, so they end up in
+the opposite order: answers to connections already made, then (for Docker) Melete's port,
+then nothing else. `DOCKER-USER` sees the container's port, after Docker's port mapping;
+Melete's compose files publish each port as itself, so it's the same number. `DOCKER-USER` only exists once Docker has started, so start
+`wg1` after it (`systemctl edit wg-quick@wg1`, with `After=docker.service` under `[Unit]`).
+With `network_mode: host` (section 5), Docker's chain isn't used: add
+`PostUp = iptables -I INPUT -i %i -p tcp --dport 8443 -j ACCEPT` (and its `PostDown`) after the
+two `INPUT` lines, so it lands above the drop.
+
+To check, from the VPS: Melete's port answers, and the plain HTTP port and SSH time out.
+
+```sh
+nc -zv -w 5 10.20.0.2 8443   # succeeded
+nc -zv -w 5 10.20.0.2 8100   # timed out
+nc -zv -w 5 10.20.0.2 22     # timed out
+```
+
 ## 3. The reverse proxy on the VPS
 
 Point `music.example.org` at the VPS. Either proxy gets a certificate for it and forwards to
@@ -163,6 +201,14 @@ MELETE_TRUSTED_PROXIES=10.20.0.1
   `X-Forwarded-For`). Without it, every visitor through the VPS looks like the VPS to Melete:
   a few wrong passwords from one of them would lock everyone out of that account for 15
   minutes. Only list proxies you run; anyone else could claim to be anyone.
+- The ways in go by the address each connection comes from, which for everyone through the VPS
+  is the VPS's, never by what the VPS says of the client (`X-Forwarded-For`, or the PROXY
+  header in section 8; those are only for sign-in limits and the log). So whoever reaches the
+  VPS, from anywhere, gets what the `vps` way opens: that's the point of a relay. When a way
+  that takes in a trusted proxy's address opens any of `video`, `music`, `requests` or
+  `admin`, Melete says so at startup and in admin health, under System
+  (`proxy_way_opens_household`), as a reminder: for a relay meant for watch party guests
+  alone, open only `party` through it.
 
 Restart Melete (`docker compose up -d`) after changing either.
 
@@ -262,6 +308,13 @@ opening at home: `certbot certonly --manual --preferred-challenges dns -d watch.
 or a DNS plugin for your provider so renewals run on their own. Certificates are public:
 every one issued is listed in Certificate Transparency logs, name included.
 
+Let's Encrypt checks a DNS challenge from several places, and the extra ones (its secondary
+validation) can take a few minutes to see a new TXT record, well after your own provider's
+nameservers answer it. If validation fails while the record looks right to you, wait longer
+before letting it look: with `--manual`, a few minutes after the record shows before you press
+Enter; with a DNS plugin, its propagation setting (`--dns-<provider>-propagation-seconds 300`
+for certbot's plugins that have one).
+
 Melete runs as its own user (`10001` unless `MELETE_USER` says otherwise), and certbot keeps
 the key readable by root alone, so copy both files into a folder of their own after each
 renewal, with a deploy hook:
@@ -339,8 +392,10 @@ MELETE_WAYS_IN=home 192.168.0.0/24 all; vps 10.20.0.1 party
   account for 15 minutes. The header is believed only from `MELETE_TRUSTED_PROXIES`, and a
   connection from one of them that doesn't start with one is refused, so turn it on at both
   ends together.
-- The ways in still go by the connection's own address, the VPS's, so `vps 10.20.0.1 party`
-  opens watch parties' guest routes alone through it, and the web page itself. Signing in
+- The ways in still go by the connection's own address, the VPS's, not the client's from the
+  PROXY header: anyone the VPS passes through gets what its way opens, wherever they are. So
+  `vps 10.20.0.1 party` opens watch parties' guest routes alone through it, and the web page
+  itself. Signing in
   doesn't go through a way that opens only `party`: strangers find no sign-in page there. A
   way that also opens `music` or `requests` opens signing in too, encrypted to Melete like
   everything else; that's where the PROXY protocol matters most.
