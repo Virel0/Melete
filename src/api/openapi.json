@@ -5102,11 +5102,45 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Empty the trash now",
-        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there, one after another. A file that's changed since, or a library whose share is away, is left and counted; so is one whose delete takes over 2 minutes, which marks its library as not responding and is recorded whenever it finishes. Answers once every file has been seen to. This can't be undone.",
+        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there, one after another. A file that's changed since, or a library whose share is away, is left and counted; so is one whose delete takes over 2 minutes, which marks its library as not responding and is recorded whenever it finishes. Answers once every file has been seen to, which can take a while; POST /api/v1/trash/empty does the same in the background. This can't be undone.",
         "responses": {
           "200": {
             "description": "What was deleted and what was left",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrashEmptied"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
+    "/api/v1/trash/empty": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Empty the trash in the background",
+        "description": "Starts deleting every file in the trash, as DELETE /api/v1/trash does, without waiting for it; GET /api/v1/trash/emptying says how far it has got. Asked again while it runs, it answers how the run under way is going. Each file is logged with its path in its library, size, time taken and result. A delete that takes over 2 minutes marks its library as not responding, is counted as waiting and is recorded whenever it finishes; the files after it go on meanwhile. This can't be undone.",
+        "responses": {
+          "202": {
+            "description": "Started, or under way already",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrashEmptying"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
+    "/api/v1/trash/emptying": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "How emptying the trash is going",
+        "description": "The run under way, or the last one since the server started (all zero, with no start time, before the first).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TrashEmptying"}}}
           },
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"}
@@ -17868,6 +17902,22 @@
             "type": "integer",
             "description": "Unix seconds: it's deleted at the first housekeeping run after this."
           }
+        },
+        "additionalProperties": false
+      },
+      "TrashEmptying": {
+        "type": "object",
+        "required": ["running", "files", "deleted", "left", "waiting", "freed", "current", "started_at", "finished_at"],
+        "properties": {
+          "running": {"type": "boolean", "description": "Whether it's under way."},
+          "files": {"type": "integer", "description": "Files in the trash when it started."},
+          "deleted": {"type": "integer", "description": "Of those, deleted so far."},
+          "left": {"type": "integer", "description": "Left in place: changed since the trash put them there, or their library isn't responding."},
+          "waiting": {"type": "integer", "description": "Deletes still out after 2 minutes, recorded whenever they finish."},
+          "freed": {"type": "integer", "description": "Bytes freed so far."},
+          "current": {"type": ["string", "null"], "description": "The file being deleted now, by its path in its library; null when not running."},
+          "started_at": {"type": ["integer", "null"], "description": "When it started, in Unix seconds; null before the first run."},
+          "finished_at": {"type": ["integer", "null"], "description": "When it finished, in Unix seconds; null while running or before the first run."}
         },
         "additionalProperties": false
       },

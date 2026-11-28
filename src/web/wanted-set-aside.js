@@ -169,8 +169,30 @@ export async function trash(ctx) {
       actions,
     );
   });
-  // Emptying it all at once: says how many files and how much space, and can't be undone.
+  // Emptying it all at once: says how many files and how much space, and can't be undone. It
+  // runs in the background; how far it has got is asked again every 2 seconds while it runs.
   const emptyActions = h("div", { class: "row-actions" });
+  const progress = h("p", { class: "note", role: "status" });
+  progress.hidden = true;
+  const showProgress = (e) => {
+    const parts = [`${plural(e.deleted, "file", "files")} deleted (${size(e.freed)})`];
+    if (e.left) parts.push(`${e.left} left: not what the trash put there, or its library isn't responding`);
+    if (e.waiting) parts.push(`${e.waiting} still being deleted on a share that isn't answering; recorded once it does`);
+    progress.textContent = e.running ? `Emptying the trash: ${e.deleted + e.left + e.waiting} of ${e.files} done. ${parts.join("; ")}.` : `Emptied the trash: ${parts.join("; ")}.`;
+    progress.hidden = false;
+  };
+  const follow = async (e) => {
+    if (!ctx.current()) return;
+    showProgress(e);
+    if (!e.running) return ctx.reload(progress.textContent);
+    setTimeout(() => {
+      if (ctx.current()) api("/trash/emptying").then(follow).catch(() => {});
+    }, 2000);
+  };
+  if (!only) {
+    const now = await api("/trash/emptying");
+    if (now.running) follow(now);
+  }
   if (all.length && !only) {
     const total = all.reduce((sum, t) => sum + t.size, 0);
     const empty = h("button", { type: "button", class: "quiet" }, "Empty the trash");
@@ -179,9 +201,7 @@ export async function trash(ctx) {
         question: `Delete all ${plural(all.length, "file", "files")} in the trash (${size(total)}) for good? None of them can be put back afterwards.`,
         confirm: "Empty the trash",
         run: async () => {
-          const done = await api("/trash", { method: "DELETE" });
-          const left = done.left ? ` ${plural(done.left, "file was", "files were")} left: not what the trash put there, or its library isn't responding.` : "";
-          ctx.reload(`Deleted ${plural(done.deleted, "file", "files")} from the trash.${left}`);
+          follow(await api("/trash/empty", { method: "POST" }));
         },
       }),
     );
@@ -192,6 +212,7 @@ export async function trash(ctx) {
       only ? "Replaced files" : "Trash",
       h("p", { class: "note" }, `Files an upgrade replaced, kept in each library's .melete-trash folder for 30 days once the upgrade is in place, then deleted. Delete one now${only ? "" : ", or empty the trash,"} to free the space sooner.`),
       all.length && !only ? emptyActions : null,
+      progress,
       all.length ? h("ul", { class: "rows" }, rows) : h("p", { class: "status" }, "Nothing in the trash."),
     ),
   ];

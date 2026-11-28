@@ -13,7 +13,7 @@ use super::ApiError;
 use super::auth::{AppState, require_admin};
 use crate::downloads::{self, Download, NotRemoved, Pipeline, Refused};
 use crate::seedbox::TestReport;
-use crate::upgrades::{self, Deletion, Emptied, NotRestored, Trashed};
+use crate::upgrades::{self, Deletion, Emptied, Emptying, NotRestored, Trashed};
 
 mod season;
 
@@ -44,6 +44,8 @@ pub fn routes(
         .route("/api/v1/downloads/clear-failed", post(clear_failed))
         .route("/api/v1/seedbox/test", post(test_seedbox))
         .route("/api/v1/trash", get(trash).delete(empty_trash))
+        .route("/api/v1/trash/empty", post(start_emptying))
+        .route("/api/v1/trash/emptying", get(emptying))
         .route("/api/v1/trash/{id}", delete(delete_trashed))
         .route("/api/v1/trash/{id}/restore", post(restore))
         .route_layer(middleware::from_fn_with_state(auth, require_admin))
@@ -213,13 +215,28 @@ async fn trash(State(state): State<DownloadState>) -> Result<Json<Vec<Trashed>>,
 }
 
 /// Empties the trash now rather than after 30 days, answering once every file has been seen
-/// to: each delete is given up on after its time limit.
+/// to. The web starts [`start_emptying`] instead, which doesn't wait.
 async fn empty_trash(State(state): State<DownloadState>) -> Result<Json<Emptied>, ApiError> {
     Ok(Json(
         upgrades::delete_now(&state.pool, None)
             .await?
             .unwrap_or_default(),
     ))
+}
+
+/// Starts emptying the trash in the background (unless it's under way); how it's going.
+async fn start_emptying(
+    State(state): State<DownloadState>,
+) -> Result<(StatusCode, Json<Emptying>), ApiError> {
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(upgrades::start_emptying(&state.pool).await?),
+    ))
+}
+
+/// How emptying the trash is going, or how it last went.
+async fn emptying() -> Json<Emptying> {
+    Json(upgrades::emptying())
 }
 
 /// Deletes one file from the trash now.
