@@ -291,7 +291,10 @@ Nothing needs opening at home, and it works before the VPS is set up.
   again, without asking for a certificate.
 - Start on the **staging server** (the default): its certificates aren't trusted by browsers,
   but a first try can't run into Let's Encrypt's rate limits. Once a staging certificate comes
-  through (**Get one now** shows it), switch to Let's Encrypt itself, and save.
+  through (**Get one now** shows it), switch to Let's Encrypt itself, and save. **Get one now**
+  is refused for 15 minutes after each use, and while the certificate in use is less than a
+  day old and from the same server: each certificate counts against Let's Encrypt's weekly
+  limit on duplicates.
 - Use `compose.tls-acme.yaml` instead of `compose.tls.yaml` below: it sets `MELETE_TLS_BIND`
   and no certificate files, which Melete refuses beside Certificates. Leave out
   `MELETE_TLS_CERT_DIR`. The certificate and key are kept in the config folder, under `acme/`

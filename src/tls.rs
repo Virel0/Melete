@@ -100,7 +100,7 @@ fn changed_at(path: &Path) -> Option<SystemTime> {
 }
 
 /// Reads a certificate chain and its key; says which file is wrong, never what's in it.
-fn load(cert: &Path, key: &Path) -> anyhow::Result<CertifiedKey> {
+pub(crate) fn load(cert: &Path, key: &Path) -> anyhow::Result<CertifiedKey> {
     let chain: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert)
         .with_context(|| format!("{} can't be read as PEM", cert.display()))?
         .collect::<Result<_, _>>()

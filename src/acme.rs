@@ -14,6 +14,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::Context;
+
 use sqlx::SqlitePool;
 
 use crate::alerts::Alert;
@@ -24,7 +26,9 @@ pub mod account;
 mod client;
 pub mod files;
 pub mod issue;
+mod left;
 pub mod renewal;
+mod stage;
 mod status;
 pub mod test;
 #[cfg(test)]
@@ -33,7 +37,7 @@ pub mod testing;
 mod tests;
 
 pub use issue::Reach;
-pub use status::{Status, status};
+pub use status::{Status, ask, status};
 
 /// Wakes the renewing loop: settings changed, or an admin asked for a certificate now.
 static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
@@ -47,8 +51,8 @@ pub fn wake() {
     WAKE.notify_waiters();
 }
 
-/// Has the loop get a certificate now.
-pub fn ask_now() {
+/// Has the loop get a certificate now (once [`ask`] allows it).
+fn ask_now() {
     ASKED.store(true, Ordering::SeqCst);
     WAKE.notify_waiters();
 }
@@ -110,12 +114,24 @@ pub async fn round(
     asked: bool,
 ) -> anyhow::Result<i64> {
     let now = unix_now();
+    if let Err(err) = left::take_out(pool, acme, reach).await {
+        tracing::warn!(
+            error = format!("{err:#}"),
+            "couldn't take out challenge values left set"
+        );
+    }
     let mut state = renewal::load(pool).await?;
+    let attempt_for = renewal::attempt_for(&acme.directory, &acme.domain);
+    state.forget_failures_unless_for(&attempt_for);
     let held = files::read(folder).filter(|h| h.not_after > now);
     let fits = held.as_ref().filter(|h| {
         h.is_for(&acme.names()) && state.directory.as_deref() == Some(acme.directory.as_str())
     });
-    if let Some(retry_at) = state.retry_at.filter(|at| *at > now && !asked) {
+    // Asking now doesn't skip the wait once attempts keep failing.
+    if let Some(retry_at) = state
+        .retry_at
+        .filter(|at| *at > now && (!asked || state.failures >= 2))
+    {
         return Ok(retry_at);
     }
     if let (Some(held), false) = (fits, asked) {
@@ -131,6 +147,8 @@ pub async fn round(
         }
     }
     let replaces = fits.and_then(|h| h.id.clone());
+    // Asked while this attempt runs is asked for by this attempt.
+    ASKED.store(false, Ordering::SeqCst);
     WORKING.store(true, Ordering::SeqCst);
     let got = obtain(pool, folder, acme, reach, replaces).await;
     WORKING.store(false, Ordering::SeqCst);
@@ -140,15 +158,8 @@ pub async fn round(
             Ok(now + 60)
         }
         Err(err) => {
-            failed(
-                pool,
-                acme,
-                held.as_ref(),
-                &mut state,
-                &format!("{err:#}"),
-                now,
-            )
-            .await?;
+            state.failed_for = Some(attempt_for);
+            failed(pool, acme, held.as_ref(), &mut state, &err, now).await?;
             Ok(state.retry_at.unwrap_or(now + 600))
         }
     }
@@ -175,9 +186,9 @@ async fn schedule(
             let start = info.suggested_window.start.unix_timestamp();
             let end = info.suggested_window.end.unix_timestamp();
             let kept = state.renew_at.filter(|at| (start..=end).contains(at));
-            state.renew_at = Some(
-                kept.unwrap_or_else(|| renewal::in_window(start, end, renewal::random_pick())),
-            );
+            let picked =
+                kept.unwrap_or_else(|| renewal::in_window(start, end, renewal::random_pick()));
+            state.renew_at = Some(renewal::sensible(picked, held.not_before, held.not_after));
             let after = i64::try_from(ask_after.as_secs()).unwrap_or(ASK_AT_LEAST);
             state.ask_again_at = Some(now + after.clamp(ASK_AT_MOST, ASK_AT_LEAST));
         }
@@ -200,9 +211,11 @@ async fn obtain(
     reach: &Reach,
     replaces: Option<instant_acme::CertificateIdentifier<'static>>,
 ) -> anyhow::Result<()> {
-    let account = account::get(pool, &acme.directory, acme.email.as_deref()).await?;
-    let issued = issue::issue(&account, acme, reach, replaces).await?;
-    files::write(folder, &issued.chain, &issued.key)?;
+    let account = account::get(pool, &acme.directory, acme.email.as_deref())
+        .await
+        .context(stage::Stage::Account)?;
+    let issued = issue::issue(pool, &account, acme, reach, replaces).await?;
+    files::write(folder, &issued.chain, &issued.key).context(stage::Stage::Keep)?;
     tracing::info!(
         domain = acme.domain,
         staging = acme.staging,
@@ -255,14 +268,15 @@ async fn failed(
     acme: &Acme,
     held: Option<&files::Held>,
     state: &mut renewal::State,
-    why: &str,
+    err: &anyhow::Error,
     now: i64,
 ) -> anyhow::Result<()> {
+    let why = format!("{err:#}");
     tracing::warn!(error = why, "couldn't get HTTPS's certificate");
     state.failures += 1;
     let retry_at = now + renewal::backoff(state.failures);
     state.retry_at = Some(retry_at);
-    state.last_error = Some(why.to_owned());
+    state.last_error = Some(why);
     let alert = state
         .alerted_at
         .is_none_or(|at| now - at >= renewal::ALERT_AGAIN_AFTER);
@@ -276,8 +290,9 @@ async fn failed(
             Some(held) => Alert {
                 title: format!("HTTPS's certificate for {} isn't renewing", acme.domain),
                 message: format!(
-                    "Melete couldn't renew the certificate for {}: {why}. The one in use runs out on {}. Melete tries again by itself, {next}; Outside services, Certificates says more.",
+                    "Melete couldn't renew the certificate for {}: {}. The one in use runs out on {}. Melete tries again by itself, {next}; Outside services, Certificates says more.",
                     acme.names().join(" and "),
+                    stage::said(err),
                     when(held.not_after, now),
                 ),
             },
@@ -287,8 +302,9 @@ async fn failed(
                     acme.domain
                 ),
                 message: format!(
-                    "Melete couldn't get a certificate for {}: {why}. HTTPS has no valid certificate until it does. Melete tries again by itself, {next}; Outside services, Certificates says more.",
+                    "Melete couldn't get a certificate for {}: {}. HTTPS has no valid certificate until it does. Melete tries again by itself, {next}; Outside services, Certificates says more.",
                     acme.names().join(" and "),
+                    stage::said(err),
                 ),
             },
         };

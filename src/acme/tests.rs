@@ -195,6 +195,8 @@ async fn renewing_falls_in_the_window_the_ca_suggests() {
     let now = unix_now();
     let window = (now + 10 * 86_400, now + 12 * 86_400);
     world.ca.lock().unwrap().window = Some(window);
+    // A certificate already ten days old, so a window moved into the past is followed at once.
+    world.ca.lock().unwrap().backdate = 10 * 86_400;
     world.round(false).await;
     // Not due: when it is falls in the window, and nothing more was asked for.
     let next = world.round(false).await;
@@ -277,8 +279,13 @@ async fn a_failed_renewal_alerts_admins_with_the_expiry_and_a_later_success_says
         assert_eq!(seen.len(), 1);
         let (title, message) = &seen[0];
         assert_eq!(title, "HTTPS's certificate for example.org isn't renewing");
+        // Words of Melete's own, not the CA's.
         assert!(
-            message.contains("too many certificates lately"),
+            message.contains("the CA turned the order down"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("too many certificates lately"),
             "{message}"
         );
         assert!(
@@ -297,8 +304,24 @@ async fn a_failed_renewal_alerts_admins_with_the_expiry_and_a_later_success_says
     world.round(true).await;
     assert_eq!(seen.lock().unwrap().len(), 1);
     assert_eq!(world.state().await.failures, 2);
-    // Then it works, and says so.
+    // After two in a row, asking now waits for the retry too.
     world.ca.lock().unwrap().refuse_orders = None;
+    let orders = world.ca.lock().unwrap().orders.len();
+    world.round(true).await;
+    assert_eq!(world.ca.lock().unwrap().orders.len(), orders, "not asked");
+    assert!(
+        world
+            .state()
+            .await
+            .last_error
+            .unwrap()
+            .contains("too many certificates lately"),
+        "the CA's words stay for the page"
+    );
+    // Then the retry comes, it works, and says so.
+    let mut state = world.state().await;
+    state.retry_at = Some(unix_now() - 1);
+    renewal::save(&world.pool, &state).await.unwrap();
     world.round(true).await;
     assert_eq!(
         world.state().await,
@@ -572,5 +595,158 @@ async fn the_ca_looks_only_a_while_after_desec_answers() {
         looked.duration_since(set) >= Duration::from_millis(1500),
         "{:?}",
         looked.duration_since(set)
+    );
+}
+
+#[tokio::test]
+async fn a_certificate_whose_key_doesnt_match_is_got_again() {
+    let world = World::new().await;
+    world.round(false).await;
+    // As if a crash came between writing the key and the certificate.
+    let other = rcgen::KeyPair::generate().unwrap();
+    std::fs::write(
+        world.folder().join(crate::config::KEY_FILE),
+        other.serialize_pem(),
+    )
+    .unwrap();
+    assert!(
+        files::read(&world.folder()).is_none(),
+        "not a pair: nothing held"
+    );
+    world.round(false).await;
+    assert_eq!(world.ca.lock().unwrap().orders.len(), 2);
+    assert!(files::read(&world.folder()).is_some(), "a pair again");
+}
+
+#[tokio::test]
+async fn a_window_past_the_certificates_end_is_kept_before_it() {
+    let world = World::new().await;
+    let now = unix_now();
+    world.ca.lock().unwrap().window = Some((now + 100 * 86_400, now + 101 * 86_400));
+    world.round(false).await;
+    world.round(false).await;
+    let held = world.held();
+    let renew_at = world.state().await.renew_at.unwrap();
+    assert!(renew_at <= held.not_after - 3 * 86_400, "{renew_at}");
+    // And one in the past doesn't replace a new certificate at once.
+    world.ca.lock().unwrap().window = Some((now - 2 * 86_400, now - 86_400));
+    let mut state = world.state().await;
+    state.ask_again_at = None;
+    renewal::save(&world.pool, &state).await.unwrap();
+    world.round(false).await;
+    assert_eq!(world.ca.lock().unwrap().orders.len(), 1);
+    assert!(world.state().await.renew_at.unwrap() >= held.not_before + 86_400);
+}
+
+#[tokio::test]
+async fn failures_for_another_ca_dont_hold_this_one_up() {
+    let mut world = World::new().await;
+    world.ca.lock().unwrap().refuse_orders = Some("no".into());
+    let retry_at = world.round(false).await;
+    assert!(retry_at > unix_now());
+    // Switched to another CA: tried at once, with no wait carried over.
+    let (other, ca) = testing::start(world.reach.nameservers[0].parse().unwrap()).await;
+    world.acme.directory = other;
+    world.round(false).await;
+    assert_eq!(ca.lock().unwrap().orders.len(), 1);
+    assert!(world.held().not_after > unix_now());
+    assert_eq!(world.state().await.failures, 0);
+}
+
+#[tokio::test]
+async fn challenge_values_a_crash_left_are_taken_out_and_no_others() {
+    let world = World::new().await;
+    world.desec.lock().unwrap().records.insert(
+        ("example.org".into(), "_acme-challenge".into()),
+        vec!["left-by-melete".into(), "someone-else".into()],
+    );
+    left::note(
+        &world.pool,
+        &world.reach.desec_api,
+        "example.org",
+        "_acme-challenge",
+        &["left-by-melete".to_owned()],
+    )
+    .await
+    .unwrap();
+    world.round(false).await;
+    assert_eq!(
+        world.desec.lock().unwrap().records
+            [&("example.org".to_owned(), "_acme-challenge".to_owned())],
+        ["someone-else"]
+    );
+    let noted: i64 = sqlx::query_scalar("SELECT count(*) FROM acme_challenge_left")
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+    assert_eq!(noted, 0, "forgotten once removed");
+}
+
+#[tokio::test]
+async fn desec_answers_are_capped_quotes_kept_and_lost_writes_caught() {
+    let world = World::new().await;
+    let desec = desec::Client::new(&world.reach.desec_api, world.acme.desec_token.clone()).unwrap();
+    // A value ending in a quote of its own keeps it.
+    world.desec.lock().unwrap().records.insert(
+        ("example.org".into(), "_acme-challenge".into()),
+        vec!["ends in a quote\"".into()],
+    );
+    let ours = ["ours".to_owned()];
+    desec
+        .add_txt("example.org", "_acme-challenge", &ours)
+        .await
+        .unwrap();
+    desec
+        .remove_txt("example.org", "_acme-challenge", &ours)
+        .await
+        .unwrap();
+    assert_eq!(
+        world.desec.lock().unwrap().records
+            [&("example.org".to_owned(), "_acme-challenge".to_owned())],
+        ["ends in a quote\""]
+    );
+    // A write deSEC took but didn't keep is caught by reading it back.
+    world.desec.lock().unwrap().lose_writes = true;
+    let lost = desec
+        .add_txt("example.org", "_acme-challenge", &ours)
+        .await
+        .unwrap_err();
+    assert!(lost.to_string().contains("didn't stay"), "{lost}");
+    // An answer far too long is refused.
+    world.desec.lock().unwrap().padding = 100 * 1024;
+    let long = desec.zone("example.org").await.unwrap_err();
+    assert!(long.to_string().contains("far too long"), "{long}");
+}
+
+#[test]
+fn asking_now_is_refused_while_one_runs_lately_asked_or_new() {
+    let now = 10_000_000;
+    let state = renewal::State::default();
+    let new = files::Held {
+        names: Vec::new(),
+        not_before: now - 3600,
+        not_after: now + 89 * 86_400,
+        id: None,
+    };
+    assert!(
+        renewal::ask_refused(&state, None, true, now).is_some(),
+        "one runs"
+    );
+    assert!(renewal::ask_refused(&state, Some((&new, true)), false, now).is_some());
+    assert_eq!(
+        renewal::ask_refused(&state, Some((&new, false)), false, now),
+        None,
+        "from another CA"
+    );
+    assert_eq!(renewal::ask_refused(&state, None, false, now), None);
+    let asked = renewal::State {
+        asked_at: Some(now - 60),
+        ..renewal::State::default()
+    };
+    let why = renewal::ask_refused(&asked, None, false, now).unwrap();
+    assert!(why.contains("ask again in 14 minutes"), "{why}");
+    assert_eq!(
+        renewal::ask_refused(&asked, None, false, now + 15 * 60),
+        None
     );
 }

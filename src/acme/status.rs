@@ -44,6 +44,9 @@ pub struct Status {
     pub last_error: Option<String>,
     /// Whether an attempt is running now.
     pub working: bool,
+    /// Why getting a certificate now is refused, when it is: one being got, one asked for in the
+    /// last 15 minutes, or the one in use new and from this server.
+    pub ask_refused: Option<String>,
     /// Whether HTTPS is set to listen (`MELETE_TLS_BIND`), serving this certificate.
     pub https: bool,
 }
@@ -64,6 +67,7 @@ pub async fn status(pool: &SqlitePool, config: &Config) -> anyhow::Result<Status
             failures: 0,
             last_error: None,
             working: false,
+            ask_refused: Some("Certificates isn't set up.".to_owned()),
             https: config.tls.is_some(),
         });
     };
@@ -80,7 +84,9 @@ pub async fn status(pool: &SqlitePool, config: &Config) -> anyhow::Result<Status
         })
         .collect();
     let from_this_ca = state.directory.as_deref() == Some(acme.directory.as_str());
-    let certificate = files::read(&crate::config::acme_folder(&config.data_dir)).map(|h| Held {
+    let held = files::read(&crate::config::acme_folder(&config.data_dir));
+    let ask_refused = refused(&state, held.as_ref(), acme, from_this_ca);
+    let certificate = held.map(|h| Held {
         names: h.names,
         not_before: h.not_before,
         not_after: h.not_after,
@@ -98,6 +104,37 @@ pub async fn status(pool: &SqlitePool, config: &Config) -> anyhow::Result<Status
         failures: state.failures,
         last_error: state.last_error,
         working: super::working(),
+        ask_refused,
         https: config.tls.is_some(),
     })
+}
+
+/// Why getting a certificate now is refused as things stand.
+fn refused(
+    state: &renewal::State,
+    held: Option<&files::Held>,
+    acme: &crate::config::Acme,
+    from_this_ca: bool,
+) -> Option<String> {
+    let held = held.map(|h| (h, from_this_ca && h.is_for(&acme.names())));
+    renewal::ask_refused(state, held, super::working(), crate::db::unix_now())
+}
+
+/// Has a certificate got now, unless that's refused: then why, in plain words.
+pub async fn ask(pool: &SqlitePool, config: &Config) -> anyhow::Result<Result<(), String>> {
+    let Some(acme) = &config.acme else {
+        return Ok(Err(
+            "Set Certificates up under Outside services first.".to_owned()
+        ));
+    };
+    let mut state = renewal::load(pool).await?;
+    let from_this_ca = state.directory.as_deref() == Some(acme.directory.as_str());
+    let held = files::read(&crate::config::acme_folder(&config.data_dir));
+    if let Some(why) = refused(&state, held.as_ref(), acme, from_this_ca) {
+        return Ok(Err(why));
+    }
+    state.asked_at = Some(crate::db::unix_now());
+    renewal::save(pool, &state).await?;
+    super::ask_now();
+    Ok(Ok(()))
 }

@@ -11,6 +11,9 @@ use instant_acme::{
     Order, OrderStatus, RetryPolicy,
 };
 
+use sqlx::SqlitePool;
+
+use super::stage::Stage;
 use crate::config::Acme;
 use crate::desec;
 
@@ -165,55 +168,90 @@ async fn why_invalid(order: &mut Order) -> String {
     "it gave no reason".to_owned()
 }
 
-/// Sets the challenge's TXT record, has the CA check it, and removes the record again.
-async fn challenge(order: &mut Order, acme: &Acme, reach: &Reach) -> anyhow::Result<()> {
-    let values = values(order).await?;
+/// Sets the challenge's TXT record (noting its values first), has the CA check it, and removes
+/// the record again.
+async fn challenge(
+    pool: &SqlitePool,
+    order: &mut Order,
+    acme: &Acme,
+    reach: &Reach,
+) -> anyhow::Result<()> {
+    let values = values(order).await.context(Stage::Challenge)?;
     if values.is_empty() {
-        return answer(order).await;
+        return answer(order).await.context(Stage::Challenge);
     }
     let desec = desec::Client::new(&reach.desec_api, acme.desec_token.clone())?;
-    let zone = desec.zone(&acme.domain).await?.with_context(|| {
-        format!(
-            "the deSEC token sees no zone holding {}; check the domain and the token",
-            acme.domain
-        )
-    })?;
+    let zone = desec.zone(&acme.domain).await.context(Stage::Dns)?;
+    let zone = zone
+        .with_context(|| {
+            format!(
+                "the deSEC token sees no zone holding {}; check the domain and the token",
+                acme.domain
+            )
+        })
+        .context(Stage::Dns)?;
     let subname = desec::challenge_subname(&acme.domain, &zone)
-        .context("the domain isn't in the zone deSEC named")?;
+        .context("the domain isn't in the zone deSEC named")
+        .context(Stage::Dns)?;
     let name = format!("_acme-challenge.{}", acme.domain);
     let _held = Claim::wait(&reach.desec_api, &zone, &subname).await;
-    let set = desec.add_txt(&zone, &subname, &values).await;
-    let answered = match set {
-        Ok(()) => match desec::wait_served(&reach.nameservers, &name, &values, reach.served_within)
-            .await
-        {
-            Ok(()) => {
-                // Answered here isn't answered everywhere the CA checks from yet.
-                tokio::time::sleep(acme.settle).await;
-                answer(order).await
-            }
-            Err(err) => Err(err),
-        },
-        Err(err) => Err(err),
-    };
-    if let Err(err) = desec.remove_txt(&zone, &subname, &values).await {
-        tracing::warn!(
+    super::left::note(pool, &reach.desec_api, &zone, &subname, &values).await?;
+    let answered = set_and_answer(
+        order,
+        acme,
+        reach,
+        &desec,
+        (&zone, &subname, &name),
+        &values,
+    )
+    .await;
+    match desec.remove_txt(&zone, &subname, &values).await {
+        Ok(()) => super::left::forget(pool).await?,
+        Err(err) => tracing::warn!(
             error = format!("{err:#}"),
-            "couldn't remove the challenge's TXT record"
-        );
+            "couldn't remove the challenge's TXT record; it's taken out at the next look"
+        ),
     }
     answered
 }
 
+/// Sets `values` at `place` (zone, subname, full name), waits until deSEC's nameservers answer
+/// them and a while more, and has the CA check them.
+async fn set_and_answer(
+    order: &mut Order,
+    acme: &Acme,
+    reach: &Reach,
+    desec: &desec::Client,
+    (zone, subname, name): (&str, &str, &str),
+    values: &[String],
+) -> anyhow::Result<()> {
+    desec
+        .add_txt(zone, subname, values)
+        .await
+        .context(Stage::Dns)?;
+    desec::wait_served(&reach.nameservers, name, values, reach.served_within)
+        .await
+        .context(Stage::Served)?;
+    // Answered here isn't answered everywhere the CA checks from yet.
+    tokio::time::sleep(acme.settle).await;
+    answer(order).await.context(Stage::Challenge)
+}
+
 /// Asks the CA on `account` for a certificate for `acme`'s names, by the DNS challenge.
 pub async fn issue(
+    pool: &SqlitePool,
     account: &Account,
     acme: &Acme,
     reach: &Reach,
     replaces: Option<CertificateIdentifier<'static>>,
 ) -> anyhow::Result<Issued> {
-    let mut order = order(account, acme, replaces).await?;
-    challenge(&mut order, acme, reach).await?;
+    let mut order = order(account, acme, replaces).await.context(Stage::Order)?;
+    challenge(pool, &mut order, acme, reach).await?;
+    finish(&mut order, acme).await.context(Stage::Issue)
+}
+
+/// A new key, a signing request for it, and the chain the CA gives back.
+async fn finish(order: &mut Order, acme: &Acme) -> anyhow::Result<Issued> {
     let key = rcgen::KeyPair::generate()?;
     let mut params = rcgen::CertificateParams::new(acme.names())?;
     params.distinguished_name = rcgen::DistinguishedName::new();

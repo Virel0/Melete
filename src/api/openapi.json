@@ -11211,7 +11211,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Get HTTPS's certificate now",
-        "description": "Starts getting a certificate from Let's Encrypt now, rather than when renewing is due or a failed attempt's retry comes: the domain's names go to Let's Encrypt and to deSEC, and the challenge's TXT values to deSEC. It runs in the background; working says so, and the answer to the GET shows how it went. Mind Let's Encrypt's rate limits on the real server: the staging server is for trying it out.",
+        "description": "Starts getting a certificate from Let's Encrypt now, rather than when renewing is due or a failed attempt's retry comes: the domain's names go to Let's Encrypt and to deSEC, and the challenge's TXT values to deSEC. It runs in the background; working says so, and the answer to the GET shows how it went. Refused while one is being got, for 15 minutes after the last request, and while the certificate in use is less than a day old and from this server for these names; a request doesn't skip the wait after attempts that kept failing. Mind Let's Encrypt's rate limits on the real server: the staging server is for trying it out.",
         "responses": {
           "202": {
             "description": "Started; how it stands now",
@@ -11220,7 +11220,7 @@
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"},
           "409": {
-            "description": "Certificates isn't set up",
+            "description": "Refused, saying why (as ask_refused does): Certificates isn't set up, a certificate is being got or was asked for in the last 15 minutes, or the one in use is new and from this server",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -21394,7 +21394,7 @@
       },
       "Certificates": {
         "type": "object",
-        "required": ["on", "names", "staging", "account_uri", "caa", "certificate", "renew_at", "retry_at", "failures", "last_error", "working", "https"],
+        "required": ["on", "names", "staging", "account_uri", "caa", "certificate", "renew_at", "retry_at", "failures", "last_error", "working", "ask_refused", "https"],
         "properties": {
           "on": {"type": "boolean", "description": "Whether Certificates is on."},
           "names": {"type": "array", "items": {"type": "string"}, "description": "The names asked for: the wildcard, then the bare domain. Empty while it's off."},
@@ -21407,6 +21407,7 @@
           "failures": {"type": "integer", "description": "Attempts that failed in a row."},
           "last_error": {"type": ["string", "null"], "description": "Why the last attempt failed, in plain words."},
           "working": {"type": "boolean", "description": "Whether an attempt is running now."},
+          "ask_refused": {"type": ["string", "null"], "description": "Why getting a certificate now is refused, in plain words, when it is: one is being got, one was asked for in the last 15 minutes, the certificate in use is less than a day old and from this server for these names, or Certificates isn't set up. Each request asks the CA for a certificate, and its limits on duplicates would then block real renewals."},
           "https": {"type": "boolean", "description": "Whether HTTPS is set to listen (MELETE_TLS_BIND) and serves this certificate; without it the certificate is kept but nothing serves it."}
         },
         "additionalProperties": false

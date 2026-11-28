@@ -30,6 +30,9 @@ pub struct Fake {
     pub read_only: bool,
     /// Whether the nameserver answers what's written; when not, it answers as if nothing is.
     pub serving: bool,
+    /// Bytes of padding added to the answer naming a zone; writes taken but not kept.
+    pub padding: usize,
+    pub lose_writes: bool,
     /// Every Authorization header seen, and every request's path and query.
     pub headers: Vec<String>,
     pub paths: Vec<String>,
@@ -97,8 +100,9 @@ async fn answer(
     match (method, parts.as_slice()) {
         (Method::GET, ["domains"]) => {
             let name = query.get("owns_qname").cloned().unwrap_or_default();
+            let padding = "x".repeat(fake.padding);
             let found: Vec<Value> = place(&fake, &name)
-                .map(|(zone, _)| json!({ "name": zone }))
+                .map(|(zone, _)| json!({ "name": zone, "padding": padding }))
                 .into_iter()
                 .collect();
             axum::Json(found).into_response()
@@ -132,11 +136,14 @@ async fn answer(
                     .map(|r| {
                         let r = r.as_str().unwrap();
                         assert!(r.starts_with('"') && r.ends_with('"'), "quoted: {r}");
-                        r.trim_matches('"').to_owned()
+                        r[1..r.len() - 1].to_owned()
                     })
                     .collect();
                 fake.writes.push((sub.clone(), values.clone()));
                 fake.written_at.push(std::time::Instant::now());
+                if fake.lose_writes {
+                    continue;
+                }
                 fake.records.insert(((*zone).to_owned(), sub), values);
             }
             axum::Json(json!([])).into_response()

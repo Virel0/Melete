@@ -46,8 +46,9 @@ pub struct Fake {
     /// Each account's key thumbprint and contacts.
     pub accounts: Vec<(String, Vec<String>)>,
     pub orders: Vec<Order>,
-    /// How long certificates it issues run, in seconds.
+    /// How long certificates it issues run, in seconds, and how far back they start.
     pub lifetime: i64,
+    pub backdate: i64,
     /// The renewal window it suggests, Unix seconds; None offers no renewal information.
     pub window: Option<(i64, i64)>,
     /// When each challenge was checked.
@@ -85,6 +86,7 @@ pub async fn start(dns: SocketAddr) -> (String, Shared) {
         accounts: Vec::new(),
         orders: Vec::new(),
         lifetime: 90 * 86_400,
+        backdate: 60,
         window: None,
         checked_at: Vec::new(),
         ari_asked: Vec::new(),
@@ -197,9 +199,10 @@ impl Fake {
         let mut request = rcgen::CertificateSigningRequestParams::from_der(&der.into()).unwrap();
         let now = crate::db::unix_now();
         let epoch = rcgen::date_time_ymd(1970, 1, 1);
-        request.params.not_before = epoch + Duration::from_secs((now - 60).unsigned_abs());
+        let start = now - self.backdate;
+        request.params.not_before = epoch + Duration::from_secs(start.unsigned_abs());
         request.params.not_after =
-            epoch + Duration::from_secs((now + self.lifetime).unsigned_abs());
+            epoch + Duration::from_secs((start + self.lifetime).unsigned_abs());
         request.params.use_authority_key_identifier_extension = true;
         let issuer = rcgen::Issuer::from_params(&self.ca_params, &self.ca_key);
         let leaf = request.signed_by(&issuer).unwrap();

@@ -50,9 +50,10 @@ export function certificateCard(ctx) {
   });
   const again = h("button", { type: "button", class: "quiet", onclick: () => load() }, "Look again");
   const draw = (view) => {
-    room.replaceChildren();
     shown.replaceChildren(...facts(view));
-    now.disabled = !view.on || view.working;
+    // Refused for a while after each request, so the CA's limits on duplicates stay clear.
+    now.disabled = Boolean(view.ask_refused);
+    room.replaceChildren(view.on && view.ask_refused ? h("p", { class: "note" }, view.ask_refused) : "");
   };
   const load = async () => {
     try {

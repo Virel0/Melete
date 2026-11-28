@@ -56,13 +56,18 @@ pub fn write(folder: &Path, chain: &str, key: &str) -> anyhow::Result<()> {
     std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))?;
     put(&folder.join(KEY_FILE), key, 0o600)?;
     put(&folder.join(CERT_FILE), chain, 0o644)?;
+    // The renames are kept too, not only the files' contents.
+    std::fs::File::open(folder)?.sync_all()?;
     crate::tls::written();
     Ok(())
 }
 
-/// The leaf of the chain kept in `folder`, read; None when there's none or it doesn't read.
+/// The leaf of the chain kept in `folder`, read; None when there's none, or it and the key
+/// beside it don't load as a pair (as after a crash between writing the two), which HTTPS
+/// couldn't serve either: then a new pair is got.
 pub fn read(folder: &Path) -> Option<Held> {
     let path: PathBuf = folder.join(CERT_FILE);
+    crate::tls::load(&path, &folder.join(KEY_FILE)).ok()?;
     let leaf = CertificateDer::pem_file_iter(&path).ok()?.next()?.ok()?;
     held(&leaf)
 }

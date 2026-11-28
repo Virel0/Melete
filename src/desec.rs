@@ -4,7 +4,9 @@
 //! an error). Only the domain's names and the challenge's values leave the server, to deSEC.
 //! deSEC throttles writes to a zone: a request it turns away for that is tried again after the
 //! `Retry-After` it gives, a few times at most. Records others put beside Melete's are left as
-//! they are. Nothing here goes through the proxy.
+//! they are, though deSEC changes a record set whole: another client changing the same one at
+//! the same moment can lose its change, or Melete's (which a read after the write catches).
+//! Every answer is capped at 64 KiB. Nothing here goes through the proxy.
 
 use std::time::Duration;
 
@@ -105,7 +107,7 @@ impl Client {
         let answer = self
             .send(|http| http.get(&url).query(&[("owns_qname", name)]))
             .await?;
-        let found: Vec<Domain> = ok(answer).await?.json().await?;
+        let found: Vec<Domain> = serde_json::from_slice(&capped(ok(answer).await?).await?)?;
         Ok(found.into_iter().next().map(|d| d.name))
     }
 
@@ -116,12 +118,8 @@ impl Client {
         if answer.status() == StatusCode::NOT_FOUND {
             return Ok(Vec::new());
         }
-        let set: RrSet = ok(answer).await?.json().await?;
-        Ok(set
-            .records
-            .iter()
-            .map(|r| r.trim_matches('"').to_owned())
-            .collect())
+        let set: RrSet = serde_json::from_slice(&capped(ok(answer).await?).await?)?;
+        Ok(set.records.iter().map(|r| unquoted(r).to_owned()).collect())
     }
 
     /// Makes the TXT values at `subname` in `zone` exactly `values`; none removes the record.
@@ -155,7 +153,14 @@ impl Client {
                 .cloned()
                 .collect::<Vec<_>>(),
         );
-        self.put_txt(zone, subname, &all).await
+        self.put_txt(zone, subname, &all).await?;
+        // Read back: a change another client made at the same moment may have replaced ours.
+        let now = self.txt(zone, subname).await?;
+        anyhow::ensure!(
+            values.iter().all(|v| now.contains(v)),
+            "the challenge's TXT values didn't stay in deSEC's record: something else changed it at the same time"
+        );
+        Ok(())
     }
 
     /// Takes `values` out of the TXT record at `subname` in `zone`, leaving the rest.
@@ -211,16 +216,41 @@ pub async fn wait_served(
     Ok(())
 }
 
+/// The longest answer taken from deSEC: a zone or a record set is a few hundred bytes.
+const MOST: usize = 64 * 1024;
+
+/// `answer`'s body, read in pieces, refused once it's longer than [`MOST`].
+async fn capped(mut answer: reqwest::Response) -> anyhow::Result<Vec<u8>> {
+    let mut body = Vec::new();
+    while let Some(chunk) = answer
+        .chunk()
+        .await
+        .map_err(|err| anyhow::anyhow!("deSEC's answer broke off: {}", crate::proxy::said(err)))?
+    {
+        body.extend_from_slice(&chunk);
+        anyhow::ensure!(body.len() <= MOST, "deSEC's answer is far too long");
+    }
+    Ok(body)
+}
+
+/// A TXT value as deSEC writes it, without the one pair of quotes around it.
+fn unquoted(record: &str) -> &str {
+    record
+        .strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+        .unwrap_or(record)
+}
+
 /// `answer`, unless deSEC turned the request down: then why, in plain words.
 async fn ok(answer: reqwest::Response) -> anyhow::Result<reqwest::Response> {
     let status = answer.status();
     if status.is_success() {
         return Ok(answer);
     }
-    let said: String = answer
-        .json::<serde_json::Value>()
+    let said: String = capped(answer)
         .await
         .ok()
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(&body).ok())
         .and_then(|v| Some(v.get("detail")?.as_str()?.to_owned()))
         .unwrap_or_default();
     let said = said.chars().take(200).collect::<String>();

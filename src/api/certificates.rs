@@ -38,13 +38,9 @@ async fn renew(
     State(pool): State<SqlitePool>,
 ) -> Result<(StatusCode, Json<acme::Status>), ApiError> {
     let config = crate::settings::load(&pool).await?;
-    if config.acme.is_none() {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "set Certificates up under Outside services first",
-        ));
+    if let Err(why) = acme::ask(&pool, &config).await? {
+        return Err(ApiError::new(StatusCode::CONFLICT, why));
     }
-    acme::ask_now();
     Ok((
         StatusCode::ACCEPTED,
         Json(acme::status(&pool, &config).await?),
@@ -127,5 +123,36 @@ mod tests {
         // Nothing to get while it's off.
         let (status, _) = send(&app, "POST", "/api/v1/certificates/renew", &admin).await;
         assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn asking_now_twice_is_refused_saying_why() {
+        let pool = crate::db::open_in_memory().await;
+        for (name, value) in [
+            ("MELETE_ACME_DOMAIN", "example.org"),
+            ("MELETE_ACME_DESEC_TOKEN", "t"),
+        ] {
+            sqlx::query("INSERT INTO settings (name, value, updated_at) VALUES (?, ?, 0)")
+                .bind(name)
+                .bind(value)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let admin = token(&pool, "admin", true).await;
+        let app = routes(pool.clone());
+        let (status, asked) = send(&app, "POST", "/api/v1/certificates/renew", &admin).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let why = asked["ask_refused"].as_str().unwrap();
+        assert!(why.contains("asked for 0 minutes ago"), "{why}");
+        let (status, again) = send(&app, "POST", "/api/v1/certificates/renew", &admin).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(
+            again["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("ask again in 15 minutes"),
+            "{again}"
+        );
     }
 }
