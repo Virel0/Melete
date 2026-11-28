@@ -199,6 +199,8 @@ function startSession(user) {
   const name = document.getElementById("username");
   name.textContent = user.username;
   name.title = user.username;
+  // The name is hidden on narrower screens, leaving the picture: its tooltip says whose.
+  name.parentElement.title = user.username;
   name.before(avatar(user, "small"));
   startShell(user);
   bar.hidden = false;
