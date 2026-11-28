@@ -2,11 +2,11 @@
    every page while something is queued, and the page leaves room for it; the panel sits beside
    the page at 1100 px and wider, over it when narrower. Tokens are in app.css. */
 
-body.with-player { padding-block-end: calc(var(--player-height, 5rem) + var(--space-2)); }
+body.with-player { padding-block-end: calc(var(--player-height, 5rem) + var(--tab-bar-height, 0px) + var(--space-2)); }
 .music-bar {
   position: fixed;
   inset-inline: 0;
-  inset-block-end: 0;
+  inset-block-end: var(--tab-bar-height, 0px);
   z-index: 10;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
@@ -99,7 +99,7 @@ body { --panel-width: 22rem; }
 .music-panel[open] { display: flex; }
 .music-panel:not(:modal) {
   position: fixed;
-  inset: var(--header-height, 0px) 0 var(--player-height, 0px) auto;
+  inset: var(--header-height, 0px) 0 calc(var(--player-height, 0px) + var(--tab-bar-height, 0px)) auto;
   z-index: 4;
   width: var(--panel-width);
   height: auto;

@@ -3,10 +3,11 @@
    (placeholders while loading, the empty and failed states, cut names, and the managing side's
    state marks). Tokens are in app.css. */
 
-/* Header: one row while everything fits. When the side's entries don't, they move as a whole to
+/* Header: one row while everything fits: the wordmark, the side switch, the side's sections,
+   then Search and the account at the end. When the sections don't fit, they move as a whole to
    a row of their own under it (shell.js adds `stacked`), never half onto a second line, and that
-   row scrolls sideways rather than wrapping. On a phone the header scrolls away with the page,
-   leaving the screen to the page and the music bar. */
+   row scrolls sideways. On a phone the sections go to the bar at the foot of the screen
+   (tab-bar.js) and the header scrolls away with the page; over a hero it floats on the art. */
 .bar {
   position: sticky;
   top: 0;
@@ -14,17 +15,18 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-4);
-  padding: var(--space-2) var(--space-5);
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-3) var(--space-5);
   /* The page's own colour, as html has it (app.css), and no line under it. */
   background: color-mix(in oklab, var(--tint, var(--bg)) var(--tint-amount), var(--bg));
 }
 .wordmark {
-  font-size: var(--step-1);
+  font-size: 1.1875rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   text-decoration: none;
 }
+/* The side switch: a segmented pill, the current side filled with the text's colour. */
 .sides {
   display: inline-flex;
   flex: none;
@@ -36,15 +38,15 @@
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
-  padding: 0 var(--space-3);
-  border-radius: 999px;
+  padding: 0 0.875rem;
+  border-radius: var(--radius-pill);
   color: var(--muted);
   font-size: var(--step--1);
   font-weight: 600;
   text-decoration: none;
 }
 .sides a:hover { color: var(--text); }
-.sides a[aria-current="true"] { background: var(--accent); color: var(--accent-ink); }
+.sides a[aria-current="true"] { background: var(--text); color: var(--bg); font-weight: 650; }
 .entries { flex: 1; min-width: 0; }
 .entries ul {
   list-style: none;
@@ -65,17 +67,51 @@
   align-items: center;
   gap: var(--space-2);
   min-height: 2.5rem;
-  padding: 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
   white-space: nowrap;
   text-decoration: none;
   color: var(--muted);
 }
 .entries a:hover { color: var(--text); }
-.entries a[aria-current="page"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.entries a[aria-current="page"] { color: var(--text); font-weight: 600; }
+/* A Manage service's count: problems in the danger colour, what's waiting in the accent. The
+   number shows; what it counts is read out with it and shown on hover. */
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-pill);
+  color: var(--bg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.count-pill.problem { background: var(--danger); }
+.count-pill.waiting { background: var(--accent); }
 .bar-end { display: flex; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
-.palette-open { gap: var(--space-2); color: var(--muted); }
-.palette-open svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
-.palette-open:hover { color: var(--text); }
+/* Search and the account: 44 px round, their names read out and shown as tooltips. */
+.palette-open, .account summary {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+}
+.palette-open:hover, .account summary:hover, .account[open] summary { background: var(--surface-raised); }
+.palette-open svg { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+.palette-open kbd { display: none; }
+.palette-open .label, .account summary .clip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.account { position: relative; }
+.account summary { cursor: pointer; list-style: none; overflow: hidden; }
+.account summary::-webkit-details-marker { display: none; }
+.account summary .avatar { width: 100%; height: 100%; margin: 0; }
 kbd {
   padding: 0 var(--space-1);
   border: 1px solid var(--line-strong);
@@ -83,20 +119,6 @@ kbd {
   font: var(--step--1) / 1.6 var(--font-body);
   color: var(--muted);
 }
-.account { position: relative; color: var(--muted); }
-.account summary {
-  display: flex;
-  align-items: center;
-  min-height: 2.5rem;
-  max-width: 12rem;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  list-style: none;
-}
-.account summary::-webkit-details-marker { display: none; }
-.account summary::after { content: ""; flex: none; margin-inline-start: var(--space-2); border: 5px solid transparent; border-block-start-color: currentColor; translate: 0 3px; }
-.account summary:hover, .account[open] summary { color: var(--text); background: var(--surface-raised); }
 .account-menu {
   position: absolute;
   inset-inline-end: 0;
@@ -116,34 +138,77 @@ kbd {
 .account-menu a:hover { background: var(--surface-raised); }
 .account-menu hr { width: 100%; margin: var(--space-1) 0; border: 0; border-block-start: 1px solid var(--line); }
 
-/* A health word beside a Manage service: its mark says the level as well as its colour. */
-.entries .state { font-size: var(--step--1); }
 
-/* Below 1440 px, Search is its magnifier and the account its picture, leaving the row to the
-   side's entries; the words stay for screen readers, and as tooltips (index.html). */
-@media (max-width: 90rem) {
-  .palette-open kbd { display: none; }
-  .palette-open { padding-inline: var(--space-3); }
-  .palette-open .label, .account summary .clip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .account summary { padding-inline: var(--space-2); }
-}
 @media (max-width: 64rem) {
   .bar { padding-inline: var(--space-4); }
 }
 @media (max-width: 40rem) {
-  .bar { position: static; gap: var(--space-2); }
-  /* Watch's Home is the same place, one tap away. */
+  .bar { position: static; gap: var(--space-2); padding-block: var(--space-2); }
+  /* Watch's Home is the same place, one tap away in the bar at the foot. */
   .wordmark { display: none; }
-  .sides a { padding: 0 var(--space-2); }
-  .entries a { min-height: 2.25rem; padding: 0 var(--space-2); font-size: var(--step--1); }
+  .sides a { padding: 0 var(--space-3); }
+  /* The sections are in the bar at the foot instead. */
+  body:has(#tab-bar:not([hidden])) .entries { display: none; }
+  /* Over a hero, the header floats on its art: the switch and the round buttons on the page's
+     colour, a little see-through. */
+  body:has(#main > .hero:first-child) .bar { position: absolute; inset: 0 0 auto; z-index: 6; background: transparent; }
+  body:has(#main > .hero:first-child) :is(.sides, .palette-open, .account summary) { background: color-mix(in srgb, var(--bg) 72%, transparent); }
 }
+
+/* The bar at the foot of a phone's screen (tab-bar.js): the side's main sections, an icon over
+   each name, the current one in the accent; More opens the rest as a sheet. */
+.tab-bar { display: none; }
+@media (max-width: 40rem) {
+  .tab-bar {
+    display: block;
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 11;
+    padding: var(--space-1) var(--space-2) max(var(--space-1), env(safe-area-inset-bottom));
+    background: var(--surface);
+  }
+  body:has(#tab-bar:not([hidden])) { padding-block-end: var(--tab-bar-height, 4rem); }
+  body.with-player:has(#tab-bar:not([hidden])) { padding-block-end: calc(var(--player-height, 5rem) + var(--tab-bar-height, 4rem) + var(--space-2)); }
+}
+.tab-bar ul { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.tab-bar a, .tab-bar button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: var(--space-1) 0;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-decoration: none;
+}
+.tab-bar svg { width: 1.5rem; height: 1.5rem; fill: currentColor; }
+.tab-bar svg.lines { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.tab-bar :is(a, button):hover { color: var(--text); background: none; }
+.tab-bar [aria-current="page"] { color: var(--accent); font-weight: 650; }
+.tab-name { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* A Manage service with something to see to: a dot on its icon, its colour as the header's. */
+.tab-dot { position: absolute; inset: var(--space-1) auto auto calc(50% + 0.5rem); width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+.tab-dot.problem { background: var(--danger); }
+.tab-dot.waiting { background: var(--accent); }
+.tab-sheet ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tab-sheet a { display: flex; align-items: center; min-height: 2.75rem; padding: var(--space-2) var(--space-3); border-radius: var(--radius-m); color: var(--text); text-decoration: none; }
+.tab-sheet a:hover { background: var(--surface-raised); }
+.tab-sheet a[aria-current="page"] { background: var(--surface-raised); font-weight: 600; }
 
 /* The frame: a sidebar beside the page at 1100 px and wider (Listen, each Manage service);
    narrower, a menu button above the page opens the same list, under it, or as a sheet from the
    foot of a phone's screen (sidebar.js). */
 .sidebar { display: none; }
 @media (min-width: 68.75rem) {
-  .frame.with-sidebar { display: grid; grid-template-columns: 15rem minmax(0, 1fr); }
+  .frame.with-sidebar { display: grid; grid-template-columns: 14.5rem minmax(0, 1fr); }
   .frame.with-sidebar .sidebar {
     display: block;
     position: sticky;
@@ -169,13 +234,14 @@ kbd {
   justify-content: space-between;
   gap: var(--space-2);
   min-height: 2.5rem;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-s);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-m);
+  font-size: 0.9375rem;
   color: var(--muted);
   text-decoration: none;
 }
 .sidebar a:hover, .fold-menu a:hover { color: var(--text); background: var(--surface-raised); }
-.sidebar a[aria-current="page"], .fold-menu a[aria-current="page"] { color: var(--text); background: var(--surface-raised); box-shadow: inset 3px 0 0 var(--accent); }
+.sidebar a[aria-current="page"], .fold-menu a[aria-current="page"] { color: var(--text); background: var(--surface-raised); font-weight: 600; }
 .sidebar .count, .fold-menu .count { flex: none; color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
 .fold { position: relative; max-width: 100rem; margin-inline: auto; padding: var(--space-3) var(--space-5) 0; }
 .fold-toggle { max-width: 100%; gap: var(--space-2); }

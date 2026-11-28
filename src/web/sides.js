@@ -73,17 +73,17 @@ function yoursEntries() {
   ];
 }
 
-// Listen's sidebar: its sections, which the header also lists, so a narrow screen has no menu
-// button for them; then, once the listener's pins and playlists come (music-sidebar.js), their
-// own pages, what they pinned and their playlists. The listener's own pages are left out for
-// someone to whom likes and playlists are closed.
+// Listen's sidebar: only what's under its sections, never the sections again (the header lists
+// them, and the bar at the foot of a phone). Once the listener's pins and playlists come
+// (music-sidebar.js): their own pages, what they pinned and their playlists. The listener's own
+// pages are left out for someone to whom likes and playlists are closed.
 export function listenSidebar(route) {
   const items = (list) => list.map((e) => ({ href: e.href, name: e.name, here: e.here(route) }));
   const hash = location.hash;
   return {
-    label: "Listen",
-    title: "Listen",
-    groups: [{ inHeader: true, items: items(listenEntries()) }],
+    label: "Your music",
+    title: "Your music",
+    groups: [],
     more: listenLists().then((lists) => listenGroups(lists, hash, items(yoursEntries()))),
   };
 }
