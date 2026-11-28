@@ -61,10 +61,13 @@ impl Transcoder {
         on_cpu: bool,
     ) -> Result<(), TranscodeError> {
         let mut on_cpu = on_cpu;
-        // Viewers sharing it stay with it when it starts again elsewhere.
+        // Viewers sharing it stay with it when it starts again elsewhere, and so does any step
+        // down for being too slow.
         let mut viewers = HashMap::new();
+        let mut steps = 0;
         if let Some(mut old) = running.remove(session) {
             on_cpu |= old.on_cpu;
+            steps = old.steps;
             viewers = std::mem::take(&mut old.viewers);
             old.stop(if on_cpu {
                 Stopped::OnCpu
@@ -87,7 +90,8 @@ impl Transcoder {
             _ if on_cpu => Hardware::Software,
             _ => self.hardware(),
         };
-        let mut plan = plan.clone();
+        let asked = plan.clone();
+        let mut plan = plan.stepped_down(steps).unwrap_or_else(|| plan.clone());
         plan.gpu_decode &= hw == Hardware::Nvenc;
         let run = self.runs.fetch_add(1, Ordering::Relaxed);
         let dir = self.root.join(format!("{run}{RUN_SUFFIX}"));
@@ -132,6 +136,9 @@ impl Transcoder {
                 duration: plan.duration,
                 most_viewers: viewers.len(),
                 viewers,
+                asked,
+                steps,
+                speed_told: false,
             },
         );
         Ok(())

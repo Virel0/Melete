@@ -36,6 +36,7 @@ mod running;
 mod settings;
 mod starting;
 mod viewers_first;
+mod watchdog;
 mod whole;
 
 pub use args::*;
@@ -259,6 +260,7 @@ impl Transcoder {
             }
             r.deleted_below = r.deleted_below.max(keep_from);
         }
+        self.watch_speed(&mut running);
     }
 
     /// [`Transcoder::segment_for`] a session of one viewer, for tests.

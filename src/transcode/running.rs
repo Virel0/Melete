@@ -55,6 +55,13 @@ pub(super) struct Running {
     pub(super) viewers: HashMap<Vec<u8>, (Instant, i64)>,
     /// The most viewers it has had at once, for the log.
     pub(super) most_viewers: usize,
+    /// The session's plan as asked, before any step down.
+    pub(super) asked: Plan,
+    /// Rungs the session stepped down for being too slow (see `watchdog`), kept through
+    /// restarts.
+    pub(super) steps: u8,
+    /// Whether it was logged as too slow with no rung to step down to.
+    pub(super) speed_told: bool,
 }
 
 /// Another viewer who asked within this long is still watching a shared run: players ask every
