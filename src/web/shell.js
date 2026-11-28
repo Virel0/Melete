@@ -102,7 +102,24 @@ function draw() {
       ),
     ),
   );
+  fit();
 }
+
+// The side's entries stay on the header's row only while all of them fit there; otherwise
+// they all move to a row of their own under it (`stacked` in shell.css), which scrolls
+// sideways to the current one. Measured with them on the row, before the page is painted.
+function fit() {
+  if (bar.hidden) return;
+  bar.classList.remove("stacked");
+  const list = entries.firstElementChild;
+  if (list && list.scrollWidth > entries.clientWidth + 1) bar.classList.add("stacked");
+  const here = entries.querySelector('[aria-current="page"]');
+  if (here && bar.classList.contains("stacked")) {
+    const left = here.offsetLeft - entries.offsetLeft;
+    if (left < entries.scrollLeft || left + here.offsetWidth > entries.scrollLeft + entries.clientWidth) entries.scrollLeft = left;
+  }
+}
+addEventListener("resize", fit);
 
 // Sets the header up for `user`; pages can be drawn before what it asks for arrives.
 export function startShell(user) {
