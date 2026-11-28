@@ -88,6 +88,8 @@
   /* contrast: --stage-line on --stage ui (borders only) */
 
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  /* Codes, keys and file paths, where each character counts. */
+  --font-mono: ui-monospace, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
