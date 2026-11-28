@@ -68,6 +68,9 @@ impl Activity {
 pub(super) struct Seen {
     last: Option<i64>,
     busy: Option<(Activity, i64)>,
+    /// Its last handshake as last read from WireGuard, Unix seconds: WireGuard forgets it once
+    /// a quiet peer's session lapses, and the page shouldn't then say it never connected.
+    handshake: Option<i64>,
 }
 
 impl Seen {
@@ -103,8 +106,11 @@ impl Peers {
 pub struct PeerNow {
     pub address: Ipv4Addr,
     pub kind: Kind,
-    /// How long since its last handshake; None before its first.
+    /// How long since its last handshake, as WireGuard has it or as last seen (its last request
+    /// came over one too); None before its first.
     pub last_handshake: Option<Duration>,
+    /// Whether WireGuard has a session with it, made within [`CONNECTED`].
+    live: bool,
     /// Bytes received from it and sent to it, through WireGuard, since it was added.
     pub rx_bytes: u64,
     pub tx_bytes: u64,
@@ -118,9 +124,10 @@ pub struct PeerNow {
 }
 
 impl PeerNow {
-    /// Whether it's connected: a handshake within [`CONNECTED`].
+    /// Whether it's connected: WireGuard has a session with it, made within [`CONNECTED`]. A
+    /// last handshake remembered from before doesn't count.
     pub fn connected(&self) -> bool {
-        connected(self.last_handshake)
+        self.live
     }
 }
 
@@ -133,6 +140,20 @@ impl std::fmt::Debug for PeerNow {
             .field("endpoint", &self.endpoint.map(|_| "<redacted>"))
             .finish_non_exhaustive()
     }
+}
+
+/// When a peer's last handshake was, Unix seconds: WireGuard's, while it has a session (`live`,
+/// how long ago), else the latest of the last one read and its last request, which came over one.
+fn latest_handshake(live: Option<Duration>, seen: Seen, now: i64) -> Option<i64> {
+    let live = live.map(|ago| now - i64::try_from(ago.as_secs()).unwrap_or(i64::MAX).min(now));
+    [live, seen.handshake, seen.last]
+        .into_iter()
+        .flatten()
+        .max()
+}
+
+fn secs_ago(now: i64, at: i64) -> Duration {
+    Duration::from_secs(u64::try_from(now - at).unwrap_or(0))
 }
 
 fn connected(last_handshake: Option<Duration>) -> bool {
@@ -163,18 +184,25 @@ impl Tunnel {
             .into_iter()
             .map(|(address, public_key, kind, seen)| {
                 let found = stats.iter().find(|s| s.peer.public_key == public_key);
-                let last_handshake = found.and_then(|s| s.stats.last_handshake);
+                let live = found.and_then(|s| s.stats.last_handshake);
                 let endpoint = found.and_then(|s| s.peer.endpoint);
+                let latest = latest_handshake(live, seen, now);
+                if let Some(at) = latest
+                    && let Some(entry) = self.peers.lock().get_mut(&address)
+                {
+                    entry.seen.handshake = Some(at);
+                }
                 PeerNow {
                     address,
                     kind,
-                    last_handshake,
+                    last_handshake: latest.map(|at| secs_ago(now, at)),
+                    live: connected(live),
                     rx_bytes: found.map_or(0, |s| bytes(s.stats.rx_bytes)),
                     tx_bytes: found.map_or(0, |s| bytes(s.stats.tx_bytes)),
                     connections: self.open.of(address),
                     activity: seen.doing(now),
                     last_request_at: seen.last,
-                    endpoint: while_connected(last_handshake, endpoint),
+                    endpoint: while_connected(live, endpoint),
                 }
             })
             .collect()
@@ -193,6 +221,31 @@ impl Tunnel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_peer_that_connected_keeps_its_last_handshake_once_its_session_lapses() {
+        let now = 1_000_000;
+        let quiet = Seen::default();
+        // WireGuard's own, while it has a session.
+        let live = Some(Duration::from_secs(10));
+        assert_eq!(latest_handshake(live, quiet, now), Some(now - 10));
+        // Its session lapsed: what was read before, or its last request, whichever is later.
+        let read = Seen {
+            handshake: Some(now - 400),
+            ..Seen::default()
+        };
+        assert_eq!(latest_handshake(None, read, now), Some(now - 400));
+        let asked = Seen {
+            last: Some(now - 200),
+            handshake: Some(now - 400),
+            ..Seen::default()
+        };
+        assert_eq!(latest_handshake(None, asked, now), Some(now - 200));
+        assert_eq!(latest_handshake(None, quiet, now), None, "never connected");
+        assert_eq!(secs_ago(now, now - 200), Duration::from_secs(200));
+        // Connected only while WireGuard has a session.
+        assert!(!connected(None));
+    }
 
     #[test]
     fn a_request_is_for_what_its_path_says() {
