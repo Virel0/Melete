@@ -158,8 +158,10 @@ The web UI is at `http://<server>:8100/`.
 
 ### Updating
 
-Read the release's notes, then name the new version in `MELETE_IMAGE` (or, when it's unset,
-update this repository's checkout: its `compose.yaml` names the newest release), and:
+Read the release's notes, then name the new version in `MELETE_IMAGE` (the notes give it pinned
+by its digest, as a line to paste into `.env`, and the same for the separator and the trailer
+downloader), or, when it's unset, update this repository's checkout: its `compose.yaml` names
+the newest release. Then:
 
 ```sh
 docker compose pull
@@ -410,9 +412,10 @@ Melete writes to the libraries only once automation is on, and then only what it
 ## Checking a release
 
 A release is a container image on GitHub's container registry, built by this repository's CI
-from a `v*` tag, never on a personal machine. Each release page gives the image's digest and
-carries the same image as an OCI archive, with its SHA-256 in `SHA256SUMS`. The image has a
-signed build-provenance attestation.
+from a `v*` tag, never on a personal machine. Each release page gives every image's full
+digest as a line ready to paste into `.env` (`MELETE_IMAGE=…@sha256:…`, and the same for
+`MELETE_STEMS_IMAGE` and `MELETE_TRAILERS_IMAGE`), and carries Melete's image as an OCI
+archive, with its SHA-256 in `SHA256SUMS`. Each image has a signed build-provenance attestation.
 
 Pull by digest, so the image can't change under you:
 
