@@ -15,7 +15,6 @@ body.with-player { padding-block-end: calc(var(--player-height, 5rem) + var(--sp
   padding: var(--space-2) var(--space-5);
   padding-block-end: max(var(--space-2), env(safe-area-inset-bottom));
   background: var(--surface);
-  border-block-start: 1px solid var(--line);
   box-shadow: var(--shadow);
 }
 .music-bar .now { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
@@ -96,7 +95,6 @@ body { --panel-width: 22rem; }
   color: var(--text);
   background: var(--surface);
   border: 0;
-  border-inline-start: 1px solid var(--line);
 }
 .music-panel[open] { display: flex; }
 .music-panel:not(:modal) {

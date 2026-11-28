@@ -65,7 +65,11 @@ on `--danger` 8.2:1.
 Light values chosen so far: `--surface-hover` `#dedbd4`, `--text-soft` `#34363b`,
 `--accent-hover` `#744b0f` (darker than the light accent, since its ink is white). The
 `--on-art-*` veils sit over art, which is dark in both themes, so they keep one value.
-`--on-art-hover` (`rgb(236 233 226 / 0.24)`) is the veil under the pointer.
+`--on-art-hover` (`rgb(236 233 226 / 0.24)`) is the veil under the pointer. Then
+`--surface-sunk` `#efede8` (a step below the light page, as white cards are a step above it)
+and `--accent-tint` `#f5e9d6`. `--shadow-float` (`0 24px 64px` at 50% black, 18% in the light
+theme) is the one shadow for what floats: menus, the command palette, the bar of what's
+chosen.
 
 ## Type
 
