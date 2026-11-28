@@ -52,6 +52,11 @@ function taskState(t) {
   if (!t.active) return stateLabel("off", "Off: its service is off");
   if (t.result?.startsWith("failed")) return stateLabel("failed", sentence(t.result));
   if (t.result) return stateLabel("have", sentence(t.result));
+  // Waiting for its first run since the server started: on, with its time to come.
+  if (t.next_at) {
+    const due = t.next_at <= Date.now() / 1000;
+    return h("span", { class: "note" }, `Scheduled, next run ${due ? "due now" : ago(t.next_at)}`);
+  }
   return h("span", { class: "note" }, "Not run since the server started");
 }
 

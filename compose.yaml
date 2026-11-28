@@ -15,6 +15,9 @@ services:
     ports:
       - "8100:8100"
     environment:
+      # Which service this is: each of Melete's images checks it at start, so an image put on
+      # another service's variable stops saying so.
+      MELETE_SERVICE: melete
       # The libraries. Adding or dropping one is a compose.local.yaml of your own, not an edit
       # here (README.md, Other library folders).
       MELETE_LIBRARY_MOVIES: movies:/media/movies
