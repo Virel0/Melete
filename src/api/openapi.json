@@ -11227,6 +11227,44 @@
         }
       }
     },
+    "/api/v1/certificates": {
+      "get": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "How HTTPS's certificate from Let's Encrypt stands",
+        "description": "With Certificates on under Outside services (MELETE_ACME_*), Melete gets the certificate for its own HTTPS from Let's Encrypt and renews it. This says which names it's for, whether the staging server is used, the ACME account's URI (not a secret: it's what a CAA record's accounturi names, so only this account may have certificates issued for the domain) with CAA records to that effect, the certificate in use, and how renewing stands. Asks nothing outside the server. The deSEC token and every key are never in an answer.",
+        "responses": {
+          "200": {
+            "description": "How it stands",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Certificates"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"}
+        }
+      }
+    },
+    "/api/v1/certificates/renew": {
+      "post": {
+        "tags": ["Admin"],
+        "x-melete-access": "admin",
+        "x-melete-scope": "full",
+        "summary": "Get HTTPS's certificate now",
+        "description": "Starts getting a certificate from Let's Encrypt now, rather than when renewing is due or a failed attempt's retry comes: the domain's names go to Let's Encrypt and to deSEC, and the challenge's TXT values to deSEC. It runs in the background; working says so, and the answer to the GET shows how it went. Refused while one is being got, for 15 minutes after the last request, and while the certificate in use is less than a day old and from this server for these names; a request doesn't skip the wait after attempts that kept failing. Mind Let's Encrypt's rate limits on the real server: the staging server is for trying it out.",
+        "responses": {
+          "202": {
+            "description": "Started; how it stands now",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Certificates"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {
+            "description": "Refused, saying why (as ask_refused does): Certificates isn't set up, a certificate is being got or was asked for in the last 15 minutes, or the one in use is new and from this server",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
     "/api/v1/settings/keys": {
       "post": {
         "tags": ["Admin"],
@@ -21414,6 +21452,37 @@
         },
         "additionalProperties": false
       },
+      "Certificates": {
+        "type": "object",
+        "required": ["on", "names", "staging", "account_uri", "caa", "certificate", "renew_at", "retry_at", "failures", "last_error", "working", "ask_refused", "https"],
+        "properties": {
+          "on": {"type": "boolean", "description": "Whether Certificates is on."},
+          "names": {"type": "array", "items": {"type": "string"}, "description": "The names asked for: the wildcard, then the bare domain. Empty while it's off."},
+          "staging": {"type": "boolean", "description": "Whether Let's Encrypt's staging server is used, whose certificates no browser trusts."},
+          "account_uri": {"type": ["string", "null"], "description": "The ACME account's URI on that server, once there's one."},
+          "caa": {"type": "array", "items": {"type": "string"}, "description": "CAA records (issue and issuewild) that let only this account have certificates issued for the domain, as zone file lines. Empty until there's an account."},
+          "certificate": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/CertificateHeld"}], "description": "The certificate in use, when there's one."},
+          "renew_at": {"type": ["integer", "null"], "description": "When it's renewed: in the window Let's Encrypt's renewal information suggests, else two-thirds through its life."},
+          "retry_at": {"type": ["integer", "null"], "description": "When an attempt that failed is tried again; null when none did."},
+          "failures": {"type": "integer", "description": "Attempts that failed in a row."},
+          "last_error": {"type": ["string", "null"], "description": "Why the last attempt failed, in plain words."},
+          "working": {"type": "boolean", "description": "Whether an attempt is running now."},
+          "ask_refused": {"type": ["string", "null"], "description": "Why getting a certificate now is refused, in plain words, when it is: one is being got, one was asked for in the last 15 minutes, the certificate in use is less than a day old and from this server for these names, or Certificates isn't set up. Each request asks the CA for a certificate, and its limits on duplicates would then block real renewals."},
+          "https": {"type": "boolean", "description": "Whether HTTPS is set to listen (MELETE_TLS_BIND) and serves this certificate; without it the certificate is kept but nothing serves it."}
+        },
+        "additionalProperties": false
+      },
+      "CertificateHeld": {
+        "type": "object",
+        "required": ["names", "not_before", "not_after", "from_this_ca"],
+        "properties": {
+          "names": {"type": "array", "items": {"type": "string"}, "description": "The names it's for."},
+          "not_before": {"type": "integer", "description": "When it became valid."},
+          "not_after": {"type": "integer", "description": "When it runs out."},
+          "from_this_ca": {"type": "boolean", "description": "Whether it came from the server now set: false after switching from staging, until the new one comes."}
+        },
+        "additionalProperties": false
+      },
       "OutsideService": {
         "type": "object",
         "required": ["key", "name", "group", "page", "purpose", "about", "on", "testable", "component", "fields", "needs"],
@@ -21439,6 +21508,7 @@
               "offline_copies",
               "discovery",
               "oidc",
+              "certificates",
               "openrouter",
               "opensubtitles",
               "scans",

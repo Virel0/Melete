@@ -11,12 +11,16 @@ use anyhow::{Context, bail};
 use crate::library::{LibraryCategory, LibraryConfig, LibraryKind};
 use crate::transcode::Hardware;
 
+mod acme;
 mod alerts;
 mod libraries;
 mod reading;
 mod services;
 mod tls;
 
+#[cfg(test)]
+pub use acme::STAGING;
+pub use acme::{Acme, CERT_FILE, KEY_FILE, folder as acme_folder};
 pub use alerts::*;
 use libraries::*;
 pub use reading::*;
@@ -33,6 +37,8 @@ pub struct Config {
     pub bind: SocketAddr,
     /// HTTPS served by Melete itself (`MELETE_TLS_*`); none by default.
     pub tls: Option<Tls>,
+    /// HTTPS's certificate got by Melete from an ACME CA (`MELETE_ACME_*`); off by default.
+    pub acme: Option<Acme>,
     /// Where `melete.db` lives (`MELETE_DATA_DIR`, default `/config`).
     pub data_dir: PathBuf,
     /// One per `MELETE_LIBRARY_<NAME>=<kind>:<path>` variable, sorted by name.
@@ -242,11 +248,11 @@ impl Config {
         let downloads = downloads(&get)?;
         let oidc = oidc(&get)?;
         let openrouter = openrouter(&get)?;
-        let opensubtitles = opensubtitles(&get)?;
-        let proxy = crate::proxy::Setup::from_lookup(&get)?;
+        let (acme, tls) = acme::with_tls(&get, &data_dir)?;
         Ok(Self {
             bind,
-            tls: tls::tls(&get)?,
+            tls,
+            acme,
             data_dir,
             libraries: Vec::new(),
             library_categories: Vec::new(),
@@ -278,8 +284,8 @@ impl Config {
             romanisation,
             oidc,
             openrouter,
-            opensubtitles,
-            proxy,
+            opensubtitles: opensubtitles(&get)?,
+            proxy: crate::proxy::Setup::from_lookup(&get)?,
             vpn: crate::gluetun::Settings::from_lookup(&get)?,
             alerts: alerts::alerts(&get)?,
             tunnel: crate::tunnel::Settings::from_lookup(&get)?,

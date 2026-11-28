@@ -3,6 +3,7 @@
 use super::*;
 
 mod alerts;
+mod certificates;
 mod features;
 mod make_room;
 mod musicbrainz;
@@ -483,6 +484,7 @@ pub const SERVICES: &[Service] = &[
             Input::Toggle { on: "on" },
         )],
     },
+    certificates::CERTIFICATES,
     alerts::WEBHOOK,
     alerts::EMAIL,
     party::PARTY,

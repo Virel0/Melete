@@ -143,6 +143,10 @@ async fn save(
     crate::jobs::SEGMENTS.notify_one();
     crate::jobs::TRICKPLAY.notify_one();
     crate::jobs::IMPORT_SUBTITLES.notify_one();
+    // Certificates looks again at once: turned on, or set to another domain or CA.
+    if key == "certificates" {
+        crate::acme::wake();
+    }
     // Another country's ratings: every title is judged again now, from what was fetched.
     if changes.values.contains_key(crate::ratings::COUNTRY_SETTING) {
         crate::ratings::reread(&state.pool).await?;

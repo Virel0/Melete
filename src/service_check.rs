@@ -56,6 +56,7 @@ pub fn connects(key: &str) -> bool {
             | "webhook"
             | "email"
             | "vpn"
+            | "certificates"
     )
 }
 
@@ -163,12 +164,25 @@ async fn check_alone(pool: &SqlitePool, key: &str, config: &Config) -> anyhow::R
             let (sent, message) = crate::alerts::test(key, &config.alerts).await;
             if sent { ok(message) } else { wrong(message) }
         }
+        "certificates" => match &config.acme {
+            None => wrong("Set the domain and the deSEC token first."),
+            Some(acme) => desec_takes(acme).await,
+        },
         "vpn" => match &config.vpn {
             None => wrong("Set the control server's address and Melete's key first."),
             Some(vpn) => vpn_answers(vpn).await?,
         },
         _ => ok(NOTHING_TO_CONNECT_TO),
     })
+}
+
+/// Whether the deSEC token may write the domain's challenge record; no certificate is asked for.
+async fn desec_takes(acme: &crate::config::Acme) -> Checked {
+    let reach = crate::acme::Reach::desec();
+    match crate::acme::test::zone_takes(acme, &reach).await {
+        (true, message) => ok(message),
+        (false, message) => wrong(message),
+    }
 }
 
 /// Whether TMDB takes the token.

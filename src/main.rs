@@ -7,6 +7,7 @@
 #![cfg_attr(test, allow(clippy::too_many_lines, clippy::unwrap_used))]
 
 mod access;
+mod acme;
 mod admin_health;
 mod ai;
 mod ai_picks;
@@ -32,6 +33,7 @@ mod cover_colours;
 mod coverart;
 mod db;
 mod deluge;
+mod desec;
 mod diagnostics;
 mod discover_posters;
 mod disk;
@@ -227,8 +229,14 @@ async fn main() -> anyhow::Result<()> {
     start_tunnel(&pool, &config, &live).await?;
 
     // HTTPS beside plain HTTP, when it's set up: the same service, over TLS.
+    // Its certificate got by Melete itself when Certificates is on, waited for if there's none.
+    tokio::spawn(acme::run(pool.clone(), config.data_dir.clone()));
     if let Some(tls) = &config.tls {
-        let ready = tls::prepare(tls).await?;
+        let ready = if config.acme.is_some() {
+            tls::prepare_awaiting(tls).await?
+        } else {
+            tls::prepare(tls).await?
+        };
         let bound = ready.local_addr()?;
         tracing::info!(%bound, proxy_protocol = tls.proxy_protocol, "HTTPS listening");
         tokio::spawn(tls::serve(

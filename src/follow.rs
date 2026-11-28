@@ -35,7 +35,7 @@ pub struct Report {
 }
 
 /// A day since 1970 as YYYY-MM-DD (Howard Hinnant's civil-from-days).
-fn date(unix: i64) -> String {
+pub fn date(unix: i64) -> String {
     let z = unix.div_euclid(86_400) + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;

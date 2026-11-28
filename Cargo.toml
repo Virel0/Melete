@@ -35,11 +35,23 @@ hmac = "=0.13.0"
 # CONNECT handshakes, and TLS to an HTTPS proxy, checked as reqwest checks it. All in the build
 # already through reqwest, at these versions and with these features: naming them adds no crate.
 http = "=1.5.0"
+# Reading the body of a request to the ACME CA, as instant-acme hands it over; in the build
+# already through axum.
+http-body-util = "=0.1.5"
+# Reading when an issued certificate runs out and the names it holds; in the build already
+# through instant-acme, at this version.
+x509-parser = "=0.18.1"
 # HTTPS served by Melete itself: hyper's HTTP/1.1 server under the TLS listener (src/tls.rs).
 hyper = { version = "=1.12.0", default-features = false, features = ["server", "http1"] }
+# Getting HTTPS's certificate from an ACME CA (src/acme): RFC 8555 with renewal information
+# (RFC 9773) and profiles. Its own HTTP client off: requests go through the reqwest below.
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "time", "x509-parser"] }
 hyper-util = { version = "=0.1.21", default-features = false, features = ["client-legacy", "client-proxy", "tokio", "server", "http1", "service"] }
 libc = "=0.2.191"
 quick-xml = "=0.42.0"
+# The key and signing request of each certificate Melete asks an ACME CA for, and a stand-in
+# certificate while HTTPS waits for the first one. In the build already through instant-acme.
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 regex = "=1.13.2"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json", "query", "form", "socks"] }
 # Email alerts to admins (SMTP with STARTTLS or TLS through rustls and aws-lc-rs, as the rest
@@ -75,7 +87,6 @@ tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
-http-body-util = "=0.1.5"
-# Throwaway certificates for the HTTPS tests, made as they run rather than kept in the repo.
-rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+# Throwaway certificates for the HTTPS tests, and a stand-in CA signing what it's asked to.
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "aws_lc_rs", "x509-parser"] }
 tempfile = "=3.27.0"
