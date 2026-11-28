@@ -272,8 +272,9 @@ async fn leave(
     Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, clear)]).into_response())
 }
 
-/// The party's file as a player needs it: its tracks and length, and the cap guests' streams
-/// are held to (with the way's own limit).
+/// The party's file as a player needs it: its tracks and length, its size (for its bitrate when
+/// the container doesn't say), and the cap guests' streams are held to (with the way's own
+/// limit).
 async fn file(
     State(state): State<GuestState>,
     Extension(guest): Extension<Guest>,
@@ -284,6 +285,7 @@ async fn file(
     let cap = super::playback::guest_cap(&state.pool, guest.id).await?;
     Ok(Json(json!({
         "id": f.id,
+        "size": f.size,
         "media": f.media,
         "max_bitrate": super::playback::lower(super::playback::way_limit(limit), cap),
     })))

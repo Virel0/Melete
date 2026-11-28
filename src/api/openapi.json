@@ -8582,7 +8582,7 @@
         ],
         "x-melete-access": "guest",
         "summary": "The file the party plays",
-        "description": "Its tracks (`media`, as `GET /api/v1/files/{id}` gives it) and the most bits a second a guest's stream may take (`max_bitrate`: the party's cap for guests, and the way's own limit, the lower of them; null for none). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "description": "Its tracks (`media`, as `GET /api/v1/files/{id}` gives it), its size in bytes, and the most bits a second a guest's stream may take (`max_bitrate`: the party's cap for guests, and the way's own limit, the lower of them; null for none). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
         "responses": {
           "200": {
             "description": "OK",
@@ -15902,7 +15902,7 @@
             "type": "integer",
             "minimum": 100000,
             "maximum": 200000000,
-            "description": "Video bits per second. The default depends on the height (10 Mbit/s at 1080p)."
+            "description": "Video bits per second. The default depends on the height (10 Mbit/s at 1080p). Held to a bitrate (this, or a way in's limit), the picture is made smaller to suit it: up to 4 Mbit/s 720p, up to 10 Mbit/s 1080p, up to 20 Mbit/s 1440p; above that H.264 stays at 1440p and HEVC keeps the source's size. A wide picture fits the height's 16:9 box (1920 wide at 1080p), max_height still holds (the smaller wins), and nothing is scaled up."
           },
           "audio_stream": {
             "type": "integer",
@@ -19277,12 +19277,17 @@
         "type": "object",
         "required": [
           "id",
+          "size",
           "media",
           "max_bitrate"
         ],
         "properties": {
           "id": {
             "type": "integer"
+          },
+          "size": {
+            "type": "integer",
+            "description": "The file's size in bytes, for its bitrate when its container doesn't say."
           },
           "media": {
             "description": "Its streams as ffprobe read them, as FileInfo's media; null when it couldn't be read."

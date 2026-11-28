@@ -219,6 +219,7 @@ async fn look_through(
         .map(|r| r.id)
         .collect();
     for row in season.iter().filter(|r| !r.current()) {
+        crate::transcode::after_viewers().await;
         let item = pace.item();
         if let Entry::Vacant(entry) = prints.entry(row.id) {
             entry.insert(decode(ffmpeg, row).await);
