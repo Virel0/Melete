@@ -21,6 +21,33 @@ import tempfile
 import time
 import traceback
 
+
+# Which compose service this runs as (MELETE_SERVICE, set by each compose file), checked before
+# anything else: an image digest put on another service's variable stops here, saying so, rather
+# than failing later on something that doesn't point at the cause. Unset outside compose.
+IMAGES = {
+    "melete": ("Melete", "MELETE_IMAGE"),
+    "stems": ("the stem separator", "MELETE_STEMS_IMAGE"),
+    "trailers": ("the trailer downloader", "MELETE_TRAILERS_IMAGE"),
+}
+
+
+def wrong_service(own):
+    service = os.environ.get("MELETE_SERVICE", "").strip()
+    if not service or service == own:
+        return None
+    mine = IMAGES[own][0]
+    if service in IMAGES:
+        what, variable = IMAGES[service]
+        return f"this is {mine}'s image, but it's running as {what}: check {variable} in .env, which names {what}'s image"
+    return (f"this is {mine}'s image, but MELETE_SERVICE says it's running as {service!r}, which isn't one of "
+            f"Melete's services (melete, stems, trailers): check {IMAGES[own][1]} in .env and the compose files")
+
+
+_wrong = wrong_service("stems")
+if _wrong:
+    sys.exit(_wrong)
+
 import numpy as np
 import soundfile as sf
 from audio_separator.separator import Separator

@@ -15,6 +15,8 @@ services:
     # Melete's own user: Melete reads, and on a track's removal deletes, what it writes.
     user: "${MELETE_USER:-10001:10001}"
     environment:
+      # Which service this is, checked by the image at start (compose.yaml says why).
+      MELETE_SERVICE: stems
       STEMS_DIR: /stems
       STEMS_JOBS: /stems-jobs
       STEMS_MODELS: /models
