@@ -31,8 +31,9 @@ Every pull request must pass:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-The tests need `ffmpeg` and `ffprobe` on the `PATH`: some make a real clip and read it. CI also
-runs `cargo audit`, checks the shell scripts, refuses OpenSSL and native-tls in the dependency
+The tests need `ffmpeg` and `ffprobe` on the `PATH`: some make a real clip and read it. They
+need `node` (20 or later) too: the web UI's logic in `tests/web/` runs with Node's test runner.
+CI also runs `cargo audit`, checks the shell scripts, refuses OpenSSL and native-tls in the dependency
 tree, and reports long files and functions.
 
 Clippy fails a function over 100 lines and a bare `unwrap()` outside tests: split long

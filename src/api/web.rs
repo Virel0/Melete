@@ -804,6 +804,29 @@ mod tests {
         assert!(module("music-album.js").contains(r#"row.querySelector(".track-play")?.focus("#));
     }
 
+    /// A watch party's rules for keeping in step live in party-clock.js alone (its logic is
+    /// tested in tests/web): neither player seeks for the party itself, both leave the party's
+    /// own seeks unsent, and neither holds the party for a stall after a catch-up seek.
+    #[test]
+    fn the_party_players_keep_in_step_through_party_clock_alone() {
+        let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
+        for name in ["watch-together.js", "guest-party.js"] {
+            let player = module(name);
+            assert!(!player.contains(".currentTime ="), "{name} seeks by itself");
+            for call in [
+                "watchPlayer(",
+                "partySeek(",
+                "catchingUp(",
+                "placeToSend(",
+                "correct(",
+            ] {
+                assert!(player.contains(call), "{name}: {call}");
+            }
+        }
+        // The household's corrections go to its playback report.
+        assert!(module("watch-together.js").contains("player.s.log?.note"));
+    }
+
     #[test]
     fn the_player_has_its_own_controls_over_the_picture() {
         let module = |name: &str| MODULES.iter().find(|(n, _)| *n == name).unwrap().1;
