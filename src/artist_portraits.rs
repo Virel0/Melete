@@ -144,17 +144,8 @@ async fn keep(pool: &SqlitePool, artist: &str, found: &Found, now: i64) -> sqlx:
     Ok(())
 }
 
-/// Whether what `artist` has is known: kept from before, or looked up now when it isn't known
-/// or is out of date, `lookups` has some left and Wikimedia hasn't asked for a pause (an
-/// out-of-date one is used when it can't be).
-/// A failed lookup is logged and kept nowhere, so a later search asks again.
-async fn known(
-    pool: &SqlitePool,
-    services: &Services<'_>,
-    artist: &str,
-    lookups: &mut usize,
-    now: i64,
-) -> anyhow::Result<bool> {
+/// What's kept of `artist`, and whether it's fresh enough to be believed without asking again.
+async fn kept(pool: &SqlitePool, artist: &str, now: i64) -> sqlx::Result<(Option<Known>, bool)> {
     let known: Option<Known> =
         sqlx::query_as("SELECT looked_up_at, file FROM artist_portraits WHERE mb_artist_id = ?")
             .bind(artist)
@@ -168,6 +159,21 @@ async fn known(
         };
         k.looked_up_at >= now - kept_for
     });
+    Ok((known, fresh))
+}
+
+/// Whether what `artist` has is known: kept from before, or looked up now when it isn't known
+/// or is out of date, `lookups` has some left and Wikimedia hasn't asked for a pause (an
+/// out-of-date one is used when it can't be).
+/// A failed lookup is logged and kept nowhere, so a later search asks again.
+async fn known(
+    pool: &SqlitePool,
+    services: &Services<'_>,
+    artist: &str,
+    lookups: &mut usize,
+    now: i64,
+) -> anyhow::Result<bool> {
+    let (known, fresh) = kept(pool, artist, now).await?;
     // While Wikimedia has asked for a pause, a lookup would only ask MusicBrainz for nothing.
     if fresh || *lookups == 0 || services.wikimedia.held() {
         return Ok(known.is_some());

@@ -7,8 +7,13 @@ use crate::aoide::writing::TrackLink;
 /// One import at a time: they share MusicBrainz's one request a second.
 pub(super) static RUNNING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Works through imports for as long as the server runs, taking up any a restart cut off.
+/// Works through imports for as long as the server runs, taking up any a restart cut off; held
+/// back a little after the server starts ([`crate::jobs::hold`]).
 pub async fn work(pool: SqlitePool, mb: Arc<musicbrainz::Client>, sources: fulfil::Sources) {
+    tokio::time::sleep(crate::jobs::after_start(
+        crate::jobs::hold::PLAYLIST_IMPORTS,
+    ))
+    .await;
     loop {
         let next: Result<Option<i64>, _> = sqlx::query_scalar(
             "SELECT id FROM playlist_imports WHERE state IN ('queued', 'running') ORDER BY id LIMIT 1",

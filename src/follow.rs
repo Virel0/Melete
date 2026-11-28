@@ -225,9 +225,11 @@ async fn note_looked(
     Ok(())
 }
 
-/// Looks for followed artists' new albums every few hours, while MusicBrainz is on.
+/// Looks for followed artists' new albums every few hours, while MusicBrainz is on; held back
+/// a little after the server starts ([`crate::jobs::hold`]).
 pub async fn run(pool: SqlitePool, mb: Arc<musicbrainz::Client>) {
-    crate::jobs::repeat_task("following", WAKE, &crate::jobs::FOLLOW, || async {
+    let hold = crate::jobs::hold::FOLLOWING;
+    crate::jobs::repeat_task_after("following", hold, WAKE, &crate::jobs::FOLLOW, || async {
         let albums = |id: String| {
             let mb = mb.clone();
             async move { mb.artist_albums(&id).await }

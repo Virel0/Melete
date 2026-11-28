@@ -139,6 +139,7 @@ use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    jobs::note_start();
     logging::init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
