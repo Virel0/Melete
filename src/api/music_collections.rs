@@ -140,7 +140,7 @@ async fn create(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let genres = checked(&new)?;
     let me = current.user.id;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(&pool).await?;
     let (count, taken): (i64, bool) = sqlx::query_as(
         "SELECT count(*), coalesce(max(name = ? COLLATE NOCASE), 0)
          FROM music_collections WHERE user_id = ?",

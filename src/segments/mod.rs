@@ -383,7 +383,7 @@ async fn record(
     intro: Option<(Segment, &[u32])>,
     credits: Option<(Segment, &[u32])>,
 ) -> anyhow::Result<(Option<i64>, Option<i64>)> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at, error, version)
          VALUES (?, ?, ?, ?, ?, ?)

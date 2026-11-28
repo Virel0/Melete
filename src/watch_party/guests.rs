@@ -76,7 +76,7 @@ pub async fn accept(
     };
     super::tidy(pool).await?;
     let pass = random_token(PASS_PREFIX)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     // Taken and spent at once, so two can't come in on one link.
     let taken: Option<(i64, Option<i64>)> = sqlx::query_as(
         "DELETE FROM watch_party_invites WHERE invite_hash = ? AND expires_at > ?

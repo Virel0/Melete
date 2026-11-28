@@ -95,8 +95,9 @@ pub fn normalize_code(code: &str) -> Option<String> {
 /// Ends sessions nobody is in, and ones unchanged for a day.
 async fn tidy(pool: &SqlitePool) -> sqlx::Result<()> {
     sqlx::query(
-        "DELETE FROM listen_sessions
-         WHERE updated_at < ? OR id NOT IN (SELECT session_id FROM listen_members)",
+        "DELETE FROM listen_sessions AS s
+         WHERE s.updated_at < ?
+            OR NOT EXISTS (SELECT 1 FROM listen_members m WHERE m.session_id = s.id)",
     )
     .bind(now_ms() - IDLE_MS)
     .execute(pool)
@@ -116,7 +117,7 @@ pub async fn start(
     }
     tidy(pool).await?;
     let now = now_ms();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: i64 = loop {
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO listen_sessions (code, host_user_id, queue, queue_index, position_ms,

@@ -80,7 +80,7 @@ pub async fn change(pool: &SqlitePool, id: i64, change: &ProfileChange) -> anyho
             "the cutoff is one of the qualities or groups it allows".into(),
         ));
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let now = crate::db::unix_now();
     let renamed = sqlx::query(
         "UPDATE music_profiles SET name = ?, upgrade_allowed = ?, cutoff = ?, updated_at = ?,
@@ -130,7 +130,7 @@ pub enum Deleted {
 /// it), no wanted song, and not where approved music requests go. Past searches keep their
 /// results without it.
 pub async fn delete(pool: &SqlitePool, id: i64) -> anyhow::Result<Deleted> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let found: Option<(String, String)> =
         sqlx::query_as("SELECT source, name FROM music_profiles WHERE id = ?")
             .bind(id)

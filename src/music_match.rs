@@ -100,7 +100,7 @@ pub async fn match_pending(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyho
         };
         in_a_row = 0;
         let now = unix_now();
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         store_outcome(&mut tx, &album, outcome, now, &mut report).await?;
         tx.commit().await?;
     }
@@ -246,7 +246,7 @@ async fn refetch_stale(pool: &SqlitePool, mb: &musicbrainz::Client) -> anyhow::R
             }
             Ok(release) => {
                 in_a_row = 0;
-                let mut tx = pool.begin().await?;
+                let mut tx = crate::db::write(pool).await?;
                 store_release(&mut tx, &release, unix_now()).await?;
                 tx.commit().await?;
                 done += 1;

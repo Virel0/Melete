@@ -161,7 +161,7 @@ async fn finish_record(
     fresh: &Fresh<'_>,
     now: i64,
 ) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("UPDATE rss_syncs SET grabbed = ? WHERE id = ?")
         .bind(serde_json::to_string(&grabbed)?)
         .bind(sync_id)

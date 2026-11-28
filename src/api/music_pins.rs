@@ -209,7 +209,7 @@ async fn replace(
             ));
         }
     }
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write(&state.pool).await?;
     sqlx::query(
         "INSERT INTO music_pin_lists (user_id, version, updated_at) VALUES (?1, 1, ?2)
          ON CONFLICT (user_id) DO UPDATE SET version = version + 1, updated_at = ?2",

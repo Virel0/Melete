@@ -209,7 +209,7 @@ pub async fn series(
     .bind(tvdb_id)
     .fetch_optional(pool)
     .await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: Option<i64> = sqlx::query_scalar(
         "INSERT INTO wanted_series (tvdb_id, tmdb_id, imdb_id, title, year, monitored, series_type,
              quality_profile, profile_id, library_id, series_id, source, added_at,
@@ -292,7 +292,7 @@ async fn add_seasons(
 /// following an episode group, that's the group's seasons holding TMDB's season's episodes.
 pub async fn monitor_asked(pool: &SqlitePool, id: i64, seasons: Seasons) -> anyhow::Result<()> {
     if let Seasons::Only(season) = seasons {
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         if let Some(tmdb_id) = crate::episode_order::tmdb_id_of(&mut tx, id).await?
             && crate::episode_order::monitor_tmdb_season(&mut tx, id, tmdb_id, season).await?
         {
