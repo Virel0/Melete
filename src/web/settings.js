@@ -158,6 +158,7 @@ function settle(page, li, message) {
 const MATCH_WORDS = {
   ambiguous: "TMDB has more than one title it could be.",
   unmatched: "TMDB found nothing for the name.",
+  gone: "TMDB no longer has the entry it was matched to; choose another.",
   matched: "Matched to TMDB; choose another entry to change it.",
   null: "Not looked up on TMDB yet.",
 };

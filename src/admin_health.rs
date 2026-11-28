@@ -789,6 +789,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn matched_titles_tmdb_no_longer_has_need_a_match_too() {
+        let pool = db::open_in_memory().await;
+        sqlx::query(
+            "INSERT INTO libraries (id, name, kind, path, category)
+             VALUES (1, 'Films', 'movies', '/no/such/m', NULL),
+                    (2, 'Anime', 'shows', '/no/such/a', 'anime');
+             INSERT INTO tmdb_movies (tmdb_id, title, fetched_at, gone_at)
+             VALUES (10, 'Gone', 0, 5), (11, 'Here', 0, NULL);
+             INSERT INTO tmdb_series (tmdb_id, name, fetched_at, gone_at) VALUES (20, 'Gone', 0, 5);
+             INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation,
+                 match_status, match_method, match_tmdb_id)
+             VALUES (1, 1, 'A', 'A', 0, 'matched', 'manual', 10),
+                    (2, 1, 'B', 'B', 0, 'matched', 'search', 11);
+             INSERT INTO series (id, library_id, rel_path, parsed_title, seen_generation,
+                 match_status, match_method, match_tmdb_id)
+             VALUES (1, 2, 'C', 'C', 0, 'matched', 'search', 20);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let health = check(&pool).await.unwrap();
+        let said = |area: &str| {
+            of(&health, area)
+                .iter()
+                .filter(|f| f.code == "titles_unmatched")
+                .map(|f| f.count)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said("movies"), [1]);
+        assert_eq!(said("anime"), [1]);
+    }
+
+    #[tokio::test]
     async fn titles_to_match_are_noted_under_their_service_and_tmdb_off_under_system() {
         let pool = db::open_in_memory().await;
         sqlx::query(

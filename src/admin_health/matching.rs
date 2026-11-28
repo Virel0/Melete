@@ -29,8 +29,8 @@ pub(super) async fn tmdb_off(pool: &SqlitePool, found: &mut Found) -> anyhow::Re
     Ok(())
 }
 
-/// Titles TMDB couldn't settle and no one has decided by hand, under their service: a series in
-/// a library with the anime category is Anime's.
+/// Titles TMDB couldn't settle and no one has decided by hand, and matched titles TMDB no longer
+/// has, under their service: a series in a library with the anime category is Anime's.
 pub(super) async fn titles_to_match(pool: &SqlitePool, found: &mut Found) -> anyhow::Result<()> {
     let open: Vec<(String, i64)> = sqlx::query_as(
         "SELECT area, count(*) FROM (
@@ -41,7 +41,17 @@ pub(super) async fn titles_to_match(pool: &SqlitePool, found: &mut Found) -> any
              SELECT CASE WHEN l.category = 'anime' THEN 'anime' ELSE 'series' END FROM series s
              JOIN libraries l ON l.id = s.library_id
              WHERE s.missing_since IS NULL AND s.match_status IN ('unmatched', 'ambiguous')
-               AND s.match_method IS NOT 'manual')
+               AND s.match_method IS NOT 'manual'
+             UNION ALL
+             SELECT 'movies' FROM movies m JOIN tmdb_movies t ON t.tmdb_id = m.match_tmdb_id
+             WHERE m.missing_since IS NULL AND m.match_status = 'matched'
+               AND t.gone_at IS NOT NULL
+             UNION ALL
+             SELECT CASE WHEN l.category = 'anime' THEN 'anime' ELSE 'series' END FROM series s
+             JOIN libraries l ON l.id = s.library_id
+             JOIN tmdb_series t ON t.tmdb_id = s.match_tmdb_id
+             WHERE s.missing_since IS NULL AND s.match_status = 'matched'
+               AND t.gone_at IS NOT NULL)
          GROUP BY area ORDER BY area",
     )
     .fetch_all(pool)

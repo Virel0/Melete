@@ -40,7 +40,7 @@ export function tunnelInvite(party, ctx, said) {
     button.disabled = true;
     try {
       const answer = await api(`/watch-parties/${party.id}/tunnel-invites`, { method: "POST" });
-      made = { party: party.id, config: answer.wireguard_config, link: `${answer.server}${answer.path}`, fresh: true };
+      made = { party: party.id, config: answer.wireguard_config, qr: answer.wireguard_config_qr, link: `${answer.server}${answer.path}`, fresh: true };
       draw();
     } catch (err) {
       if (err instanceof SignedOut) return ctx.signedOut();
@@ -75,6 +75,14 @@ function shown(m, done) {
     note.textContent = "Saved as melete-party.conf. Send it to the guest alone.";
   });
   const copyConfig = copyButton("Copy config", config, m.config, note);
+  // The config as a QR code, drawn by the server, shown when asked: it holds the key too.
+  const qr = m.qr ? qrFigure(m.qr) : null;
+  const showQr = qr && h("button", { type: "button", class: "quiet", "aria-expanded": "false", "aria-controls": "tunnel-invite-qr" }, "Show QR code");
+  showQr?.addEventListener("click", () => {
+    qr.hidden = !qr.hidden;
+    showQr.setAttribute("aria-expanded", String(!qr.hidden));
+    showQr.textContent = qr.hidden ? "Show QR code" : "Hide QR code";
+  });
   const copyLink = copyButton("Copy link", link, m.link, note);
   const finished = h("button", { type: "button", class: "quiet" }, "Done");
   finished.addEventListener("click", done);
@@ -84,13 +92,30 @@ function shown(m, done) {
       "ol",
       {},
       h("li", {}, "They install the WireGuard app on their phone or computer."),
-      h("li", {}, "They import this config, from the file or pasted in.", h("div", { class: "secret-row" }, config), h("div", { class: "form-actions" }, download, copyConfig)),
+      h("li", {}, "They import this config, from the file, pasted in, or scanned as a QR code.", h("div", { class: "secret-row" }, config), h("div", { class: "form-actions" }, download, copyConfig, showQr), qr),
       h("li", {}, "With the tunnel on, they open this link.", h("div", { class: "secret-row" }, link, copyLink)),
     ),
     h("p", { class: "note" }, "Send both to that one person: the config holds their key. It lets them in once, within a day, to this party alone, and ends when they leave or the party does. It isn't shown again after Done or once this page closes."),
     note,
     h("div", { class: "form-actions" }, finished),
   ];
+}
+
+// The server's SVG of the config, as an element of the page; null if it isn't one.
+function qrFigure(text) {
+  const svg = new DOMParser().parseFromString(text, "image/svg+xml").documentElement;
+  if (svg.namespaceURI !== "http://www.w3.org/2000/svg" || svg.localName !== "svg") return null;
+  // Sized by the page; its viewBox keeps it square.
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "The guest's WireGuard config as a QR code");
+  return h(
+    "figure",
+    { class: "tunnel-qr", id: "tunnel-invite-qr", hidden: true },
+    document.importNode(svg, true),
+    h("figcaption", { class: "note" }, "In the WireGuard app: add a tunnel, from a QR code. It holds the guest's key: let only them scan it."),
+  );
 }
 
 function copyButton(label, field, text, note) {

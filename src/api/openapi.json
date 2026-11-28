@@ -2082,7 +2082,7 @@
         "tags": ["Admin"],
         "x-melete-access": "admin",
         "x-melete-scope": "full",
-        "summary": "Titles TMDB matching could not settle",
+        "summary": "Titles TMDB matching could not settle, or whose entry TMDB no longer has",
         "responses": {
           "200": {
             "description": "OK",
@@ -11679,7 +11679,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "What needs attention in each admin area",
-        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs), and from the connections made through the proxy (proxy_down, under system: the proxy set under Outside services didn't answer the latest connection to it, so the services set to go through it fail until it does, and none goes direct; the message names the proxy by its address, never its login), and from each library's regular check (library_unreachable, under system, with the library's id: its folder didn't answer within 15 seconds, couldn't be read or was empty, so scans leave it alone, copies into it wait and stream links for its files are refused with 503 until it answers again), and from the ways in (proxy_way_opens_household, a note last under system, one for each way in that takes in a trusted proxy's address and opens any of video, music, requests or admin: the ways go by the connection's address, the proxy's, so everyone the proxy passes on, from anywhere, reaches what that way opens; the message names the way, the proxy's address and what the way opens); nothing outside the server is contacted.",
+        "description": "Every area (movies, series, music, indexers, requests, system, anime), in that order (anime last, after the areas apps knew before it had its own), with its findings: problems first, then what waits for a decision, then notes. A series' findings are under anime when it's anime as the managed lists decide (wanted as anime, or its folder's library, else the library new files go to, has the anime category). Requests waiting for a decision are one finding under requests for all of them, and one under each service (movies, series, anime, music) for its own, as each request's `service` places it. Titles TMDB couldn't settle and no one has decided by hand, and matched titles whose entry TMDB no longer has, are a note under their service (titles_unmatched), and a missing TMDB token is a note under system while there are movie or series libraries (tmdb_off). Worked out from the database when asked, from the transcoder's latest GPU test (gpu_unavailable: the GPU is set up but failed its test encode, so video conversions use the CPU), from TMDB matching's runs since startup (tmdb_refused: TMDB refused the token at the latest run; tmdb_failing: two runs or more in a row got nothing from TMDB, with count the number of runs), and from the connections made through the proxy (proxy_down, under system: the proxy set under Outside services didn't answer the latest connection to it, so the services set to go through it fail until it does, and none goes direct; the message names the proxy by its address, never its login), and from each library's regular check (library_unreachable, under system, with the library's id: its folder didn't answer within 15 seconds, couldn't be read or was empty, so scans leave it alone, copies into it wait and stream links for its files are refused with 503 until it answers again), and from the ways in (proxy_way_opens_household, a note last under system, one for each way in that takes in a trusted proxy's address and opens any of video, music, requests or admin: the ways go by the connection's address, the proxy's, so everyone the proxy passes on, from anywhere, reaches what that way opens; the message names the way, the proxy's address and what the way opens); nothing outside the server is contacted.",
         "responses": {
           "200": {
             "description": "OK",
@@ -15370,7 +15370,7 @@
           "rel_path": {"type": "string"},
           "parsed_title": {"type": "string"},
           "parsed_year": {"type": ["integer", "null"]},
-          "status": {"enum": ["unmatched", "ambiguous"]},
+          "status": {"enum": ["unmatched", "ambiguous", "gone"], "description": "`gone`: matched, but TMDB no longer has the entry it's matched to (it's asked again once a day, and its cached details are still served); listed even when it was matched by hand, until TMDB has it again or it's matched to another entry."},
           "candidates": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/Candidate"},
@@ -16009,7 +16009,7 @@
           "video_codec": {
             "enum": ["h264", "hevc", "copy"],
             "default": "h264",
-            "description": "h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, and the audio converted to AAC unless audio_codecs says the player takes it, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it. HEVC whose parameter_sets_in_stream_only is true isn't copied: ask for hevc or h264."
+            "description": "A conversion that runs slower than 1.3 times real time once it has worked 30 seconds steps down a rung (1440, 1080, 720 then 480 lines, at that height's bit rate at most) from its next segment, for the rest of the session, and the log says so; only h264, whose MPEG-TS segments can change size, steps down, and one with a picture burned in doesn't. h264: H.264 in MPEG-TS segments, HDR tone-mapped to SDR; plays everywhere. hevc: HEVC (tagged hvc1) in fragmented MP4 segments, keeping HDR10 and HLG in 10 bits (Dolby Vision and burned-in subtitles are tone-mapped to SDR). copy: the file's own H.264 or HEVC video unchanged, and the audio converted to AAC unless audio_codecs says the player takes it, for when just the container or the audio is the problem; segments follow the file's keyframes (MPEG-TS for H.264, fragmented MP4 for HEVC), and max_height, max_bitrate and burn_subtitle can't be used with it. HEVC whose parameter_sets_in_stream_only is true isn't copied: ask for hevc or h264."
           },
           "audio_codecs": {
             "type": "array",
@@ -19165,7 +19165,8 @@
           "expires_at",
           "address",
           "server",
-          "wireguard_config"
+          "wireguard_config",
+          "wireguard_config_qr"
         ],
         "properties": {
           "invite": {
@@ -19191,6 +19192,10 @@
           "wireguard_config": {
             "type": "string",
             "description": "The peer's WireGuard config (`[Interface]` with its private key and address; `[Peer]` with Melete's public key, a preshared key, Melete's tunnel address as the only allowed IP, and the endpoint), shown this once."
+          },
+          "wireguard_config_qr": {
+            "type": ["string", "null"],
+            "description": "The same config as a QR code, for a phone's WireGuard app to scan: an SVG element (`<svg …>`, no XML prolog) drawn by the server, one unit of its viewBox per module with the quiet zone around it, black on white. It holds the guest's private key as the config does, and is shown this once. Null if the config were ever too long for one code."
           }
         },
         "additionalProperties": false
@@ -19228,6 +19233,8 @@
           "household",
           "held",
           "waiting",
+          "waits",
+          "last_change",
           "guests"
         ],
         "properties": {
@@ -19279,6 +19286,12 @@
             "items": {"type": "string"},
             "description": "Who it waits for: guests by name, and \"someone from the household\" for a household device."
           },
+          "waits": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PartyWait"},
+            "description": "The same waits, first first, each with when it began and when the party gives up on it; a household device is \"someone from the household\"."
+          },
+          "last_change": {"$ref": "#/components/schemas/PartyLastChange"},
           "guests": {
             "type": "array",
             "items": {
@@ -19495,6 +19508,8 @@
           "guest_max_bitrate",
           "held",
           "waiting",
+          "waits",
+          "last_change",
           "guests",
           "members"
         ],
@@ -19573,6 +19588,12 @@
             "items": {"type": "string"},
             "description": "Who it waits for: usernames and guests' names, first first."
           },
+          "waits": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PartyWait"},
+            "description": "The same waits, first first, each with when it began and when the party gives up on it."
+          },
+          "last_change": {"$ref": "#/components/schemas/PartyLastChange"},
           "guests": {
             "type": "array",
             "items": {
@@ -19586,6 +19607,31 @@
               "$ref": "#/components/schemas/ListenMember"
             }
           }
+        },
+        "additionalProperties": false
+      },
+      "PartyWait": {
+        "type": "object",
+        "required": ["name", "guest", "you", "since", "ends_at"],
+        "properties": {
+          "name": {"type": "string", "description": "Who it waits for: a username for those of the household, a guest's name, or \"someone from the household\" when a guest asks."},
+          "guest": {"type": "boolean"},
+          "you": {"type": "boolean", "description": "It waits for the one asking."},
+          "since": {"type": "integer", "description": "When this wait began, Unix milliseconds on the server's clock."},
+          "ends_at": {"type": "integer", "description": "When the party stops waiting for them and plays on (30 seconds on), unless they're ready sooner."}
+        },
+        "additionalProperties": false
+      },
+      "PartyLastChange": {
+        "type": ["object", "null"],
+        "description": "What last changed in the party and who did it; null before anyone has. A change that leaves it as it was (the same file, playing or paused as before, within 2 seconds of where it would be) isn't one; pausing to wait for someone, and playing on after, aren't either (`held` and `waits` say those).",
+        "required": ["by", "guest", "you", "kind", "at"],
+        "properties": {
+          "by": {"type": "string", "description": "A username for those of the household, a guest's name; to a guest, \"someone from the household\" for a member of it, and to everyone for a member whose account has gone."},
+          "guest": {"type": "boolean"},
+          "you": {"type": "boolean", "description": "The one asking made it."},
+          "kind": {"enum": ["play", "pause", "seek", "next"], "description": "play or pause; seek, a jump of 2 seconds or more; next, another file (only the host moves it on)."},
+          "at": {"type": "integer", "description": "When, Unix milliseconds on the server's clock."}
         },
         "additionalProperties": false
       },

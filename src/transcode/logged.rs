@@ -177,7 +177,7 @@ impl Running {
 
     /// How long it has been working: since it started until it ended (or now), less the time
     /// it was paused.
-    fn working(&self) -> Duration {
+    pub(super) fn working(&self) -> Duration {
         let paused = self.paused_for + self.paused_at.map_or(Duration::ZERO, |at| at.elapsed());
         let until = self.ended_at.unwrap_or_else(Instant::now);
         until.duration_since(self.started).saturating_sub(paused)
