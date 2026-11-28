@@ -186,7 +186,7 @@ Only where a section has pages of its own:
 Group labels are 13 px, weight 600, `--muted`. Pinned items show a 32 px picture before the
 name.
 
-Watch has no sidebar for now; whether it gets one on wide screens is open.
+Watch has no sidebar: its sections stay in the header at every width.
 
 ### On phones
 
@@ -195,7 +195,11 @@ Watch has no sidebar for now; whether it gets one on wide screens is open.
   colour at 72%.
 - The side's main sections move to a bar fixed to the bottom: four entries with a 24 px icon
   over a 12 px label, on `--surface`, with room under them for the home indicator. The
-  current one is `--accent` at weight 650. On Watch they are Home, Movies, Shows and My List.
+  current one is `--accent` at weight 650. On Watch they are Home, Movies, Shows and My List;
+  on Listen Home, Albums, Artists and Songs; on Manage its first four services. A side with
+  more sections than five gets a fifth entry, More, which opens the rest as a sheet from the
+  foot of the screen, so every section stays one or two taps away. Manage's services show
+  their count as a dot on the icon, read out with the name.
 - Rows of tiles scroll sideways.
 
 ### The now-playing bar
@@ -369,4 +373,3 @@ Each page follows the rules above. This table says which shape each page takes.
 
 - The light theme's values for the new tokens.
 - One font file for headings, served by Melete itself, or the system font throughout.
-- A sidebar for Watch on wide screens.
