@@ -1,14 +1,16 @@
 // The cards titles are shown on in grids and shelves, and the player's address for a file.
 
 import { episodeLabel, h } from "/web/lib.js";
+import { drawnArt } from "/web/drawn-art.js";
 
-// The title is under the picture, so the picture says nothing to screen readers.
-export function art(src) {
-  return h("div", { class: "art" }, src ? h("img", { src, alt: "", loading: "lazy" }) : null);
+// The title is under the picture, so the picture says nothing to screen readers. Without a
+// picture, art is drawn from `name` when one is given.
+export function art(src, name = null) {
+  return h("div", { class: "art" }, src ? h("img", { src, alt: "", loading: "lazy" }) : name ? drawnArt(name, { named: true }) : null);
 }
 
-// A title's card in a grid, wearing `badge` ("New", "3 unwatched", from watch-tiles.js
-// badgeOf) over the poster's corner when one is given; read after the title and year.
+// A title's card in a grid: its poster, then one line with its title and, after it, `badge`
+// ("New", "3 unwatched", from watch-tiles.js badgeOf) when one is given, else its year.
 export function titleCard(kind, item, badge = null) {
   return h(
     "li",
@@ -16,10 +18,17 @@ export function titleCard(kind, item, badge = null) {
     h(
       "a",
       { class: "card", href: `#/${kind}/${item.id}` },
-      art(item.poster),
-      h("div", { class: "title" }, item.title),
-      item.year ? h("div", { class: "meta" }, String(item.year)) : null,
-      badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null,
+      art(item.poster, item.title),
+      h(
+        "span",
+        { class: "card-line" },
+        h("span", { class: "title clip", title: item.title }, item.title),
+        badge
+          ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge)
+          : item.year
+            ? h("span", { class: "meta" }, h("span", { class: "visually-hidden" }, ", "), String(item.year))
+            : null,
+      ),
     ),
   );
 }

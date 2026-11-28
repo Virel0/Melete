@@ -133,7 +133,7 @@ export async function radioPage(ctx) {
     h(
       "li",
       {},
-      cover(album.cover),
+      cover(album.cover, "", album.title),
       h("div", { class: "words" }, h("a", { href: `#/music/albums/${album.id}` }, album.title), h("span", { class: "by" }, album.artist)),
       h("div", { class: "play-actions" }, radioButton(() => albumSeed(album.id), album.title)),
     ),

@@ -31,7 +31,7 @@ function playlistCard(p) {
     h(
       "a",
       { class: "card", href: playlistHref(p.id) },
-      cover(p.image_url),
+      cover(p.image_url, "", p.name),
       h("div", { class: "title", title: p.name }, p.name),
       h("div", { class: "meta clip", title: playlistKind(p) }, playlistKind(p)),
     ),

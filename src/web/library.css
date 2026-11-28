@@ -72,16 +72,46 @@ section + section { margin-block-start: var(--space-7); }
 
 .card { display: block; text-decoration: none; }
 .card .art {
+  display: grid;
   aspect-ratio: 2 / 3;
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-l);
   overflow: hidden;
   background: var(--surface-raised);
-  box-shadow: var(--shadow);
 }
+/* The focus ring goes round the art. */
+.card:focus-visible { outline: none; }
+.card:focus-visible .art { outline: 3px solid var(--accent); outline-offset: 2px; }
 .wide .card .art { aspect-ratio: 16 / 9; }
 /* Album covers are square. */
 .card .art.square { aspect-ratio: 1 / 1; }
-.card .art img { width: 100%; height: 100%; object-fit: cover; }
+.card .art > img, .card .art > .drawn-art { grid-area: 1 / 1; width: 100%; height: 100%; object-fit: cover; }
+/* One line under the art: the title, then its badge or year. */
+.card-line { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; margin-block-start: var(--space-2); font-size: 0.875rem; }
+.card .card-line .title { display: block; flex: 1; margin: 0; }
+.card-line .meta { flex: none; }
+
+/* Art drawn from a name when there's none (drawn-art.js): a dark colour from the name, its
+   initials lighter in the same hue at the bottom left, and the name under them. It sits under
+   artwork's stage text in both themes, as art does. */
+.drawn-art {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  overflow: hidden;
+  background: hsl(var(--art-hue, 220) 26% 19%); /* check-ui: ignore a colour drawn from the title's name, dark under light letters in both themes */
+  color: hsl(var(--art-hue, 220) 42% 74%); /* check-ui: ignore the same hue as the ground, lighter, at 6:1 or more on it */
+  text-align: start;
+  container-type: inline-size;
+}
+/* Sized to the art: 34 px on a poster, smaller on a list row's thumbnail. */
+.drawn-art .initials { font-size: clamp(0.875rem, 24cqi, 2.125rem); font-weight: 750; line-height: 1; letter-spacing: -0.01em; }
+@container (max-width: 7rem) {
+  .drawn-art .drawn-name { display: none; }
+}
+.drawn-art .drawn-name { font-size: var(--step--1); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.wide .drawn-art .drawn-name, .tile-art.wide .drawn-name, .art.square .drawn-name { display: none; }
 .card:hover .title { text-decoration: underline; }
 .card .title {
   margin-block-start: var(--space-2);

@@ -151,8 +151,8 @@ kbd {
   body:has(#tab-bar:not([hidden])) .entries { display: none; }
   /* Over a hero, the header floats on its art: the switch and the round buttons on the page's
      colour, a little see-through. */
-  body:has(#main > .hero:first-child) .bar { position: absolute; inset: 0 0 auto; z-index: 6; background: transparent; }
-  body:has(#main > .hero:first-child) :is(.sides, .palette-open, .account summary) { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+  body:has(#main > .hero:first-child, #main > .visually-hidden:first-child + .hero) .bar { position: absolute; inset: 0 0 auto; z-index: 6; background: transparent; }
+  body:has(#main > .hero:first-child, #main > .visually-hidden:first-child + .hero) :is(.sides, .palette-open, .account summary) { background: color-mix(in srgb, var(--bg) 72%, transparent); }
 }
 
 /* The bar at the foot of a phone's screen (tab-bar.js): the side's main sections, an icon over

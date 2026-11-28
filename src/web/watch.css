@@ -102,54 +102,45 @@
 .watch-row + .watch-row { margin-block-start: 0; }
 .watch-row .section-head { margin-block-end: var(--space-1); }
 .watch-row h2 { font-size: var(--step-1); }
-/* One row each, scrolled sideways; the room above lets a lifted tile show whole. */
+/* One row each, scrolled sideways, with room round the tiles for the focus ring. */
 .watch-shelf {
   list-style: none;
-  margin: 0;
-  padding: var(--space-2) var(--space-1) var(--space-3);
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-2) var(--space-2) var(--space-3);
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: min(9.5rem, 38vw);
   gap: var(--space-4);
   overflow-x: auto;
   scroll-snap-type: x proximity;
-  scroll-padding-inline: var(--space-1);
+  scroll-padding-inline: var(--space-2);
 }
 .watch-shelf.wide { grid-auto-columns: min(17rem, 72vw); }
 .watch-shelf > li { min-width: 0; scroll-snap-align: start; }
 
-.tile { position: relative; display: grid; gap: var(--space-2); color: inherit; text-decoration: none; border-radius: var(--radius-m); }
-/* Hover and focus lift a tile a little; it never grows, so nothing beside it moves. */
-.tile:hover, .tile:focus-visible { translate: 0 calc(-1 * var(--space-1)); }
+.tile { position: relative; display: grid; gap: var(--space-2); color: inherit; text-decoration: none; }
 .tile:hover .clip { text-decoration: underline; }
+/* The focus ring goes round the art, which is the tile. */
+.tile:focus-visible { outline: none; }
+.tile:focus-visible .tile-art { outline: 3px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) {
-  .tile { transition: translate 0.15s ease; }
   .hero-picture { transition: opacity 0.4s ease; }
 }
 .tile-art {
+  position: relative;
   display: grid;
-  align-items: end;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-l);
   background: var(--surface-raised);
-  box-shadow: var(--shadow);
 }
 .tile-art.wide { aspect-ratio: 16 / 9; }
-.tile-art img { width: 100%; height: 100%; object-fit: cover; }
-.tile-fallback { padding: var(--space-3); font-weight: 600; overflow-wrap: anywhere; }
-/* One badge a tile, an opaque chip so it reads over any art. */
-.tile-badge {
-  position: absolute;
-  inset: var(--space-2) auto auto var(--space-2);
-  padding: 0 var(--space-2);
-  border-radius: 999px;
-  background: var(--stage);
-  color: var(--stage-text);
-  font-size: var(--step--1);
-  font-weight: 600;
-}
-/* A grid's cards wear it over their poster's corner too. */
+.tile-art > img, .tile-art > .drawn-art { grid-area: 1 / 1; width: 100%; height: 100%; object-fit: cover; }
+/* Drawn art's initials clear the episode's code under them. */
+.tile-art.wide > .drawn-art { padding-block-end: 2.5rem; }
+/* The badge ("New", "3 unwatched"): a word in the accent at the end of the line under the art. */
+.tile-badge { flex: none; color: var(--accent); font-weight: 600; }
+/* A grid's cards wear it after their name. */
 .card { position: relative; }
 /* The hero's, at the end of its facts: brass, as the stage is the chip's own colour. */
 .hero-facts .hero-badge {
@@ -159,17 +150,53 @@
   color: var(--accent-ink);
   font-weight: 600;
 }
-/* How far through: the bar on its track, so the end shows. */
-.tile-progress { display: block; height: 4px; margin-block-start: calc(-1 * var(--space-1)); border-radius: 2px; overflow: hidden; background: var(--line); }
+/* On the art: the episode's code at the bottom left, and how far through along its foot. */
+.tile-code {
+  position: absolute;
+  inset: auto auto var(--space-3) var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--stage) 78%, transparent);
+  color: var(--stage-text);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.tile-progress { position: absolute; inset: auto 0 0; height: 4px; background: var(--on-art-track); }
 .tile-progress span { display: block; height: 100%; background: var(--accent); }
-.tile > .clip, .tile-caption { font-size: var(--step--1); }
-.tile-caption { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+/* One line under the art: the title, then the time left or the badge. */
+.tile-caption { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; font-size: 0.875rem; }
 .tile-caption > .clip:first-child { flex: 1; }
-.tile-caption > .clip + .clip { max-width: 45%; color: var(--muted); }
+.tile.wide .tile-caption > .clip:first-child { font-weight: 600; }
 .tile-note { flex: none; color: var(--muted); }
-/* Under a tile that plays: its title's page, small and quiet, with room for a finger. */
-.tile-open { display: inline-block; margin-block-start: var(--space-1); min-height: 24px; color: var(--muted); font-size: var(--step--1); }
-.tile-open:hover { color: inherit; }
+/* Over a tile that plays: its title's page, round at the art's top right, shown on hover, on
+   keyboard focus and after a long press; its name shows beside it as it does on icon buttons. */
+.watch-shelf > li { position: relative; }
+.tile-open {
+  position: absolute;
+  inset: var(--space-2) var(--space-2) auto auto;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--stage) 80%, transparent);
+  color: var(--stage-text);
+}
+.tile-open svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.watch-shelf > li:not(:hover, :focus-within, .show-actions) .tile-open { opacity: 0; }
+.tile-open:is(:hover, :focus-visible)::before {
+  content: attr(data-tip);
+  position: absolute;
+  inset: calc(100% + var(--space-1)) 0 auto auto;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--step--1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tile-open:hover { background: var(--stage); }
 /* Why the AI picked it: three lines at most, all of it on hover. */
 .tile-reason {
   color: var(--muted);
