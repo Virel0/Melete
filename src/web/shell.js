@@ -189,6 +189,8 @@ export function stopShell() {
   forgetAlbumLikes();
   forgetListenLists();
   placeSidebar(null);
+  // The bar at the foot goes with the header: the sign-in page has neither.
+  drawTabBar([], route, { hidden: true });
 }
 
 // A page changed the pins or a playlist: Listen's sidebar lists them, so it's drawn again.
