@@ -17,6 +17,7 @@ problems privately, as [`SECURITY.md`](SECURITY.md) says.
 | `migrations/` | SQLite migrations, compiled into the binary |
 | `tests/` | Checks on the source itself (file length, comment references) and test fixtures |
 | `docs/DESIGN.md` | The design, and the decisions table: what Melete does and why |
+| `docs/WEB-LOOK.md` | How the web UI looks: its colours, type, buttons, shell and pages |
 | `stems/`, `motion/` | The optional stem separator and motion cover renderer containers |
 | `Dockerfile`, `compose*.yaml` | The image and how to run it |
 
