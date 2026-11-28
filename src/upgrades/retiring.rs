@@ -2,6 +2,7 @@
 //! when anything is unclear.
 
 use super::*;
+use crate::library::health::{self, Settled};
 
 #[derive(sqlx::FromRow)]
 pub(super) struct Imported {
@@ -107,14 +108,27 @@ pub async fn retire(pool: &SqlitePool) -> anyhow::Result<RetireReport> {
         }
 
         let mut notes = Vec::new();
+        let mut held_up = None;
         for old in &replaces {
             match retire_one(pool, download.id, old, &new_files).await? {
-                Ok(()) => report.trashed += 1,
-                Err(why) => {
+                Retired::Trashed => report.trashed += 1,
+                Retired::Kept(why) => {
                     report.kept += 1;
                     notes.push(format!("kept {}: {why}", old.rel_path));
                 }
+                Retired::Waiting(why) => held_up = Some(why),
             }
+        }
+        // Its library isn't responding: the whole download is looked at again once it is,
+        // the files already in the trash recognised as such.
+        if let Some(why) = held_up {
+            tracing::info!(
+                download = download.id,
+                why,
+                "replaced files wait for their library"
+            );
+            report.waiting += 1;
+            continue;
         }
         let trashed = replaces.len() - notes.len();
         let mut message = Vec::new();
@@ -144,6 +158,15 @@ pub(super) async fn finish(pool: &SqlitePool, id: i64, message: &str) -> anyhow:
     Ok(())
 }
 
+/// What became of one replaced file.
+pub(super) enum Retired {
+    Trashed,
+    /// Kept where it is, for good; why.
+    Kept(String),
+    /// Its library isn't responding: looked at again once it is.
+    Waiting(String),
+}
+
 /// Moves one replaced file to the trash, or says why it stays. A move an earlier run finished
 /// without recording it (a crash, a failed write) is recognised and recorded.
 pub(super) async fn retire_one(
@@ -151,14 +174,26 @@ pub(super) async fn retire_one(
     download_id: i64,
     old: &Replaced,
     new_files: &[Current],
-) -> anyhow::Result<Result<(), String>> {
+) -> anyhow::Result<Retired> {
+    retire_checked(pool, download_id, old, new_files)
+        .await
+        .map(|done| done.unwrap_or_else(Retired::Kept))
+}
+
+/// [`retire_one`]: why it's kept, or how the move went.
+async fn retire_checked(
+    pool: &SqlitePool,
+    download_id: i64,
+    old: &Replaced,
+    new_files: &[Current],
+) -> anyhow::Result<Result<Retired, String>> {
     let trash_path = Path::new(TRASH)
         .join(download_id.to_string())
         .join(&old.rel_path)
         .to_string_lossy()
         .into_owned();
     if already_trashed(pool, download_id, old).await? {
-        return Ok(Ok(()));
+        return Ok(Ok(Retired::Trashed));
     }
     let now: Option<Current> =
         sqlx::query_as(sqlx::AssertSqlSafe(format!("{CURRENT} WHERE f.id = ?")))
@@ -207,27 +242,48 @@ pub(super) async fn retire_one(
     let (size, modified) = (old.size, old.modified_at);
     let (next_size, next_modified) = (successor.size, successor.modified_at);
     let (from_moved, to_moved) = (from.clone(), to.clone());
-    let moved = tokio::task::spawn_blocking(move || {
-        move_to_trash(
-            from,
-            to,
-            next,
-            unchanged,
-            (size, modified),
-            (next_size, next_modified),
-        )
-    })
-    .await?;
-    if let Err(why) = moved {
-        return Ok(Err(why));
-    }
-    let recorded = record_trashed(pool, download_id, old, &trash_path, successor).await;
-    if let Err(err) = recorded {
-        // Unrecorded, it would sit in the trash forever: put it back.
-        put_back(from_moved, to_moved, &err).await?;
-        return Err(err.into());
-    }
-    Ok(Ok(()))
+    let (pool_after, old_after) = (pool.clone(), old.clone());
+    let successor_after = (successor.id, successor.rel_path.clone());
+    let settled = health::settle(
+        &from.clone(),
+        TRASH_LIMIT,
+        move || {
+            move_to_trash(
+                from,
+                to,
+                next,
+                unchanged,
+                (size, modified),
+                (next_size, next_modified),
+            )
+        },
+        move |moved| async move {
+            if let Err(why) = moved {
+                return Ok(Retired::Kept(why));
+            }
+            let recorded = record_trashed(
+                &pool_after,
+                download_id,
+                &old_after,
+                &trash_path,
+                successor_after,
+            )
+            .await;
+            if let Err(err) = recorded {
+                // Unrecorded, it would sit in the trash forever: put it back.
+                put_back(from_moved, to_moved, &err).await?;
+                return Err(anyhow::Error::from(err));
+            }
+            Ok(Retired::Trashed)
+        },
+    )
+    .await;
+    Ok(Ok(match settled {
+        Settled::Done(retired) => retired?,
+        Settled::Refused(down) | Settled::StillOut(down) => {
+            Retired::Waiting(format!("{}: {}", down.saying(), down.why))
+        }
+    }))
 }
 
 /// Whether this download's move of the file to the trash is already recorded.
@@ -338,7 +394,7 @@ async fn record_trashed(
     download_id: i64,
     old: &Replaced,
     trash_path: &str,
-    successor: &Current,
+    (successor_id, successor_path): (i64, String),
 ) -> sqlx::Result<()> {
     let at = unix_now();
     let mut tx = pool.begin().await?;
@@ -352,7 +408,7 @@ async fn record_trashed(
     .bind(trash_path)
     .bind(old.size)
     .bind(download_id)
-    .bind(&successor.rel_path)
+    .bind(&successor_path)
     .bind(at)
     .execute(&mut *tx)
     .await?;
@@ -363,7 +419,7 @@ async fn record_trashed(
         .execute(&mut *tx)
         .await?;
     // Watched before is watched still, and where a viewer was goes on: the two play as long.
-    crate::library::carry_progress(&mut tx, old.file_id, successor.id, true).await?;
+    crate::library::carry_progress(&mut tx, old.file_id, successor_id, true).await?;
     tx.commit().await
 }
 

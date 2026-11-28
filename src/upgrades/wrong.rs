@@ -5,6 +5,7 @@
 //! grabbed again.
 
 use super::*;
+use crate::library::health::{self, Settled};
 use crate::search::Target;
 
 /// Why a file wasn't set aside.
@@ -122,26 +123,69 @@ pub async fn set_aside(
     };
     let (size, modified) = (row.size, row.modified_at);
     let (from_moved, to_moved) = (from.clone(), to.clone());
-    let moved =
-        tokio::task::spawn_blocking(move || move_as_scanned(&from, &to, size, modified)).await?;
-    if let Err(why) = moved {
-        return Ok(Err(NotSetAside::Failed(why)));
-    }
-    let trash_id = match record(pool, &row, &trash_path, download.id).await {
-        Ok(id) => id,
-        Err(err) => {
-            // Unrecorded, it would sit in the trash forever: put it back.
-            put_back(from_moved, to_moved, &err).await?;
-            return Err(err.into());
+    let (pool_after, download_id) = (pool.clone(), download.id);
+    let (season, episode) = (row.season, row.episode);
+    let settled = health::settle(
+        &from.clone(),
+        TRASH_LIMIT,
+        move || move_as_scanned(&from, &to, size, modified),
+        move |moved| async move {
+            if let Err(why) = moved {
+                return Ok(Err(NotSetAside::Failed(why)));
+            }
+            let trash_id = match record(&pool_after, &row, &trash_path, download_id).await {
+                Ok(id) => id,
+                Err(err) => {
+                    // Unrecorded, it would sit in the trash forever: put it back.
+                    put_back(from_moved, to_moved, &err).await?;
+                    return Err(anyhow::Error::from(err));
+                }
+            };
+            crate::blocklist::add(&pool_after, crate::blocklist::From::Download(download_id))
+                .await?;
+            Ok(Ok(trash_id))
+        },
+    )
+    .await;
+    let trash_id = match settled {
+        Settled::Done(set_aside) => match set_aside? {
+            Ok(id) => id,
+            Err(not) => return Ok(Err(not)),
+        },
+        Settled::Refused(down) => {
+            return Ok(Err(NotSetAside::Failed(format!(
+                "{}: {}",
+                down.saying(),
+                down.why
+            ))));
+        }
+        Settled::StillOut(down) => {
+            return Ok(Err(NotSetAside::Failed(format!(
+                "moving it is taking long, and {}; it's set aside once the move finishes",
+                down.saying()
+            ))));
         }
     };
-    crate::blocklist::add(pool, crate::blocklist::From::Download(download.id)).await?;
-    // A season pack's wrong episode is searched for alone: the pack's other files stay.
-    let (season, episode) = match row.season {
-        Some(season) => (Some(season), row.episode),
+    Ok(Ok(SetAside {
+        trash_id,
+        download_id: download.id,
+        target: search_again(&download, season, episode),
+        release: download.title,
+    }))
+}
+
+/// What to search for again in place of the file (`season` and `episode` its own): a season
+/// pack's wrong episode alone, as the pack's other files stay.
+fn search_again(
+    download: &FromDownload,
+    season: Option<i64>,
+    episode: Option<i64>,
+) -> Option<Target> {
+    let (season, episode) = match season {
+        Some(season) => (Some(season), episode),
         None => (download.season, download.episode),
     };
-    let target = match (download.wanted_movie_id, download.wanted_series_id, season) {
+    match (download.wanted_movie_id, download.wanted_series_id, season) {
         (Some(id), ..) => Some(Target::Movie(id)),
         (None, Some(id), Some(season)) => Some(Target::Series {
             id,
@@ -149,13 +193,7 @@ pub async fn set_aside(
             episode,
         }),
         _ => None,
-    };
-    Ok(Ok(SetAside {
-        trash_id,
-        download_id: download.id,
-        release: download.title,
-        target,
-    }))
+    }
 }
 
 /// Moves the file into the trash if it's still the regular file that was scanned; why not when

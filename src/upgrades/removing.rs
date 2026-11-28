@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use sqlx::SqlitePool;
 
 use super::*;
+use crate::library::health::{self, Settled};
 
 /// What was removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,29 +69,53 @@ pub async fn remove_title(
     let tag = format!("{}{id}", if series { "s" } else { "m" });
     let base = format!("{TRASH}/removed-{}-{tag}", unix_now());
     let (top, rel_top) = (title.rel_path.clone(), title.rel_path.clone());
-    let (root_moved, base_moved) = (root.clone(), base.clone());
-    let moved =
-        tokio::task::spawn_blocking(move || move_all(&root_moved, &top, &base_moved, &scanned))
-            .await?;
-    let moved = match moved {
-        Ok(moved) => moved,
-        Err(why) => return Ok(Err(NotRemoved::Failed(why))),
-    };
-    if let Err(err) = record(pool, &title, series, id, &moved).await {
-        // Unrecorded, they'd sit in the trash forever: put them back.
-        let root = root.clone();
-        let back = tokio::task::spawn_blocking(move || put_all_back(&root, &moved)).await?;
-        if let Err(why) = back {
-            tracing::error!(error = %err, why, "a removed title couldn't be recorded or put back");
+    let (root_moved, root_after) = (root.clone(), root.clone());
+    let pool_after = pool.clone();
+    let settled = health::settle(
+        &root.join(&title.rel_path),
+        TRASH_LIMIT,
+        move || move_all(&root_moved, &top, &base, &scanned),
+        move |moved| async move {
+            let moved = match moved {
+                Ok(moved) => moved,
+                Err(why) => return Ok(Err(NotRemoved::Failed(why))),
+            };
+            if let Err(err) = record(&pool_after, &title, series, id, &moved).await {
+                // Unrecorded, they'd sit in the trash forever: put them back.
+                let root = root.clone();
+                let back = tokio::task::spawn_blocking(move || put_all_back(&root, &moved)).await?;
+                if let Err(why) = back {
+                    tracing::error!(error = %err, why, "a removed title couldn't be recorded or put back");
+                }
+                return Err(anyhow::Error::from(err));
+            }
+            let size = moved.iter().map(|m| m.size).sum();
+            crate::jobs::request_rescan();
+            Ok(Ok(Removed {
+                files: moved.len(),
+                size,
+            }))
+        },
+    )
+    .await;
+    Ok(match settled {
+        Settled::Done(removed) => {
+            let removed = removed?;
+            // Its emptied folders go; the trash keeps every file.
+            let (at, root) = (root_after.clone(), root_after);
+            let _ = health::within(&at, health::LIMIT, move || prune(&root, &rel_top)).await;
+            removed
         }
-        return Err(err.into());
-    }
-    let size = moved.iter().map(|m| m.size).sum();
-    let files = moved.len();
-    // Its emptied folders go; the trash keeps every file.
-    let _ = tokio::task::spawn_blocking(move || prune(&root, &rel_top)).await;
-    crate::jobs::request_rescan();
-    Ok(Ok(Removed { files, size }))
+        Settled::Refused(down) => Err(NotRemoved::Failed(format!(
+            "{}: {}",
+            down.saying(),
+            down.why
+        ))),
+        Settled::StillOut(down) => Err(NotRemoved::Failed(format!(
+            "moving its files is taking long, and {}; they're recorded once the move finishes",
+            down.saying()
+        ))),
+    })
 }
 
 /// One file moved: where it was and where it is, relative to the library, and its size.

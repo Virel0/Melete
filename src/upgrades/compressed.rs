@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 use sqlx::SqlitePool;
 
 use super::*;
+use crate::library::health::{self, Settled};
+
+/// How long moving the file to the trash and copying the compressed one into its place may
+/// take before its library counts as not responding: a large copy over a slow share takes
+/// minutes.
+const COPY_LIMIT: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Replaces library file `file_id` with `new`, a finished copy outside the library, if the file
 /// is still as it was scanned: the bytes it saved, or why not; nothing is changed then.
@@ -44,41 +50,54 @@ pub async fn replace_with_compressed(
     };
     let new = new.to_owned();
     let (old_back, trash_back) = (old.clone(), trash.clone());
-    let placed = tokio::task::spawn_blocking(move || {
-        swap_on_disk(&old, &trash, &new, &target, size, modified)
-    })
-    .await?;
-    let (new_size, new_modified) = match placed {
-        Ok(placed) => placed,
-        Err(why) => return Ok(Err(why)),
-    };
-    let replacement = Replacement {
-        file_id,
-        library_id,
-        rel_path: &rel_path,
-        trash_path: &trash_path,
-        size,
-        new_rel: &new_rel,
-        new_size,
-        new_modified,
-    };
-    if let Err(err) = record(pool, &replacement).await {
-        // Unrecorded, the old file would sit in the trash and the row point nowhere: undo.
-        let target = inside(&root, &new_rel);
-        let undone = tokio::task::spawn_blocking(move || {
-            if let Some(target) = target {
-                let _ = std::fs::remove_file(&target);
+    let pool_after = pool.clone();
+    let settled = health::settle(
+        &old.clone(),
+        COPY_LIMIT,
+        move || swap_on_disk(&old, &trash, &new, &target, size, modified),
+        move |placed| async move {
+            let (new_size, new_modified) = match placed {
+                Ok(placed) => placed,
+                Err(why) => return Ok(Err(why)),
+            };
+            let replacement = Replacement {
+                file_id,
+                library_id,
+                rel_path: &rel_path,
+                trash_path: &trash_path,
+                size,
+                new_rel: &new_rel,
+                new_size,
+                new_modified,
+            };
+            if let Err(err) = record(&pool_after, &replacement).await {
+                // Unrecorded, the old file would sit in the trash and the row point nowhere: undo.
+                let target = inside(&root, &new_rel);
+                let undone = tokio::task::spawn_blocking(move || {
+                    if let Some(target) = target {
+                        let _ = std::fs::remove_file(&target);
+                    }
+                    crate::transfer::move_without_replacing(&trash_back, &old_back)
+                })
+                .await?;
+                if let Err(why) = undone {
+                    tracing::error!(error = %err, why, "a compressed file couldn't be recorded or undone");
+                }
+                return Err(anyhow::Error::from(err));
             }
-            crate::transfer::move_without_replacing(&trash_back, &old_back)
-        })
-        .await?;
-        if let Err(why) = undone {
-            tracing::error!(error = %err, why, "a compressed file couldn't be recorded or undone");
-        }
-        return Err(err.into());
-    }
-    crate::jobs::request_rescan();
-    Ok(Ok((size - new_size).max(0)))
+            crate::jobs::request_rescan();
+            Ok(Ok((size - new_size).max(0)))
+        },
+    )
+    .await;
+    Ok(match settled {
+        Settled::Done(replaced) => replaced?,
+        Settled::Refused(down) => Err(format!("{}: {}", down.saying(), down.why)),
+        Settled::StillOut(down) => Err(format!(
+            "putting the copy in place is taking long, and {}; it's recorded once that finishes",
+            down.saying()
+        )),
+    })
 }
 
 /// Moves the old file to the trash and puts the new copy where it was; puts the old one back if

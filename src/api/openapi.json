@@ -5102,7 +5102,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Empty the trash now",
-        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there. A file that's changed since, or a library whose share is away, is left and counted. This can't be undone.",
+        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there, one after another. A file that's changed since, or a library whose share is away, is left and counted; so is one whose delete takes over 2 minutes, which marks its library as not responding and is recorded whenever it finishes. Answers once every file has been seen to. This can't be undone.",
         "responses": {
           "200": {
             "description": "What was deleted and what was left",
@@ -5131,6 +5131,10 @@
         ],
         "responses": {
           "204": {"description": "Deleted"},
+          "202": {
+            "description": "The delete didn't finish within 2 minutes: its library now counts as not responding, and the delete is recorded whenever it finishes",
+            "content": {"application/json": {"schema": {"type": "object", "required": ["message"], "properties": {"message": {"type": "string", "description": "What's happening, in plain words."}}}}}
+          },
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"},
@@ -5139,7 +5143,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "What's in the trash isn't the file it put there now, or the library's share is away; nothing was deleted",
+            "description": "What's in the trash isn't the file it put there now, or the library's share is away or isn't responding; nothing was deleted. The message says which",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -5293,6 +5297,7 @@
         ],
         "responses": {
           "204": {"description": "Put back"},
+          "202": {"description": "The move didn't finish within 2 minutes: its library now counts as not responding, and it's recorded whenever the move finishes"},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"},
