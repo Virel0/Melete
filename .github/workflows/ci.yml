@@ -74,6 +74,10 @@ jobs:
           restore-keys: |
             check-${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN }}-
 
+      - name: Node
+        # The runner's own Node: tests/web_logic.rs runs the web UI's logic tests with it.
+        run: node --version
+
       - name: Formatting
         run: cargo fmt --check
 

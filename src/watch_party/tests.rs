@@ -157,3 +157,55 @@ async fn a_party_set_playing_starts_a_moment_ahead_and_a_pause_at_once() {
     let ahead = at(pool.clone()).await;
     assert!((300..=START_LEAD_MS).contains(&ahead), "{ahead}");
 }
+
+#[tokio::test]
+async fn the_log_says_when_parties_and_guests_come_and_go_by_id_alone() {
+    let (pool, host, friend) = setup().await;
+    let log = crate::logging::testing::capture("info");
+    let id = start(&pool, host, &FILM, None).await.unwrap().unwrap();
+    join(&pool, friend.1, id).await.unwrap();
+    let (invite, _) = guests::invite(&pool, host, id).await.unwrap().unwrap();
+    let (pass, guest) = guests::accept(&pool, &invite, "Sam")
+        .await
+        .unwrap()
+        .unwrap();
+    guests::leave(&pool, guest.id).await.unwrap();
+    let (invite, _) = guests::invite(&pool, host, id).await.unwrap().unwrap();
+    let (_, sent) = guests::accept(&pool, &invite, "Kim")
+        .await
+        .unwrap()
+        .unwrap();
+    guests::send_away(&pool, host.1, id, sent.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(leave(&pool, friend.1, id).await.unwrap());
+    end(&pool, (host.0, host.1, false), id)
+        .await
+        .unwrap()
+        .unwrap();
+    let text = log.written.text();
+    let party = format!("party={id}");
+    for (said, by) in [
+        ("watch party started", format!("device={}", host.1)),
+        ("joined a watch party", format!("device={}", friend.1)),
+        (
+            "a guest joined a watch party",
+            format!("guest={}", guest.id),
+        ),
+        ("a guest left a watch party", format!("guest={}", guest.id)),
+        ("a guest was sent away", format!("guest={}", sent.id)),
+        ("left a watch party", format!("device={}", friend.1)),
+        ("watch party ended", format!("device={}", host.1)),
+    ] {
+        assert!(
+            text.lines()
+                .any(|l| l.contains(said) && l.contains(&party) && l.contains(&by)),
+            "{said} ({by}) in:\n{text}"
+        );
+    }
+    // Ids only: no names, invites or passes.
+    for secret in ["alice", "bob", "Sam", "Kim", &invite, &pass] {
+        assert!(!text.contains(secret), "{secret} in:\n{text}");
+    }
+}

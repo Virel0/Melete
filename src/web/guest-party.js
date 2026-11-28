@@ -9,7 +9,7 @@
 
 import { SignedOut, announce, api, h, show } from "/web/lib.js";
 import { HLS_MODULE } from "/web/player-choice.js";
-import { correct, expected, partyClock, startsIn, timed } from "/web/party-clock.js";
+import { catchingUp, correct, expected, partyClock, partySeek, placeToSend, startsIn, timed, watchPlayer } from "/web/party-clock.js";
 
 const SEND_AFTER_MS = 300;
 const SETTLE_MS = 800;
@@ -30,6 +30,7 @@ const g = {
   sendTimer: null,
   waitTimer: null,
   waitingSaid: false,
+  sought: false,
   note: null,
   side: null,
 };
@@ -49,6 +50,8 @@ export async function guestPage() {
 
 function over(words) {
   stopAll();
+  // The player's pause as it leaves the page isn't the guest's.
+  g.party = null;
   show("Watch party", h("h1", {}, "Watch party"), h("p", { class: "status", role: "status" }, words));
 }
 
@@ -108,6 +111,7 @@ function enter(answer) {
   g.audio = null;
   g.file = null;
   g.quality = keptQuality();
+  watchPlayer(g.video);
   took(answer);
   for (const e of ["play", "pause", "seeked"]) g.video.addEventListener(e, () => local(e));
   g.video.addEventListener("waiting", stalled);
@@ -196,7 +200,7 @@ function follow(p) {
   g.following++;
   try {
     clearTimeout(g.startTimer);
-    if (correct(g.video, p, clock, Boolean(g.hls)) === "wait") {
+    if (correct(g.video, p, clock) === "wait") {
       // A start set a moment ahead: played when it comes, with everyone.
       g.startTimer = setTimeout(() => g.party && follow(g.party), startsIn(p, clock));
     } else if (p.playing && g.video.paused) {
@@ -208,23 +212,23 @@ function follow(p) {
   }
 }
 
-// Each second while the party plays: the player kept to it, gently; a seek of its own isn't
-// sent as the guest's. Each minute, the clock asked afresh.
+// Each second while the party plays: the player kept to it, by speed (party-clock.js). Each
+// minute, the clock asked afresh.
 function keepInStep() {
   g.ticks++;
   if (!g.party || !g.video) return;
   if (g.ticks % 60 === 0) timed(clock, () => api("/party")).catch(() => {});
   if (!g.party.playing || g.video.paused || g.following) return;
-  if (correct(g.video, g.party, clock, Boolean(g.hls)) === "seek") {
-    g.following++;
-    setTimeout(() => g.following--, SETTLE_MS);
-  }
+  correct(g.video, g.party, clock);
 }
 
+// The guest's play, pause or seek: at the party's place unless they sought.
 async function send() {
   const v = g.video;
+  const position_ms = placeToSend(v, g.party, clock, g.sought);
+  g.sought = false;
   try {
-    took(await timed(clock, () => api("/party", { method: "PUT", body: { version: g.party.version, position_ms: Math.round((v.currentTime || 0) * 1000), playing: !v.paused } })));
+    took(await timed(clock, () => api("/party", { method: "PUT", body: { version: g.party.version, position_ms, playing: !v.paused } })));
   } catch (err) {
     if (err instanceof SignedOut) return over(ENDED);
     if (err.status === 409) took(await timed(clock, () => api("/party")).catch(() => ({ party: g.party, server_time: clock.now() })));
@@ -232,10 +236,15 @@ async function send() {
   }
 }
 
-// Play, pause or a seek here: sent, unless it's following. Play while the party plays (after a
+// Play, pause or a seek here: sent, unless it's following (a seek of the party's own, however
+// long it takes, or the player stepping over a gap). Play while the party plays (after a
 // reload, say) catches up with it rather than sending this player's place.
 function local(kind) {
   if (!g.party || g.following) return;
+  if (kind === "seeked") {
+    if (partySeek(g.video)) return;
+    g.sought = true;
+  }
   if (kind === "play" && g.party.playing) return follow(g.party);
   clearTimeout(g.sendTimer);
   g.sendTimer = setTimeout(send, SEND_AFTER_MS);
@@ -251,8 +260,10 @@ async function sayWaiting(waiting) {
   }
 }
 
+// A stall waits for this guest, unless it's catching up after a seek of its own.
 function stalled() {
   if (!g.party || !(g.party.playing || g.party.held)) return;
+  if (g.party.playing && catchingUp(g.video)) return;
   clearTimeout(g.waitTimer);
   g.waitTimer = setTimeout(() => sayWaiting(true), WAIT_AFTER_MS);
 }

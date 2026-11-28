@@ -103,13 +103,20 @@ fn random_code() -> anyhow::Result<String> {
 
 /// Ends parties nobody is in, and ones unchanged for a day.
 async fn tidy(pool: &SqlitePool) -> sqlx::Result<()> {
-    sqlx::query(
+    let ended: Vec<i64> = sqlx::query_scalar(
         "DELETE FROM watch_parties
-         WHERE updated_at < ? OR id NOT IN (SELECT party_id FROM watch_party_members)",
+         WHERE updated_at < ? OR id NOT IN (SELECT party_id FROM watch_party_members)
+         RETURNING id",
     )
     .bind(now_ms() - IDLE_MS)
-    .execute(pool)
+    .fetch_all(pool)
     .await?;
+    for party in ended {
+        tracing::info!(
+            party,
+            "watch party ended: nobody left in it, or unchanged for a day"
+        );
+    }
     Ok(())
 }
 
@@ -162,6 +169,13 @@ pub async fn start(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    tracing::info!(
+        party = id,
+        user = user_id,
+        device = token_id,
+        file = state.file_id,
+        "watch party started"
+    );
     Ok(Ok(id))
 }
 
@@ -191,7 +205,7 @@ pub async fn by_code(pool: &SqlitePool, code: &str) -> anyhow::Result<Option<(i6
 
 /// Puts the device in party `id`.
 pub async fn join(pool: &SqlitePool, token_id: i64, id: i64) -> sqlx::Result<()> {
-    sqlx::query(
+    let joined = sqlx::query(
         "INSERT INTO watch_party_members (party_id, token_id, joined_at) VALUES (?, ?, ?)
          ON CONFLICT DO NOTHING",
     )
@@ -199,7 +213,11 @@ pub async fn join(pool: &SqlitePool, token_id: i64, id: i64) -> sqlx::Result<()>
     .bind(token_id)
     .bind(now_ms())
     .execute(pool)
-    .await?;
+    .await?
+    .rows_affected();
+    if joined == 1 {
+        tracing::info!(party = id, device = token_id, "joined a watch party");
+    }
     Ok(())
 }
 
@@ -211,6 +229,9 @@ pub async fn leave(pool: &SqlitePool, token_id: i64, id: i64) -> anyhow::Result<
         .execute(pool)
         .await?
         .rows_affected();
+    if left > 0 {
+        tracing::info!(party = id, device = token_id, "left a watch party");
+    }
     tidy(pool).await?;
     Ok(left > 0)
 }
@@ -245,6 +266,12 @@ pub async fn end(
                 .bind(id)
                 .execute(pool)
                 .await?;
+            tracing::info!(
+                party = id,
+                user = user_id,
+                device = token_id,
+                "watch party ended"
+            );
             Ok(Ok(()))
         }
     }

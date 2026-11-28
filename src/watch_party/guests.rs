@@ -101,6 +101,7 @@ pub async fn accept(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+    tracing::info!(party = party_id, guest = id, "a guest joined a watch party");
     Ok(Ok((pass, Guest { id, party_id, name })))
 }
 
@@ -201,10 +202,14 @@ pub async fn set(
 
 /// The guest leaves; their pass and stream links end.
 pub async fn leave(pool: &SqlitePool, guest_id: i64) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM watch_party_guests WHERE id = ?")
-        .bind(guest_id)
-        .execute(pool)
-        .await?;
+    let party: Option<i64> =
+        sqlx::query_scalar("DELETE FROM watch_party_guests WHERE id = ? RETURNING party_id")
+            .bind(guest_id)
+            .fetch_optional(pool)
+            .await?;
+    if let Some(party) = party {
+        tracing::info!(party, guest = guest_id, "a guest left a watch party");
+    }
     Ok(())
 }
 
@@ -225,6 +230,12 @@ pub async fn send_away(
         .await?
         .rows_affected();
     Ok(if gone == 1 {
+        tracing::info!(
+            party = id,
+            guest = guest_id,
+            device = token_id,
+            "a guest was sent away from a watch party"
+        );
         Ok(())
     } else {
         Err(Refused::NotFound)
