@@ -192,8 +192,6 @@ impl Config {
         let tmdb_token = get("MELETE_TMDB_TOKEN")
             .filter(|token| !token.is_empty())
             .map(Secret);
-        let flaresolverr = flaresolverr(&get)?;
-        let flaresolverr_behind_vpn = switch(&get, "MELETE_FLARESOLVERR_BEHIND_VPN")?;
         let slskd = slskd(&get)?;
         let translation = translation(&get)?;
         let musicbrainz = switch(&get, "MELETE_MUSICBRAINZ")?;
@@ -262,8 +260,8 @@ impl Config {
             libraries: Vec::new(),
             library_categories: Vec::new(),
             tmdb_token,
-            flaresolverr,
-            flaresolverr_behind_vpn,
+            flaresolverr: flaresolverr(&get)?,
+            flaresolverr_behind_vpn: switch(&get, "MELETE_FLARESOLVERR_BEHIND_VPN")?,
             party_url: party_url(&get)?,
             musicbrainz,
             listenbrainz,
