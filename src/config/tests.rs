@@ -778,3 +778,19 @@ fn the_address_for_party_guests_is_an_address_alone() {
         assert!(read(bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn flaresolverr_is_behind_the_vpn_only_when_said() {
+    let config = |pairs: &'static [(&'static str, &'static str)]| {
+        Config::from_lookup(|k| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == k)
+                .map(|(_, v)| v.to_string())
+        })
+    };
+    assert!(!config(&[]).unwrap().flaresolverr_behind_vpn);
+    let on = &[("MELETE_FLARESOLVERR_BEHIND_VPN", "on")];
+    assert!(config(on).unwrap().flaresolverr_behind_vpn);
+    assert!(config(&[("MELETE_FLARESOLVERR_BEHIND_VPN", "yes")]).is_err());
+}
