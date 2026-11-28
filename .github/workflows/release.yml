@@ -121,6 +121,12 @@ jobs:
       TAG: ${{ needs.build.outputs.tag }}
       VERSION: ${{ needs.build.outputs.version }}
     steps:
+      - name: Check out the tag, for the notes' script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.build.outputs.tag }}
+          persist-credentials: false
+
       - name: Download the archive
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -191,22 +197,8 @@ jobs:
           IMAGE: ${{ steps.push.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          cat > notes.md <<EOF
-          The image, pinned by its digest:
-
-          \`\`\`
-          $IMAGE:$VERSION@$DIGEST
-          \`\`\`
-
-          Check that it was built by this repository's release workflow:
-
-          \`\`\`
-          gh attestation verify oci://$IMAGE:$VERSION@$DIGEST --owner $GITHUB_REPOSITORY_OWNER
-          \`\`\`
-
-          \`SHA256SUMS\` holds the SHA-256 of the image archive attached here, the same image as
-          an OCI archive (\`docker load\` or \`skopeo\` can read it). The changes are in CHANGELOG.md.
-          EOF
+          # Each image as a line ready to paste into .env, with its full digest.
+          bash .github/release-notes.sh melete "$IMAGE" "$VERSION" "$DIGEST" "$GITHUB_REPOSITORY_OWNER" > notes.md
           files=(dist/SHA256SUMS "dist/melete-$VERSION.oci.tar")
           if [ -f dist/SHA256SUMS.asc ]; then
             files+=(dist/SHA256SUMS.asc)
@@ -317,6 +309,12 @@ jobs:
       - name: Make room
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
 
+      - name: Check out the tag, for the notes' script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.build.outputs.tag }}
+          persist-credentials: false
+
       - name: Download the archive
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -364,11 +362,7 @@ jobs:
           IMAGE: ${{ steps.push.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          case "$PART" in
-            stems) what="The stem separator, for Auto DJ and sing-along (compose.stems.yaml)" ;;
-            trailers) what="The trailer downloader (compose.trailers.yaml)" ;;
-          esac
           # The publish job writes the notes afresh, a tag built again included, so this adds.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
-          printf '\n%s:\n\n```\n%s\n```\n' "$what" "$IMAGE:$VERSION-$PART@$DIGEST" >> notes.md
+          bash .github/release-notes.sh "$PART" "$IMAGE" "$VERSION" "$DIGEST" >> notes.md
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
