@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::library::health::{self, Settled};
 
+mod emptying;
+pub use emptying::*;
+
 /// One trash operation at a time: a purge never deletes what's being put back. Held while a file
 /// operation is out within its time limit, so one stuck on its share lets go after the limit.
 pub(super) static TRASH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
