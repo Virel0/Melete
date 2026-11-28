@@ -90,7 +90,7 @@ pub async fn create(
     tracks: &[Track],
     playlist: Option<&str>,
 ) -> anyhow::Result<ImportSummary> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO playlist_imports (user_id, name, state, created_at, playlist_id)
          VALUES (?, ?, 'queued', ?, ?) RETURNING id",

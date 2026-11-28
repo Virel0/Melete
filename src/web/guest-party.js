@@ -4,11 +4,13 @@
 // where and as it plays, and sends their own play, pause and seek. They choose their own audio
 // and subtitles. Loading or buffering, it says so, and the party waits for them a while.
 //
-// It plays the file as it is when the party holds guests to no cap and the file's own audio is
-// chosen; otherwise it asks for a conversion (the picture copied when there's no cap).
+// It chooses as the household's player does (player-choice.js): the file as it is when this
+// browser plays it, its own audio is chosen and it's within the party's cap and the guest's
+// own quality; the picture copied when only the container or the audio is the problem; else a
+// conversion held to the cap.
 
 import { SignedOut, announce, api, h, show } from "/web/lib.js";
-import { HLS_MODULE } from "/web/player-choice.js";
+import { HLS_MODULE, choose } from "/web/player-choice.js";
 import { catchingUp, correct, expected, partyClock, partySeek, placeToSend, startsIn, timed, watchPlayer } from "/web/party-clock.js";
 
 const SEND_AFTER_MS = 300;
@@ -133,21 +135,22 @@ async function load() {
     g.file = await api("/party/file");
     const tracks = await api("/party/subtitles").catch(() => []);
     stalled();
-    const own = g.audio === null || g.audio === defaultAudio(g.file);
+    // The path only tells WebM from Matroska, which guests play converted alike.
+    const mode = choose({ ...g.file, path: "" }, { audio: g.audio, quality: g.quality });
     let base;
-    if (!g.file.max_bitrate && own && !g.quality) {
+    if (mode.direct) {
       base = (await api("/party/play", { method: "POST" })).stream_url;
       unHls();
       g.video.src = base;
     } else {
-      // The guest's own quality, held under the party's cap by the server.
-      const ask = { ...(g.audio === null ? {} : { audio_stream: g.audio }), ...(g.quality ? { max_bitrate: g.quality } : {}) };
+      const { direct: _, ...ask } = mode;
       let made;
       try {
-        made = await api("/party/transcode", { method: "POST", body: g.file.max_bitrate || g.quality ? ask : { ...ask, video_codec: "copy" } });
-      } catch (err) {
-        if (err.status !== 422) throw err;
         made = await api("/party/transcode", { method: "POST", body: ask });
+      } catch (err) {
+        // The picture can't be copied after all (its keyframes, say): converted instead.
+        if (err.status !== 422 || ask.video_codec !== "copy") throw err;
+        made = await api("/party/transcode", { method: "POST", body: { ...ask, video_codec: "h264" } });
       }
       base = made.playlist_url.replace(/^\/api\/v1\/hls\/([^/]+)\/.*$/, "/api/v1/stream/$1");
       await playHls(made.playlist_url);
@@ -314,7 +317,7 @@ const QUALITIES = [
   [null, "As good as the party allows"],
   [8_000_000, "8 Mbps (1080p)"],
   [4_000_000, "4 Mbps (720p)"],
-  [2_000_000, "2 Mbps (480p)"],
+  [2_000_000, "2 Mbps (720p)"],
 ];
 const QUALITY_KEY = "melete-guest-quality";
 

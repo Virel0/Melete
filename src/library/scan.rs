@@ -146,10 +146,16 @@ async fn scan_video(
         scope: folder,
         ignored: &walked.ignored,
     };
-    store(pool, library, found, (&beside, &nfo_ids)).await
+    // A burst of other writes (imports, say) can keep the database busy: the walk isn't
+    // done again for it.
+    crate::db::retry_busy("recording a scan", || {
+        store(pool, library, found, (&beside, &nfo_ids))
+    })
+    .await
 }
 
 /// What a walk of a video library found.
+#[derive(Clone, Copy)]
 struct Found<'a> {
     /// The titles' own videos.
     videos: &'a [FoundFile],
@@ -182,7 +188,7 @@ async fn store(
     (beside, nfo_ids): (&title_files::ByTitle<'_>, &title_files::ReadIds),
 ) -> anyhow::Result<ScanReport> {
     let now = unix_seconds(Some(SystemTime::now()));
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     // A folder's scan isn't the library's: when it was last scanned whole stays as it was.
     let generation: i64 = sqlx::query_scalar(
         "UPDATE libraries SET scan_generation = scan_generation + 1,

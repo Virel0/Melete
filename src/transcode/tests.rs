@@ -608,7 +608,7 @@ fn nvenc_args_decode_scale_and_tone_map_on_the_gpu() {
     assert_eq!(
         value_after(&a, "-vf"),
         Some(
-            "tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0,scale_cuda=w=-2:h=1080:format=nv12"
+            "scale_cuda=w=-2:h=1080:format=p010le,tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0"
         )
     );
 
@@ -655,6 +655,7 @@ fn real_plan(clip: &Path) -> Plan {
         channels: 2,
         burn: None,
         audio_filter: None,
+        about: crate::transcode::About::default(),
     }
 }
 
@@ -958,7 +959,7 @@ fn burn_graphs_for_pictures_and_text() {
     assert_eq!(
         value_after(&a, "-filter_complex"),
         Some(
-            "[0:3]scale=1920:1080:force_original_aspect_ratio=decrease[sub];[0:0]format=p010le,hwupload_cuda,tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0,scale_cuda=w=-2:h=1080:format=nv12,hwdownload,format=nv12[main];[main][sub]overlay=x=(W-w)/2:y=H-h:eof_action=pass:repeatlast=0,format=nv12[out]"
+            "[0:3]scale=1920:1080:force_original_aspect_ratio=decrease[sub];[0:0]format=p010le,hwupload_cuda,scale_cuda=w=-2:h=1080:format=p010le,tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0,hwdownload,format=nv12[main];[main][sub]overlay=x=(W-w)/2:y=H-h:eof_action=pass:repeatlast=0,format=nv12[out]"
         )
     );
 
@@ -1844,4 +1845,123 @@ fn a_copy_run_pauses_further_ahead_than_an_encoding_one() {
     assert_eq!(throttle_copy(101, false), Some(libc::SIGSTOP));
     assert_eq!(throttle_copy(49, true), Some(libc::SIGCONT));
     assert_eq!(throttle_copy(75, true), None, "between the two: leave it");
+}
+
+/// A guest held to an 8 Mbit/s way, on a 4K HDR source.
+fn held_to_8m() -> Settings {
+    Settings {
+        max_bitrate: Some(8_000_000 - 384_000),
+        ..Settings::default()
+    }
+}
+
+#[test]
+fn a_bitrate_limit_picks_the_height_and_an_asked_height_still_holds() {
+    let hdr = info("hevc", 2160, "yuv420p10le", Some("HDR10"));
+    let p = plan_for(&hdr, held_to_8m(), Hardware::Nvenc);
+    assert_eq!((p.height, p.bitrate), (Some(1080), 7_616_000));
+    assert_eq!(p.about.out_size, (1920, 1080));
+    let smaller = Settings {
+        max_height: Some(720),
+        ..held_to_8m()
+    };
+    assert_eq!(plan_for(&hdr, smaller, Hardware::Nvenc).height, Some(720));
+    let taller = Settings {
+        max_height: Some(1440),
+        ..held_to_8m()
+    };
+    assert_eq!(
+        plan_for(&hdr, taller, Hardware::Nvenc).height,
+        Some(1080),
+        "the smaller wins"
+    );
+    let hevc = Settings {
+        video_codec: Some(VideoCodec::Hevc),
+        max_bitrate: Some(30_000_000),
+        ..Settings::default()
+    };
+    assert_eq!(
+        plan_for(&hdr, hevc, Hardware::Nvenc).height,
+        None,
+        "4K HEVC"
+    );
+    let sdr = info("h264", 1080, "yuv420p", None);
+    assert_eq!(
+        plan_for(&sdr, held_to_8m(), Hardware::Nvenc).height,
+        None,
+        "never upscaled"
+    );
+    assert_eq!(
+        plan_for(&hdr, Settings::default(), Hardware::Nvenc).height,
+        None,
+        "no limit: the source's"
+    );
+}
+
+#[test]
+fn nvenc_scales_before_tone_mapping() {
+    let hdr = info("hevc", 2160, "yuv420p10le", Some("HDR10"));
+    let p = plan_for(&hdr, held_to_8m(), Hardware::Nvenc);
+    assert!(p.gpu_decode && p.tonemap);
+    let a = args(&p, Hardware::Nvenc, 0);
+    assert_eq!(
+        value_after(&a, "-vf"),
+        Some(
+            "scale_cuda=w=-2:h=1080:format=p010le,tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0"
+        )
+    );
+    // Decoded on the CPU, uploaded in 10 bits for scaling and tone mapping.
+    let mut p = p;
+    p.gpu_decode = false;
+    assert_eq!(
+        value_after(&args(&p, Hardware::Nvenc, 0), "-vf"),
+        Some(
+            "format=p010le,hwupload_cuda,scale_cuda=w=-2:h=1080:format=p010le,tonemap_cuda=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390:peak=100:desat=0"
+        )
+    );
+}
+
+#[test]
+fn software_scales_before_tone_mapping() {
+    let hdr = info("hevc", 2160, "yuv420p10le", Some("HDR10"));
+    let p = plan_for(&hdr, held_to_8m(), Hardware::Software);
+    assert_eq!(
+        value_after(&args(&p, Hardware::Software, 0), "-vf"),
+        Some(
+            "scale=-2:1080,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+        )
+    );
+    let mut burned = p.clone();
+    burned.burn = Some(Burn::text("/c/subtitles/k.ass".into()).unwrap());
+    assert_eq!(
+        value_after(&args(&burned, Hardware::Software, 0), "-filter_complex"),
+        Some(
+            "[0:0]scale=-2:1080,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,subtitles=filename=/c/subtitles/k.ass,format=yuv420p[out]"
+        )
+    );
+}
+
+#[test]
+fn the_log_says_why_and_what() {
+    let hdr = info("hevc", 2160, "yuv420p10le", Some("HDR10"));
+    let p = plan_for(&hdr, held_to_8m(), Hardware::Nvenc);
+    assert_eq!(p.about.why, "held to a bitrate; HDR tone mapped to SDR");
+    assert_eq!(
+        (p.about.source_codec.as_str(), p.about.source_size),
+        ("hevc", (3840, 2160))
+    );
+    assert_eq!(p.about.source_picture, "HDR10");
+    let sdr = info("h264", 1080, "yuv420p", None);
+    let copy = Settings {
+        video_codec: Some(VideoCodec::Copy),
+        ..Settings::default()
+    };
+    let p = plan_for(&sdr, copy, Hardware::Software);
+    assert_eq!(
+        p.about.why,
+        "only the container and audio converted for the player"
+    );
+    assert_eq!(p.about.out_size, (1920, 1080));
+    let p = plan_for(&sdr, Settings::default(), Hardware::Software);
+    assert_eq!(p.about.why, "the player asked for H.264");
 }

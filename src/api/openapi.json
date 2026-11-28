@@ -5102,7 +5102,7 @@
         "x-melete-access": "admin",
         "x-melete-scope": "full",
         "summary": "Empty the trash now",
-        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there. A file that's changed since, or a library whose share is away, is left and counted. This can't be undone.",
+        "description": "Deletes every file in the trash now rather than after its 30 days, the same way the 30-day clean-up does: only inside each library's .melete-trash folder, and only the file the trash put there, one after another. A file that's changed since, or a library whose share is away, is left and counted; so is one whose delete takes over 2 minutes, which marks its library as not responding and is recorded whenever it finishes. Answers once every file has been seen to. This can't be undone.",
         "responses": {
           "200": {
             "description": "What was deleted and what was left",
@@ -5131,6 +5131,10 @@
         ],
         "responses": {
           "204": {"description": "Deleted"},
+          "202": {
+            "description": "The delete didn't finish within 2 minutes: its library now counts as not responding, and the delete is recorded whenever it finishes",
+            "content": {"application/json": {"schema": {"type": "object", "required": ["message"], "properties": {"message": {"type": "string", "description": "What's happening, in plain words."}}}}}
+          },
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"},
@@ -5139,7 +5143,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "409": {
-            "description": "What's in the trash isn't the file it put there now, or the library's share is away; nothing was deleted",
+            "description": "What's in the trash isn't the file it put there now, or the library's share is away or isn't responding; nothing was deleted. The message says which",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -5293,6 +5297,7 @@
         ],
         "responses": {
           "204": {"description": "Put back"},
+          "202": {"description": "The move didn't finish within 2 minutes: its library now counts as not responding, and it's recorded whenever the move finishes"},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "403": {"$ref": "#/components/responses/Forbidden"},
@@ -8577,7 +8582,7 @@
         ],
         "x-melete-access": "guest",
         "summary": "The file the party plays",
-        "description": "Its tracks (`media`, as `GET /api/v1/files/{id}` gives it) and the most bits a second a guest's stream may take (`max_bitrate`: the party's cap for guests, and the way's own limit, the lower of them; null for none). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "description": "Its tracks (`media`, as `GET /api/v1/files/{id}` gives it), its size in bytes, and the most bits a second a guest's stream may take (`max_bitrate`: the party's cap for guests, and the way's own limit, the lower of them; null for none). With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
         "responses": {
           "200": {
             "description": "OK",
@@ -15897,7 +15902,7 @@
             "type": "integer",
             "minimum": 100000,
             "maximum": 200000000,
-            "description": "Video bits per second. The default depends on the height (10 Mbit/s at 1080p)."
+            "description": "Video bits per second. The default depends on the height (10 Mbit/s at 1080p). Held to a bitrate (this, or a way in's limit), the picture is made smaller to suit it: up to 4 Mbit/s 720p, up to 10 Mbit/s 1080p, up to 20 Mbit/s 1440p; above that H.264 stays at 1440p and HEVC keeps the source's size. A wide picture fits the height's 16:9 box (1920 wide at 1080p), max_height still holds (the smaller wins), and nothing is scaled up."
           },
           "audio_stream": {
             "type": "integer",
@@ -19272,12 +19277,17 @@
         "type": "object",
         "required": [
           "id",
+          "size",
           "media",
           "max_bitrate"
         ],
         "properties": {
           "id": {
             "type": "integer"
+          },
+          "size": {
+            "type": "integer",
+            "description": "The file's size in bytes, for its bitrate when its container doesn't say."
           },
           "media": {
             "description": "Its streams as ffprobe read them, as FileInfo's media; null when it couldn't be read."

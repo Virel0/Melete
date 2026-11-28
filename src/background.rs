@@ -36,6 +36,9 @@ pub(crate) async fn housekeeping(
             None
         });
     jobs::scans::remember(last);
+    // The first scan knows which libraries answer, and what changed while Melete was down is
+    // asked for (`library::changed`).
+    library::health::checked().await;
     jobs::repeat(jobs::TICK, &jobs::RESCAN, || async {
         let schedule = scan_schedule(&pool).await;
         let Some(scope) = jobs::scans::take(schedule, crate::db::unix_now()) else {

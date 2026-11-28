@@ -109,6 +109,7 @@ pub async fn find_pending(pool: &SqlitePool, ffmpeg: &Path) -> anyhow::Result<Fo
     let mut found = Found::default();
     let pace = crate::jobs::pace::Pace::start("segments", "looking for credits alone", rows.len());
     for row in rows {
+        crate::transcode::after_viewers().await;
         let item = pace.item();
         let path = Path::new(&row.root).join(&row.rel_path);
         let most = if row.movie {

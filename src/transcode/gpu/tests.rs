@@ -22,6 +22,7 @@ fn on_gpu(clip: &Path) -> Plan {
         channels: 2,
         burn: None,
         audio_filter: None,
+        about: crate::transcode::About::default(),
     }
 }
 

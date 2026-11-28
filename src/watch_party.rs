@@ -138,7 +138,7 @@ pub async fn start(
     }
     tidy(pool).await?;
     let now = now_ms();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: i64 = loop {
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO watch_parties (code, host_user_id, file_id, position_ms, position_at,

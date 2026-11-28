@@ -149,8 +149,8 @@ export async function trash(ctx) {
         question: `Delete ${t.rel_path} (${size(t.size)}) for good? It can't be put back afterwards.`,
         confirm: "Delete it now",
         run: async () => {
-          await api(`/trash/${t.id}`, { method: "DELETE" });
-          ctx.reload(`Deleted ${t.rel_path} from the trash.`);
+          const still = await api(`/trash/${t.id}`, { method: "DELETE" });
+          ctx.reload(still ? `${t.rel_path}: ${still.message}.` : `Deleted ${t.rel_path} from the trash.`);
         },
       }),
     );
@@ -180,7 +180,7 @@ export async function trash(ctx) {
         confirm: "Empty the trash",
         run: async () => {
           const done = await api("/trash", { method: "DELETE" });
-          const left = done.left ? ` ${plural(done.left, "file was", "files were")} left: not what the trash put there, or its library is away.` : "";
+          const left = done.left ? ` ${plural(done.left, "file was", "files were")} left: not what the trash put there, or its library isn't responding.` : "";
           ctx.reload(`Deleted ${plural(done.deleted, "file", "files")} from the trash.${left}`);
         },
       }),

@@ -235,7 +235,7 @@ pub async fn set_password(
     keep_token: Option<i64>,
 ) -> anyhow::Result<()> {
     let hash = hash_password(password).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
         .bind(hash)
         .bind(user_id)
@@ -272,7 +272,7 @@ pub enum Deleted {
 /// progress. Checked and done in one transaction, so two admins can't both be deleted at once
 /// and leave none.
 pub async fn delete_user(pool: &SqlitePool, user_id: i64) -> anyhow::Result<Deleted> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let is_admin: Option<bool> = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?")
         .bind(user_id)
         .fetch_optional(&mut *tx)
@@ -316,7 +316,7 @@ pub async fn change_user(
     username: Option<&str>,
     is_admin: Option<bool>,
 ) -> anyhow::Result<Changed> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = ?)")
         .bind(user_id)
         .fetch_one(&mut *tx)

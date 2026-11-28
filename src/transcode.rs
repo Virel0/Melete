@@ -29,18 +29,25 @@ mod args;
 mod audio;
 mod gpu;
 mod keyframes;
+mod ladder;
+mod logged;
 mod plan;
 mod running;
 mod settings;
+mod starting;
+mod viewers_first;
 mod whole;
 
 pub use args::*;
 pub use audio::*;
 pub use gpu::*;
 pub use keyframes::*;
+pub use logged::About;
+use logged::{Stopped, started};
 pub use plan::*;
 pub use running::*;
 pub use settings::*;
+pub use viewers_first::after_viewers;
 pub use whole::*;
 
 /// How long each segment of an encoded (not copied) video is, in seconds.
@@ -220,10 +227,11 @@ impl Transcoder {
             .collect();
         for id in stale {
             if let Some(r) = running.remove(&id) {
-                r.stop();
+                r.stop(Stopped::Idle);
             }
         }
         for r in running.values_mut() {
+            r.note_end();
             let progress = r.progress();
             let finished = progress.finished.unwrap_or(r.start - 1);
             let ahead = finished - r.last_segment;
@@ -233,8 +241,7 @@ impl Transcoder {
                 throttle(ahead, r.paused)
             };
             if let Some(signal) = signal {
-                r.signal(signal);
-                r.paused = signal == libc::SIGSTOP;
+                r.set_paused(signal == libc::SIGSTOP);
             }
             let keep_from = keep_from(
                 r,
@@ -278,10 +285,7 @@ impl Transcoder {
                     Some(r) if n >= r.start => {
                         r.last_request = Instant::now();
                         r.last_segment = n;
-                        if r.paused {
-                            r.signal(libc::SIGCONT);
-                            r.paused = false;
-                        }
+                        r.set_paused(false);
                         let path = r.dir.join(format!("seg{n}.{}", r.extension));
                         let progress = r.progress();
                         let finished = progress.finished;
@@ -338,7 +342,7 @@ impl Transcoder {
                             if dead.hw == Hardware::Nvenc {
                                 self.ask_gpu_check();
                             }
-                            dead.stop();
+                            dead.stop(Stopped::Failed);
                         }
                         return Err(TranscodeError::Failed(log));
                     }
@@ -384,7 +388,7 @@ impl Transcoder {
                             }
                             Some(Err(log)) => {
                                 if let Some(dead) = running.remove(session) {
-                                    dead.stop();
+                                    dead.stop(Stopped::Failed);
                                 }
                                 return Err(TranscodeError::Failed(log));
                             }
@@ -403,89 +407,6 @@ impl Transcoder {
             }
             tokio::time::sleep(POLL).await;
         }
-    }
-
-    /// Starts a session's run again on the CPU after it failed on the GPU before finishing a
-    /// segment, and has the GPU checked. A session that fell back stays on the CPU.
-    fn retry_on_cpu(
-        &self,
-        running: &mut HashMap<Vec<u8>, Running>,
-        session: &[u8],
-        plan: &Plan,
-        n: i64,
-        log: &str,
-    ) -> Result<(), TranscodeError> {
-        tracing::warn!(log, "transcoding on the GPU failed; trying the CPU");
-        self.ask_gpu_check();
-        self.start(running, session, plan, n, true)
-    }
-
-    /// Starts ffmpeg for a session at segment `n`, in place of any run it has, on the CPU when
-    /// `on_cpu`, the session fell back before, or the GPU isn't working. When every slot is
-    /// taken, the run asked for least recently gives up its slot if it has been quiet for
-    /// [`TAKE_OVER_AFTER`]; otherwise it's [`TranscodeError::Busy`].
-    fn start(
-        &self,
-        running: &mut HashMap<Vec<u8>, Running>,
-        session: &[u8],
-        plan: &Plan,
-        n: i64,
-        on_cpu: bool,
-    ) -> Result<(), TranscodeError> {
-        let mut on_cpu = on_cpu;
-        if let Some(old) = running.remove(session) {
-            on_cpu |= old.on_cpu;
-            old.stop();
-        }
-        if running.len() >= self.max_running {
-            take_quietest_slot(running)?;
-        }
-        let keyframes = match plan.codec {
-            VideoCodec::Copy => Some(plan.keyframes.clone().ok_or_else(|| {
-                TranscodeError::Failed("copying needs the file's keyframes".into())
-            })?),
-            _ => None,
-        };
-        // Copied video isn't encoded, so it never needs the GPU.
-        let hw = match plan.codec {
-            VideoCodec::Copy => Hardware::Software,
-            _ if on_cpu => Hardware::Software,
-            _ => self.hardware(),
-        };
-        let mut plan = plan.clone();
-        plan.gpu_decode &= hw == Hardware::Nvenc;
-        let run = self.runs.fetch_add(1, Ordering::Relaxed);
-        let dir = self.root.join(format!("{run}{RUN_SUFFIX}"));
-        let failed = |err: std::io::Error| TranscodeError::Failed(err.to_string());
-        std::fs::create_dir_all(&dir).map_err(failed)?;
-        let log = std::fs::File::create(dir.join("ffmpeg.log")).map_err(failed)?;
-        let child = Command::new(&self.ffmpeg)
-            .args(ffmpeg_args_for(&plan, hw, self.abilities, n, &dir))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(log)
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|err| {
-                TranscodeError::Failed(format!("starting {}: {err}", self.ffmpeg.display()))
-            })?;
-        running.insert(
-            session.to_vec(),
-            Running {
-                child,
-                start: n,
-                dir,
-                last_request: Instant::now(),
-                last_segment: n,
-                paused: false,
-                deleted_below: n,
-                extension: plan.extension(),
-                keyframes,
-                hw,
-                on_cpu,
-            },
-        );
-        Ok(())
     }
 
     #[cfg(test)]

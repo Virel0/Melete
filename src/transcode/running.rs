@@ -40,6 +40,16 @@ pub(super) struct Running {
     pub(super) hw: Hardware,
     /// Its session fell back to the CPU after a run failed on the GPU, and stays there.
     pub(super) on_cpu: bool,
+    /// Numbers the run in the log.
+    pub(super) run: u64,
+    /// When it started, and the time it has spent paused (see [`Running::set_paused`]).
+    pub(super) started: Instant,
+    pub(super) paused_at: Option<Instant>,
+    pub(super) paused_for: Duration,
+    /// When ffmpeg was seen to have ended, finished or failed.
+    pub(super) ended_at: Option<Instant>,
+    /// The file's length in seconds.
+    pub(super) duration: f64,
 }
 
 /// What a run has made so far.
@@ -85,8 +95,9 @@ impl Running {
         }
     }
 
-    /// Stops ffmpeg and, once it has exited, deletes its segments.
-    pub(super) fn stop(mut self) {
+    /// Stops ffmpeg and, once it has exited, deletes its segments; [`Running::stop`] says so
+    /// first.
+    pub(super) fn end(mut self) {
         tokio::spawn(async move {
             let _ = self.child.kill().await;
             let _ = tokio::fs::remove_dir_all(self.dir).await;
@@ -205,7 +216,7 @@ pub(super) fn take_quietest_slot(
         .map(|(id, _)| id.clone())
         .ok_or(TranscodeError::Busy)?;
     if let Some(r) = running.remove(&quietest) {
-        r.stop();
+        r.stop(Stopped::TakenOver);
     }
     Ok(())
 }

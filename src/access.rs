@@ -327,7 +327,7 @@ pub async fn set_restriction(
     user_id: i64,
     restriction: Option<&Restriction>,
 ) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("DELETE FROM user_libraries WHERE user_id = ?")
         .bind(user_id)
         .execute(&mut *tx)
