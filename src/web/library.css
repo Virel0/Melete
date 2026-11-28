@@ -72,7 +72,7 @@
 .path { overflow-wrap: anywhere; }
 .secret-box { margin-block-start: var(--space-4); }
 .secret-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.secret { flex: 1 1 16rem; min-width: 0; font-family: ui-monospace, monospace; }
+.secret { flex: 1 1 16rem; min-width: 0; font-family: var(--font-mono); }
 /* Two-factor setup: the QR code beside the key, under it on a phone. The code stays black on
    white whatever the theme, as scanners need. */
 .two-factor-key { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); margin-block: var(--space-3); }
