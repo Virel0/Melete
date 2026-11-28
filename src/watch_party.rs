@@ -17,6 +17,7 @@ use crate::db::now_ms;
 
 pub mod guests;
 pub mod last_change;
+pub mod up_next;
 pub mod waits;
 
 /// Bumped at each change to a party, so the event streams send it at once instead of at their
@@ -112,6 +113,7 @@ async fn tidy(pool: &SqlitePool) -> sqlx::Result<()> {
     .bind(now_ms() - IDLE_MS)
     .fetch_all(pool)
     .await?;
+    guests::forget_gone(pool).await?;
     for party in ended {
         tracing::info!(
             party,
@@ -324,6 +326,9 @@ pub async fn set(
     if let Some(kind) = last_change::kind(&before, made, now) {
         last_change::note(pool, id, last_change::By::User(user_id), kind, now).await?;
     }
+    if before.file_id != state.file_id {
+        up_next::moved_on(pool, id).await?;
+    }
     // Played or paused by hand: that ends any waiting.
     waits::clear(pool, id).await?;
     Ok(Ok(()))
@@ -411,6 +416,7 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "guest_max_bitrate": row.guest_max_bitrate,
             "held": row.held,
             "waiting": waits_of.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(),
+            "up_next": up_next::view(pool, row.id).await?,
             "waits": waits::view(&waits_of, viewer),
             "last_change": last_change::view(pool, row.id, viewer).await?,
             "guests": guests::of_party(pool, row.id).await?,

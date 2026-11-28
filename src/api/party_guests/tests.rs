@@ -492,3 +492,47 @@ async fn a_guest_hears_of_a_change_at_once_not_at_the_next_look() {
         asked.elapsed()
     );
 }
+
+#[tokio::test]
+async fn a_guests_stream_says_why_it_ends_before_it_does() {
+    let f = fixture(None).await;
+    let (pass, _) = guest_in(&f, "Sam").await;
+    let request = Request::get("/api/v1/party/events")
+        .header(header::AUTHORIZATION, format!("Bearer {pass}"))
+        .body(Body::empty())
+        .unwrap();
+    let mut body = f.app.clone().oneshot(request).await.unwrap().into_body();
+    let next = async |body: &mut Body| loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), body.frame())
+            .await
+            .expect("an event")
+            .unwrap()
+            .unwrap();
+        if let Ok(data) = frame.into_data() {
+            break String::from_utf8(data.to_vec()).unwrap();
+        }
+    };
+    assert!(next(&mut body).await.contains("event: watch_party\n"));
+    let sam: i64 = sqlx::query_scalar("SELECT id FROM watch_party_guests WHERE name = 'Sam'")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let bearer = format!("Bearer {}", f.host);
+    let uri = format!("/api/v1/watch-parties/{}/guests/{sam}", f.party);
+    let (status, _, _) = send(
+        &f,
+        json_request(
+            "DELETE",
+            &uri,
+            Some(("authorization", &bearer)),
+            Value::Null,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let why = next(&mut body).await;
+    assert!(why.starts_with("event: watch_party_over\n"), "{why}");
+    assert!(why.contains(r#"data: {"reason":"sent_away"}"#), "{why}");
+    let last = next(&mut body).await;
+    assert!(last.contains("event: watch_party\ndata: null"), "{last}");
+}

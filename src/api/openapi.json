@@ -8142,6 +8142,29 @@
         }
       }
     },
+    "/api/v1/watch-parties/{id}/up-next": {
+      "put": {
+        "tags": ["Playback"],
+        "x-melete-access": "user",
+        "x-melete-scope": "playback",
+        "summary": "Say what the party plays next, and when",
+        "description": "For the host's player, as it counts down to the next episode: the file it plays next and when it starts, so everyone's player shows the same countdown (`up_next`); `{\"file_id\": null, \"starts_at\": null}` clears it. Only the host moves the party on, so only the host says this. Cleared too when the party moves to another file. The file must be one the host's account may watch.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "description": "Watch party id.", "schema": {"type": "integer"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpNextInput"}}}
+        },
+        "responses": {
+          "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WatchPartyAnswer"}}}},
+          "400": {"description": "No starts_at with a file, or a file not in the library", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"description": "Not the host, or a file this account can't watch", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "404": {"description": "No such party, or this device isn't in it", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      }
+    },
     "/api/v1/party/waiting": {
       "put": {
         "tags": [
@@ -8584,7 +8607,7 @@
         ],
         "x-melete-access": "guest",
         "summary": "The guest's watch party as it changes",
-        "description": "Server-sent events: `watch_party` with `{party, server_time}` as `GET /api/v1/party` answers, each time it changes, and `null` once it has ended or the guest has left, when the stream ends. It also ends after 10 minutes, for the browser to open again. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
+        "description": "Server-sent events: `watch_party` with `{party, server_time}` as `GET /api/v1/party` answers, each time it changes. Once it has ended for the guest, `watch_party_over` says why (`{reason}`: `ended` when the party ended, `sent_away` when someone in it sent them away, `left` when they left; null when that's no longer known), then `watch_party` is `null` and the stream ends. It also ends after 10 minutes, for the browser to open again. With a watch party guest's pass, never an account's sign-in or API key: sent as `Authorization: Bearer mpg_…`, or as the `melete_guest` cookie joining sets (a change by cookie needs the `X-Melete-Web` header).",
         "responses": {
           "200": {
             "description": "The event stream",
@@ -19233,6 +19256,7 @@
           "household",
           "held",
           "waiting",
+          "up_next",
           "waits",
           "last_change",
           "guests"
@@ -19286,6 +19310,7 @@
             "items": {"type": "string"},
             "description": "Who it waits for: guests by name, and \"someone from the household\" for a household device."
           },
+          "up_next": {"$ref": "#/components/schemas/PartyUpNext"},
           "waits": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/PartyWait"},
@@ -19508,6 +19533,7 @@
           "guest_max_bitrate",
           "held",
           "waiting",
+          "up_next",
           "waits",
           "last_change",
           "guests",
@@ -19588,6 +19614,7 @@
             "items": {"type": "string"},
             "description": "Who it waits for: usernames and guests' names, first first."
           },
+          "up_next": {"$ref": "#/components/schemas/PartyUpNext"},
           "waits": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/PartyWait"},
@@ -19607,6 +19634,26 @@
               "$ref": "#/components/schemas/ListenMember"
             }
           }
+        },
+        "additionalProperties": false
+      },
+      "UpNextInput": {
+        "type": "object",
+        "required": ["file_id", "starts_at"],
+        "properties": {
+          "file_id": {"type": ["integer", "null"], "description": "The next film's or episode's file; null clears it."},
+          "starts_at": {"type": ["integer", "null"], "description": "When it starts, Unix milliseconds on the server's clock; needed with a file, null when clearing."}
+        },
+        "additionalProperties": false
+      },
+      "PartyUpNext": {
+        "type": ["object", "null"],
+        "description": "What the party plays next and when, as the host's player counts down to it; null when nothing is said.",
+        "required": ["file_id", "title", "starts_at"],
+        "properties": {
+          "file_id": {"type": "integer"},
+          "title": {"type": "string", "description": "The film's name, or the series' with its season and episode."},
+          "starts_at": {"type": "integer", "description": "Unix milliseconds on the server's clock."}
         },
         "additionalProperties": false
       },

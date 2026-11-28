@@ -140,3 +140,40 @@ async fn friends_join_by_code_and_a_party_is_no_way_round_an_accounts_limits() {
     let (_, none) = send(&app, &b, "GET", "/api/v1/watch-parties", Value::Null).await;
     assert_eq!(none, json!([]));
 }
+
+#[tokio::test]
+async fn the_hosts_player_says_what_plays_next() {
+    let pool = crate::db::open_in_memory().await;
+    sqlx::raw_sql(
+        "INSERT INTO libraries (id, name, kind, path) VALUES (1, 'films', 'movies', '/f');
+         INSERT INTO movies (id, library_id, rel_path, parsed_title, seen_generation)
+             VALUES (1, 1, 'Film (2020)', 'Film', 1);
+         INSERT INTO media_files (id, library_id, rel_path, size, modified_at, movie_id,
+             first_seen_generation, seen_generation)
+             VALUES (1, 1, 'Film (2020)/film.mkv', 1, 0, 1, 1, 1);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let alice = crate::auth::testing::user(&pool, "alice", false).await;
+    let host = token(&pool, "tv", alice.id).await;
+    let app = routes(pool.clone());
+    let film = json!({"file_id": 1, "position_ms": 0, "playing": true});
+    let (status, started) = send(&app, &host, "POST", "/api/v1/watch-parties", film).await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    let uri = format!("/api/v1/watch-parties/{}/up-next", started["party"]["id"]);
+    let next = json!({"file_id": 1, "starts_at": 1_800_000_000_000_i64});
+    let (status, answer) = send(&app, &host, "PUT", &uri, next).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(
+        answer["party"]["up_next"],
+        json!({"file_id": 1, "title": "Film", "starts_at": 1_800_000_000_000_i64})
+    );
+    let (status, _) = send(&app, &host, "PUT", &uri, json!({"file_id": 1})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a time to start");
+    let (status, answer) = send(&app, &host, "PUT", &uri, json!({"file_id": null})).await;
+    assert_eq!(
+        (status, answer["party"]["up_next"].clone()),
+        (StatusCode::OK, Value::Null)
+    );
+}
