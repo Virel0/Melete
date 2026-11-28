@@ -318,7 +318,8 @@ Nothing needs opening at home, and it works before the VPS is set up.
   first. The trade: a wildcard can't be proved this way, so the certificate is for the exact
   name, which Certificate Transparency logs then list; with DNS they list only the wildcard.
   Nothing is sent to deSEC, and the Test says there's nothing to try before a certificate is
-  asked for.
+  asked for. The CAA record to add is then the `issue` one alone. **Get one now**'s limits and
+  the waits after a failed renewal are the same as with DNS.
 - What leaves the server: the domain's names, to Let's Encrypt and to deSEC; the challenge's
   TXT values, to deSEC (anyone can look the record up while it's there); the deSEC token, to
   deSEC alone. No email goes to Let's Encrypt unless you set one. Turning it on agrees to Let's

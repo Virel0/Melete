@@ -21457,10 +21457,10 @@
         "required": ["on", "names", "staging", "account_uri", "caa", "certificate", "renew_at", "retry_at", "failures", "last_error", "working", "ask_refused", "https"],
         "properties": {
           "on": {"type": "boolean", "description": "Whether Certificates is on."},
-          "names": {"type": "array", "items": {"type": "string"}, "description": "The names asked for: the wildcard, then the bare domain. Empty while it's off."},
+          "names": {"type": "array", "items": {"type": "string"}, "description": "The names asked for: by the DNS challenge the wildcard, then the bare domain; by TLS-ALPN the exact name alone. Empty while it's off."},
           "staging": {"type": "boolean", "description": "Whether Let's Encrypt's staging server is used, whose certificates no browser trusts."},
           "account_uri": {"type": ["string", "null"], "description": "The ACME account's URI on that server, once there's one."},
-          "caa": {"type": "array", "items": {"type": "string"}, "description": "CAA records (issue and issuewild) that let only this account have certificates issued for the domain, as zone file lines. Empty until there's an account."},
+          "caa": {"type": "array", "items": {"type": "string"}, "description": "CAA records that let only this account have certificates issued for the domain, as zone file lines: issue and issuewild by the DNS challenge, issue alone by TLS-ALPN (an exact name, no wildcard). Empty until there's an account."},
           "certificate": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/CertificateHeld"}], "description": "The certificate in use, when there's one."},
           "renew_at": {"type": ["integer", "null"], "description": "When it's renewed: in the window Let's Encrypt's renewal information suggests, else two-thirds through its life."},
           "retry_at": {"type": ["integer", "null"], "description": "When an attempt that failed is tried again; null when none did."},

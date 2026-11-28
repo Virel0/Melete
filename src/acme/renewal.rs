@@ -21,7 +21,7 @@ pub struct State {
     pub failures: i64,
     pub retry_at: Option<i64>,
     pub last_error: Option<String>,
-    /// The CA directory and domain those failures were for ([`attempt_for`]).
+    /// The CA directory, domain and challenge those failures were for ([`attempt_for`]).
     pub failed_for: Option<String>,
     /// When admins were last told renewing fails.
     pub alerted_at: Option<i64>,
@@ -29,14 +29,18 @@ pub struct State {
     pub asked_at: Option<i64>,
 }
 
-/// What failures are kept for: the CA directory and the domain.
-pub fn attempt_for(directory: &str, domain: &str) -> String {
-    format!("{directory} {domain}")
+/// What failures are kept for: the CA directory, the domain, and the challenge when it isn't
+/// DNS's (written as before for DNS, so its failures kept from before still count).
+pub fn attempt_for(directory: &str, domain: &str, challenge: crate::config::Challenge) -> String {
+    match challenge {
+        crate::config::Challenge::Dns => format!("{directory} {domain}"),
+        crate::config::Challenge::TlsAlpn => format!("{directory} {domain} tls-alpn"),
+    }
 }
 
 impl State {
-    /// Forgets failures made for another CA directory or domain than `now_for`: their waits
-    /// and alerts aren't this one's.
+    /// Forgets failures made for another CA directory, domain or challenge than `now_for`:
+    /// their waits and alerts aren't this one's.
     pub fn forget_failures_unless_for(&mut self, now_for: &str) {
         if self.failures > 0 && self.failed_for.as_deref() != Some(now_for) {
             self.failures = 0;

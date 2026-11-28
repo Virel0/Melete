@@ -138,10 +138,57 @@ async fn tls_alpn_gets_the_exact_name_through_the_passthrough() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(served.is_some(), "the certificate got is served");
+    // The names shown are the one asked for, and the CAA record is for it alone: no
+    // issuewild, as no wildcard is asked for.
+    let mut config = crate::config::Config::from_env_and(|_: &str| None).unwrap();
+    config.acme = Some(world.acme.clone());
+    let shown = crate::acme::status(&world.pool, &config).await.unwrap();
+    assert_eq!(shown.names, ["alpn-watch.example.org"]);
+    assert_eq!(shown.caa.len(), 1, "{:?}", shown.caa);
+    assert!(
+        shown.caa[0].starts_with("alpn-watch.example.org. CAA 0 issue \""),
+        "{:?}",
+        shown.caa
+    );
     // Its Test asks nothing of deSEC.
     let (fine, said) = crate::acme::test::zone_takes(&world.acme, &world.reach).await;
     assert!(fine && said.contains("needs no token"), "{said}");
     assert!(world.desec.lock().unwrap().paths.is_empty());
+}
+
+#[tokio::test]
+async fn the_renew_guards_hold_for_tls_alpn_too() {
+    let mut world = World::new().await;
+    world.acme.domain = "alpn-guard.example.org".into();
+    world.ca.lock().unwrap().refuse_orders = Some("no".into());
+    assert!(world.round(false).await > unix_now());
+    assert_eq!(world.state().await.failures, 1);
+    // Switched to TLS-ALPN for the same domain: the DNS challenge's wait isn't carried over.
+    world.ca.lock().unwrap().refuse_orders = None;
+    let at = https(&world.folder()).await;
+    world.acme.challenge = Challenge::TlsAlpn;
+    world.acme.desec_token = None;
+    {
+        let mut ca = world.ca.lock().unwrap();
+        ca.tls_at = Some(at);
+        ca.tls_before = PROXIED.to_vec();
+    }
+    world.round(false).await;
+    let held = world.held();
+    assert_eq!(held.names, ["alpn-guard.example.org"]);
+    assert_eq!(world.state().await.failures, 0);
+    // A certificate it just got, for the same names from the same CA, isn't asked for again.
+    let state = world.state().await;
+    let fits = held.is_for(&world.acme.names());
+    let why = renewal::ask_refused(&state, Some((&held, fits)), false, unix_now()).unwrap();
+    assert!(why.contains("less than a day old"), "{why}");
+    // A failed renewal by TLS-ALPN waits before it's tried again, like any other.
+    world.ca.lock().unwrap().refuse_orders = Some("no".into());
+    let retry_at = world.round(true).await;
+    assert!(retry_at > unix_now());
+    assert_eq!(world.state().await.failures, 1);
+    assert_eq!(world.round(false).await, retry_at, "not tried again yet");
+    assert_eq!(world.state().await.failures, 1);
 }
 
 #[test]
