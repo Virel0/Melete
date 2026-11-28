@@ -78,6 +78,45 @@ async fn a_change_asks_for_a_scan_of_what_it_touched() {
 }
 
 #[tokio::test]
+async fn a_file_edited_in_place_asks_for_a_scan_before_its_closed() {
+    use std::io::{Seek, SeekFrom, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    let movies = dir.path().join("movies");
+    std::fs::create_dir_all(music.join("Artist/Album")).unwrap();
+    std::fs::create_dir_all(movies.join("Old (2020)")).unwrap();
+    let track = music.join("Artist/Album/01.flac");
+    std::fs::write(&track, b"fLaC and its tags").unwrap();
+    let film = movies.join("Old (2020)/Old.mkv");
+    std::fs::write(&film, b"x").unwrap();
+    let (sink, mut asks) = unbounded_channel();
+    let _watcher = Watcher::start(
+        &[
+            library(1, LibraryKind::Music, &music),
+            library(2, LibraryKind::Movies, &movies),
+        ],
+        sink,
+    )
+    .unwrap();
+
+    // Its tags written over in place, the file still open: the write alone asks.
+    let mut open = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&track)
+        .unwrap();
+    open.seek(SeekFrom::Start(5)).unwrap();
+    open.write_all(b"AND").unwrap();
+    open.flush().unwrap();
+    assert_eq!(next(&mut asks).await, ask(1, None));
+    // Only its times changed, as an editor that keeps them does after writing: that asks too.
+    let file = std::fs::File::open(&film).unwrap();
+    file.set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000))
+        .unwrap();
+    assert_eq!(next(&mut asks).await, ask(2, Some("Old (2020)")));
+    drop(open);
+}
+
+#[tokio::test]
 async fn asks_are_passed_on_once_after_a_quiet_spell() {
     let quiet = Duration::from_secs(1);
     let (sink, asks) = unbounded_channel();
@@ -123,4 +162,29 @@ fn events_are_read_from_inotifys_layout() {
     assert_eq!(events.len(), 2);
     assert_eq!((events[0].wd, events[0].name.as_str()), (3, "a.mkv"));
     assert_eq!((events[1].wd, events[1].name.as_str()), (4, ""));
+}
+
+#[test]
+fn a_new_files_writes_wait_for_it_to_be_finished_and_an_old_ones_count() {
+    let event = |mask: u32, name: &str| inotify::Event {
+        wd: 1,
+        mask,
+        name: name.into(),
+    };
+    let mut made = inotify::Made::default();
+    assert!(!made.counts(&event(libc::IN_CREATE, "new.flac")));
+    assert!(
+        !made.counts(&event(libc::IN_MODIFY, "new.flac")),
+        "still being made"
+    );
+    assert!(!made.counts(&event(libc::IN_ATTRIB, "new.flac")));
+    assert!(made.counts(&event(libc::IN_CLOSE_WRITE, "new.flac")));
+    assert!(
+        made.counts(&event(libc::IN_MODIFY, "new.flac")),
+        "edited since"
+    );
+    assert!(made.counts(&event(libc::IN_MODIFY, "old.flac")));
+    assert!(made.counts(&event(libc::IN_ATTRIB, "old.flac")));
+    assert!(!made.counts(&event(libc::IN_ATTRIB | libc::IN_ISDIR, "Album")));
+    assert!(!made.counts(&event(libc::IN_MODIFY | libc::IN_ISDIR, "Album")));
 }

@@ -2015,6 +2015,21 @@ mod tests {
     }
 
     #[test]
+    fn a_task_waiting_for_its_first_run_is_scheduled_not_off() {
+        // On (active) with no run yet: its next run, before "Not run since the server started".
+        let tasks = module("system-upkeep.js");
+        let off = tasks.find(r#""Off: its service is off""#).unwrap();
+        let scheduled = tasks
+            .find("`Scheduled, next run ${due ? \"due now\" : ago(t.next_at)}`")
+            .unwrap();
+        let not_run = tasks.find(r#""Not run since the server started""#).unwrap();
+        assert!(off < scheduled && scheduled < not_run);
+        assert!(
+            tasks.contains("  if (t.next_at) {\n    const due = t.next_at <= Date.now() / 1000;")
+        );
+    }
+
+    #[test]
     fn the_library_shuffles_from_home_and_the_songs_page() {
         // The server shuffles (leaving out Not interested songs); the page plays what it answers.
         let play = module("music-play.js");

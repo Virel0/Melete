@@ -1,14 +1,18 @@
 //! Linux's inotify, through libc: watching a folder and reading what changed in it.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-/// What a folder is watched for: a write finished, a file or folder moved in or out, made or
-/// deleted. Folders only, and links aren't followed.
+/// What a folder is watched for: a write finished, a file written to or its times changed in
+/// place, a file or folder moved in or out, made or deleted. Folders only, and links aren't
+/// followed.
 const MASK: u32 = libc::IN_CLOSE_WRITE
+    | libc::IN_MODIFY
+    | libc::IN_ATTRIB
     | libc::IN_MOVED_FROM
     | libc::IN_MOVED_TO
     | libc::IN_CREATE
@@ -107,10 +111,48 @@ pub(super) fn is_move(event: &Event) -> bool {
 }
 
 /// Whether the event changes what a scan finds: a write finished, a move, a deletion, or a
-/// new folder. A file just made is still being written; its finished write counts instead.
+/// new folder; and a file edited in place, written to (a tag editor that keeps it open, or one
+/// writing over a network share, whose server may not close it at once) or given new times. A
+/// file just made is still being written; its finished write counts instead ([`Made`]). The
+/// scan an edit asks for waits for the library to be quiet, so a file written to for a while is
+/// asked for once it's done.
 pub(super) fn counts(event: &Event) -> bool {
     let folder = event.mask & libc::IN_ISDIR != 0;
     event.mask & (libc::IN_CLOSE_WRITE | libc::IN_MOVED_FROM | libc::IN_MOVED_TO | libc::IN_DELETE)
         != 0
         || (folder && event.mask & libc::IN_CREATE != 0)
+        || (!folder && event.mask & (libc::IN_MODIFY | libc::IN_ATTRIB) != 0)
+}
+
+/// The most files [`Made`] keeps track of; past it, it starts afresh (a file it forgot then only
+/// asks for a scan a little sooner).
+const MOST_MADE: usize = 10_000;
+
+/// Files made since the watch started that are still being written: their writes and new times
+/// don't count until the write finishes, as a copy's shouldn't, and an edit in place of any
+/// other file does.
+#[derive(Default)]
+pub(super) struct Made(HashSet<(i32, String)>);
+
+impl Made {
+    /// Whether `event` counts ([`counts`]), keeping track of the files being made.
+    pub(super) fn counts(&mut self, event: &Event) -> bool {
+        let file = event.mask & libc::IN_ISDIR == 0;
+        let key = (event.wd, event.name.clone());
+        if file && event.mask & libc::IN_CREATE != 0 {
+            if self.0.len() >= MOST_MADE {
+                self.0.clear();
+            }
+            self.0.insert(key);
+            return false;
+        }
+        let edit = event.mask & (libc::IN_MODIFY | libc::IN_ATTRIB) != 0;
+        if file && edit && self.0.contains(&key) {
+            return false;
+        }
+        if event.mask & (libc::IN_CLOSE_WRITE | libc::IN_DELETE | libc::IN_MOVED_FROM) != 0 {
+            self.0.remove(&key);
+        }
+        counts(event)
+    }
 }
