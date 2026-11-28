@@ -19165,7 +19165,8 @@
           "expires_at",
           "address",
           "server",
-          "wireguard_config"
+          "wireguard_config",
+          "wireguard_config_qr"
         ],
         "properties": {
           "invite": {
@@ -19191,6 +19192,10 @@
           "wireguard_config": {
             "type": "string",
             "description": "The peer's WireGuard config (`[Interface]` with its private key and address; `[Peer]` with Melete's public key, a preshared key, Melete's tunnel address as the only allowed IP, and the endpoint), shown this once."
+          },
+          "wireguard_config_qr": {
+            "type": ["string", "null"],
+            "description": "The same config as a QR code, for a phone's WireGuard app to scan: an SVG element (`<svg …>`, no XML prolog) drawn by the server, one unit of its viewBox per module with the quiet zone around it, black on white. It holds the guest's private key as the config does, and is shown this once. Null if the config were ever too long for one code."
           }
         },
         "additionalProperties": false

@@ -66,6 +66,8 @@ pub(super) async fn make(
         "expires_at": expires_at,
         "address": made.address.to_string(),
         "server": format!("http://{}", tunnel.own_address()),
+        // The same config as a QR code, for a phone's WireGuard app to scan.
+        "wireguard_config_qr": crate::qr::svg(&made.config),
         "wireguard_config": made.config,
     });
     Ok((StatusCode::CREATED, Json(body)).into_response())
