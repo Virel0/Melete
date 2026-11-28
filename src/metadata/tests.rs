@@ -1604,3 +1604,87 @@ async fn titles_fetched_before_scores_get_theirs_once_and_nothing_else() {
             .any(|r| r.starts_with("/movie/949"))
     );
 }
+
+#[tokio::test]
+async fn a_title_tmdb_no_longer_has_is_asked_and_logged_once_a_day() {
+    let pool = db::open_in_memory().await;
+    let shows = library(&pool, LibraryKind::Shows).await;
+    let now = unix_now();
+    sqlx::query("INSERT INTO tmdb_series (tmdb_id, name, fetched_at) VALUES (95396, 'Old', ?)")
+        .bind(now - 8 * DAY)
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert_title(&pool, "series", shows, "Severance (2022)", (None, None)).await;
+    sqlx::query(
+        "UPDATE series SET match_status = 'matched', match_tmdb_id = 95396, match_method = 'search',
+             match_attempted_at = ?",
+    )
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // TMDB answers 404 for the series: it no longer has it.
+    let fake = FakeTmdb::default();
+    let tmdb = fake.start().await;
+    let asked = || {
+        fake.log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with("/tv/95396"))
+            .count()
+    };
+    let gone_at = || async {
+        sqlx::query_scalar::<_, Option<i64>>("SELECT gone_at FROM tmdb_series")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    };
+
+    let log = crate::logging::testing::capture("warn");
+    refresh(&pool, &tmdb).await.unwrap();
+    refresh(&pool, &tmdb).await.unwrap();
+    let said = log.written.text();
+    assert_eq!(
+        said.matches("TMDB no longer has this series").count(),
+        1,
+        "{said}"
+    );
+    assert_eq!(asked(), 1, "asked once, not at every run");
+    assert!(gone_at().await.is_some_and(|at| at >= now));
+    let name: String = sqlx::query_scalar("SELECT name FROM tmdb_series")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "Old", "the cached copy is kept");
+
+    // A day later it's asked again; once TMDB has it again, the mark goes.
+    sqlx::query("UPDATE tmdb_series SET gone_at = ?")
+        .bind(now - DAY - 1)
+        .execute(&pool)
+        .await
+        .unwrap();
+    refresh(&pool, &tmdb).await.unwrap();
+    assert_eq!(asked(), 2);
+    assert_eq!(
+        log.written
+            .text()
+            .matches("TMDB no longer has this series")
+            .count(),
+        2
+    );
+    sqlx::query("UPDATE tmdb_series SET gone_at = ?")
+        .bind(now - DAY - 1)
+        .execute(&pool)
+        .await
+        .unwrap();
+    fake.reply(
+        "/tv/95396?append_to_response=external_ids",
+        vec![Reply::ok(
+            json!({ "id": 95396, "name": "Severance", "seasons": [] }),
+        )],
+    );
+    refresh(&pool, &tmdb).await.unwrap();
+    assert_eq!(gone_at().await, None, "TMDB has it again");
+}

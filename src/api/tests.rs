@@ -1869,6 +1869,47 @@ mod openapi {
     }
 
     #[tokio::test]
+    async fn a_title_tmdb_no_longer_has_is_listed_to_match_again() {
+        let pool = crate::db::open_in_memory().await;
+        crate::library::sync_config(
+            &pool,
+            &[crate::library::LibraryConfig {
+                name: "movies".into(),
+                kind: crate::library::LibraryKind::Movies,
+                path: "/m".into(),
+            }],
+        )
+        .await
+        .unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO tmdb_movies (tmdb_id, title, fetched_at, gone_at)
+                 VALUES (1, 'Gone', 0, 5), (2, 'Here', 0, NULL);
+             INSERT INTO movies (library_id, rel_path, parsed_title, seen_generation,
+                     match_status, match_method, match_tmdb_id) VALUES
+                     (1, 'Gone (2001)', 'Gone', 1, 'matched', 'manual', 1),
+                     (1, 'Here (2002)', 'Here', 1, 'matched', 'search', 2);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response = library_routes(pool)
+            .oneshot(
+                Request::get("/api/v1/metadata/unmatched")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let listed = body.as_array().unwrap();
+        assert_eq!(listed.len(), 1, "{body}");
+        assert_eq!(listed[0]["rel_path"], "Gone (2001)", "even matched by hand");
+        assert_eq!(listed[0]["status"], "gone");
+        assert_eq!(listed[0]["candidates"], json!([]));
+    }
+
+    #[tokio::test]
     async fn music_responses_carry_exactly_the_documented_fields() {
         let (pool, app, _artwork) = full_server().await;
         sqlx::raw_sql(
