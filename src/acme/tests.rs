@@ -11,6 +11,8 @@ use super::*;
 use crate::config::{Secret, Tls};
 use crate::desec;
 
+mod alpn;
+
 /// Melete's database, a data folder, deSEC's and a CA's stand-ins holding example.org, and
 /// Certificates set up for them.
 struct World {
@@ -34,7 +36,8 @@ impl World {
             ca,
             acme: Acme {
                 domain: "example.org".into(),
-                desec_token: Secret::for_tests(desec::testing::TOKEN),
+                challenge: crate::config::Challenge::Dns,
+                desec_token: Some(Secret::for_tests(desec::testing::TOKEN)),
                 email: None,
                 staging: true,
                 directory,
@@ -340,7 +343,7 @@ async fn a_first_certificate_that_fails_alerts_too_and_secrets_never_show() {
     let world = World::new().await;
     let seen = alerts_to(&world.pool).await;
     let mut acme = world.acme.clone();
-    acme.desec_token = Secret::for_tests("a-wrong-token-never-shown");
+    acme.desec_token = Some(Secret::for_tests("a-wrong-token-never-shown"));
     let log = crate::logging::testing::capture("info");
     round(&world.pool, &world.folder(), &acme, &world.reach, false)
         .await
@@ -570,7 +573,7 @@ async fn the_test_writes_and_removes_a_value_and_asks_for_no_certificate() {
         "{said}"
     );
     let mut wrong = world.acme.clone();
-    wrong.desec_token = Secret::for_tests("a-wrong-token-never-shown");
+    wrong.desec_token = Some(Secret::for_tests("a-wrong-token-never-shown"));
     let (fine, said) = test::zone_takes(&wrong, &world.reach).await;
     assert!(!fine && said.contains("turned the token down"), "{said}");
     assert!(!said.contains("a-wrong-token-never-shown"));
@@ -685,7 +688,11 @@ async fn challenge_values_a_crash_left_are_taken_out_and_no_others() {
 #[tokio::test]
 async fn desec_answers_are_capped_quotes_kept_and_lost_writes_caught() {
     let world = World::new().await;
-    let desec = desec::Client::new(&world.reach.desec_api, world.acme.desec_token.clone()).unwrap();
+    let desec = desec::Client::new(
+        &world.reach.desec_api,
+        world.acme.desec_token.clone().unwrap(),
+    )
+    .unwrap();
     // A value ending in a quote of its own keeps it.
     world.desec.lock().unwrap().records.insert(
         ("example.org".into(), "_acme-challenge".into()),

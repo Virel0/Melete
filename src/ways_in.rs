@@ -22,6 +22,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
+mod proxied;
+
 /// What a request reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Part {
@@ -462,6 +464,8 @@ pub async fn guard(
     request.extensions_mut().insert(ClientAddr(client));
     request.extensions_mut().insert(ways.opens(peer));
     request.extensions_mut().insert(ways.video_limit(peer));
+    // For admin health, which notes the ways a trusted proxy opens the household's parts by.
+    request.extensions_mut().insert(ways.clone());
     next.run(request).await
 }
 

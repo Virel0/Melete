@@ -20,7 +20,7 @@ mod tls;
 
 #[cfg(test)]
 pub use acme::STAGING;
-pub use acme::{Acme, CERT_FILE, KEY_FILE, folder as acme_folder};
+pub use acme::{Acme, CERT_FILE, Challenge, KEY_FILE, folder as acme_folder};
 pub use alerts::*;
 use libraries::*;
 pub use reading::*;

@@ -162,10 +162,11 @@ impl Client {
     /// The model's answer to `user` under `system`. Thinking is asked to be off: these tasks
     /// don't need it, and a model's thinking counts against the same token limit as its answer,
     /// so a model that thinks at length can stop before it answers. A model that can't turn
-    /// thinking off refuses that, and is asked again once with it kept low.
+    /// thinking off refuses that, and is asked again once with it kept low, more room left and
+    /// the thinking left out of the answer.
     async fn complete(&self, system: &str, user: &str) -> Result<String, Failure> {
-        match self.ask(system, user, "none").await {
-            Err(Refused::Request) => self.ask(system, user, "low").await,
+        match self.ask(system, user, Thinking::Off).await {
+            Err(Refused::Request) => self.ask(system, user, Thinking::Low).await,
             other => other,
         }
         .map_err(|refused| match refused {
@@ -174,7 +175,7 @@ impl Client {
         })
     }
 
-    async fn ask(&self, system: &str, user: &str, thinking: &str) -> Result<String, Refused> {
+    async fn ask(&self, system: &str, user: &str, thinking: Thinking) -> Result<String, Refused> {
         let body = json!({
             "model": self.model,
             "messages": [
@@ -182,8 +183,8 @@ impl Client {
                 { "role": "user", "content": user },
             ],
             "temperature": 0.2,
-            "max_tokens": MAX_ANSWER_TOKENS,
-            "reasoning": { "effort": thinking },
+            "max_tokens": thinking.max_tokens(),
+            "reasoning": thinking.reasoning(),
             "provider": { "data_collection": "deny" },
         });
         let answer = self
@@ -203,7 +204,50 @@ impl Client {
             .map_err(|e| Failure::Other(e.to_string()))?;
         let completion: Completion = serde_json::from_slice(&bytes)
             .map_err(|_| Failure::Other("its answer wasn't a chat completion".to_owned()))?;
+        tracing::info!(
+            model = completion.model_used(),
+            finish_reason = completion.finish_reason(),
+            thinking = thinking.effort(),
+            "OpenRouter answered"
+        );
         Ok(completion.text()?)
+    }
+}
+
+/// How much thinking a request asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Thinking {
+    /// None at all: these tasks don't need it.
+    Off,
+    /// A little, for a model that can't turn it off.
+    Low,
+}
+
+impl Thinking {
+    /// OpenRouter's `reasoning.effort`.
+    fn effort(self) -> &'static str {
+        match self {
+            Thinking::Off => "none",
+            Thinking::Low => "low",
+        }
+    }
+
+    /// OpenRouter's `reasoning` option. Kept low, the thinking is left out of the answer: only
+    /// the answer is read, and it keeps the answer small.
+    fn reasoning(self) -> Value {
+        match self {
+            Thinking::Off => json!({ "effort": "none" }),
+            Thinking::Low => json!({ "effort": "low", "exclude": true }),
+        }
+    }
+
+    /// The most tokens asked for: the answer's room, and more where the model still thinks,
+    /// since its thinking counts against the same limit.
+    fn max_tokens(self) -> u32 {
+        match self {
+            Thinking::Off => MAX_ANSWER_TOKENS,
+            Thinking::Low => MAX_THINKING_TOKENS,
+        }
     }
 }
 
@@ -220,8 +264,11 @@ impl From<Failure> for Refused {
     }
 }
 
-/// The most tokens asked for: room for a model that still thinks a little, and the answer.
+/// The most tokens asked for with thinking off: room for the answer, and for a model that
+/// thinks a little anyway.
 const MAX_ANSWER_TOKENS: u32 = 4000;
+/// The most tokens asked for with thinking kept low: its thinking, and the answer.
+const MAX_THINKING_TOKENS: u32 = 8000;
 
 /// A chat completion as OpenRouter answers it: which model answered, and its first choice.
 #[derive(Deserialize)]
@@ -244,38 +291,45 @@ struct Message {
 }
 
 impl Completion {
+    /// The model OpenRouter used, as it named it (fit for a log line), or none.
+    fn model_used(&self) -> Option<String> {
+        self.model
+            .as_deref()
+            .map(|m| printable(m, 100))
+            .filter(|m| !m.is_empty())
+    }
+
+    /// Why the model stopped, as OpenRouter said (fit for a log line), or none.
+    fn finish_reason(&self) -> Option<String> {
+        let reason = self.choices.first()?.finish_reason.as_deref()?;
+        Some(printable(reason, 40)).filter(|r| !r.is_empty())
+    }
+
     /// The answer's text, or what the model did instead: an empty answer says which model
     /// OpenRouter used and why it stopped, so a model cut off by the length limit says so.
     fn text(self) -> Result<String, Failure> {
-        let model = self
-            .model
-            .map(|m| {
-                m.chars()
-                    .filter(|c| !c.is_control())
-                    .take(100)
-                    .collect::<String>()
-            })
-            .filter(|m| !m.is_empty())
-            .unwrap_or_else(|| "the model".to_owned());
+        let model = self.model_used().unwrap_or_else(|| "the model".to_owned());
+        let reason = self.finish_reason();
         let Some(choice) = self.choices.into_iter().next() else {
             return Err(Failure::Other(format!("{model} gave no answer")));
         };
         match choice.message.content {
             Some(text) if !text.trim().is_empty() => Ok(text),
-            _ => Err(Failure::Other(match choice.finish_reason.as_deref() {
+            _ => Err(Failure::Other(match reason.as_deref() {
                 Some("length") => format!("{model} stopped at the length limit before answering"),
-                Some(reason) => format!(
-                    "{model} said nothing (it stopped: {})",
-                    reason
-                        .chars()
-                        .filter(|c| !c.is_control())
-                        .take(40)
-                        .collect::<String>()
-                ),
+                Some(reason) => format!("{model} said nothing (it stopped: {reason})"),
                 None => format!("{model} said nothing"),
             })),
         }
     }
+}
+
+/// `text` without control characters, at most `most` characters long.
+fn printable(text: &str, most: usize) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take(most)
+        .collect()
 }
 
 /// OpenRouter's status as a failure, or none. Its error bodies aren't read: only the status
@@ -548,6 +602,38 @@ mod tests {
             .map(|(body, _)| body["reasoning"]["effort"].clone())
             .collect();
         assert_eq!(efforts, [json!("none"), json!("low")]);
+        let low = fake.seen.lock().unwrap()[1].0.clone();
+        assert_eq!(low["reasoning"]["exclude"], true, "thinking left out");
+        assert!(low["max_tokens"].as_u64().unwrap() >= 8000, "room to think");
+    }
+
+    #[tokio::test]
+    async fn each_answer_logs_the_model_used_and_why_it_stopped() {
+        let (fake, api) = fake::start().await;
+        let client = fake::client(&api);
+        let log = crate::logging::testing::capture("info");
+        for (content, finish) in [(r#"{"titles": []}"#, "stop"), ("", "length")] {
+            *fake.completion.lock().unwrap() = Some(json!({
+                "model": "z-ai/glm-5.3-flash\u{1b}[31m",
+                "choices": [{ "message": { "role": "assistant", "content": content },
+                              "finish_reason": finish }] }));
+            let _ = client.suggest(TitleKind::Movie, "x").await;
+        }
+        let written = log.written.text();
+        let lines: Vec<&str> = written
+            .lines()
+            .filter(|l| l.contains("OpenRouter answered"))
+            .collect();
+        assert_eq!(lines.len(), 2, "{written}");
+        for (line, finish) in lines.iter().zip(["stop", "length"]) {
+            assert!(line.contains("model=\"z-ai/glm-5.3-flash[31m\""), "{line}");
+            assert!(
+                line.contains(&format!("finish_reason=\"{finish}\"")),
+                "{line}"
+            );
+            assert!(line.contains("thinking=\"none\""), "{line}");
+        }
+        assert!(!written.contains("sk-or"), "{written}");
     }
 
     #[tokio::test]
