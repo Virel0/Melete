@@ -22147,7 +22147,7 @@
           "running": {"type": "boolean"},
           "active": {
             "type": "boolean",
-            "description": "Whether it runs in this server; false while its service is off."
+            "description": "Whether it runs in this server; false while its service is off. A task waiting for its first run since the server started is active, with next_at when that's due (the library's scans: the next whole scan by the schedule, or none when no library was ever scanned and it waits to be asked)."
           },
           "last_started_at": {
             "type": ["integer", "null"],
