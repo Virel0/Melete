@@ -137,7 +137,7 @@ pub(super) async fn store_movie(
              collection_id = excluded.collection_id,
              original_language = excluded.original_language,
              score = excluded.score, score_votes = excluded.score_votes,
-             companies = excluded.companies",
+             companies = excluded.companies, gone_at = NULL",
     )
     .bind(d.id)
     .bind(non_empty(&d.imdb_id))
@@ -191,7 +191,7 @@ pub(super) async fn store_series(
              language = excluded.language, english_fields = excluded.english_fields,
              original_language = excluded.original_language,
              score = excluded.score, score_votes = excluded.score_votes,
-             companies = excluded.companies",
+             companies = excluded.companies, gone_at = NULL",
     )
     .bind(d.id)
     .bind(ids.and_then(|i| i.tvdb_id))
