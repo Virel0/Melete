@@ -31,6 +31,7 @@ use tower::ServiceExt;
 use crate::config::Tls;
 use crate::ways_in::{Net, ProxiedClient};
 
+pub mod challenge;
 mod idle;
 pub mod proxy_header;
 
@@ -204,7 +205,11 @@ impl Certificate {
 }
 
 impl ResolvesServerCert for Certificate {
-    fn resolve(&self, _hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+    fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        // A CA checking a TLS-ALPN challenge gets its certificate, or none, never this one.
+        if challenge::is_challenge(&hello) {
+            return challenge::certificate(&hello);
+        }
         Some(
             self.current
                 .read()
@@ -247,7 +252,8 @@ async fn prepare_with(tls: &Tls, certificate: Certificate) -> anyhow::Result<Rea
         .with_safe_default_protocol_versions()?
         .with_no_client_auth()
         .with_cert_resolver(certificate.clone());
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    // HTTP first: a client offering both is an ordinary one, and gets HTTP.
+    config.alpn_protocols = vec![b"http/1.1".to_vec(), challenge::ACME_TLS.to_vec()];
     let listener = TcpListener::bind(tls.bind)
         .await
         .with_context(|| format!("HTTPS can't listen on {}", tls.bind))?;
@@ -325,6 +331,10 @@ async fn connection(
         .await
         .map_err(|_| "no handshake in time".to_owned())?
         .map_err(|err| format!("handshake: {err}"))?;
+    // A CA's TLS-ALPN check needs the handshake alone: nothing is served on it.
+    if tls.get_ref().1.alpn_protocol() == Some(challenge::ACME_TLS) {
+        return Err("a CA's challenge connection, closed after its handshake".to_owned());
+    }
     // The client is decided here, never by a header the client could write.
     let client = client.unwrap_or(peer.ip());
     let Some(_per_client) = PerClient::take(client) else {

@@ -4,6 +4,8 @@
 //! request, signed by its own CA certificate, and renewal information with a window set by the
 //! test. Signatures aren't checked: it's what Melete sends that's under test.
 
+pub mod alpn;
+
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -53,6 +55,10 @@ pub struct Fake {
     pub window: Option<(i64, i64)>,
     /// When each challenge was checked.
     pub checked_at: Vec<std::time::Instant>,
+    /// Where TLS-ALPN challenges are checked (Melete's HTTPS), and what's sent first there (a
+    /// PROXY header, as through a passthrough).
+    pub tls_at: Option<SocketAddr>,
+    pub tls_before: Vec<u8>,
     /// The certificates its renewal information was asked about.
     pub ari_asked: Vec<String>,
     /// Orders refused from now on, with this problem's detail.
@@ -89,6 +95,8 @@ pub async fn start(dns: SocketAddr) -> (String, Shared) {
         backdate: 60,
         window: None,
         checked_at: Vec::new(),
+        tls_at: None,
+        tls_before: Vec::new(),
         ari_asked: Vec::new(),
         refuse_orders: None,
         ca_params,
@@ -180,16 +188,16 @@ impl Fake {
             "identifier": {"type": "dns", "value": a.value},
             "wildcard": a.wildcard,
             "status": a.status,
-            "challenges": [{
-                "type": "dns-01",
-                "url": format!("{}/chall/{n}/{i}", self.base),
+            "challenges": (["dns-01", "tls-alpn-01"].map(|kind| json!({
+                "type": kind,
+                "url": format!("{}/{}/{n}/{i}", self.base, if kind == "dns-01" { "chall" } else { "alpn" }),
                 "token": a.token,
                 "status": match a.status { "valid" => "valid", "invalid" => "invalid", _ => "pending" },
                 "error": (a.status == "invalid").then(|| json!({
                     "type": "urn:ietf:params:acme:error:unauthorized",
-                    "detail": format!("No TXT record found at _acme-challenge.{}", a.value),
+                    "detail": format!("No TXT record found at _acme-challenge.{}, or no fitting certificate for {} over acme-tls/1", a.value, a.value),
                 })),
-            }],
+            }))),
         })
     }
 
@@ -239,6 +247,9 @@ async fn answer(
     let payload = b64(jws["payload"].as_str().unwrap_or(""));
     if let ["chall", n, i] = parts[..] {
         return challenge(&fake, n.parse().unwrap(), i.parse().unwrap()).await;
+    }
+    if let ["alpn", n, i] = parts[..] {
+        return alpn_challenge(&fake, n.parse().unwrap(), i.parse().unwrap()).await;
     }
     let mut fake = fake.lock().unwrap();
     match parts[..] {
@@ -419,5 +430,37 @@ async fn challenge(fake: &Shared, n: usize, i: usize) -> Response {
         "invalid"
     };
     let body = fake.authz_json(n, i)["challenges"][0].clone();
+    fake.reply(StatusCode::OK, None, body)
+}
+
+/// Checks a TLS-ALPN challenge as a CA does: Melete's HTTPS, asked for the name with
+/// `acme-tls/1` alone, shows a certificate whose acmeIdentifier holds the key authorization's
+/// digest.
+async fn alpn_challenge(fake: &Shared, n: usize, i: usize) -> Response {
+    let (at, before, name, expected) = {
+        let fake = fake.lock().unwrap();
+        let order = &fake.orders[n];
+        let a = &order.authz[i];
+        let thumb = &fake.accounts[order.account].0;
+        let digest = aws_lc_rs::digest::digest(
+            &aws_lc_rs::digest::SHA256,
+            format!("{}.{thumb}", a.token).as_bytes(),
+        );
+        (
+            fake.tls_at.unwrap(),
+            fake.tls_before.clone(),
+            a.value.clone(),
+            digest.as_ref().to_vec(),
+        )
+    };
+    let shown = alpn::shown(at, &before, &name, &[b"acme-tls/1"]).await;
+    let fits = shown.is_ok_and(|(leaf, agreed)| {
+        agreed.as_deref() == Some(&b"acme-tls/1"[..])
+            && alpn::acme_identifier(&leaf) == Some(expected)
+    });
+    let mut fake = fake.lock().unwrap();
+    fake.checked_at.push(std::time::Instant::now());
+    fake.orders[n].authz[i].status = if fits { "valid" } else { "invalid" };
+    let body = fake.authz_json(n, i)["challenges"][1].clone();
     fake.reply(StatusCode::OK, None, body)
 }
