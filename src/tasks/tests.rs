@@ -158,3 +158,16 @@ fn a_backlog_shows_its_progress_then_how_it_went() {
     );
     assert_eq!(stems().result.as_deref(), Some("9 made"));
 }
+
+#[test]
+fn a_task_waiting_for_its_first_run_is_on_with_its_time_or_ready() {
+    waiting("test-waiting-scheduled", Some(Duration::from_secs(600)));
+    waiting("test-waiting-ready", None);
+    let all = runs();
+    let scheduled = &all["test-waiting-scheduled"];
+    let at = scheduled.next_at.unwrap();
+    assert!((unix_now() + 598..=unix_now() + 600).contains(&at), "{at}");
+    assert!(!scheduled.running && scheduled.result.is_none());
+    let ready = &all["test-waiting-ready"];
+    assert_eq!(ready.next_at, None, "waits to be asked, but it's on");
+}
