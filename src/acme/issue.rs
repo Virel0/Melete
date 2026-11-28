@@ -14,7 +14,7 @@ use instant_acme::{
 use sqlx::SqlitePool;
 
 use super::stage::Stage;
-use crate::config::Acme;
+use crate::config::{Acme, Challenge};
 use crate::desec;
 
 /// Where the DNS challenge is answered: deSEC's API, and the nameservers a record is looked
@@ -110,8 +110,30 @@ async fn order(
     Ok(account.new_order(&NewOrder::new(&identifiers)).await?)
 }
 
-/// The DNS challenge values the order still needs, one per name not yet authorized.
-async fn values(order: &mut Order) -> anyhow::Result<Vec<String>> {
+/// A name the order still needs proved, and its key authorization's digest.
+struct Needed {
+    name: String,
+    digest: Vec<u8>,
+}
+
+impl Needed {
+    /// The digest as the DNS challenge's TXT value.
+    fn dns_value(&self) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&self.digest)
+    }
+}
+
+/// The challenge type the CA is answered with.
+fn kind(acme: &Acme) -> ChallengeType {
+    match acme.challenge {
+        Challenge::Dns => ChallengeType::Dns01,
+        Challenge::TlsAlpn => ChallengeType::TlsAlpn01,
+    }
+}
+
+/// What the order still needs, one for each name not yet authorized, by `kind` of challenge.
+async fn needed(order: &mut Order, kind: ChallengeType) -> anyhow::Result<Vec<Needed>> {
     let mut found = Vec::new();
     let mut authorizations = order.authorizations();
     while let Some(authorization) = authorizations.next().await {
@@ -122,15 +144,18 @@ async fn values(order: &mut Order) -> anyhow::Result<Vec<String>> {
             other => anyhow::bail!("the CA says a name's authorization is {other:?}"),
         }
         let challenge = authorization
-            .challenge(ChallengeType::Dns01)
-            .context("the CA offers no DNS challenge")?;
-        found.push(challenge.key_authorization().dns_value());
+            .challenge(kind.clone())
+            .with_context(|| format!("the CA offers no {kind:?} challenge"))?;
+        found.push(Needed {
+            name: challenge.identifier().to_string(),
+            digest: challenge.key_authorization().digest().as_ref().to_vec(),
+        });
     }
     Ok(found)
 }
 
-/// Tells the CA each pending challenge is ready, then waits for its verdict.
-async fn answer(order: &mut Order) -> anyhow::Result<()> {
+/// Tells the CA each pending challenge (of `kind`) is ready, then waits for its verdict.
+async fn answer(order: &mut Order, kind: ChallengeType) -> anyhow::Result<()> {
     let mut authorizations = order.authorizations();
     while let Some(authorization) = authorizations.next().await {
         let mut authorization = authorization?;
@@ -138,8 +163,8 @@ async fn answer(order: &mut Order) -> anyhow::Result<()> {
             continue;
         }
         let mut challenge = authorization
-            .challenge(ChallengeType::Dns01)
-            .context("the CA offers no DNS challenge")?;
+            .challenge(kind.clone())
+            .with_context(|| format!("the CA offers no {kind:?} challenge"))?;
         challenge.set_ready().await?;
     }
     let polling = RetryPolicy::new()
@@ -176,11 +201,19 @@ async fn challenge(
     acme: &Acme,
     reach: &Reach,
 ) -> anyhow::Result<()> {
-    let values = values(order).await.context(Stage::Challenge)?;
-    if values.is_empty() {
-        return answer(order).await.context(Stage::Challenge);
+    let needed = needed(order, kind(acme)).await.context(Stage::Challenge)?;
+    if needed.is_empty() {
+        return answer(order, kind(acme)).await.context(Stage::Challenge);
     }
-    let desec = desec::Client::new(&reach.desec_api, acme.desec_token.clone())?;
+    if acme.challenge == Challenge::TlsAlpn {
+        return tls_alpn(order, &needed).await;
+    }
+    let values: Vec<String> = needed.iter().map(Needed::dns_value).collect();
+    let token = acme
+        .desec_token
+        .clone()
+        .context("the DNS challenge needs a deSEC token")?;
+    let desec = desec::Client::new(&reach.desec_api, token)?;
     let zone = desec.zone(&acme.domain).await.context(Stage::Dns)?;
     let zone = zone
         .with_context(|| {
@@ -234,7 +267,24 @@ async fn set_and_answer(
         .context(Stage::Served)?;
     // Answered here isn't answered everywhere the CA checks from yet.
     tokio::time::sleep(acme.settle).await;
-    answer(order).await.context(Stage::Challenge)
+    answer(order, ChallengeType::Dns01)
+        .await
+        .context(Stage::Challenge)
+}
+
+/// Offers each name's challenge certificate on HTTPS while the CA checks it (TLS-ALPN-01), and
+/// takes them all back after, whatever it says.
+async fn tls_alpn(order: &mut Order, needed: &[Needed]) -> anyhow::Result<()> {
+    let mut offered = Vec::new();
+    for need in needed {
+        let made = crate::tls::challenge::made(&need.name, &need.digest)?;
+        offered.push(crate::tls::challenge::offer(&need.name, made));
+    }
+    let answered = answer(order, ChallengeType::TlsAlpn01)
+        .await
+        .context(Stage::Challenge);
+    drop(offered);
+    answered
 }
 
 /// Asks the CA on `account` for a certificate for `acme`'s names, by the DNS challenge.
