@@ -255,7 +255,7 @@ async fn record(
     } else {
         ("movies", "movie_id", "wanted_movies")
     };
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for m in moved {
         sqlx::query(
             "INSERT INTO trashed_files (library_id, rel_path, trash_path, size, download_id,

@@ -205,7 +205,7 @@ async fn record(
         ));
     }
     let me = current.user.id;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write(&state.pool).await?;
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO music_recent (user_id, kind, item, played_at, removed)
          VALUES (?1, ?2, ?3, {LATER}, 0)

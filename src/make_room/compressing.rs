@@ -72,7 +72,7 @@ pub async fn start(
         return Ok(Err(NotStarted::NothingToCompress));
     }
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for file in &files {
         sqlx::query(
             "INSERT INTO compressions (file_id, state, started_at) VALUES (?, 'waiting', ?)

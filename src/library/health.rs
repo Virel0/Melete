@@ -311,11 +311,33 @@ async fn check_with(
     Ok(changes)
 }
 
+/// Whether the first check since the server started is in, and who waits for it.
+static CHECKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FIRST_CHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Waits for the first check since the server started, so what reads the libraries at start
+/// knows which ones answer rather than going by what was stored before.
+pub async fn checked() {
+    let first = FIRST_CHECK.notified();
+    let mut first = std::pin::pin!(first);
+    first.as_mut().enable();
+    if !CHECKED.load(std::sync::atomic::Ordering::SeqCst) {
+        first.await;
+    }
+}
+
+fn first_check_in() {
+    CHECKED.store(true, std::sync::atomic::Ordering::SeqCst);
+    FIRST_CHECK.notify_waiters();
+}
+
 /// Reads every library's folder each minute for as long as the server runs, and tells admins
 /// when one stops or starts answering (`alerts`).
 pub async fn run(pool: SqlitePool, libraries: Vec<Library>) {
     loop {
-        match check(&pool, &libraries, LIMIT).await {
+        let checked = check(&pool, &libraries, LIMIT).await;
+        first_check_in();
+        match checked {
             // Admins are told, without holding up the next check.
             Ok(changes) => {
                 for change in changes {

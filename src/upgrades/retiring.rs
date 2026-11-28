@@ -341,7 +341,7 @@ async fn record_trashed(
     successor: &Current,
 ) -> sqlx::Result<()> {
     let at = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO trashed_files (library_id, rel_path, trash_path, size, download_id, replaced_by,
                  trashed_at)

@@ -239,7 +239,7 @@ pub(super) async fn write_profile(
     input: &ProfileInput,
     checked: &Checked,
 ) -> anyhow::Result<Result<i64, Refused>> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let written: Result<i64, sqlx::Error> = match id {
         None => {
             sqlx::query_scalar(

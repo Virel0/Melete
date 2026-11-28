@@ -1,5 +1,6 @@
 //! The database: opening `melete.db` with its migrations applied, and small helpers every
-//! module shares (the time now, spotting a duplicate).
+//! module shares (the time now, spotting a duplicate, a transaction that writes, a busy
+//! database).
 
 use std::path::Path;
 use std::time::Duration;
@@ -66,6 +67,67 @@ pub fn now_ms() -> i64 {
 /// Whether a database error is a UNIQUE constraint refusing a duplicate.
 pub fn unique_violation(err: &sqlx::Error) -> bool {
     matches!(err, sqlx::Error::Database(db) if db.is_unique_violation())
+}
+
+/// Starts a transaction that writes: it takes the write lock as it begins (`BEGIN
+/// IMMEDIATE`), waiting for it as long as the busy timeout allows. A plain `BEGIN` takes it
+/// only at the first write, and one that has read by then is refused at once with "database is
+/// locked" while another connection writes: SQLite can't let it wait, as its reads may be stale
+/// by the time the lock is free.
+pub async fn write(pool: &SqlitePool) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
+    pool.begin_with("BEGIN IMMEDIATE").await
+}
+
+/// Whether a database error is SQLite saying the database is busy or locked: tried again, it
+/// may go through.
+pub fn busy(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::Database(db)
+    if db.code().is_some_and(|code| {
+        // SQLITE_BUSY and SQLITE_LOCKED, with their extended codes.
+        code.parse::<i32>().is_ok_and(|code| matches!(code & 0xff, 5 | 6))
+    }))
+}
+
+/// An error that may be the database being busy.
+pub trait MaybeBusy {
+    fn is_busy(&self) -> bool;
+}
+
+impl MaybeBusy for sqlx::Error {
+    fn is_busy(&self) -> bool {
+        busy(self)
+    }
+}
+
+impl MaybeBusy for anyhow::Error {
+    fn is_busy(&self) -> bool {
+        self.chain()
+            .any(|err| err.downcast_ref::<sqlx::Error>().is_some_and(busy))
+    }
+}
+
+/// How many times [`retry_busy`] tries.
+const TRIES: u32 = 3;
+
+/// Runs `work` again, up to [`TRIES`] times in all, while it fails with the database busy, a
+/// second apart then two: for background steps, so a burst of other writes doesn't cost a run.
+pub async fn retry_busy<T, E, F, Fut>(what: &str, mut work: F) -> Result<T, E>
+where
+    E: MaybeBusy,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let mut tried = 1;
+    loop {
+        match work().await {
+            Err(err) if err.is_busy() && tried < TRIES => {
+                tracing::info!(what, tried, "the database was busy; trying again");
+                tokio::time::sleep(Duration::from_secs(u64::from(tried))).await;
+                tried += 1;
+            }
+            done => return done,
+        }
+    }
 }
 
 /// A migrated in-memory database, for tests. One connection, since each would get its own.
@@ -291,5 +353,126 @@ mod tests {
         .execute(&pool)
         .await;
         assert!(orphan.is_err());
+    }
+
+    /// Two connections to one file, as the server has.
+    async fn two_connections() -> (tempfile::TempDir, sqlx::SqlitePool) {
+        let dir = tempfile::tempdir().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("t.db"))
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE t (n INTEGER NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        (dir, pool)
+    }
+
+    /// A transaction that reads before it writes, begun with a plain BEGIN, is refused at once
+    /// while another connection writes, busy timeout or not; begun with [`super::write`], it
+    /// waits its turn and goes through.
+    #[tokio::test]
+    async fn a_write_transaction_waits_for_the_lock_rather_than_being_refused() {
+        let (_dir, pool) = two_connections().await;
+        let mut holding = super::write(&pool).await.unwrap();
+        sqlx::query("INSERT INTO t (n) VALUES (1)")
+            .execute(&mut *holding)
+            .await
+            .unwrap();
+
+        let mut plain = pool.begin().await.unwrap();
+        let _: i64 = sqlx::query_scalar("SELECT count(*) FROM t")
+            .fetch_one(&mut *plain)
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let refused = sqlx::query("INSERT INTO t (n) VALUES (2)")
+            .execute(&mut *plain)
+            .await
+            .unwrap_err();
+        assert!(super::busy(&refused), "{refused}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "not waited for"
+        );
+        drop(plain);
+
+        let second = pool.clone();
+        let waiting = tokio::spawn(async move {
+            let mut tx = super::write(&second).await.unwrap();
+            let seen: i64 = sqlx::query_scalar("SELECT count(*) FROM t")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO t (n) VALUES (3)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            seen
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        holding.commit().await.unwrap();
+        assert_eq!(
+            waiting.await.unwrap(),
+            1,
+            "it read after the other's commit"
+        );
+    }
+
+    /// A transaction begun with a plain BEGIN that reads, then writes while another connection
+    /// holds the write lock: refused at once.
+    async fn read_then_write(pool: &sqlx::SqlitePool) -> sqlx::Result<()> {
+        let mut tx = pool.begin().await?;
+        let _: i64 = sqlx::query_scalar("SELECT count(*) FROM t")
+            .fetch_one(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO t (n) VALUES (9)")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await
+    }
+
+    #[tokio::test]
+    async fn a_busy_step_is_tried_again_a_few_times_then_given_up() {
+        let (_dir, pool) = two_connections().await;
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let step = || {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            read_then_write(&pool)
+        };
+        // Busy for the first try only.
+        let mut holding = super::write(&pool).await.unwrap();
+        sqlx::query("INSERT INTO t (n) VALUES (1)")
+            .execute(&mut *holding)
+            .await
+            .unwrap();
+        let release = async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            holding.commit().await.unwrap();
+        };
+        let (done, ()) = tokio::join!(super::retry_busy("a test", step), release);
+        done.unwrap();
+        assert_eq!(tries.swap(0, std::sync::atomic::Ordering::SeqCst), 2);
+        // Busy throughout: given up after three tries, still busy.
+        let mut holding = super::write(&pool).await.unwrap();
+        sqlx::query("INSERT INTO t (n) VALUES (1)")
+            .execute(&mut *holding)
+            .await
+            .unwrap();
+        let given_up = super::retry_busy("a test", step).await.unwrap_err();
+        assert!(super::busy(&given_up), "{given_up}");
+        assert_eq!(
+            tries.load(std::sync::atomic::Ordering::SeqCst),
+            super::TRIES
+        );
+        holding.rollback().await.unwrap();
     }
 }

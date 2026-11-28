@@ -55,13 +55,8 @@ async fn waiting(
     .await
 }
 
-/// Which of `requests` brought their song: each as (request, the track). A track of the
-/// request's recording comes first, the lowest id when several are; else the track its wanted
-/// song's imported downloads placed, by its path, when they placed exactly one; else the track
-/// fetched for it from YouTube (`song_youtube`), by its path in the song's library.
-async fn arrived(pool: &SqlitePool, requests: &[i64]) -> sqlx::Result<Vec<(i64, i64)>> {
-    sqlx::query_as(
-        "WITH asked AS (
+/// [`arrived`]'s query, with the requests as a JSON array.
+pub(super) const ARRIVED: &str = "WITH asked AS (
              SELECT id, mb_recording_id, wanted_song_id FROM requests
              WHERE kind = 'song' AND id IN (SELECT value FROM json_each(?))),
          by_recording AS (
@@ -72,10 +67,10 @@ async fn arrived(pool: &SqlitePool, requests: &[i64]) -> sqlx::Result<Vec<(i64, 
          by_download AS (
              SELECT a.id, min(t.id) AS track FROM asked a
              JOIN downloads d ON d.wanted_song_id = a.wanted_song_id AND d.state = 'imported'
-             JOIN json_each(d.placed) p
-             JOIN libraries l
+             CROSS JOIN json_each(d.placed) p
+             CROSS JOIN libraries l
                   ON substr(p.value, 1, length(rtrim(l.path, '/')) + 1) = rtrim(l.path, '/') || '/'
-             JOIN music_tracks t ON t.library_id = l.id AND t.missing_since IS NULL
+             CROSS JOIN music_tracks t ON t.library_id = l.id AND t.missing_since IS NULL
                   AND t.rel_path = substr(p.value, length(rtrim(l.path, '/')) + 2)
              GROUP BY a.id
              HAVING count(DISTINCT t.id) = 1),
@@ -90,11 +85,19 @@ async fn arrived(pool: &SqlitePool, requests: &[i64]) -> sqlx::Result<Vec<(i64, 
          LEFT JOIN by_recording r ON r.id = a.id
          LEFT JOIN by_download d ON d.id = a.id
          LEFT JOIN by_youtube y ON y.id = a.id
-         WHERE coalesce(r.track, d.track, y.track) IS NOT NULL",
-    )
-    .bind(Value::from(requests.to_vec()).to_string())
-    .fetch_all(pool)
-    .await
+         WHERE coalesce(r.track, d.track, y.track) IS NOT NULL";
+
+/// Which of `requests` brought their song: each as (request, the track). A track of the
+/// request's recording comes first, the lowest id when several are; else the track its wanted
+/// song's imported downloads placed, by its path, when they placed exactly one; else the track
+/// fetched for it from YouTube (`song_youtube`), by its path in the song's library. The
+/// download's placed paths are joined to tracks in that order (`CROSS JOIN`): left to choose,
+/// SQLite read every track once for each request.
+async fn arrived(pool: &SqlitePool, requests: &[i64]) -> sqlx::Result<Vec<(i64, i64)>> {
+    sqlx::query_as(ARRIVED)
+        .bind(Value::from(requests.to_vec()).to_string())
+        .fetch_all(pool)
+        .await
 }
 
 /// Swaps each song the library now has in for the items still pending on its request, in

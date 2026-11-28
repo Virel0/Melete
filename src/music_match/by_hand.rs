@@ -55,7 +55,7 @@ pub async fn match_by_hand(
         Err(err) => anyhow::bail!(err.to_string()),
     };
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     store_release(&mut tx, &release, now).await?;
     sqlx::query(
         "UPDATE music_albums SET match_status = 'matched', match_method = 'manual',
@@ -95,7 +95,7 @@ pub async fn match_by_hand(
 /// Records that an album has no MusicBrainz release; matching never tries it again. Returns
 /// false when there's no such album.
 pub async fn no_match(pool: &SqlitePool, album_id: i64) -> anyhow::Result<bool> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let changed = sqlx::query(
         "UPDATE music_albums SET match_status = 'unmatched', match_method = 'manual',
              match_release_id = NULL, match_release_group_id = NULL, match_candidates = NULL,

@@ -1,0 +1,5 @@
+Decision: Database transactions that write begin with `BEGIN IMMEDIATE` (`db::write`), taking the write lock as they start and waiting up to the 5-second busy timeout for it; a scan's record is tried again twice, a second and then two apart, when the database is still busy. When Melete starts, once the first library check is in, it reads the times of each answering library's title folders and the folders right inside them, and scans what changed since the library's last whole scan: those title folders, or the library whole when a title folder is new at the top (it may be one renamed) or for music, or past 200 changed folders. A library never scanned is still left for someone to ask. This amends decision 257: a start now reads two levels of folder times, though it still doesn't scan unchanged libraries.
+
+Why: A transaction that read before it wrote was refused at once with "database is locked" whenever another connection was writing, since SQLite can't let a transaction that has read wait for the lock; the busy timeout never applied to it. Changes made while Melete was down otherwise waited for the next scheduled scan, which can be a day away.
+
+Date: 2026-11-27

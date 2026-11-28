@@ -30,7 +30,7 @@ pub(super) async fn link_identity(
     user_id: i64,
     identity: &Identity,
 ) -> anyhow::Result<Linked> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id = ?")
         .bind(user_id)
         .fetch_optional(&mut *tx)

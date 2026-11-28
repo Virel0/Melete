@@ -14,7 +14,7 @@ pub(super) async fn store(
         Err(err) => (&Measurement::default(), Some(err.to_string())),
     };
     let now = unix_ms();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     store_bounds(&mut tx, track_id, modified_at, &error, measured, now).await?;
     store_analysis(&mut tx, track_id, modified_at, &error, measured, now).await?;
     store_beat_grid(&mut tx, track_id, modified_at, &error, measured, now).await?;

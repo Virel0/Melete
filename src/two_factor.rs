@@ -169,7 +169,7 @@ pub async fn confirm(
     code: &str,
     now: i64,
 ) -> sqlx::Result<Confirmed> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let row: Option<(Vec<u8>, Option<i64>)> =
         sqlx::query_as("SELECT secret, confirmed_at FROM two_factor WHERE user_id = ?")
             .bind(user_id)
@@ -247,7 +247,7 @@ fn opened(sealing: bool, user_id: i64, stored: &[u8]) -> sqlx::Result<Vec<u8>> {
 /// Removes the user's second factor, on or still being set up, with any sign-in waiting for a
 /// code. Records the change when it was on; true when it was.
 pub async fn remove(pool: &SqlitePool, user_id: i64, from: MadeFrom) -> sqlx::Result<bool> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let removed: Option<Option<i64>> =
         sqlx::query_scalar("DELETE FROM two_factor WHERE user_id = ? RETURNING confirmed_at")
             .bind(user_id)

@@ -91,7 +91,7 @@ pub async fn store(
 /// chosen country counts at once, with nothing fetched again.
 pub async fn reread(pool: &SqlitePool) -> sqlx::Result<()> {
     let country = country(pool).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let rows: Vec<(bool, i64, String, Option<i64>)> =
         sqlx::query_as("SELECT tv, tmdb_id, certifications, age FROM tmdb_ratings")
             .fetch_all(&mut *tx)
