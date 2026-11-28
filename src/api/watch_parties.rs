@@ -64,6 +64,10 @@ pub fn routes_with(
             axum::routing::put(waiting),
         )
         .route(
+            "/api/v1/watch-parties/{id}/up-next",
+            axum::routing::put(up_next),
+        )
+        .route(
             "/api/v1/watch-parties/{id}/guests/{guest}",
             axum::routing::delete(send_away),
         )
@@ -275,6 +279,41 @@ async fn waiting(
         current.user.username.as_str(),
     );
     watch_party::waits::set(&state.pool, id, who, body.waiting).await?;
+    answer(&state.pool, current.token_id, id).await
+}
+
+#[derive(Deserialize)]
+struct UpNextBody {
+    /// The next film's or episode's file; null clears it.
+    file_id: Option<i64>,
+    /// When it starts, Unix milliseconds on the server's clock.
+    starts_at: Option<i64>,
+}
+
+/// The host's player says what the party plays next and when (its countdown), or that nothing
+/// does: everyone's player shows the same countdown. Only the host moves the party on.
+async fn up_next(
+    State(state): State<PartyState>,
+    Extension(current): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpNextBody>,
+) -> Result<Json<Value>, ApiError> {
+    let next = match (body.file_id, body.starts_at) {
+        (None, _) => None,
+        (Some(file_id), Some(starts_at)) => {
+            require_playable(&state.pool, &current.access, file_id).await?;
+            Some(watch_party::up_next::UpNext { file_id, starts_at })
+        }
+        (Some(_), None) => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "starts_at says when the next file starts",
+            ));
+        }
+    };
+    watch_party::up_next::set(&state.pool, (current.user.id, current.token_id), id, next)
+        .await?
+        .map_err(refused)?;
     answer(&state.pool, current.token_id, id).await
 }
 

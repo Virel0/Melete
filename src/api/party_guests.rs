@@ -310,9 +310,10 @@ async fn play(
     })))
 }
 
-/// The guest's party as it changes, as `watch_party` events (`{party, server_time}`), and
-/// `null` once it has ended or they've left; then the stream ends. It ends after 10 minutes
-/// too, for the browser to open again.
+/// The guest's party as it changes, as `watch_party` events (`{party, server_time}`). Once
+/// it has ended for them, a `watch_party_over` event says why (`{reason}`: `ended`,
+/// `sent_away` or `left`, or null when that's no longer known), then `null`, and the stream
+/// ends. It ends after 10 minutes too, for the browser to open again.
 async fn events(
     State(state): State<GuestState>,
     Extension(guest): Extension<Guest>,
@@ -327,8 +328,12 @@ async fn events(
         true,
         crate::watch_party::changes(),
     );
-    let stream = futures_util::stream::unfold(Some(start), move |state| async move {
-        let (pool, guest, mut sent, mut first, mut wake) = state?;
+    let stream = futures_util::stream::unfold(Some((start, false)), move |state| async move {
+        let ((pool, guest, mut sent, mut first, mut wake), over) = state?;
+        if over {
+            let event = Event::default().event("watch_party").data("null");
+            return Some((Ok(event), None));
+        }
         if tokio::time::Instant::now() >= until {
             return None;
         }
@@ -347,15 +352,19 @@ async fn events(
                 None
             };
             let Some(seen) = seen else {
-                let event = Event::default().event("watch_party").data("null");
-                return Some((Ok(event), None));
+                let reason = guests::gone_why(&pool, guest.id).await.ok().flatten();
+                let data = json!({ "reason": reason });
+                let event = Event::default()
+                    .event("watch_party_over")
+                    .data(data.to_string());
+                return Some((Ok(event), Some(((pool, guest, sent, false, wake), true))));
             };
             let data = json!({ "party": seen, "server_time": crate::db::now_ms() });
             let key = seen.to_string();
             if sent.as_deref() != Some(&key) {
                 sent = Some(key);
                 let event = Event::default().event("watch_party").data(data.to_string());
-                return Some((Ok(event), Some((pool, guest, sent, false, wake))));
+                return Some((Ok(event), Some(((pool, guest, sent, false, wake), false))));
             }
             if tokio::time::Instant::now() >= until {
                 return None;

@@ -100,6 +100,11 @@ pub async fn accept(
     .bind(now_ms())
     .fetch_one(&mut *tx)
     .await?;
+    // An id used before, by a guest who went, is this guest's now.
+    sqlx::query("DELETE FROM watch_party_guests_gone WHERE guest_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     tracing::info!(party = party_id, guest = id, "a guest joined a watch party");
     Ok(Ok((pass, Guest { id, party_id, name })))
@@ -200,8 +205,46 @@ pub async fn set(
     Ok(Ok(()))
 }
 
+/// Why a guest is no longer in their party, for their event stream's last word: `ended`,
+/// `sent_away` or `left`. None while they're in it, or once it's been forgotten.
+pub async fn gone_why(pool: &SqlitePool, guest_id: i64) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT reason FROM watch_party_guests_gone WHERE guest_id = ?")
+        .bind(guest_id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Notes why a guest is going, before they go (a party that ends notes it for its guests).
+async fn going(pool: &SqlitePool, guest_id: i64, reason: &str) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO watch_party_guests_gone (guest_id, party_id, reason, at)
+         SELECT id, party_id, ?, ? FROM watch_party_guests WHERE id = ?
+         ON CONFLICT (guest_id) DO UPDATE SET party_id = excluded.party_id,
+             reason = excluded.reason, at = excluded.at",
+    )
+    .bind(reason)
+    .bind(now_ms())
+    .bind(guest_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// How long why a guest went is kept.
+const GONE_FOR_MS: i64 = 3600 * 1000;
+
+/// Forgets why guests went, an hour on.
+pub(super) async fn forget_gone(pool: &SqlitePool) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM watch_party_guests_gone WHERE at < ?")
+        .bind(now_ms() - GONE_FOR_MS)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// The guest leaves; their pass and stream links end.
 pub async fn leave(pool: &SqlitePool, guest_id: i64) -> sqlx::Result<()> {
+    going(pool, guest_id, "left").await?;
     let party: Option<i64> =
         sqlx::query_scalar("DELETE FROM watch_party_guests WHERE id = ? RETURNING party_id")
             .bind(guest_id)
@@ -222,6 +265,16 @@ pub async fn send_away(
 ) -> anyhow::Result<Result<(), Refused>> {
     if host_for(pool, token_id, id).await?.is_none() {
         return Ok(Err(Refused::NotFound));
+    }
+    let theirs: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM watch_party_guests WHERE id = ? AND party_id = ?)",
+    )
+    .bind(guest_id)
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
+    if theirs {
+        going(pool, guest_id, "sent_away").await?;
     }
     let gone = sqlx::query("DELETE FROM watch_party_guests WHERE id = ? AND party_id = ?")
         .bind(guest_id)
@@ -299,14 +352,7 @@ pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value
     .fetch_optional(pool)
     .await?;
     let Some(seen) = seen else { return Ok(None) };
-    let title = match (seen.movie, seen.series, seen.season, seen.episode) {
-        (Some(movie), ..) => movie,
-        (None, Some(series), Some(season), Some(episode)) => {
-            format!("{series}, season {season} episode {episode}")
-        }
-        (None, Some(series), ..) => series,
-        _ => "What's playing".to_owned(),
-    };
+    let title = super::up_next::title(seen.movie, seen.series, seen.season, seen.episode);
     let guests: Vec<Value> = of_party(pool, guest.party_id)
         .await?
         .into_iter()
@@ -325,6 +371,7 @@ pub async fn view(pool: &SqlitePool, guest: &Guest) -> sqlx::Result<Option<Value
         "household": seen.household,
         "held": seen.held,
         "waiting": waiting,
+        "up_next": super::up_next::view(pool, guest.party_id).await?,
         "guests": guests,
     })))
 }

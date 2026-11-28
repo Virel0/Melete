@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use crate::db::now_ms;
 
 pub mod guests;
+pub mod up_next;
 pub mod waits;
 
 /// Bumped at each change to a party, so the event streams send it at once instead of at their
@@ -111,6 +112,7 @@ async fn tidy(pool: &SqlitePool) -> sqlx::Result<()> {
     .bind(now_ms() - IDLE_MS)
     .fetch_all(pool)
     .await?;
+    guests::forget_gone(pool).await?;
     for party in ended {
         tracing::info!(
             party,
@@ -320,6 +322,9 @@ pub async fn set(
     if changed != 1 {
         return Ok(Err(Refused::Stale));
     }
+    if file != state.file_id {
+        up_next::moved_on(pool, id).await?;
+    }
     // Played or paused by hand: that ends any waiting.
     waits::clear(pool, id).await?;
     Ok(Ok(()))
@@ -402,6 +407,7 @@ pub async fn for_device(pool: &SqlitePool, token_id: i64) -> anyhow::Result<Vec<
             "guest_max_bitrate": row.guest_max_bitrate,
             "held": row.held,
             "waiting": waiting.remove(&row.id).unwrap_or_default(),
+            "up_next": up_next::view(pool, row.id).await?,
             "guests": guests::of_party(pool, row.id).await?,
             "members": members.into_iter().map(|(user_id, user, device, you)| json!({
                 "username": user, "avatar_url": pictures.get(&user_id), "device": device,
