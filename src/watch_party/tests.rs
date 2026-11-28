@@ -205,7 +205,14 @@ async fn the_log_says_when_parties_and_guests_come_and_go_by_id_alone() {
         );
     }
     // Ids only: no names, invites or passes.
-    for secret in ["alice", "bob", "Sam", "Kim", &invite, &pass] {
-        assert!(!text.contains(secret), "{secret} in:\n{text}");
+    for (what, secret) in [
+        ("a user's name", "alice"),
+        ("another user's name", "bob"),
+        ("a guest's name", "Sam"),
+        ("another guest's name", "Kim"),
+        ("an invite", invite.as_str()),
+        ("a guest's pass", pass.as_str()),
+    ] {
+        assert!(!text.contains(secret), "{what} is in the log");
     }
 }
