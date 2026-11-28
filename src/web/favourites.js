@@ -17,7 +17,7 @@ const path = (kind, id) => `/me/favourites/${kind === "movie" ? "movies" : "seri
 // ("movie" or "series"), `id` and `title`.
 export function myListToggle() {
   const mark = h("span", { class: "mark" }, icon("plus"));
-  const button = h("button", { type: "button", class: "quiet my-list", "aria-pressed": "false", disabled: true }, mark, "My List");
+  const button = h("button", { type: "button", class: "tertiary with-icon my-list", "aria-pressed": "false", disabled: true }, mark, "My List");
   const states = new Map();
   let item = null;
   const key = (i) => `${i.kind}:${i.id}`;

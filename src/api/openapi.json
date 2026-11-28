@@ -19188,7 +19188,8 @@
           "expires_at",
           "address",
           "server",
-          "wireguard_config"
+          "wireguard_config",
+          "wireguard_config_qr"
         ],
         "properties": {
           "invite": {
@@ -19214,6 +19215,10 @@
           "wireguard_config": {
             "type": "string",
             "description": "The peer's WireGuard config (`[Interface]` with its private key and address; `[Peer]` with Melete's public key, a preshared key, Melete's tunnel address as the only allowed IP, and the endpoint), shown this once."
+          },
+          "wireguard_config_qr": {
+            "type": ["string", "null"],
+            "description": "The same config as a QR code, for a phone's WireGuard app to scan: an SVG element (`<svg …>`, no XML prolog) drawn by the server, one unit of its viewBox per module with the quiet zone around it, black on white. It holds the guest's private key as the config does, and is shown this once. Null if the config were ever too long for one code."
           }
         },
         "additionalProperties": false
@@ -19252,6 +19257,8 @@
           "held",
           "waiting",
           "up_next",
+          "waits",
+          "last_change",
           "guests"
         ],
         "properties": {
@@ -19304,6 +19311,12 @@
             "description": "Who it waits for: guests by name, and \"someone from the household\" for a household device."
           },
           "up_next": {"$ref": "#/components/schemas/PartyUpNext"},
+          "waits": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PartyWait"},
+            "description": "The same waits, first first, each with when it began and when the party gives up on it; a household device is \"someone from the household\"."
+          },
+          "last_change": {"$ref": "#/components/schemas/PartyLastChange"},
           "guests": {
             "type": "array",
             "items": {
@@ -19521,6 +19534,8 @@
           "held",
           "waiting",
           "up_next",
+          "waits",
+          "last_change",
           "guests",
           "members"
         ],
@@ -19600,6 +19615,12 @@
             "description": "Who it waits for: usernames and guests' names, first first."
           },
           "up_next": {"$ref": "#/components/schemas/PartyUpNext"},
+          "waits": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PartyWait"},
+            "description": "The same waits, first first, each with when it began and when the party gives up on it."
+          },
+          "last_change": {"$ref": "#/components/schemas/PartyLastChange"},
           "guests": {
             "type": "array",
             "items": {
@@ -19633,6 +19654,31 @@
           "file_id": {"type": "integer"},
           "title": {"type": "string", "description": "The film's name, or the series' with its season and episode."},
           "starts_at": {"type": "integer", "description": "Unix milliseconds on the server's clock."}
+        },
+        "additionalProperties": false
+      },
+      "PartyWait": {
+        "type": "object",
+        "required": ["name", "guest", "you", "since", "ends_at"],
+        "properties": {
+          "name": {"type": "string", "description": "Who it waits for: a username for those of the household, a guest's name, or \"someone from the household\" when a guest asks."},
+          "guest": {"type": "boolean"},
+          "you": {"type": "boolean", "description": "It waits for the one asking."},
+          "since": {"type": "integer", "description": "When this wait began, Unix milliseconds on the server's clock."},
+          "ends_at": {"type": "integer", "description": "When the party stops waiting for them and plays on (30 seconds on), unless they're ready sooner."}
+        },
+        "additionalProperties": false
+      },
+      "PartyLastChange": {
+        "type": ["object", "null"],
+        "description": "What last changed in the party and who did it; null before anyone has. A change that leaves it as it was (the same file, playing or paused as before, within 2 seconds of where it would be) isn't one; pausing to wait for someone, and playing on after, aren't either (`held` and `waits` say those).",
+        "required": ["by", "guest", "you", "kind", "at"],
+        "properties": {
+          "by": {"type": "string", "description": "A username for those of the household, a guest's name; to a guest, \"someone from the household\" for a member of it, and to everyone for a member whose account has gone."},
+          "guest": {"type": "boolean"},
+          "you": {"type": "boolean", "description": "The one asking made it."},
+          "kind": {"enum": ["play", "pause", "seek", "next"], "description": "play or pause; seek, a jump of 2 seconds or more; next, another file (only the host moves it on)."},
+          "at": {"type": "integer", "description": "When, Unix milliseconds on the server's clock."}
         },
         "additionalProperties": false
       },

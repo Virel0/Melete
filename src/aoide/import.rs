@@ -10,8 +10,10 @@
 //!
 //! Users are mapped by hand, Jellyfin user id to Melete name, and every one in the file must be
 //! mapped or skipped. Tracks are found by the `contentKey` each record carries, the apps' own
-//! key for relinking a track whose id changed (`artist|album|title|seconds`); a key that fits
-//! no track, or more than one, is listed and its record left as it was, never guessed.
+//! key for relinking a track whose id changed (`artist|album|title|seconds`), by any artist a
+//! track is credited to, and on another album when the key's fits none (`matching`); a key that
+//! fits no track, or more than one still tied, is listed and its record left as it was, never
+//! guessed.
 //! Without `--apply` nothing is written.
 
 use std::collections::{BTreeMap, HashMap, HashSet};

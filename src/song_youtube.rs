@@ -2,8 +2,9 @@
 //! trailer downloader beside Melete, behind the VPN. A wanted song is tried once Soulseek has
 //! been searched for it and nothing is on its way or in the library: nothing fitted, or every
 //! Soulseek download of it failed (a peer refused it, say, as many times as the next source
-//! goes), [`SETTLED`] after the last of those. Songs wanted before this was turned on are tried
-//! the same way, the newest first; one at a time.
+//! goes), [`SETTLED`] after the last of those. Soulseek's searches again a day later
+//! ([`crate::soulseek_again`]) aren't waited for. Songs wanted before this was turned on are
+//! tried the same way, the newest first; one at a time.
 //!
 //! Two jobs go to the downloader through its job folder, as trailers' do: a search of YouTube
 //! for the song's artist and title (`song-<id>-search`), whose results Melete chooses from

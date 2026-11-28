@@ -62,6 +62,15 @@ Contrast, measured on the dark values: `--text-soft` on `--bg` is 12.3:1 and on 
 11.2:1; `--muted` on `--surface-raised` is 5.7:1; `--bg` on `--accent-hover` is 10.5:1 and
 on `--danger` 8.2:1.
 
+Light values chosen so far: `--surface-hover` `#dedbd4`, `--text-soft` `#34363b`,
+`--accent-hover` `#744b0f` (darker than the light accent, since its ink is white). The
+`--on-art-*` veils sit over art, which is dark in both themes, so they keep one value.
+`--on-art-hover` (`rgb(236 233 226 / 0.24)`) is the veil under the pointer. Then
+`--surface-sunk` `#efede8` (a step below the light page, as white cards are a step above it)
+and `--accent-tint` `#f5e9d6`. `--shadow-float` (`0 24px 64px` at 50% black, 18% in the light
+theme) is the one shadow for what floats: menus, the command palette, the bar of what's
+chosen.
+
 ## Type
 
 Headings use the body font, set apart by size and weight. Whether headings get a font file of
@@ -131,6 +140,12 @@ and the seek preview in the player. Cards don't have them.
 A group of tertiary buttons can follow the primary and secondary ones after a thin
 divider (1 by 28 px, `--text` at 20%), as on a title's page.
 
+In the code, primary is the plain `button` (or `a.button`), secondary is `.quiet`, tertiary is
+`.tertiary` (with `.with-icon` when it has an icon in front), and icon buttons are
+`button.icon.filled`; a plain `button.icon` stays the player's unfilled control. An icon
+button's tooltip is drawn from its `aria-label`; `.tip-end` opens it towards the start, for
+buttons at the end of a row.
+
 ## Focus
 
 The focus ring stays as `app.css` has it: 3 px of `--accent`, 2 px out. On a fill that is
@@ -171,7 +186,7 @@ Only where a section has pages of its own:
 Group labels are 13 px, weight 600, `--muted`. Pinned items show a 32 px picture before the
 name.
 
-Watch has no sidebar for now; whether it gets one on wide screens is open.
+Watch has no sidebar: its sections stay in the header at every width.
 
 ### On phones
 
@@ -180,7 +195,11 @@ Watch has no sidebar for now; whether it gets one on wide screens is open.
   colour at 72%.
 - The side's main sections move to a bar fixed to the bottom: four entries with a 24 px icon
   over a 12 px label, on `--surface`, with room under them for the home indicator. The
-  current one is `--accent` at weight 650. On Watch they are Home, Movies, Shows and My List.
+  current one is `--accent` at weight 650. On Watch they are Home, Movies, Shows and My List;
+  on Listen Home, Albums, Artists and Songs; on Manage its first four services. A side with
+  more sections than five gets a fifth entry, More, which opens the rest as a sheet from the
+  foot of the screen, so every section stays one or two taps away. Manage's services show
+  their count as a dot on the icon, read out with the name.
 - Rows of tiles scroll sideways.
 
 ### The now-playing bar
@@ -354,4 +373,3 @@ Each page follows the rules above. This table says which shape each page takes.
 
 - The light theme's values for the new tokens.
 - One font file for headings, served by Melete itself, or the system font throughout.
-- A sidebar for Watch on wide screens.

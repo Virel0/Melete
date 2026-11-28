@@ -47,6 +47,9 @@ impl std::fmt::Display for Solver {
 }
 
 /// Talks to one FlareSolverr.
+/// What a refusal to fetch through the proxy says to do about it.
+pub const WHAT_TO_DO: &str = "This indexer needs FlareSolverr, which can't use the proxy: turn the proxy off for it (indexers that need FlareSolverr are best off it, as Cloudflare checks VPN addresses much harder), or, when FlareSolverr already shares the VPN's network, turn on Already behind the VPN under Outside services, FlareSolverr";
+
 #[derive(Clone)]
 pub struct Client {
     http: crate::proxy::Http,
@@ -54,6 +57,9 @@ pub struct Client {
     endpoint: String,
     /// Whether the pages it fetches are for an indexer set to go through the proxy.
     through: bool,
+    /// Whether it already reaches sites through the VPN (`MELETE_FLARESOLVERR_BEHIND_VPN`), so
+    /// it fetches those pages from its own address rather than being handed the proxy.
+    behind_vpn: bool,
 }
 
 impl Client {
@@ -72,7 +78,15 @@ impl Client {
             http,
             endpoint: format!("{}/v1", base.trim_end_matches('/')),
             through: false,
+            behind_vpn: false,
         })
+    }
+
+    /// The same solver, said to be behind the VPN already (as one sharing the VPN container's
+    /// network is): pages for an indexer set to go through the proxy are then fetched from its
+    /// own address, and it's never handed the proxy.
+    pub fn behind_vpn(self, behind_vpn: bool) -> Self {
+        Self { behind_vpn, ..self }
     }
 
     /// The same solver, its browser fetching through the proxy when `proxy` is true.
@@ -89,20 +103,24 @@ impl Client {
     /// fetched from the solver's own address: an HTTPS proxy (the browser takes none), and a
     /// proxy with a login, whose password would otherwise travel in FlareSolverr's request
     /// body, and over plain http on the way there. So is a solver that doesn't say it's
-    /// FlareSolverr [`PROXY_FROM`] or later, which may leave the field unread.
+    /// FlareSolverr [`PROXY_FROM`] or later, which may leave the field unread. Each refusal says
+    /// what to do ([`WHAT_TO_DO`]). A solver behind the VPN already is handed nothing.
     async fn proxy_field(&self) -> Result<Option<Value>, String> {
         use crate::proxy::Kind;
-        if !self.through {
+        if !self.through || self.behind_vpn {
             return Ok(None);
         }
         let applied = crate::proxy::current();
         let Some(proxy) = &applied.setup.at else {
-            return Err(crate::proxy::Unreachable::NoProxy.to_string());
+            return Err(format!(
+                "{}; {WHAT_TO_DO}",
+                crate::proxy::Unreachable::NoProxy
+            ));
         };
         let at = format!("{}:{}", proxy.host, proxy.port);
         let refused = |why: &str| {
             Err(format!(
-                "{why}: the proxy at {} isn't handed to it, and nothing was sent; it never goes direct",
+                "{why}: the proxy at {} isn't handed to it, and nothing was sent; it never goes direct. {WHAT_TO_DO}",
                 proxy.address()
             ))
         };
@@ -119,10 +137,12 @@ impl Client {
         match self.ready().await {
             Ok(Solver::FlareSolverr(Some(version))) if takes_a_proxy(&version) => Ok(Some(field)),
             Ok(Solver::FlareSolverr(version)) => Err(format!(
-                "FlareSolverr {} may not read the proxy it's handed (it does from {PROXY_FROM}), so nothing was sent through it",
+                "FlareSolverr {} may not read the proxy it's handed (it does from {PROXY_FROM}), so nothing was sent through it. {WHAT_TO_DO}",
                 version.as_deref().unwrap_or("of an unknown version")
             )),
-            Ok(Solver::Compatible) => Err("the solver at FlareSolverr's address isn't FlareSolverr itself, so it isn't trusted to fetch through the proxy, and nothing was sent".into()),
+            Ok(Solver::Compatible) => Err(format!(
+                "the solver at FlareSolverr's address isn't FlareSolverr itself, so it isn't trusted to fetch through the proxy, and nothing was sent. {WHAT_TO_DO}"
+            )),
             Err(why) => Err(why),
         }
     }

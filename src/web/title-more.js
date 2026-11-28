@@ -34,9 +34,9 @@ const route = (kind) => (kind === "movie" ? "movies" : "series");
 export function moreLinks(kind, title, extras, credits) {
   const base = `#/${route(kind)}/${title.id}`;
   const links = [
-    extras.length ? h("a", { class: "button quiet", href: `${base}/extras` }, `Extras (${extras.length})`) : null,
-    credits.cast.length || credits.crew.length ? h("a", { class: "button quiet", href: `${base}/cast` }, "Cast and crew") : null,
-    credits.collection ? h("a", { class: "button quiet", href: `#/collections/${credits.collection.id}` }, `Part of ${credits.collection.name}`) : null,
+    extras.length ? h("a", { class: "button tertiary", href: `${base}/extras` }, `Extras (${extras.length})`) : null,
+    credits.cast.length || credits.crew.length ? h("a", { class: "button tertiary", href: `${base}/cast` }, "Cast and crew") : null,
+    credits.collection ? h("a", { class: "button tertiary", href: `#/collections/${credits.collection.id}` }, `Part of ${credits.collection.name}`) : null,
   ].filter(Boolean);
   return links.length ? h("nav", { class: "title-more", "aria-label": `More about ${title.title}` }, links) : null;
 }

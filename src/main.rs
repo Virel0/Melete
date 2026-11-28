@@ -73,6 +73,7 @@ mod musicbrainz;
 mod offline;
 mod oidc;
 mod opensubtitles;
+mod own_service;
 mod picture_listings;
 mod playlist_import;
 mod plays;
@@ -80,6 +81,7 @@ mod probe;
 mod profiles;
 mod progress;
 mod proxy;
+mod qr;
 mod quick_connect;
 mod ratings;
 mod release;
@@ -141,6 +143,8 @@ use tokio::signal::unix::{SignalKind, signal};
 async fn main() -> anyhow::Result<()> {
     jobs::note_start();
     logging::init();
+    // Before anything else: an image put on another service's variable stops here, saying so.
+    own_service::check()?;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if show_seedbox_host_key(&args).await? {

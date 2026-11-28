@@ -329,12 +329,20 @@ pub const SERVICES: &[Service] = &[
         group: Group::Downloading,
         purpose: "Trackers behind Cloudflare's check",
         about: "Reaching trackers behind Cloudflare's browser check (Uindex), through FlareSolverr or a solver that copies its API, such as Byparr. The Test checks the solver answers and fetches no page, so whether it gets past a check shows on the first search through it.",
-        fields: &[field(
-            "MELETE_FLARESOLVERR_URL",
-            "FlareSolverr's address",
-            "e.g. http://flaresolverr:8191.",
-            Input::Text,
-        )],
+        fields: &[
+            field(
+                "MELETE_FLARESOLVERR_URL",
+                "FlareSolverr's address",
+                "e.g. http://flaresolverr:8191.",
+                Input::Text,
+            ),
+            field(
+                "MELETE_FLARESOLVERR_BEHIND_VPN",
+                "Already behind the VPN",
+                "On when FlareSolverr shares the VPN container's network, so indexers going through the proxy can use it. Indexers that need FlareSolverr are best left off the proxy: Cloudflare checks VPN addresses much harder.",
+                Input::Toggle { on: "on" },
+            ),
+        ],
     },
     proxy::PROXY,
     vpn::VPN,

@@ -126,6 +126,10 @@ capabilities.
    MELETE_IMAGE=ghcr.io/virel0/melete:0.10.0@sha256:<digest>
    ```
 
+   The stem separator and the trailer downloader have their own (`MELETE_STEMS_IMAGE`,
+   `MELETE_TRAILERS_IMAGE`). Each image checks which service it runs as, so a digest on the
+   wrong variable stops at once, saying which variable to check.
+
    To build from this repository instead, for development, add `compose.build.yaml`; the
    first build takes a while, and `docker compose up -d --build` builds again after a change:
 
@@ -158,8 +162,10 @@ The web UI is at `http://<server>:8100/`.
 
 ### Updating
 
-Read the release's notes, then name the new version in `MELETE_IMAGE` (or, when it's unset,
-update this repository's checkout: its `compose.yaml` names the newest release), and:
+Read the release's notes, then name the new version in `MELETE_IMAGE` (the notes give it pinned
+by its digest, as a line to paste into `.env`, and the same for the separator and the trailer
+downloader), or, when it's unset, update this repository's checkout: its `compose.yaml` names
+the newest release. Then:
 
 ```sh
 docker compose pull
@@ -220,7 +226,10 @@ lists for it:
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
 - `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,
-  AnimeTosho's feed).
+  AnimeTosho's feed). Indexers that need it are best left off the proxy: Cloudflare checks a
+  VPN's exit addresses much harder. FlareSolverr is never handed a proxy with a login; one
+  that shares the VPN container's network can be marked as already behind the VPN (Outside
+  services → FlareSolverr), so indexers going through the proxy may still use it.
 
 The separator and the trailer downloader are published with each release, as
 `ghcr.io/virel0/melete:<version>-stems` and `:<version>-trailers`, so adding the file and its
@@ -410,9 +419,10 @@ Melete writes to the libraries only once automation is on, and then only what it
 ## Checking a release
 
 A release is a container image on GitHub's container registry, built by this repository's CI
-from a `v*` tag, never on a personal machine. Each release page gives the image's digest and
-carries the same image as an OCI archive, with its SHA-256 in `SHA256SUMS`. The image has a
-signed build-provenance attestation.
+from a `v*` tag, never on a personal machine. Each release page gives every image's full
+digest as a line ready to paste into `.env` (`MELETE_IMAGE=…@sha256:…`, and the same for
+`MELETE_STEMS_IMAGE` and `MELETE_TRAILERS_IMAGE`), and carries Melete's image as an OCI
+archive, with its SHA-256 in `SHA256SUMS`. Each image has a signed build-provenance attestation.
 
 Pull by digest, so the image can't change under you:
 

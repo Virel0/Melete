@@ -375,6 +375,9 @@ async fn a_tunnel_invite_needs_the_tunnel_and_comes_with_a_peer_for_the_guest() 
     let config = made["wireguard_config"].as_str().unwrap();
     assert!(config.starts_with("[Interface]\nPrivateKey = "), "{config}");
     assert!(config.contains("\nAllowedIPs = 10.73.0.1/32\nEndpoint = melete.example:51820\n"));
+    // And as a QR code a phone's WireGuard app reads the same config from.
+    let qr = made["wireguard_config_qr"].as_str().unwrap();
+    assert_eq!(crate::qr::testing::read(qr), config);
     // Its invite lets a guest in as any other does.
     let join = json!({"invite": made["invite"], "name": "Sam"});
     let (status, _, _) = send(&f, json_request("POST", "/api/v1/party/join", None, join)).await;

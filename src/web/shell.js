@@ -20,11 +20,11 @@
 import { SignedOut, api, h } from "/web/lib.js";
 import { badgeText, currentHealth } from "/web/health.js";
 import { SERVICES, findingsOf, placeOf, serviceSidebar } from "/web/manage-services.js";
-import { stateLabel } from "/web/page-parts.js";
 import { forgetAlbumLikes } from "/web/music-album-likes.js";
 import { forgetListenLists } from "/web/music-sidebar.js";
 import { placeSidebar } from "/web/sidebar.js";
 import { SIDES, listenEntries, listenSidebar, sideOf, watchEntries } from "/web/sides.js";
+import { drawTabBar } from "/web/tab-bar.js";
 
 const bar = document.getElementById("bar");
 const sides = document.getElementById("sides");
@@ -73,10 +73,11 @@ function entriesOf(key) {
   return watchEntries(categories);
 }
 
-// The words beside a Manage service: problems first, then what's waiting.
-function healthWords(findings) {
-  const said = badgeText(findings);
-  return said ? stateLabel(said.level === "problem" ? "missing" : "waiting", said.text) : null;
+// The count beside a Manage service: problems first, then what's waiting. The number shows;
+// what it counts ("2 problems") is read out with it and shown on hover.
+function countPill(said) {
+  const [count, ...what] = said.text.split(" ");
+  return h("span", { class: `count-pill ${said.level}`, title: said.text }, count, h("span", { class: "visually-hidden" }, ` ${what.join(" ")}`));
 }
 
 function draw() {
@@ -89,19 +90,17 @@ function draw() {
   }
   const info = SIDES.find((s) => s.key === side);
   entries.setAttribute("aria-label", side === "manage" ? "Manage services" : info.name);
+  const listed = entriesOf(side).map((e) => ({ ...e, said: e.health ? badgeText(e.health) : null }));
   entries.replaceChildren(
     h(
       "ul",
       {},
-      entriesOf(side).map((e) =>
-        h(
-          "li",
-          {},
-          h("a", { href: e.href, "aria-current": e.here(route) ? "page" : null }, e.name, e.health ? healthWords(e.health) : null),
-        ),
+      listed.map((e) =>
+        h("li", {}, h("a", { href: e.href, "aria-current": e.here(route) ? "page" : null }, e.name, e.said ? countPill(e.said) : null)),
       ),
     ),
   );
+  drawTabBar(listed, route, { hidden: bar.hidden || route.parts[0] === "play" });
   fit();
 }
 
@@ -190,6 +189,8 @@ export function stopShell() {
   forgetAlbumLikes();
   forgetListenLists();
   placeSidebar(null);
+  // The bar at the foot goes with the header: the sign-in page has neither.
+  drawTabBar([], route, { hidden: true });
 }
 
 // A page changed the pins or a playlist: Listen's sidebar lists them, so it's drawn again.
