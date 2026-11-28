@@ -228,8 +228,8 @@ pub async fn probe(ffprobe: &Path, file: &Path) -> Result<MediaInfo, ProbeError>
 async fn run_ffprobe(ffprobe: &Path, file: &Path) -> Result<Vec<u8>, ProbeError> {
     // Only a file we can open is worth asking ffprobe about: a dropped share or a permissions
     // problem would otherwise be recorded as a broken file and never retried.
-    if let Err(err) = tokio::fs::File::open(file).await {
-        return Err(ProbeError::Unreadable(err.to_string()));
+    if let Err(why) = crate::library::health::opens(file).await {
+        return Err(ProbeError::Unreadable(why));
     }
     // "file:" keeps a name with a colon from being read as a protocol.
     let mut input = std::ffi::OsString::from("file:");
@@ -268,8 +268,8 @@ async fn run_ffprobe(ffprobe: &Path, file: &Path) -> Result<Vec<u8>, ProbeError>
         }
         // A share that dropped mid-probe looks like a read error; only a file that is still
         // readable has really been rejected.
-        if let Err(err) = tokio::fs::File::open(file).await {
-            return Err(ProbeError::Unreadable(err.to_string()));
+        if let Err(why) = crate::library::health::opens(file).await {
+            return Err(ProbeError::Unreadable(why));
         }
         return Err(ProbeError::Failed(stderr.chars().take(500).collect()));
     }

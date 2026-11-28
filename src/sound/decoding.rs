@@ -88,8 +88,8 @@ pub(super) async fn layout(ffprobe: &Path, file: &Path) -> Result<(usize, u32), 
 pub async fn measure(tools: &Tools, file: &Path) -> Result<Measurement, MeasureError> {
     // Only a file we can open is worth asking about: a dropped share would otherwise be
     // recorded as a broken file and never tried again.
-    if let Err(err) = tokio::fs::File::open(file).await {
-        return Err(MeasureError::Unreadable(err.to_string()));
+    if let Err(why) = crate::library::health::opens(file).await {
+        return Err(MeasureError::Unreadable(why));
     }
     let result = match tokio::time::timeout(TIMEOUT, decode(tools, file)).await {
         Ok(result) => result,
@@ -100,9 +100,9 @@ pub async fn measure(tools: &Tools, file: &Path) -> Result<Measurement, MeasureE
     };
     // A share that dropped mid-decode looks like a broken file; only one still readable is.
     if let Err(MeasureError::Failed(_)) = &result
-        && let Err(err) = tokio::fs::File::open(file).await
+        && let Err(why) = crate::library::health::opens(file).await
     {
-        return Err(MeasureError::Unreadable(err.to_string()));
+        return Err(MeasureError::Unreadable(why));
     }
     result
 }

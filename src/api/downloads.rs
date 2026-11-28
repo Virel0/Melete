@@ -13,7 +13,7 @@ use super::ApiError;
 use super::auth::{AppState, require_admin};
 use crate::downloads::{self, Download, NotRemoved, Pipeline, Refused};
 use crate::seedbox::TestReport;
-use crate::upgrades::{self, Emptied, NotRestored, Trashed};
+use crate::upgrades::{self, Deletion, Emptied, NotRestored, Trashed};
 
 mod season;
 
@@ -212,7 +212,8 @@ async fn trash(State(state): State<DownloadState>) -> Result<Json<Vec<Trashed>>,
     Ok(Json(upgrades::list(&state.pool).await?))
 }
 
-/// Empties the trash now rather than after 30 days.
+/// Empties the trash now rather than after 30 days, answering once every file has been seen
+/// to: each delete is given up on after its time limit.
 async fn empty_trash(State(state): State<DownloadState>) -> Result<Json<Emptied>, ApiError> {
     Ok(Json(
         upgrades::delete_now(&state.pool, None)
@@ -225,17 +226,24 @@ async fn empty_trash(State(state): State<DownloadState>) -> Result<Json<Emptied>
 async fn delete_trashed(
     State(state): State<DownloadState>,
     Path(id): Path<i64>,
-) -> Result<StatusCode, ApiError> {
-    match upgrades::delete_now(&state.pool, Some(id)).await? {
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    match upgrades::delete_one(&state.pool, id).await? {
         None => Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "no such file in the trash",
         )),
-        Some(Emptied { deleted: 1, .. }) => Ok(StatusCode::NO_CONTENT),
-        Some(_) => Err(ApiError::new(
+        Some(Deletion::Gone) => Ok(StatusCode::NO_CONTENT.into_response()),
+        Some(Deletion::Waiting) => Ok((
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "message": "the delete is taking long and its library isn't responding; it's recorded once the delete finishes"
+            })),
+        )
+            .into_response()),
+        Some(Deletion::Left(why)) => Err(ApiError::new(
             StatusCode::CONFLICT,
-            "the trash doesn't hold the file it put there now (or the library's share is away); \
-             it was left alone",
+            format!("it was left alone: {why}"),
         )),
     }
 }
@@ -251,6 +259,7 @@ async fn restore(
             "no such file in the trash",
         )),
         Err(NotRestored::Failed(why)) => Err(ApiError::new(StatusCode::CONFLICT, why)),
+        Err(NotRestored::Waiting(_)) => Ok(StatusCode::ACCEPTED),
     }
 }
 

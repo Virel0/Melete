@@ -19,6 +19,9 @@ use super::Library;
 use crate::admin_health::{Finding, Level};
 use crate::db::unix_now;
 
+mod settle;
+pub use settle::*;
+
 /// How often each library's folder is read.
 pub const EVERY: Duration = Duration::from_secs(60);
 /// How long a read of a library's folder may take before the library counts as not responding.
@@ -123,6 +126,18 @@ pub async fn within<T: Send + 'static>(
                 why,
             }))
         }
+    }
+}
+
+/// Whether `file` opens, asked off the async threads with [`LIMIT`]: refused at once while its
+/// library isn't responding, and a file that doesn't open in time counts it as not responding.
+/// Why not, when it doesn't.
+pub async fn opens(file: &Path) -> Result<(), String> {
+    let at = file.to_path_buf();
+    match within(file, LIMIT, move || std::fs::File::open(at).map(drop)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(down) => Err(format!("{}: {}", down.saying(), down.why)),
     }
 }
 
