@@ -157,6 +157,15 @@ fn runs() -> std::sync::MutexGuard<'static, HashMap<&'static str, Runs>> {
     RUNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Notes a task that runs in this server waiting for its first run: due `next_in` from now, or
+/// with `None` only when asked (it's [`ready`]). Either way it's shown as on, not as off.
+pub fn waiting(name: &'static str, next_in: Option<Duration>) {
+    match next_in {
+        Some(next_in) => scheduled(name, next_in),
+        None => ready(name),
+    }
+}
+
 /// Notes a task waiting for its first run, `next_in` from now.
 pub fn scheduled(name: &'static str, next_in: Duration) {
     let mut all = runs();

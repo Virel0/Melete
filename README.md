@@ -126,6 +126,10 @@ capabilities.
    MELETE_IMAGE=ghcr.io/virel0/melete:0.10.0@sha256:<digest>
    ```
 
+   The stem separator and the trailer downloader have their own (`MELETE_STEMS_IMAGE`,
+   `MELETE_TRAILERS_IMAGE`). Each image checks which service it runs as, so a digest on the
+   wrong variable stops at once, saying which variable to check.
+
    To build from this repository instead, for development, add `compose.build.yaml`; the
    first build takes a while, and `docker compose up -d --build` builds again after a change:
 
