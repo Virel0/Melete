@@ -36,9 +36,12 @@ const ROWS = {
 };
 
 // A home's rows as `/home` answers them, drawn under its hero `top`; `latestHeading` names the
-// newest titles' row on a page of one kind, which has no link to itself.
+// newest titles' row on a page of one kind, which has no link to itself. A series partway
+// through shows once: in Continue watching, not again in Next up with another episode.
 export function homeRows(rows, top, watching, latestHeading = null) {
-  return rows.map(({ key, seed, items }) => {
+  const going = new Set((rows.find((r) => r.key === "continue_watching")?.items ?? []).filter((i) => i.kind === "series").map((i) => i.id));
+  return rows.map(({ key, seed, items: all }) => {
+    const items = key === "next_up" ? all.filter((i) => !(i.kind === "series" && going.has(i.id))) : all;
     // One for each title you finished, so each has its own id.
     if (key === "because_you_watched" && seed) {
       return row(`because-${seed.kind}-${seed.id}`, `Because you watched ${seed.title}`, items, { spotlight: top.spotlight, watching });

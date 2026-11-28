@@ -14,9 +14,9 @@ function pinItem(pin, unpin) {
     return card;
   }
   const link = pin.artist
-    ? h("a", { class: "card", href: `#/music/artists/${pin.artist.id}` }, cover(null), h("div", { class: "title" }, pin.artist.name), h("div", { class: "meta" }, "Artist"))
+    ? h("a", { class: "card", href: `#/music/artists/${pin.artist.id}` }, cover(null, "", pin.artist.name), h("div", { class: "title" }, pin.artist.name), h("div", { class: "meta" }, "Artist"))
     : pin.playlist
-      ? h("a", { class: "card", href: playlistHref(pin.playlist.id) }, cover(pin.playlist.image_url), h("div", { class: "title" }, pin.playlist.name), h("div", { class: "meta" }, "Playlist"))
+      ? h("a", { class: "card", href: playlistHref(pin.playlist.id) }, cover(pin.playlist.image_url, "", pin.playlist.name), h("div", { class: "title" }, pin.playlist.name), h("div", { class: "meta" }, "Playlist"))
       : h("div", { class: "card" }, cover(null), h("div", { class: "title" }, "No longer here"), h("div", { class: "meta" }, `A pinned ${pin.kind}`));
   return h("li", {}, link, off);
 }

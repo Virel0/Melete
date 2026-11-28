@@ -141,7 +141,7 @@ function sameList(drawn, next) {
 // it off the page, says so, and offers Undo.
 function listCard(item, { grid, status }) {
   const facts = [h("div", { class: "title" }, item.title), h("div", { class: "meta" }, item.present ? (item.year ? String(item.year) : "") : "Not in the library now")];
-  const card = item.present ? h("a", { class: "card", href: titleHref(item) }, art(item.poster), facts) : h("div", { class: "card" }, art(item.poster), facts);
+  const card = item.present ? h("a", { class: "card", href: titleHref(item) }, art(item.poster, item.title), facts) : h("div", { class: "card" }, art(item.poster, item.title), facts);
   const remove = h("button", { type: "button", class: "quiet", "aria-label": `Remove ${item.title} from My List` }, "Remove");
   const li = h("li", { class: "my-list-item", "data-key": cardKey(item) }, card, remove);
   remove.addEventListener("click", async () => {

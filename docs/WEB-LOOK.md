@@ -230,6 +230,10 @@ times in 12 px `--muted` either side.
   title's initials (32 to 34 px, weight 750) in a lighter colour of the same hue at the
   bottom left. Posters add the full title under the initials. Never a blank grey square.
 - A series shows once across Continue watching and Next up.
+- A tile's badge ("New", "3 unwatched") is a word in the accent at the end of its line, not a
+  chip on the art. On a landscape tile the time left takes its place.
+- A long press shows a tile's actions on a phone; on a pointer, the right button keeps the
+  browser's own menu.
 
 ## Lists and cards
 

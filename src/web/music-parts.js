@@ -3,34 +3,58 @@
 // one playing, and the Pin button.
 
 import { nowPlaying } from "/web/music-player.js";
-import { SignedOut, api, clock, h, plural } from "/web/lib.js";
+import { SignedOut, announce, api, clock, h, plural } from "/web/lib.js";
 import { hold, release } from "/web/page-parts.js";
 import { cardLike } from "/web/music-album-likes.js";
 import { albumMenu } from "/web/music-album-menu.js";
+import { drawnArt } from "/web/drawn-art.js";
+import { iconButton } from "/web/music-controls.js";
+import { playAlbum } from "/web/music-play.js";
+import { signIn } from "/web/page-state.js";
 
 // ---------- Pieces ----------
 
-// The title is under the picture, so the picture says nothing to screen readers.
-export function cover(src, extra = "") {
-  return h("div", { class: `art square ${extra}`.trim() }, src ? h("img", { src, alt: "", loading: "lazy" }) : null);
+// The title is under the picture, so the picture says nothing to screen readers. Without a
+// picture, art is drawn from `name` when one is given.
+export function cover(src, extra = "", name = null) {
+  return h("div", { class: `art square ${extra}`.trim() }, src ? h("img", { src, alt: "", loading: "lazy" }) : name ? drawnArt(name) : null);
 }
 
+// An album's card: its cover, then its name and artist. Play, its heart and its More menu sit
+// over the cover, shown on hover, keyboard focus and a long press; a liked album's heart shows
+// all the time.
 export function albumCard(album, { showArtist = true } = {}) {
-  return h(
+  const start = () =>
+    playAlbum(album.id).catch((err) => {
+      if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
+      announce(`Couldn't play ${album.title}: ${err.message}`);
+    });
+  const li = h(
     "li",
     { class: "album-card" },
     h(
       "a",
       { class: "card", href: `#/music/albums/${album.id}` },
-      cover(album.cover),
-      h("div", { class: "title", title: album.title }, album.title),
+      cover(album.cover, "", album.title),
+      h("div", { class: "title clip", title: album.title }, album.title),
       showArtist ? h("div", { class: "meta clip", title: album.artist }, album.artist) : null,
-      album.year ? h("div", { class: "meta" }, String(album.year)) : null,
     ),
+    iconButton("play", `Play ${album.title}`, start, "card-play"),
     cardLike(album),
     albumMenu(album),
   );
+  // A long press on a phone shows them, as hover does; a tap elsewhere hides them again.
+  li.addEventListener("contextmenu", (event) => {
+    if (event.pointerType && event.pointerType !== "touch") return;
+    event.preventDefault();
+    li.classList.add("show-actions");
+  });
+  return li;
 }
+
+document.addEventListener("pointerdown", (event) => {
+  for (const li of document.querySelectorAll(".album-card.show-actions")) if (!li.contains(event.target)) li.classList.remove("show-actions");
+});
 
 // How much of an artist is here: "2 albums", "Appears on 3 albums", or both.
 export function artistCounts(artist) {

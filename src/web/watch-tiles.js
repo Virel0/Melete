@@ -1,16 +1,21 @@
 // Watch's rows and tiles: a row of titles scrolled sideways, its tiles reached by Tab once and
-// moved along with the arrow keys; a tile lifts a little on hover or focus (never growing in
-// place) and, after a moment, shows its title in the hero above.
+// moved along with the arrow keys; a tile shows its title in the hero above after a moment's
+// hover or focus. The art carries the tile: one line of text under it, how far through drawn
+// on it, and art drawn from the name when there's none (drawn-art.js).
 //
 // - row(key, heading, items, { wide, more, spotlight, watching }): a <section> with its
 //   heading, a link to the whole list when `more` is { href, label }, and a tile per item;
 //   null for none.
 // - posterTile(item, href, badge) and wideTile(item, href, badge): one tile each; in a row, a
-//   wide tile that plays has a "Go to series" (or movie) link under it.
-// - badgeOf(item, watching): the one badge a tile wears, or null; badgeChip(badge) draws it.
+//   wide tile that plays has "Go to series" (or movie) over its art's corner, shown on hover,
+//   keyboard focus and a long press.
+// - badgeOf(item, watching): the one badge a tile wears, or null; badgeChip(badge) draws it,
+//   as a word after the title.
 
 import { h } from "/web/lib.js";
 import { clip } from "/web/page-parts.js";
+import { drawnArt } from "/web/drawn-art.js";
+import { icon } from "/web/music-controls.js";
 import { episodeCode, playsAt, timeLeft, titleHref } from "/web/watch-play.js";
 
 // How long "New" lasts, as Mneme has it.
@@ -34,13 +39,9 @@ export function watchingOf(items) {
   return watching;
 }
 
-// A picture, or the title in type on a dark ground when there's none.
-function picture(src, title, wide) {
-  return h(
-    "div",
-    { class: `tile-art${wide ? " wide" : ""}` },
-    src ? h("img", { src, alt: "", loading: "lazy" }) : h("span", { class: "tile-fallback", "aria-hidden": "true" }, title),
-  );
+// A picture, or art drawn from the title when there's none; `over` goes on top of it.
+function picture(src, title, wide, ...over) {
+  return h("div", { class: `tile-art${wide ? " wide" : ""}` }, src ? h("img", { src, alt: "", loading: "lazy" }) : drawnArt(title, { named: true }), ...over);
 }
 
 // A movie's or series' poster tile, linking to `href`, with why it was picked under the title
@@ -50,20 +51,20 @@ export function posterTile(item, href, badge = badgeOf(item)) {
     "a",
     { class: "tile", href, "data-title": `${item.kind}:${item.id}` },
     picture(item.poster, item.title, false),
-    clip(item.title, "span"),
+    h("span", { class: "tile-caption" }, clip(item.title, "span"), badgeChip(badge)),
     item.reason ? h("span", { class: "tile-reason", title: item.reason }, h("span", { class: "visually-hidden" }, ": "), item.reason) : null,
-    badgeChip(badge),
   );
 }
 
-// A tile's badge, after its title so the link is read "Ninefold, New", drawn over the
-// picture's corner; null for none.
+// A tile's badge, after its title so the link is read "Ninefold, New", in the accent at the
+// end of the line under the art; null for none.
 export function badgeChip(badge) {
   return badge ? h("span", { class: "tile-badge" }, h("span", { class: "visually-hidden" }, ", "), badge) : null;
 }
 
 // A landscape tile for an episode or a title partway through: its still (else backdrop or
-// poster), a progress bar with its track, a caption and its badge.
+// poster) with the episode's code and how far through on it, then one line: the title, and
+// the time left (else its badge).
 export function wideTile(item, href, badge = badgeOf(item)) {
   const e = item.episode;
   const still = e?.still ?? item.backdrop ?? item.poster;
@@ -73,18 +74,12 @@ export function wideTile(item, href, badge = badgeOf(item)) {
   const share = progress ? Math.min(100, (100 * progress.position_seconds) / progress.duration_seconds) : 0;
   const bar = progress ? h("span", { class: "tile-progress", "aria-hidden": "true" }, h("span", {})) : null;
   bar?.firstChild.style.setProperty("width", `${share}%`);
+  const named = code ? `${item.title}, ${code}${e?.name ? `: ${e.name}` : ""}` : item.title;
   return h(
     "a",
-    { class: "tile wide", href, "data-title": `${item.kind}:${item.id}` },
-    picture(still, item.title, true),
-    bar,
-    h(
-      "span",
-      { class: "tile-caption" },
-      clip(code ? `${code} · ${item.title}` : item.title, "span"),
-      left ? h("span", { class: "tile-note" }, left) : e?.name ? clip(e.name, "span") : null,
-    ),
-    badgeChip(badge),
+    { class: "tile wide", href, "data-title": `${item.kind}:${item.id}`, "aria-label": [named, left, badge].filter(Boolean).join(", ") },
+    picture(still, item.title, true, code ? h("span", { class: "tile-code", "aria-hidden": "true" }, code.replace(":", " ")) : null, bar),
+    h("span", { class: "tile-caption", "aria-hidden": "true" }, clip(item.title, "span"), left ? h("span", { class: "tile-note" }, left) : badgeChip(badge)),
   );
 }
 
@@ -104,6 +99,7 @@ export function row(key, heading, items, { wide = false, more = null, spotlight 
     cells.map((cell) => h("li", {}, cell)),
   );
   rove(list);
+  longPress(list);
   if (spotlight) spotlight.watch(list);
   return h(
     "section",
@@ -118,13 +114,14 @@ export function row(key, heading, items, { wide = false, more = null, spotlight 
   );
 }
 
-// Under a tile that plays, a link to its series' or movie's page, for another episode or the
-// rest of it; null when the tile opens the page itself.
+// Over a tile that plays, a link to its series' or movie's page, for another episode or the
+// rest of it: round, at the art's top right, shown on hover, focus and a long press; null when
+// the tile opens the page itself.
 function openLink(item) {
   const href = titleHref(item);
   if (playsAt(item) === href) return null;
   const what = item.kind === "movie" ? "movie" : "series";
-  return h("a", { class: "tile-open", href, "aria-label": `Go to ${what}, ${item.title}` }, `Go to ${what}`);
+  return h("a", { class: "tile-open", href, "aria-label": `Go to ${what}, ${item.title}`, "data-tip": `Go to ${what}` }, icon("info"));
 }
 
 // One Tab stop per row: the arrow keys move along it, Home and End to its ends, and Tab comes
@@ -154,3 +151,20 @@ function rove(list) {
     for (const a of links()) reach(a, a === tile);
   });
 }
+
+// A long press on a tile that has an action over it (a phone has no hover) shows the action;
+// a tap anywhere else hides it again.
+function longPress(list) {
+  list.addEventListener("contextmenu", (event) => {
+    if (event.pointerType && event.pointerType !== "touch") return;
+    const li = event.target.closest("li");
+    if (!li?.querySelector(".tile-open, .card-more")) return;
+    event.preventDefault();
+    for (const other of list.querySelectorAll(".show-actions")) if (other !== li) other.classList.remove("show-actions");
+    li.classList.add("show-actions");
+  });
+}
+
+document.addEventListener("pointerdown", (event) => {
+  for (const li of document.querySelectorAll(".watch-shelf > .show-actions")) if (!li.contains(event.target)) li.classList.remove("show-actions");
+});

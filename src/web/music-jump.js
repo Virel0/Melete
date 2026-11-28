@@ -48,7 +48,7 @@ export function jumpBackIn(recent, history) {
   const list = h("ul", { class: "jump" });
   const card = (entry) => {
     const { name, by, picture, start } = described(entry);
-    const button = h("button", { type: "button", class: "jump-card", "aria-label": `Play ${name}, ${by}` }, cover(picture), h("span", { class: "words" }, clip(name, "strong"), clip(by)));
+    const button = h("button", { type: "button", class: "jump-card", "aria-label": `Play ${name}, ${by}` }, cover(picture, "", name), h("span", { class: "words" }, clip(name, "strong"), clip(by)));
     button.addEventListener("click", async () => {
       if (!hold(button)) return;
       button.setAttribute("aria-busy", "true");

@@ -39,6 +39,7 @@ const LINES = {
   right: "M9 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
   check: "M5 12.5l4.5 4.5L19 7",
+  info: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5.5M12 7.75v.01",
   // For the video player's controls.
   back: "M8 3 4 7l4 4M4 7h10a6 6 0 0 1 0 12h-3",
   forward: "M16 3l4 4-4 4M20 7H10a6 6 0 0 0 0 12h3",
