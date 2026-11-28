@@ -226,7 +226,10 @@ lists for it:
 - `compose.libretranslate.yaml`: a LibreTranslate of your own, for translating lyrics without
   sending them anywhere. It downloads its language models on first start (set which in `.env`).
 - `compose.flaresolverr.yaml`: FlareSolverr, for trackers behind a browser check (Uindex,
-  AnimeTosho's feed).
+  AnimeTosho's feed). Indexers that need it are best left off the proxy: Cloudflare checks a
+  VPN's exit addresses much harder. FlareSolverr is never handed a proxy with a login; one
+  that shares the VPN container's network can be marked as already behind the VPN (Outside
+  services → FlareSolverr), so indexers going through the proxy may still use it.
 
 The separator and the trailer downloader are published with each release, as
 `ghcr.io/virel0/melete:<version>-stems` and `:<version>-trailers`, so adding the file and its
