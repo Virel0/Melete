@@ -4,6 +4,34 @@
 use super::*;
 
 impl Transcoder {
+    /// The session a viewer's ask for segment `n` is served from: the shared one, unless the
+    /// viewer hasn't caught up with where that run starts and others are watching it, as when
+    /// a viewer's player still loads what came before everyone jumped ahead. Starting the
+    /// shared run again there would take it away from the others, so that viewer gets a run of
+    /// their own until they catch up, and it stops as they do. A
+    /// viewer who was on the shared run and goes back moves it, as a party jumping back does.
+    pub(super) fn behind_or_shared<'a>(
+        &self,
+        session: &'a [u8],
+        viewer: &'a [u8],
+        n: i64,
+    ) -> &'a [u8] {
+        let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        let behind = running
+            .get(session)
+            .is_some_and(|r| n < r.start && !r.caught_up(viewer) && r.others_asking(viewer));
+        if behind {
+            return viewer;
+        }
+        // Caught up: the run of their own isn't needed any more.
+        if session != viewer
+            && let Some(own) = running.remove(viewer)
+        {
+            own.stop(Stopped::CaughtUp);
+        }
+        session
+    }
+
     /// Starts a session's run again on the CPU after it failed on the GPU before finishing a
     /// segment, and has the GPU checked. A session that fell back stays on the CPU.
     pub(super) fn retry_on_cpu(
@@ -19,7 +47,8 @@ impl Transcoder {
         self.start(running, session, plan, n, true)
     }
 
-    /// Starts ffmpeg for a session at segment `n`, in place of any run it has, on the CPU when
+    /// Starts ffmpeg for a session at segment `n`, in place of any run it has (keeping its
+    /// viewers), on the CPU when
     /// `on_cpu`, the session fell back before, or the GPU isn't working. When every slot is
     /// taken, the run asked for least recently gives up its slot if it has been quiet for
     /// [`TAKE_OVER_AFTER`]; otherwise it's [`TranscodeError::Busy`].
@@ -32,8 +61,11 @@ impl Transcoder {
         on_cpu: bool,
     ) -> Result<(), TranscodeError> {
         let mut on_cpu = on_cpu;
-        if let Some(old) = running.remove(session) {
+        // Viewers sharing it stay with it when it starts again elsewhere.
+        let mut viewers = HashMap::new();
+        if let Some(mut old) = running.remove(session) {
             on_cpu |= old.on_cpu;
+            viewers = std::mem::take(&mut old.viewers);
             old.stop(if on_cpu {
                 Stopped::OnCpu
             } else {
@@ -98,6 +130,8 @@ impl Transcoder {
                 paused_for: Duration::ZERO,
                 ended_at: None,
                 duration: plan.duration,
+                most_viewers: viewers.len(),
+                viewers,
             },
         );
         Ok(())

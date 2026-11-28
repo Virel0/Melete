@@ -2358,7 +2358,7 @@
         "tags": ["Playback"],
         "x-melete-access": "public",
         "summary": "The HLS playlist (main.m3u8), one of its segments ({n}.ts or {n}.m4s), or the init section (init.mp4)",
-        "description": "Use the playlist URL as is; segment URLs in it are relative. A segment ffmpeg hasn't made yet is waited for, up to a minute. Fragmented MP4 segments (hevc, or copied HEVC) start from the init section the playlist names in EXT-X-MAP.",
+        "description": "Use the playlist URL as is; segment URLs in it are relative. A segment ffmpeg hasn't made yet is waited for, up to a minute. The viewers of one watch party whose conversions come out the same (the file, its audio, the picture's size and bitrate) share one ffmpeg run, each through their own link. Fragmented MP4 segments (hevc, or copied HEVC) start from the init section the playlist names in EXT-X-MAP.",
         "security": [],
         "parameters": [
           {
