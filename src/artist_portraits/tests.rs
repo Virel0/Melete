@@ -324,12 +324,37 @@ fn unknown(n: usize) -> String {
 
 impl Rig {
     async fn look_up_library(&self, now: i64) -> Looked {
+        self.look_up_library_gap(now, std::time::Duration::ZERO)
+            .await
+    }
+
+    async fn look_up_library_gap(&self, now: i64, gap: std::time::Duration) -> Looked {
         let services = Services {
             musicbrainz: &self.mb,
             wikimedia: &self.wiki,
         };
-        look_up_library(&self.pool, &services, now).await.unwrap()
+        look_up_library(&self.pool, &services, now, gap)
+            .await
+            .unwrap()
     }
+}
+
+#[tokio::test]
+async fn a_runs_lookups_are_spread_out_and_known_artists_cost_no_wait() {
+    let r = rig().await;
+    let others: Vec<String> = (1..=3).map(unknown).collect();
+    let artists: Vec<(Option<&str>, bool)> =
+        others.iter().map(|a| (Some(a.as_str()), true)).collect();
+    in_library(&r.pool, &artists).await;
+    turn(&r.pool, true).await;
+    let gap = std::time::Duration::from_millis(400);
+    let started = std::time::Instant::now();
+    assert_eq!(r.look_up_library_gap(NOW, gap).await.looked_up, 3);
+    let took = started.elapsed();
+    assert!(took >= gap * 2, "two gaps between three lookups: {took:?}");
+    let started = std::time::Instant::now();
+    assert_eq!(r.look_up_library_gap(NOW, gap).await, Looked::default());
+    assert!(started.elapsed() < gap, "all known: no lookup, no wait");
 }
 
 #[tokio::test]
@@ -406,7 +431,9 @@ async fn a_failed_library_lookup_is_counted_and_kept_nowhere() {
         wikimedia: &dead,
     };
     for _ in 0..2 {
-        let looked = look_up_library(&r.pool, &services, NOW).await.unwrap();
+        let looked = look_up_library(&r.pool, &services, NOW, std::time::Duration::ZERO)
+            .await
+            .unwrap();
         assert_eq!(
             looked,
             Looked {

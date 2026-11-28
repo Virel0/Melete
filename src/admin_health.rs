@@ -45,7 +45,7 @@ pub struct Finding {
     /// files_unparsed, backup_failed, backup_old, gpu_unavailable, opensubtitles_used_up,
     /// disk_nearly_full, tmdb_off, tmdb_refused, tmdb_failing, titles_unmatched,
     /// runtime_checks_failed, requests_no_profile, movies_high_frame_rate,
-    /// anime_unstyled_subtitles, proxy_down, library_unreachable.
+    /// anime_unstyled_subtitles, proxy_down, library_unreachable, proxy_way_opens_household.
     pub code: &'static str,
     /// In plain words, ready to show.
     pub message: String,
@@ -132,6 +132,13 @@ pub async fn check(pool: &SqlitePool) -> anyhow::Result<Health> {
 pub fn system_problem(health: &mut Health, finding: Finding) {
     if let Some(system) = health.areas.iter_mut().find(|a| a.area == "system") {
         system.findings.insert(0, finding);
+    }
+}
+
+/// Adds a note to System that's known outside the database (the ways in), last.
+pub fn system_note(health: &mut Health, finding: Finding) {
+    if let Some(system) = health.areas.iter_mut().find(|a| a.area == "system") {
+        system.findings.push(finding);
     }
 }
 

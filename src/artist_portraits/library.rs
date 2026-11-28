@@ -15,6 +15,10 @@ pub const LIBRARY_LOOKUPS: usize = 20;
 /// How often a background run looks up library artists.
 const EVERY: Duration = Duration::from_secs(3600);
 
+/// The time between two lookups of a background run, so a run's 20 are spread over a few
+/// minutes rather than asked in a burst (Wikidata asked for a pause when they were).
+pub const LIBRARY_GAP: Duration = Duration::from_secs(15);
+
 /// The address the music API gives for the portrait of the library's artist `id`.
 pub fn library_url(id: i64) -> String {
     format!("/api/v1/music/artists/{id}/portrait")
@@ -61,7 +65,8 @@ pub struct Looked {
 
 /// Looks up, with the setting on, at most [`LIBRARY_LOOKUPS`] artists in the library without a
 /// picture of their own whose portrait isn't known or is out of date, never looked up first,
-/// then the longest ago; none once Wikimedia asks for a pause, until it's over. What's found is kept as a search's lookups are, but not as listed.
+/// then the longest ago, `gap` apart; none once Wikimedia asks for a pause, until it's over.
+/// What's found is kept as a search's lookups are, but not as listed.
 ///
 /// # Errors
 ///
@@ -70,6 +75,7 @@ pub async fn look_up_library(
     pool: &SqlitePool,
     services: &Services<'_>,
     now: i64,
+    gap: Duration,
 ) -> anyhow::Result<Looked> {
     if !crate::settings::artist_portraits(pool).await? {
         return Ok(Looked::default());
@@ -86,8 +92,15 @@ pub async fn look_up_library(
     let mut lookups = LIBRARY_LOOKUPS;
     let mut looked = Looked::default();
     for artist in artists.iter().filter(|a| crate::library::tags::is_mbid(a)) {
-        // Out of lookups, or Wikimedia asked for a pause: the next run carries on.
-        if lookups == 0 || services.wikimedia.held() {
+        if lookups == 0 {
+            break;
+        }
+        // The gap comes before a lookup only, so the fresh artists at the end cost nothing.
+        if looked.looked_up > 0 && !kept(pool, artist, now).await?.1 {
+            tokio::time::sleep(gap).await;
+        }
+        // Wikimedia asked for a pause: the next run carries on.
+        if services.wikimedia.held() {
             break;
         }
         let before = lookups;
@@ -101,14 +114,17 @@ pub async fn look_up_library(
 }
 
 /// Looks up library artists' portraits ([`look_up_library`]) once an hour and when an admin
-/// asks, through the MusicBrainz client matching uses, so together they keep to its pace.
+/// asks, through the MusicBrainz client matching uses, so together they keep to its pace, a
+/// lookup every [`LIBRARY_GAP`]; the first run waits a few minutes after the server starts
+/// ([`crate::jobs::hold`]).
 pub async fn run(
     pool: SqlitePool,
     mb: Arc<musicbrainz::Client>,
     wikimedia: Arc<wikimedia::Client>,
 ) {
-    crate::jobs::repeat_task(
+    crate::jobs::repeat_task_after(
         "artist-portraits",
+        crate::jobs::hold::PORTRAITS,
         EVERY,
         &crate::jobs::PORTRAITS,
         || async {
@@ -116,7 +132,8 @@ pub async fn run(
                 musicbrainz: &mb,
                 wikimedia: &wikimedia,
             };
-            match look_up_library(&pool, &services, crate::db::unix_now()).await {
+            let looked = look_up_library(&pool, &services, crate::db::unix_now(), LIBRARY_GAP);
+            match looked.await {
                 Ok(looked) if looked == Looked::default() => {}
                 Ok(looked) => tracing::info!(
                     looked_up = looked.looked_up,
