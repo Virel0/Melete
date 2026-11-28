@@ -308,6 +308,17 @@ Nothing needs opening at home, and it works before the VPS is set up.
   `example.org. CAA 0 issue "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/123"`
   (and the same with `issuewild`): Let's Encrypt then issues certificates for the domain to
   Melete's account alone. The staging server's account is another one.
+- **Or the TLS-ALPN challenge**, for a setup that wants no DNS token on the server: choose
+  **TLS-ALPN** as the challenge, and set the domain to the exact name Melete is reached at,
+  `watch.example.org`. When a certificate is asked for, Let's Encrypt connects to that name on
+  port 443, through the VPS passing HTTPS on (and its PROXY header, which Melete reads first as
+  for any client), offering only `acme-tls/1`; Melete's HTTPS answers with a certificate made
+  for that check alone, only while the order waits, and serves nothing on that connection.
+  `MELETE_TLS_BIND` (here `compose.tls-acme.yaml`) and the VPS's passthrough must be in place
+  first. The trade: a wildcard can't be proved this way, so the certificate is for the exact
+  name, which Certificate Transparency logs then list; with DNS they list only the wildcard.
+  Nothing is sent to deSEC, and the Test says there's nothing to try before a certificate is
+  asked for.
 - What leaves the server: the domain's names, to Let's Encrypt and to deSEC; the challenge's
   TXT values, to deSEC (anyone can look the record up while it's there); the deSEC token, to
   deSEC alone. No email goes to Let's Encrypt unless you set one. Turning it on agrees to Let's
