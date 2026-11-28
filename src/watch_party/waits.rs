@@ -37,7 +37,7 @@ pub async fn set(
 ) -> sqlx::Result<()> {
     let now = now_ms();
     if waiting {
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         sqlx::query(
             "INSERT INTO watch_party_waits (party_id, waiter, name, since) VALUES (?, ?, ?, ?)
              ON CONFLICT DO NOTHING",
@@ -72,7 +72,7 @@ pub async fn set(
 /// nobody left waiting plays on from where it paused.
 pub async fn settle(pool: &SqlitePool, party: i64) -> sqlx::Result<()> {
     let now = now_ms();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "DELETE FROM watch_party_waits WHERE party_id = ?1 AND (since < ?2
              OR (waiter GLOB 'd*' AND CAST(substr(waiter, 2) AS INTEGER) NOT IN

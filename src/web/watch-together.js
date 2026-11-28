@@ -16,7 +16,7 @@
 // playing party pauses for it, playing on once everyone's ready (or after 30 seconds).
 
 import { SignedOut, announce, api, h } from "/web/lib.js";
-import { correct, partyClock, startsIn, timed } from "/web/party-clock.js";
+import { catchingUp, correct, partyClock, partySeek, placeToSend, startsIn, timed, watchPlayer } from "/web/party-clock.js";
 import { tunnelInvite } from "/web/party-tunnel.js";
 
 // Changes close together go as one.
@@ -73,14 +73,15 @@ function ended(words) {
   changed();
 }
 
-// This player's state, as the server takes it.
+// Whether the viewer sought since the last change sent.
+let sought = false;
+
+// This player's state, as the server takes it: at the party's place unless the viewer sought.
 function here() {
   const video = player.s.video;
-  return {
-    file_id: Number(player.fileId),
-    position_ms: Math.round((Number.isFinite(video.currentTime) ? video.currentTime : 0) * 1000),
-    playing: !video.paused,
-  };
+  const position_ms = placeToSend(video, onParty() ? party : null, clock, sought);
+  sought = false;
+  return { file_id: Number(player.fileId), position_ms, playing: !video.paused };
 }
 
 // Plays the party where it plays; another file is gone to.
@@ -94,7 +95,7 @@ function follow(p) {
   following++;
   try {
     clearTimeout(startTimer);
-    if (correct(video, p, clock, Boolean(player.s.hls)) === "wait") {
+    if (correct(video, p, clock, player.s.log?.note) === "wait") {
       // A start set a moment ahead: played when it comes, with everyone.
       startTimer = setTimeout(() => party && follow(party), startsIn(p, clock));
     } else if (p.playing && video.paused) {
@@ -106,8 +107,8 @@ function follow(p) {
   }
 }
 
-// Each second while the party plays here: the player kept to it, gently (see party-clock.js);
-// a seek of its own isn't sent as this viewer's. Each minute, the clock asked afresh.
+// Each second while the party plays here: the player kept to it, by speed (see party-clock.js),
+// each change noted in the playback report. Each minute, the clock asked afresh.
 let ticks = 0;
 function keepInStep() {
   ticks++;
@@ -115,10 +116,7 @@ function keepInStep() {
   if (ticks % 60 === 0) timed(clock, () => api(`/watch-parties/${party.id}`)).catch(() => {});
   const video = player.s.video;
   if (!party.playing || video.paused || following) return;
-  if (correct(video, party, clock, Boolean(player.s.hls)) === "seek") {
-    following++;
-    setTimeout(() => following--, SETTLE_MS);
-  }
+  correct(video, party, clock, player.s.log?.note);
 }
 
 async function refresh() {
@@ -160,9 +158,10 @@ async function sayWaiting(waiting) {
 }
 
 // The player stalls, or opens before it can play: waited for, if the party plays (or already
-// waits). Ready again: no longer.
+// waits), unless it's catching up after a seek of its own. Ready again: no longer.
 function stalled() {
   if (!onParty() || !(party.playing || party.held)) return;
+  if (party.playing && catchingUp(player.s.video)) return;
   clearTimeout(waitTimer);
   waitTimer = setTimeout(() => sayWaiting(true), WAIT_AFTER_MS);
 }
@@ -171,9 +170,14 @@ function ready() {
   if (waitingSaid) sayWaiting(false);
 }
 
-// Play, pause or a seek here: sent, unless it's this player following.
+// Play, pause or a seek here: sent, unless it's this player following (a seek of the party's
+// own, however long it takes, or the player stepping over a gap).
 function local(event) {
   if (!onParty() || following) return;
+  if (event?.type === "seeked") {
+    if (partySeek(player.s.video)) return;
+    sought = true;
+  }
   // Play while the party plays (the browser stopped it playing by itself, say) catches up.
   if (event?.type === "play" && party.playing) {
     player.s.status.textContent = "";
@@ -229,6 +233,7 @@ export function attachParty(s, ctx) {
   me = ctx.me ?? me;
   player = { s, fileId: s.fileId };
   const video = s.video;
+  watchPlayer(video);
   const events = ["play", "pause", "seeked"];
   events.forEach((e) => video.addEventListener(e, local));
   video.addEventListener("waiting", stalled);

@@ -173,6 +173,7 @@ pub async fn make_pending(pool: &SqlitePool, ffmpeg: &Path, root: &Path) -> anyh
     let total = usize::try_from(total).unwrap_or_default();
     let pace = crate::jobs::pace::Pace::start("trickplay", "making seek-bar previews", total);
     loop {
+        crate::transcode::after_viewers().await;
         // Turned off meanwhile: the run stops, and says it stopped before the end.
         if !crate::settings::trickplay(pool).await? {
             return Ok(report);

@@ -223,6 +223,8 @@ async fn main() -> anyhow::Result<()> {
     library::health::load(&pool, &libraries).await?;
     tokio::spawn(library::health::run(pool.clone(), libraries.clone()));
     tokio::spawn(library::watch::run(pool.clone(), libraries.clone()));
+    // What changed while Melete was down, once the first check says which libraries answer.
+    tokio::spawn(library::changed::look(pool.clone(), libraries.clone()));
     spawn_background_jobs(&pool, &config, libraries, tmdb);
     start_tunnel(&pool, &config, &live).await?;
 
@@ -324,6 +326,7 @@ fn start_transcoder(config: &config::Config) -> anyhow::Result<Arc<transcode::Tr
         config.max_transcodes,
     );
     transcoder.spawn_supervisor();
+    transcoder.put_viewers_first();
     Ok(transcoder)
 }
 

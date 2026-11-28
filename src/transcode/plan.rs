@@ -49,6 +49,8 @@ pub struct Plan {
     pub burn: Option<Burn>,
     /// ffmpeg's audio filters: the downmix to stereo and the audio mode's; None for none.
     pub audio_filter: Option<String>,
+    /// What's converted from what, and why, for the log.
+    pub about: About,
 }
 
 /// What the audio becomes.
@@ -138,7 +140,17 @@ pub fn plan(
         check_copyable(info, video)?;
     }
     let source_height = video.height.unwrap_or(1080);
-    let height = settings.max_height.filter(|max| *max < source_height);
+    let source_width = video.width.unwrap_or(source_height * 16 / 9);
+    // Held to a bitrate, the picture is made smaller to suit it; a height asked for still
+    // holds, and the smaller wins.
+    let for_bitrate = settings
+        .max_bitrate
+        .and_then(|bits| ladder::height_for_bitrate(codec, bits, source_width, source_height));
+    let height = [settings.max_height, for_bitrate]
+        .into_iter()
+        .flatten()
+        .min()
+        .filter(|max| *max < source_height);
     let out_height = height.unwrap_or(source_height);
     let default_bitrate = default_bitrate(out_height);
     let bitrate = settings
@@ -154,7 +166,6 @@ pub fn plan(
         && NVDEC_CODECS.contains(&video.codec.as_str())
         && !(video.codec == "h264" && high_bit_depth)
         && settings.burn_subtitle.is_none();
-    let source_width = video.width.unwrap_or(source_height * 16 / 9);
     let out_width =
         ((source_width * out_height) as f64 / source_height as f64 / 2.0).round() as i64 * 2;
     let burn = picture_burn(info, settings, out_width, out_height)?;
@@ -182,6 +193,7 @@ pub fn plan(
         Some(a) if codec == VideoCodec::Copy => audio_codec(a, settings, channels, fmp4),
         _ => AudioCodec::Aac,
     };
+    let about = About::of(video, info, settings, (out_width, out_height), tonemap);
     Ok(Plan {
         input,
         duration,
@@ -209,6 +221,7 @@ pub fn plan(
             let source = a.channels.unwrap_or(2);
             audio_filter(settings.audio_mode.unwrap_or_default(), source, channels)
         }),
+        about,
     })
 }
 

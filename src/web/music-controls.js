@@ -46,6 +46,8 @@ const LINES = {
   audio: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2",
   settings: "M4 7h9M17 7h3M15 5v4M4 17h3M11 17h9M9 15v4",
   pip: "M3 5h18v14H3zM12 12h6v4h-6z",
+  // Watching together: two people.
+  together: "M12 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15.5 5.2a3 3 0 0 1 0 5.6M17 14.2c2.4.6 4 2.9 4 5.8",
   fullscreen: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
   "exit-fullscreen": "M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5",
 };

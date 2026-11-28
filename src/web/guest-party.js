@@ -4,12 +4,14 @@
 // where and as it plays, and sends their own play, pause and seek. They choose their own audio
 // and subtitles. Loading or buffering, it says so, and the party waits for them a while.
 //
-// It plays the file as it is when the party holds guests to no cap and the file's own audio is
-// chosen; otherwise it asks for a conversion (the picture copied when there's no cap).
+// It chooses as the household's player does (player-choice.js): the file as it is when this
+// browser plays it, its own audio is chosen and it's within the party's cap and the guest's
+// own quality; the picture copied when only the container or the audio is the problem; else a
+// conversion held to the cap.
 
 import { SignedOut, announce, api, h, show } from "/web/lib.js";
-import { HLS_MODULE } from "/web/player-choice.js";
-import { correct, expected, partyClock, startsIn, timed } from "/web/party-clock.js";
+import { HLS_MODULE, choose } from "/web/player-choice.js";
+import { catchingUp, correct, expected, partyClock, partySeek, placeToSend, startsIn, timed, watchPlayer } from "/web/party-clock.js";
 
 const SEND_AFTER_MS = 300;
 const SETTLE_MS = 800;
@@ -30,6 +32,7 @@ const g = {
   sendTimer: null,
   waitTimer: null,
   waitingSaid: false,
+  sought: false,
   note: null,
   side: null,
 };
@@ -49,6 +52,8 @@ export async function guestPage() {
 
 function over(words) {
   stopAll();
+  // The player's pause as it leaves the page isn't the guest's.
+  g.party = null;
   show("Watch party", h("h1", {}, "Watch party"), h("p", { class: "status", role: "status" }, words));
 }
 
@@ -108,6 +113,7 @@ function enter(answer) {
   g.audio = null;
   g.file = null;
   g.quality = keptQuality();
+  watchPlayer(g.video);
   took(answer);
   for (const e of ["play", "pause", "seeked"]) g.video.addEventListener(e, () => local(e));
   g.video.addEventListener("waiting", stalled);
@@ -129,21 +135,22 @@ async function load() {
     g.file = await api("/party/file");
     const tracks = await api("/party/subtitles").catch(() => []);
     stalled();
-    const own = g.audio === null || g.audio === defaultAudio(g.file);
+    // The path only tells WebM from Matroska, which guests play converted alike.
+    const mode = choose({ ...g.file, path: "" }, { audio: g.audio, quality: g.quality });
     let base;
-    if (!g.file.max_bitrate && own && !g.quality) {
+    if (mode.direct) {
       base = (await api("/party/play", { method: "POST" })).stream_url;
       unHls();
       g.video.src = base;
     } else {
-      // The guest's own quality, held under the party's cap by the server.
-      const ask = { ...(g.audio === null ? {} : { audio_stream: g.audio }), ...(g.quality ? { max_bitrate: g.quality } : {}) };
+      const { direct: _, ...ask } = mode;
       let made;
       try {
-        made = await api("/party/transcode", { method: "POST", body: g.file.max_bitrate || g.quality ? ask : { ...ask, video_codec: "copy" } });
-      } catch (err) {
-        if (err.status !== 422) throw err;
         made = await api("/party/transcode", { method: "POST", body: ask });
+      } catch (err) {
+        // The picture can't be copied after all (its keyframes, say): converted instead.
+        if (err.status !== 422 || ask.video_codec !== "copy") throw err;
+        made = await api("/party/transcode", { method: "POST", body: { ...ask, video_codec: "h264" } });
       }
       base = made.playlist_url.replace(/^\/api\/v1\/hls\/([^/]+)\/.*$/, "/api/v1/stream/$1");
       await playHls(made.playlist_url);
@@ -196,7 +203,7 @@ function follow(p) {
   g.following++;
   try {
     clearTimeout(g.startTimer);
-    if (correct(g.video, p, clock, Boolean(g.hls)) === "wait") {
+    if (correct(g.video, p, clock) === "wait") {
       // A start set a moment ahead: played when it comes, with everyone.
       g.startTimer = setTimeout(() => g.party && follow(g.party), startsIn(p, clock));
     } else if (p.playing && g.video.paused) {
@@ -208,23 +215,23 @@ function follow(p) {
   }
 }
 
-// Each second while the party plays: the player kept to it, gently; a seek of its own isn't
-// sent as the guest's. Each minute, the clock asked afresh.
+// Each second while the party plays: the player kept to it, by speed (party-clock.js). Each
+// minute, the clock asked afresh.
 function keepInStep() {
   g.ticks++;
   if (!g.party || !g.video) return;
   if (g.ticks % 60 === 0) timed(clock, () => api("/party")).catch(() => {});
   if (!g.party.playing || g.video.paused || g.following) return;
-  if (correct(g.video, g.party, clock, Boolean(g.hls)) === "seek") {
-    g.following++;
-    setTimeout(() => g.following--, SETTLE_MS);
-  }
+  correct(g.video, g.party, clock);
 }
 
+// The guest's play, pause or seek: at the party's place unless they sought.
 async function send() {
   const v = g.video;
+  const position_ms = placeToSend(v, g.party, clock, g.sought);
+  g.sought = false;
   try {
-    took(await timed(clock, () => api("/party", { method: "PUT", body: { version: g.party.version, position_ms: Math.round((v.currentTime || 0) * 1000), playing: !v.paused } })));
+    took(await timed(clock, () => api("/party", { method: "PUT", body: { version: g.party.version, position_ms, playing: !v.paused } })));
   } catch (err) {
     if (err instanceof SignedOut) return over(ENDED);
     if (err.status === 409) took(await timed(clock, () => api("/party")).catch(() => ({ party: g.party, server_time: clock.now() })));
@@ -232,10 +239,15 @@ async function send() {
   }
 }
 
-// Play, pause or a seek here: sent, unless it's following. Play while the party plays (after a
+// Play, pause or a seek here: sent, unless it's following (a seek of the party's own, however
+// long it takes, or the player stepping over a gap). Play while the party plays (after a
 // reload, say) catches up with it rather than sending this player's place.
 function local(kind) {
   if (!g.party || g.following) return;
+  if (kind === "seeked") {
+    if (partySeek(g.video)) return;
+    g.sought = true;
+  }
   if (kind === "play" && g.party.playing) return follow(g.party);
   clearTimeout(g.sendTimer);
   g.sendTimer = setTimeout(send, SEND_AFTER_MS);
@@ -251,8 +263,10 @@ async function sayWaiting(waiting) {
   }
 }
 
+// A stall waits for this guest, unless it's catching up after a seek of its own.
 function stalled() {
   if (!g.party || !(g.party.playing || g.party.held)) return;
+  if (g.party.playing && catchingUp(g.video)) return;
   clearTimeout(g.waitTimer);
   g.waitTimer = setTimeout(() => sayWaiting(true), WAIT_AFTER_MS);
 }
@@ -303,7 +317,7 @@ const QUALITIES = [
   [null, "As good as the party allows"],
   [8_000_000, "8 Mbps (1080p)"],
   [4_000_000, "4 Mbps (720p)"],
-  [2_000_000, "2 Mbps (480p)"],
+  [2_000_000, "2 Mbps (720p)"],
 ];
 const QUALITY_KEY = "melete-guest-quality";
 

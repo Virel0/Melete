@@ -1,6 +1,7 @@
 // A playback report: what the player saw while it played (waiting and stalls, errors, the way it
-// played and each conversion asked for, conversion errors, seeks and subtitle changes), the last
-// 200 of them, sent to the admins' Diagnostics when the viewer asks, from the player's Settings
+// played and each conversion asked for, conversion errors, seeks and subtitle changes, and in a
+// watch party each change in how it kept in step, `sync`, from party-clock.js), the last 200 of
+// them, sent to the admins' Diagnostics when the viewer asks, from the player's Settings
 // panel or Your account. Nothing is sent otherwise. A report carries no addresses: a stream's
 // address can carry a session, so only what kind of error it was is kept.
 //

@@ -219,6 +219,7 @@ async fn look_through(
         .map(|r| r.id)
         .collect();
     for row in season.iter().filter(|r| !r.current()) {
+        crate::transcode::after_viewers().await;
         let item = pace.item();
         if let Entry::Vacant(entry) = prints.entry(row.id) {
             entry.insert(decode(ffmpeg, row).await);
@@ -382,7 +383,7 @@ async fn record(
     intro: Option<(Segment, &[u32])>,
     credits: Option<(Segment, &[u32])>,
 ) -> anyhow::Result<(Option<i64>, Option<i64>)> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO media_segment_scans (file_id, size, modified_at, scanned_at, error, version)
          VALUES (?, ?, ?, ?, ?, ?)

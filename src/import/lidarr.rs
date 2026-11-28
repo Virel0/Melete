@@ -59,7 +59,7 @@ pub async fn import_lidarr(
     let now = unix_now();
 
     let mut report = LidarrReport::default();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let listed_artists: Vec<&str> = artists
         .iter()
         .map(|a| a.foreign_artist_id.as_str())

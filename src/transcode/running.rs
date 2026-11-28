@@ -40,7 +40,26 @@ pub(super) struct Running {
     pub(super) hw: Hardware,
     /// Its session fell back to the CPU after a run failed on the GPU, and stays there.
     pub(super) on_cpu: bool,
+    /// Numbers the run in the log.
+    pub(super) run: u64,
+    /// When it started, and the time it has spent paused (see [`Running::set_paused`]).
+    pub(super) started: Instant,
+    pub(super) paused_at: Option<Instant>,
+    pub(super) paused_for: Duration,
+    /// When ffmpeg was seen to have ended, finished or failed.
+    pub(super) ended_at: Option<Instant>,
+    /// The file's length in seconds.
+    pub(super) duration: f64,
+    /// Who asks it for segments, by their link's key: when each last asked, and for which
+    /// segment. Watch party members share a run; anyone else has one of their own.
+    pub(super) viewers: HashMap<Vec<u8>, (Instant, i64)>,
+    /// The most viewers it has had at once, for the log.
+    pub(super) most_viewers: usize,
 }
+
+/// Another viewer who asked within this long is still watching a shared run: players ask every
+/// few seconds while playing.
+const OTHERS_ASKING: Duration = Duration::from_secs(10);
 
 /// What a run has made so far.
 pub(super) struct Progress {
@@ -51,6 +70,55 @@ pub(super) struct Progress {
 }
 
 impl Running {
+    /// Notes an ask from `viewer`, for `segment` when it's one. The run's place is its slowest
+    /// viewer's, so ffmpeg is paused and segments are deleted by where that one is.
+    pub(super) fn asked_by(&mut self, viewer: &[u8], segment: Option<i64>) {
+        let now = Instant::now();
+        let at = segment
+            .or_else(|| self.viewers.get(viewer).map(|(_, at)| *at))
+            .unwrap_or(self.start);
+        let new = self.viewers.insert(viewer.to_vec(), (now, at)).is_none();
+        if new && self.viewers.len() > self.most_viewers {
+            self.most_viewers = self.viewers.len();
+            if self.most_viewers > 1 {
+                tracing::info!(
+                    run = self.run,
+                    viewers = self.most_viewers,
+                    "a viewer joined a shared video conversion"
+                );
+            }
+        }
+        self.last_request = now;
+        self.settle();
+    }
+
+    /// Whether `viewer` has asked it for a segment it makes.
+    pub(super) fn caught_up(&self, viewer: &[u8]) -> bool {
+        self.viewers
+            .get(viewer)
+            .is_some_and(|(_, at)| *at >= self.start)
+    }
+
+    /// Whether anyone but `viewer` is watching it: has asked in the last few seconds for a
+    /// segment it makes. Others behind it too, as after everyone jumped back, aren't.
+    pub(super) fn others_asking(&self, viewer: &[u8]) -> bool {
+        self.viewers.iter().any(|(other, (asked, at))| {
+            other != viewer && asked.elapsed() < OTHERS_ASKING && *at >= self.start
+        })
+    }
+
+    /// Forgets viewers that haven't asked in `idle`; the run itself stops once none has.
+    pub(super) fn forget_idle(&mut self, idle: Duration) {
+        self.viewers.retain(|_, (asked, _)| asked.elapsed() < idle);
+        self.settle();
+    }
+
+    fn settle(&mut self) {
+        if let Some(slowest) = self.viewers.values().map(|(_, at)| *at).min() {
+            self.last_segment = slowest;
+        }
+    }
+
     pub(super) fn progress(&self) -> Progress {
         let playlist = std::fs::read_to_string(self.dir.join("ffmpeg.m3u8")).unwrap_or_default();
         match &self.keyframes {
@@ -85,8 +153,9 @@ impl Running {
         }
     }
 
-    /// Stops ffmpeg and, once it has exited, deletes its segments.
-    pub(super) fn stop(mut self) {
+    /// Stops ffmpeg and, once it has exited, deletes its segments; [`Running::stop`] says so
+    /// first.
+    pub(super) fn end(mut self) {
         tokio::spawn(async move {
             let _ = self.child.kill().await;
             let _ = tokio::fs::remove_dir_all(self.dir).await;
@@ -205,7 +274,7 @@ pub(super) fn take_quietest_slot(
         .map(|(id, _)| id.clone())
         .ok_or(TranscodeError::Busy)?;
     if let Some(r) = running.remove(&quietest) {
-        r.stop();
+        r.stop(Stopped::TakenOver);
     }
     Ok(())
 }

@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 /// shows. A number past the end of TMDB's list is left alone. Returns how many files it
 /// numbered (or renumbered, when TMDB's list changed).
 pub async fn number(pool: &SqlitePool) -> anyhow::Result<usize> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let numbered = number_in(&mut tx).await?;
     tx.commit().await?;
     Ok(numbered)

@@ -129,7 +129,7 @@ pub(crate) async fn save(
     converted: &import::Converted,
 ) -> anyhow::Result<ImportReport> {
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let format_ids = save_formats(&mut tx, app, &converted.formats, now).await?;
     let kept: Vec<i64> = format_ids.values().copied().collect();
     let removed_formats = sqlx::query(

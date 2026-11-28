@@ -22,7 +22,7 @@ pub async fn refresh(pool: &SqlitePool, deluge: &deluge::Client) -> anyhow::Resu
     let hashes: Vec<String> = rows.iter().map(|(_, h, _)| h.clone()).collect();
     let statuses = deluge.statuses(&hashes).await?;
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for (id, hash, missing_since) in &rows {
         // Only downloads still downloading: another step may have moved one on meanwhile.
         match statuses.get(hash) {

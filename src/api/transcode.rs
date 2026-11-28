@@ -29,6 +29,7 @@ use crate::subtitles::{self, Format, Source};
 use crate::transcode::{self, Burn, Keyframes, Settings, TranscodeError, Transcoder, VideoCodec};
 
 mod ass_burn;
+mod shared;
 use ass_burn::TextTrack;
 
 /// Keyframe lists kept, by file version; a list is about 10 KB for a two-hour film.
@@ -384,25 +385,31 @@ async fn hls(
         return Err(gone());
     }
     let settings: Settings = serde_json::from_str(&settings)?;
-    // A guest's conversion is held to the party's cap as it is now: lowered since, it's asked
-    // for again.
-    if let Some(guest) = guest_id
-        && let Some(cap) = super::playback::guest_cap(&state.pool, guest).await?
-        && settings.max_bitrate.is_none_or(|bits| bits > cap)
-    {
-        return Err(gone());
-    }
     let file = load_file(&state.pool, &state.ffprobe, file_id).await?;
     let media = file
         .media
         .clone()
         .ok_or_else(|| unprocessable("ffprobe can no longer read this file"))?;
+    // A guest's conversion is held to the party's cap as it is now: lowered since, it's asked
+    // for again. Copied video is the file's own, so the file must be within it.
+    if let Some(guest) = guest_id
+        && let Some(cap) = super::playback::guest_cap(&state.pool, guest).await?
+    {
+        let bits = match settings.video_codec {
+            Some(VideoCodec::Copy) => overall_bitrate(file.size, Some(&media)),
+            _ => settings.max_bitrate,
+        };
+        if bits.is_none_or(|bits| bits > cap) {
+            return Err(gone());
+        }
+    }
     let path = resolve(&file.root, &file.rel_path).await?;
     let mut plan = transcode::plan(path.clone(), &media, &settings, state.transcoder.hardware())
         .map_err(unprocessable)?;
     if plan.codec == VideoCodec::Copy {
         plan.keyframes = Some(keyframes_of(&state, &file, &path, &media).await?);
     }
+    plan.about.source_bitrate = overall_bitrate(file.size, Some(&media));
 
     if name == "main.m3u8" {
         let headers = [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")];
@@ -424,9 +431,11 @@ async fn hls(
     if plan.burn.is_none() {
         plan.burn = text_burn(&state, &file, path, &settings).await?;
     }
+    // A watch party's viewers asking alike share one run; anyone else has their own.
+    let run = shared::conversion_key(&state.pool, (token_id, guest_id), &file, &plan, &key).await?;
     let made = match ask {
-        Ask::Init => state.transcoder.init(&key, &plan).await,
-        Ask::Segment(n) => state.transcoder.segment(&key, &plan, n).await,
+        Ask::Init => state.transcoder.init_for(&run, &key, &plan).await,
+        Ask::Segment(n) => state.transcoder.segment_for(&run, &key, &plan, n).await,
     };
     let segment_file = made.map_err(|err| match err {
         TranscodeError::Busy => ApiError::new(
@@ -460,6 +469,8 @@ enum Ask {
 
 #[cfg(test)]
 mod tests {
+    mod guests;
+
     use axum::body::Body;
     use axum::extract::Request;
     use http_body_util::BodyExt;
@@ -476,6 +487,7 @@ mod tests {
         app: Router,
         token: String,
         token_id: i64,
+        transcoder: Arc<Transcoder>,
         _dir: tempfile::TempDir,
     }
 
@@ -526,12 +538,13 @@ mod tests {
             app: routes(
                 pool.clone(),
                 "ffprobe".into(),
-                transcoder,
+                transcoder.clone(),
                 dir.path().join("subtitles"),
             ),
             pool,
             token,
             token_id,
+            transcoder,
             _dir: dir,
         }
     }

@@ -62,7 +62,7 @@ pub async fn import_sonarr(
     let libraries = libraries(pool, "shows").await?;
     let now = unix_now();
     let mut report = SonarrReport::default();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for show in &series {
         report.series += 1;
         report.monitored += usize::from(show.monitored);

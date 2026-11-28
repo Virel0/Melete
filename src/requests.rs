@@ -233,7 +233,7 @@ async fn reopen_unfollowed(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<
     const UNFOLLOWED: &str = "id = ? AND state = 'approved'
         AND coalesce(wanted_movie_id, wanted_series_id, wanted_artist_id, wanted_album_id,
                      wanted_song_id) IS NULL";
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let was: Option<(Option<i64>, Option<i64>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(
         format!("SELECT decided_at, decided_by, created_at FROM requests WHERE {UNFOLLOWED}"),
     ))

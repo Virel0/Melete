@@ -19,6 +19,9 @@ use super::Library;
 use crate::admin_health::{Finding, Level};
 use crate::db::unix_now;
 
+mod settle;
+pub use settle::*;
+
 /// How often each library's folder is read.
 pub const EVERY: Duration = Duration::from_secs(60);
 /// How long a read of a library's folder may take before the library counts as not responding.
@@ -123,6 +126,18 @@ pub async fn within<T: Send + 'static>(
                 why,
             }))
         }
+    }
+}
+
+/// Whether `file` opens, asked off the async threads with [`LIMIT`]: refused at once while its
+/// library isn't responding, and a file that doesn't open in time counts it as not responding.
+/// Why not, when it doesn't.
+pub async fn opens(file: &Path) -> Result<(), String> {
+    let at = file.to_path_buf();
+    match within(file, LIMIT, move || std::fs::File::open(at).map(drop)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(down) => Err(format!("{}: {}", down.saying(), down.why)),
     }
 }
 
@@ -311,11 +326,33 @@ async fn check_with(
     Ok(changes)
 }
 
+/// Whether the first check since the server started is in, and who waits for it.
+static CHECKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FIRST_CHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Waits for the first check since the server started, so what reads the libraries at start
+/// knows which ones answer rather than going by what was stored before.
+pub async fn checked() {
+    let first = FIRST_CHECK.notified();
+    let mut first = std::pin::pin!(first);
+    first.as_mut().enable();
+    if !CHECKED.load(std::sync::atomic::Ordering::SeqCst) {
+        first.await;
+    }
+}
+
+fn first_check_in() {
+    CHECKED.store(true, std::sync::atomic::Ordering::SeqCst);
+    FIRST_CHECK.notify_waiters();
+}
+
 /// Reads every library's folder each minute for as long as the server runs, and tells admins
 /// when one stops or starts answering (`alerts`).
 pub async fn run(pool: SqlitePool, libraries: Vec<Library>) {
     loop {
-        match check(&pool, &libraries, LIMIT).await {
+        let checked = check(&pool, &libraries, LIMIT).await;
+        first_check_in();
+        match checked {
             // Admins are told, without holding up the next check.
             Ok(changes) => {
                 for change in changes {

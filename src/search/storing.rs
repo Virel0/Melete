@@ -15,7 +15,7 @@ pub(crate) async fn store(
     started: i64,
 ) -> anyhow::Result<i64> {
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("DELETE FROM searches WHERE searched_at < ?")
         .bind(now - KEEP_SECONDS)
         .execute(&mut *tx)

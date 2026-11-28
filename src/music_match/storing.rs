@@ -113,7 +113,7 @@ pub(super) async fn relink(pool: &SqlitePool) -> anyhow::Result<()> {
     .fetch_all(pool)
     .await?;
     for (album_id, release_id) in albums {
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         link_tracks(&mut tx, album_id, &release_id).await?;
         tx.commit().await?;
     }

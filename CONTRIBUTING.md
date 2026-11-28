@@ -17,6 +17,7 @@ problems privately, as [`SECURITY.md`](SECURITY.md) says.
 | `migrations/` | SQLite migrations, compiled into the binary |
 | `tests/` | Checks on the source itself (file length, comment references) and test fixtures |
 | `docs/DESIGN.md` | The design, and the decisions table: what Melete does and why |
+| `docs/WEB-LOOK.md` | How the web UI looks: its colours, type, buttons, shell and pages |
 | `stems/`, `motion/` | The optional stem separator and motion cover renderer containers |
 | `Dockerfile`, `compose*.yaml` | The image and how to run it |
 
@@ -31,8 +32,9 @@ Every pull request must pass:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-The tests need `ffmpeg` and `ffprobe` on the `PATH`: some make a real clip and read it. CI also
-runs `cargo audit`, checks the shell scripts, refuses OpenSSL and native-tls in the dependency
+The tests need `ffmpeg` and `ffprobe` on the `PATH`: some make a real clip and read it. They
+need `node` (20 or later) too: the web UI's logic in `tests/web/` runs with Node's test runner.
+CI also runs `cargo audit`, checks the shell scripts, refuses OpenSSL and native-tls in the dependency
 tree, and reports long files and functions.
 
 Clippy fails a function over 100 lines and a bare `unwrap()` outside tests: split long

@@ -40,7 +40,7 @@ pub async fn import_radarr(
     let now = unix_now();
 
     let mut report = RadarrReport::default();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for movie in movies.iter().filter(|m| m.tmdb_id > 0) {
         report.movies += 1;
         report.monitored += usize::from(movie.monitored);

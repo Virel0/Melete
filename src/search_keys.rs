@@ -254,7 +254,7 @@ async fn fill_table(pool: &SqlitePool, keyed: &Keyed) -> sqlx::Result<u64> {
                 .await?;
         let Some(last) = rows.last() else { break };
         after = last.0;
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         for (row, first_value, second_value, language) in &rows {
             let mut query = sqlx::query(sqlx::AssertSqlSafe(update.as_str()))
                 .bind(search_key(&[Some(first_value), second_value.as_deref()]))
