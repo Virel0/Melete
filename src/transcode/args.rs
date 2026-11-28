@@ -328,8 +328,11 @@ pub(super) fn copy_args(plan: &Plan, start: i64, dir: &Path) -> Vec<OsString> {
     // The file's own timestamps in every run, so runs line up exactly: putting them back after
     // -ss, as encoding does, rounds to the stream's time base.
     push(&["-hide_banner", "-nostdin", "-v", "error", "-y", "-copyts"]);
-    // Just past the keyframe the segment starts at, so ffmpeg lands on it. Audio before that
-    // point is dropped, so the run's first chunk starts at the keyframe too.
+    // Just past the keyframe the segment starts at, so ffmpeg lands on it. The copied video
+    // starts at the keyframe, but converted audio would be cut at the seek point itself, a
+    // fraction of a second later, leaving the first segment's start without sound, a hole a
+    // player stalls at. Not cut there, it starts where the file's audio does around the
+    // keyframe, as in a run from the start.
     let seek = plan
         .keyframes
         .as_ref()
@@ -337,7 +340,7 @@ pub(super) fn copy_args(plan: &Plan, start: i64, dir: &Path) -> Vec<OsString> {
         .filter(|_| start > 0)
         .map(|at| format!("{at:.6}"));
     if let Some(seek) = &seek {
-        push(&["-ss", seek]);
+        push(&["-noaccurate_seek", "-ss", seek]);
     }
     push(&["-i"]);
     let mut input = OsString::from("file:");
@@ -452,3 +455,6 @@ pub(super) fn burn_graph(
         }
     }
 }
+
+#[cfg(test)]
+mod seek_tests;
