@@ -159,7 +159,7 @@ pub async fn keep(
         .bind(token_id)
         .fetch_one(pool)
         .await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO diagnostics (user_id, token_id, device, app, app_version, platform, level,
              summary, details, received_at)

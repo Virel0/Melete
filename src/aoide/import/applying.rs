@@ -13,7 +13,7 @@ pub async fn apply(melete: &SqlitePool, plan: &Plan) -> anyhow::Result<()> {
             user.jellyfin_id
         );
     }
-    let mut tx = melete.begin().await?;
+    let mut tx = crate::db::write(melete).await?;
     let used: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM aoide_ops)
              OR EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'aoide_ops' AND seq > 0)",

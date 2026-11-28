@@ -155,7 +155,7 @@ pub async fn catch_up(pool: &SqlitePool) -> sqlx::Result<u64> {
     if newest <= read {
         return Ok(0);
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     // Writing first takes the database's write lock before anything is read.
     sqlx::query("UPDATE music_plays_read SET seq = seq WHERE id = 1")
         .execute(&mut *tx)
@@ -267,7 +267,7 @@ pub async fn forget(pool: &SqlitePool, user_id: i64, which: Forget) -> sqlx::Res
     };
     let filter = "FROM music_plays WHERE user_id = ?1 AND (?2 IS NULL OR id = ?2)
          AND (?3 IS NULL OR started_at >= ?3) AND (?4 IS NULL OR started_at < ?4)";
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT OR IGNORE INTO music_plays_forgotten (user_id, source, event_id)
          SELECT user_id, source, event_id {filter}"

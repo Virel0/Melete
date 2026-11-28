@@ -112,7 +112,7 @@ async fn store_credits(
             rows.push((c.id, &c.name, c.profile_path.as_deref(), "crew", Some(job)));
         }
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("DELETE FROM tmdb_credits WHERE movie_tmdb_id IS ? AND series_tmdb_id IS ?")
         .bind(movie)
         .bind(series)

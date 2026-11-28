@@ -266,7 +266,7 @@ pub async fn refresh(pool: &SqlitePool) -> anyhow::Result<(usize, usize)> {
     .fetch_all(pool)
     .await?;
     let worked = work_out(&tracks);
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let mut composer_ids: HashMap<&str, i64> = HashMap::new();
     for (key, c) in &worked.composers {
         let id: i64 = sqlx::query_scalar(

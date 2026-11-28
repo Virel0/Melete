@@ -38,7 +38,7 @@ pub async fn import_prowlarr(
     let (torrent, usenet): (Vec<_>, Vec<_>) =
         listed.into_iter().partition(|i| i.protocol == "torrent");
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     if torrent.is_empty() {
         let existing: i64 =
             sqlx::query_scalar("SELECT count(*) FROM indexers WHERE source = 'prowlarr'")
@@ -213,7 +213,7 @@ pub async fn update(
     if name.is_empty() || name.chars().count() > NAME_MAX {
         return Ok(Err(NotChanged::BadName));
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let row: Option<(String, bool)> =
         sqlx::query_as("SELECT name, enabled FROM indexers WHERE id = ?")
             .bind(id)

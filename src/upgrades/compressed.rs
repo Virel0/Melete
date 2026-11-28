@@ -164,7 +164,7 @@ struct Replacement<'a> {
 /// new one (its probe to be made again), in one transaction.
 async fn record(pool: &SqlitePool, r: &Replacement<'_>) -> sqlx::Result<()> {
     let at = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO trashed_files (library_id, rel_path, trash_path, size, download_id,
              replaced_by, trashed_at, reason)

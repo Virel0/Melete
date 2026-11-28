@@ -201,7 +201,7 @@ pub async fn remove_by(
     id: i64,
     by: Option<i64>,
 ) -> anyhow::Result<Result<(), NotRemoved>> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let exists: Option<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT id FROM {} WHERE id = ?",
         kind.table()

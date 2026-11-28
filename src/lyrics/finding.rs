@@ -102,7 +102,7 @@ pub(super) async fn keep(
     file: (i64, i64),
     lyrics: Option<&Lyrics>,
 ) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO music_lyrics (track_id, source, text, synced, track_size,
              track_modified_at, checked_at)
@@ -126,7 +126,7 @@ pub(super) async fn keep(
 
 /// Forgets a track's lyrics, found in a file that no longer has them.
 pub(super) async fn forget(pool: &SqlitePool, track_id: i64) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query("DELETE FROM music_lyrics WHERE track_id = ?")
         .bind(track_id)
         .execute(&mut *tx)

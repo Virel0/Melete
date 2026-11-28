@@ -13,7 +13,7 @@ pub(super) async fn move_to_survivor(
     merged: &str,
     survivor: &Release,
 ) -> anyhow::Result<usize> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     store_release(&mut tx, survivor, unix_now()).await?;
     let albums: Vec<(i64, String)> =
         sqlx::query_as("SELECT id, title FROM music_albums WHERE match_release_id = ? ORDER BY id")

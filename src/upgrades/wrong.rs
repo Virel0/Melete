@@ -223,7 +223,7 @@ async fn record(
     download_id: i64,
 ) -> sqlx::Result<i64> {
     let at = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO trashed_files (library_id, rel_path, trash_path, size, download_id,
              replaced_by, trashed_at, reason)

@@ -9,7 +9,7 @@ pub async fn restore<'a>(
     names: impl Iterator<Item = &'a String>,
     before: &HashMap<String, String>,
 ) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let sealing = crate::secrets::sealing(&mut *tx).await?;
     for name in names {
         match before.get(name) {
@@ -112,7 +112,7 @@ pub async fn save(
         Ok(made) => made,
         Err(refused) => return Ok(Err(refused)),
     };
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let sealing = crate::secrets::sealing(&mut *tx).await?;
     for name in changes.keys() {
         match next.get(name) {
