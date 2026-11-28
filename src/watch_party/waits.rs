@@ -119,9 +119,9 @@ pub struct Wait {
     pub since: i64,
 }
 
-/// Who the party waits for, by name, first first, each with whether it's a guest; settled
-/// first when it's waiting at all, so a wait that's over shows as over. Writes nothing when
-/// nobody waits.
+/// Who the party waits for, by name, first first, each with whether it's a guest, as
+/// [`waits`] has them.
+#[cfg(test)]
 pub async fn names(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<(String, bool)>> {
     Ok(waits(pool, party)
         .await?
@@ -130,7 +130,8 @@ pub async fn names(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<(String, b
         .collect())
 }
 
-/// The party's waits, first first, settled as [`names`] are.
+/// The party's waits, first first; settled first when it's waiting at all, so a wait that's
+/// over shows as over. Writes nothing when nobody waits.
 pub async fn waits(pool: &SqlitePool, party: i64) -> sqlx::Result<Vec<Wait>> {
     let any: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM watch_party_waits WHERE party_id = ?1)
