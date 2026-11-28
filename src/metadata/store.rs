@@ -174,7 +174,7 @@ pub(super) async fn store_series(
 ) -> anyhow::Result<()> {
     let genres: Vec<&str> = d.genres.iter().map(|g| g.name.as_str()).collect();
     let ids = d.external_ids.as_ref();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     sqlx::query(
         "INSERT INTO tmdb_series (tmdb_id, tvdb_id, imdb_id, name, original_name, first_air_date,
              year, overview, status, poster_path, backdrop_path, genres, fetched_at, language,

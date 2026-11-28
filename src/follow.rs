@@ -93,7 +93,7 @@ where
                 continue;
             }
         };
-        let mut tx = pool.begin().await?;
+        let mut tx = crate::db::write(pool).await?;
         for group in &groups {
             if want_if_new(&mut tx, &artist, group, first, &since, now).await? {
                 report.wanted += 1;

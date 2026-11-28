@@ -89,7 +89,7 @@ pub async fn start(
         return Ok(Err(NotStarted::NothingToSwap));
     }
     let now = unix_now();
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for (file, season, episode) in &files {
         let (movie, show) = if series {
             (None, Some(wanted_id))

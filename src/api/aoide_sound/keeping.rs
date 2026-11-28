@@ -49,7 +49,7 @@ pub(super) async fn post_bounds(
             )));
         }
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(&pool).await?;
     for (id, entry) in &entries {
         let Ok(id) = id.parse::<i64>() else {
             continue;
@@ -132,7 +132,7 @@ pub(super) async fn post_analysis(
             return Err(bad(format!("{id}: {reason}")));
         }
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(&pool).await?;
     for (id, entry) in &entries {
         let Ok(id) = id.parse::<i64>() else {
             continue;

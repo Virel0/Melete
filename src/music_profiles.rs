@@ -148,7 +148,7 @@ fn convert(profile: &FullQualityProfile, skipped: &mut Vec<String>) -> anyhow::R
 /// Writes a profile, replacing one of the same source and name. Returns its id. A Lidarr
 /// import leaves one an admin changed in Melete as they set it.
 async fn save(pool: &SqlitePool, source: &str, profile: &NewProfile) -> sqlx::Result<i64> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     if source == "lidarr" {
         let edited: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM music_profiles

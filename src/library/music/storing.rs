@@ -12,7 +12,7 @@ pub(super) async fn store(
     (skipped, ignored): (usize, &[String]),
 ) -> anyhow::Result<ScanReport> {
     let now = unix_seconds(Some(SystemTime::now()));
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     let generation: i64 = sqlx::query_scalar(
         "UPDATE libraries SET scan_generation = scan_generation + 1, last_scan_at = ?
          WHERE id = ? RETURNING scan_generation",

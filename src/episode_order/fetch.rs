@@ -80,7 +80,7 @@ pub async fn fetch(pool: &SqlitePool, tmdb: &tmdb::Client, tmdb_id: i64) -> anyh
     .bind(tmdb_id)
     .fetch_optional(pool)
     .await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     store(&mut tx, tmdb_id, &groups, followed.as_deref()).await?;
     tx.commit().await?;
     let now = crate::db::unix_now();

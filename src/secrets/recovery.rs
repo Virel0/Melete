@@ -23,7 +23,7 @@ pub async fn clear(pool: &SqlitePool, data_dir: &Path) -> anyhow::Result<Unreada
         Found::Garbled => bail!("{}", garbled(&path, pool).await?),
     };
     let found = unreadable(pool, key.as_ref()).await?;
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write(pool).await?;
     for (name, _) in &found.settings {
         sqlx::query("DELETE FROM settings WHERE name = ?")
             .bind(name)

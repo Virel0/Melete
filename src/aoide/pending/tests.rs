@@ -362,3 +362,31 @@ async fn a_song_fetched_from_youtube_fills_its_items() {
     assert_eq!(rows["a"]["jellyfinId"], "7");
     assert!(Pending::of(rows["b"]).is_some(), "b still waits");
 }
+
+/// Finding what each pending request's downloads placed looks them up by the song and the
+/// track by its path, rather than reading every track for each request (as it did, taking
+/// seconds on a large music library).
+#[tokio::test]
+async fn finding_arrived_songs_never_reads_every_track() {
+    let pool = crate::db::open_in_memory().await;
+    let plan: Vec<String> = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {}",
+        resolving::ARRIVED
+    )))
+    .bind("[]")
+    .fetch_all(&pool)
+    .await
+    .unwrap()
+    .iter()
+    .map(|row| sqlx::Row::get::<String, _>(row, "detail"))
+    .collect();
+    assert!(
+        !plan.iter().any(|step| step == "SCAN t"),
+        "every track is read: {plan:#?}"
+    );
+    assert!(
+        plan.iter()
+            .any(|step| step.starts_with("SEARCH d USING INDEX downloads_by_song")),
+        "{plan:#?}"
+    );
+}
