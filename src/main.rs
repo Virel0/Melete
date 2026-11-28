@@ -143,10 +143,13 @@ use tokio::signal::unix::{SignalKind, signal};
 async fn main() -> anyhow::Result<()> {
     jobs::note_start();
     logging::init();
-    // Before anything else: an image put on another service's variable stops here, saying so.
-    own_service::check()?;
-
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // The usage when that's what's asked for, with nothing opened; then, before anything else,
+    // an image put on another service's variable stops here, saying so.
+    if cli::help(&args) {
+        return Ok(());
+    }
+    own_service::check()?;
     if show_seedbox_host_key(&args).await? {
         return Ok(());
     }
