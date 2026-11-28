@@ -28,8 +28,8 @@
   overflow: hidden;
   background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-s);
+  border: 0;
+  border-radius: var(--radius-l);
   font-weight: 400;
   text-align: start;
 }
@@ -49,8 +49,7 @@
   max-width: 48rem;
   padding: var(--space-4) var(--space-5);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-l);
 }
 .wide-card .words p { margin: var(--space-1) 0 var(--space-3); }
 .wide-card .play-actions { margin: 0; }
@@ -72,8 +71,8 @@
   gap: var(--space-2);
   min-height: 2.5rem;
   padding: 0 var(--space-4);
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  background: var(--surface);
+  border-radius: var(--radius-pill);
   text-decoration: none;
 }
 .pills a:hover { background: var(--surface-raised); }
@@ -147,8 +146,8 @@
 .album-head.coloured .meta-row,
 .album-head.coloured .note { color: var(--album-ink); }
 .album-head.coloured button:not(.quiet) { background: var(--album-ink); color: var(--album-bg); }
-.album-head.coloured button.quiet { color: var(--album-ink); border-color: var(--album-line); }
-.album-head.coloured button.quiet:hover { background: color-mix(in srgb, var(--album-ink) 14%, transparent); }
+.album-head.coloured button.quiet { background: color-mix(in srgb, var(--album-ink) 12%, transparent); color: var(--album-ink); }
+.album-head.coloured button.quiet:hover { background: color-mix(in srgb, var(--album-ink) 22%, transparent); }
 .album-head.coloured :focus-visible { outline-color: var(--album-ink); }
 @media (max-width: 40rem) {
   .album-head { grid-template-columns: 1fr; padding: var(--space-4); }
@@ -213,9 +212,9 @@
   padding: var(--space-3);
   background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border: 0;
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-float);
 }
 .card-menu-buttons { display: grid; gap: var(--space-1); }
 .card-menu-buttons > button { justify-content: flex-start; margin: 0; }

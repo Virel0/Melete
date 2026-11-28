@@ -5,16 +5,26 @@
    makes no outside requests and ships no font files. */
 :root {
   --bg: #121417;
+  /* Under the surface: sidebars, rows in a long list, the loading, empty and failed panels. */
+  --surface-sunk: #16181c;
   --surface: #1b1e23;
   --surface-raised: #252930;
+  /* A secondary or icon button under the pointer. */
+  --surface-hover: #30353e;
   --line: #343944;
   --line-strong: #6b7080;
   --text: #ece9e2;
+  /* Running text under a heading: an overview, a description. */
+  --text-soft: #d6d3cc;
   --muted: #a4a29b;
   --accent: #e3a857;
+  /* The primary button under the pointer. */
+  --accent-hover: #edbb74;
   --accent-ink: #121417;
   --danger: #f09484;
   --danger-ink: #121417;
+  /* A notice about something you are part of, on the accent's tint. */
+  --accent-tint: #2a2418;
   /* The managing side's states (shell.css draws their marks). Each colour always comes with
      words and a mark of its own shape, so no state is told by colour alone. */
   --state-have: #8cc9a0;     /* in the library: a filled circle */
@@ -24,10 +34,21 @@
   --state-off: #a4a29b;      /* not monitored: a dash */
   --state-notyet: #b3b8d6;   /* not out yet: a dashed ring */
   /* contrast: --text on --bg */
+  /* contrast: --text on --surface-raised */
+  /* contrast: --text on --surface-sunk */
+  /* contrast: --muted on --surface-sunk */
+  /* contrast: --text on --accent-tint */
+  /* contrast: --danger on --surface-raised */
+  /* contrast: --muted on --surface-raised */
+  /* contrast: --text on --surface-hover */
+  /* contrast: --text-soft on --bg */
+  /* contrast: --text-soft on --surface */
+  /* contrast: --bg on --text */
   /* contrast: --muted on --bg */
   /* contrast: --muted on --surface */
   /* contrast: --accent on --bg */
   /* contrast: --accent-ink on --accent */
+  /* contrast: --accent-ink on --accent-hover */
   /* contrast: --danger on --bg */
   /* contrast: --danger-ink on --danger */
   /* contrast: --line-strong on --surface ui (borders only) */
@@ -50,6 +71,11 @@
   --stage-muted: #b4b1a9;
   --stage-accent: #e3a857;
   --stage-accent-ink: #121417;
+  /* Secondary and icon buttons over art, and the empty part of a progress bar on it: a veil of
+     the stage's text, so the art shows through. */
+  --on-art-fill: rgb(236 233 226 / 0.14);
+  --on-art-hover: rgb(236 233 226 / 0.24);
+  --on-art-track: rgb(236 233 226 / 0.25);
   /* contrast: --stage-text on --stage */
   /* contrast: --stage-muted on --stage */
   /* contrast: --stage-accent on --stage */
@@ -83,7 +109,14 @@
 
   --radius-s: 4px;
   --radius-m: 8px;
+  --radius-l: 12px;
+  /* Panels and dialogs: sign-in, the empty and failed states. */
+  --radius-xl: 18px;
+  /* Anything pressed: buttons, chips, toggles. */
+  --radius-pill: 999px;
   --shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  /* Only what floats over the page: menus and dialogs. Cards have none. */
+  --shadow-float: 0 24px 64px rgb(0 0 0 / 0.5);
   /* The page behind a modal (the command palette), dimmed so the dialog is what's read. */
   --scrim: rgb(0 0 0 / 0.6);
 
@@ -92,16 +125,21 @@
 
 :root[data-theme="light"] {
   --bg: #f6f5f2;
+  --surface-sunk: #efede8;
   --surface: #ffffff;
   --surface-raised: #ebe9e4;
+  --surface-hover: #dedbd4;
   --line: #dcd9d2;
   --line-strong: #7d7a72;
   --text: #1b1d21;
+  --text-soft: #34363b;
   --muted: #5d5b55;
   --accent: #8a5a12;
+  --accent-hover: #744b0f;
   --accent-ink: #ffffff;
   --danger: #a8321f;
   --danger-ink: #ffffff;
+  --accent-tint: #f5e9d6;
   --state-have: #2c6a44;
   --state-coming: #275d92;
   --state-waiting: #8a5a12;
@@ -109,6 +147,7 @@
   --state-off: #5d5b55;
   --state-notyet: #4f5577;
   --shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  --shadow-float: 0 24px 64px rgb(0 0 0 / 0.18);
   --scrim: rgb(27 29 33 / 0.45);
   --tint-amount: 10%;
   --fade-amount: 14%;
@@ -150,28 +189,72 @@ button, input, select, textarea {
   color: inherit;
 }
 
+/* Buttons, at four levels (docs/WEB-LOOK.md): primary, the plain button, filled with the accent,
+   one a screen; secondary (`quiet`), a tonal fill; tertiary, words with an icon in front and no
+   fill; and round icon buttons (`icon`, player.css; `filled` gives them the tonal fill). All are
+   pills. */
 button, .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-2);
   text-decoration: none;
   min-height: 2.5rem;
   padding: var(--space-2) var(--space-4);
   border: 1px solid transparent;
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
+/* Kept as weak as a rule can be, so a button drawn by a class of its own keeps its own hover. */
+:where(button, .button):where(:hover):where(:not(:disabled, [aria-disabled="true"])) { background: var(--accent-hover); }
+/* On a fill that is already the accent, the focus ring is in the text's colour. */
+:where(button:not([class]), a.button:not(.quiet, .tertiary), .primary):focus-visible { outline-color: var(--text); }
 button:disabled { opacity: 0.6; cursor: progress; }
 button.quiet, .button.quiet {
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 600;
+}
+button.quiet:hover, .button.quiet:hover { background: var(--surface-hover); }
+button.tertiary, .button.tertiary {
+  padding-inline: var(--space-3);
   background: transparent;
   color: var(--text);
-  border-color: var(--line-strong);
   font-weight: 400;
 }
-button.quiet:hover, .button.quiet:hover { background: var(--surface-raised); }
+button.tertiary:hover, .button.tertiary:hover { background: var(--surface); }
+:is(button, .button).with-icon svg { flex: none; width: 1.125rem; height: 1.125rem; fill: currentColor; }
+:is(button, .button).with-icon svg.lines { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+/* A toggle that is on (Watched, My List): filled with the text's colour. */
+:is(.quiet, .icon.filled)[aria-pressed="true"],
+:is(.quiet, .icon.filled)[aria-pressed="true"]:hover { background: var(--text); color: var(--bg); }
+button.icon.filled { width: 2.75rem; height: 2.75rem; background: var(--surface-raised); color: var(--text); }
+button.icon.filled:hover { background: var(--surface-hover); }
+button.icon.filled[aria-pressed="true"]::after { content: none; }
+/* An icon button's name, shown on hover and on keyboard focus as well as read out. */
+button.icon.filled[aria-label]:is(:hover, :focus-visible)::before {
+  content: attr(aria-label);
+  position: absolute;
+  inset: auto auto calc(100% + var(--space-2)) 50%;
+  translate: -50% 0;
+  z-index: 3;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-s);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* At the end of a row, the name opens towards the start, so it never runs past the page's edge. */
+button.icon.filled.tip-end[aria-label]:is(:hover, :focus-visible)::before { inset-inline: auto 0; translate: none; }
+/* The thin line between a title's main actions and its tertiary ones. */
+.action-divider { width: 1px; height: 1.75rem; margin-inline: var(--space-1); background: color-mix(in srgb, var(--text) 20%, transparent); }
 
 input, select, textarea {
   min-height: 2.5rem;
@@ -216,7 +299,7 @@ main:focus { outline: none; }
 .badge {
   display: inline-block;
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--line-strong);
+  background: var(--surface-raised);
   border-radius: var(--radius-s);
   color: var(--muted);
   font-size: var(--step--1);
@@ -268,9 +351,8 @@ main:focus { outline: none; }
   transform: translateX(-50%);
   padding: var(--space-1);
   background: var(--surface-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-s);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-float);
   pointer-events: none;
   text-align: center;
 }
@@ -337,14 +419,13 @@ button.danger { background: var(--danger); color: var(--danger-ink); }
 .flash {
   margin: 0 0 var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-m);
+  background: var(--accent-tint);
+  border-radius: var(--radius-l);
 }
 .group {
   padding: var(--space-5);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-l);
 }
 .group + .group { margin-block-start: var(--space-5); }
 .group h2 { font-size: var(--step-1); margin-block-end: var(--space-3); }
@@ -413,5 +494,5 @@ button.link {
 .search-results { margin-block-start: var(--space-3); }
 .search-results .rows > li.accepted { box-shadow: inset 3px 0 0 var(--accent); padding-inline-start: var(--space-3); }
 progress { accent-color: var(--accent); width: min(16rem, 60%); vertical-align: middle; }
-.badge.state-failed { color: var(--danger); border-color: var(--danger); }
+.badge.state-failed { color: var(--danger); }
 a.badge { text-decoration: none; color: var(--text); }

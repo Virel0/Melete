@@ -6,12 +6,14 @@
 
 import { h } from "/web/lib.js";
 import { playHref } from "/web/cards.js";
+import { icon } from "/web/music-controls.js";
 
 export function trailerButton(kind, title, extras) {
   const box = h("span", { class: "trailer-box" });
   const local = extras.find((e) => e.kind === "trailer");
   if (local) {
-    box.append(h("a", { class: "button quiet", href: playHref(local.id, kind === "movie" ? { movie: title.id } : { series: title.id }) }, "Play trailer"));
+    const href = playHref(local.id, kind === "movie" ? { movie: title.id } : { series: title.id });
+    box.append(h("a", { class: "button tertiary with-icon", href }, icon("play"), "Play trailer"));
   }
   return box;
 }

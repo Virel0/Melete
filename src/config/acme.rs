@@ -1,7 +1,7 @@
 //! HTTPS's certificate got from an ACME CA (Let's Encrypt) by Melete itself, rather than from
 //! files: for a domain, by the DNS challenge through deSEC, as a wildcard (`*.example.org`) and
-//! the bare name. Off unless the domain is set; the CA's staging server until switched to the
-//! real one.
+//! the bare name, or for one name, by HTTPS answering the CA itself (TLS-ALPN). Off unless the
+//! domain is set; the CA's staging server until switched to the real one.
 
 use super::*;
 
@@ -22,12 +22,15 @@ pub fn folder(data_dir: &std::path::Path) -> PathBuf {
 /// Getting HTTPS's certificate from an ACME CA, as set.
 #[derive(Debug, Clone)]
 pub struct Acme {
-    /// `MELETE_ACME_DOMAIN`: the domain, e.g. example.org; the certificate holds
-    /// `*.example.org` and `example.org`.
+    /// `MELETE_ACME_DOMAIN`: with the DNS challenge the domain, e.g. example.org, and the
+    /// certificate holds `*.example.org` and `example.org`; with TLS-ALPN the exact name Melete
+    /// is reached at, e.g. watch.example.org, and the certificate holds it alone.
     pub domain: String,
+    /// `MELETE_ACME_CHALLENGE`: how the domain is proved.
+    pub challenge: Challenge,
     /// `MELETE_ACME_DESEC_TOKEN`: a deSEC token that may write the domain's
-    /// `_acme-challenge` TXT record.
-    pub desec_token: Secret,
+    /// `_acme-challenge` TXT record; for the DNS challenge, which needs it.
+    pub desec_token: Option<Secret>,
     /// `MELETE_ACME_EMAIL`: an address on the ACME account, for the CA's notices; none unless
     /// set.
     pub email: Option<String>,
@@ -43,10 +46,24 @@ pub struct Acme {
     pub settle: std::time::Duration,
 }
 
+/// How the domain is proved to the CA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Challenge {
+    /// A TXT record set through deSEC's API (DNS-01): a wildcard, with nothing reachable.
+    Dns,
+    /// HTTPS itself answers the CA's connection through the passthrough (TLS-ALPN-01): no DNS
+    /// token on the server, but the exact name, which Certificate Transparency logs then list.
+    TlsAlpn,
+}
+
 impl Acme {
-    /// The names asked for: the wildcard, then the bare name.
+    /// The names asked for: by the DNS challenge the wildcard, then the bare name; by TLS-ALPN
+    /// the name alone, as a wildcard can't be proved that way.
     pub fn names(&self) -> Vec<String> {
-        vec![format!("*.{}", self.domain), self.domain.clone()]
+        match self.challenge {
+            Challenge::Dns => vec![format!("*.{}", self.domain), self.domain.clone()],
+            Challenge::TlsAlpn => vec![self.domain.clone()],
+        }
     }
 }
 
@@ -75,12 +92,18 @@ pub(super) fn acme(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Opti
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
     };
+    let challenge = match value("MELETE_ACME_CHALLENGE").as_deref() {
+        None | Some("dns") => Challenge::Dns,
+        Some("tls-alpn") => Challenge::TlsAlpn,
+        Some(other) => bail!("MELETE_ACME_CHALLENGE is dns or tls-alpn, not {other:?}"),
+    };
     let (domain, token) = match (
         value("MELETE_ACME_DOMAIN"),
         value("MELETE_ACME_DESEC_TOKEN"),
     ) {
         (None, None) => return Ok(None),
-        (Some(domain), Some(token)) => (domain, token),
+        (Some(domain), token) if challenge == Challenge::TlsAlpn => (domain, token),
+        (Some(domain), Some(token)) => (domain, Some(token)),
         (Some(_), None) => bail!(
             "MELETE_ACME_DOMAIN is set, so the DNS challenge needs a deSEC token (MELETE_ACME_DESEC_TOKEN)"
         ),
@@ -91,16 +114,12 @@ pub(super) fn acme(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Opti
     let domain = domain.trim_end_matches('.').to_ascii_lowercase();
     anyhow::ensure!(
         !domain.starts_with("*."),
-        "MELETE_ACME_DOMAIN is the domain alone, e.g. example.org: the wildcard is added to it"
+        "MELETE_ACME_DOMAIN is a name alone, e.g. example.org: with the DNS challenge the wildcard is added to it, and TLS-ALPN can't prove one"
     );
     anyhow::ensure!(
         domain_name(&domain),
         "MELETE_ACME_DOMAIN={domain:?} is not a domain name like example.org"
     );
-    match value("MELETE_ACME_CHALLENGE").as_deref() {
-        None | Some("dns") => {}
-        Some(other) => bail!("MELETE_ACME_CHALLENGE is dns, not {other:?}"),
-    }
     let staging = match value("MELETE_ACME_CA").as_deref() {
         None | Some("staging") => true,
         Some("production") => false,
@@ -125,7 +144,8 @@ pub(super) fn acme(get: &impl Fn(&str) -> Option<String>) -> anyhow::Result<Opti
     }
     Ok(Some(Acme {
         domain,
-        desec_token: Secret(token),
+        challenge,
+        desec_token: token.map(Secret),
         email,
         staging,
         directory: if staging { STAGING } else { PRODUCTION }.to_owned(),
@@ -141,5 +161,9 @@ pub(super) fn with_tls(
     let acme = acme(get)?;
     let folder = acme.as_ref().map(|_| folder(data_dir));
     let tls = super::tls::tls_with(get, folder.as_deref())?;
+    anyhow::ensure!(
+        tls.is_some() || acme.as_ref().is_none_or(|a| a.challenge == Challenge::Dns),
+        "the TLS-ALPN challenge is answered by Melete's own HTTPS, so MELETE_TLS_BIND is needed, reached on port 443 through the passthrough"
+    );
     Ok((acme, tls))
 }

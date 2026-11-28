@@ -6,9 +6,10 @@
 //! A change only asks for a scan of what it touched, once the folder has been quiet for
 //! [`QUIET`]: the title folder it's in, or the library whole when a title folder was renamed
 //! or moved at the top (so a whole scan can tell the renamed folder is the same title) and for
-//! music (whose scans are whole). A finished write, a file or folder moved in or out, and a
-//! file deleted count; hidden names (Melete's own unfinished copies among them) don't. Nothing
-//! on disk is written.
+//! music (whose scans are whole). A finished write, a file edited in place (written to, or its
+//! times changed, as tag editors do), a file or folder moved in or out, and a file deleted
+//! count; hidden names (Melete's own unfinished copies among them) don't. Nothing on disk is
+//! written.
 
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
@@ -204,6 +205,7 @@ fn listen(
     stop: &AtomicBool,
 ) {
     let mut buffer = vec![0u8; 64 * 1024];
+    let mut made = inotify::Made::default();
     while !stop.load(Ordering::Relaxed) {
         let read = match inotify.file.read(&mut buffer) {
             Ok(read) => read,
@@ -233,7 +235,7 @@ fn listen(
             if inotify::is_new_folder(&event) && !event.name.starts_with('.') {
                 add_tree(&mut inotify, &mut dirs, (n, &library.root), &rel);
             }
-            if let Some(ask) = ask_for(library, &dir, &event) {
+            if let Some(ask) = ask_for(library, &dir, &event, &mut made) {
                 // The receiver goes only when Melete stops.
                 let _ = sink.send(ask);
             }
@@ -242,8 +244,13 @@ fn listen(
 }
 
 /// The scan an event in `dir` (a folder in `library`, "" for its top) asks for, if any.
-fn ask_for(library: &Watched, dir: &str, event: &inotify::Event) -> Option<Ask> {
-    if event.name.is_empty() || event.name.starts_with('.') || !inotify::counts(event) {
+fn ask_for(
+    library: &Watched,
+    dir: &str,
+    event: &inotify::Event,
+    made: &mut inotify::Made,
+) -> Option<Ask> {
+    if event.name.is_empty() || event.name.starts_with('.') || !made.counts(event) {
         return None;
     }
     let whole = Ask {

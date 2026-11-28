@@ -185,7 +185,6 @@ function paint(head, colours) {
   head.classList.add("coloured");
   head.style.setProperty("--album-bg", colours.background);
   head.style.setProperty("--album-ink", colours.text1);
-  head.style.setProperty("--album-line", colours.text2);
 }
 
 // Play, Shuffle, Play next, Play last, Start radio, Add to playlist and Pin for the whole album.

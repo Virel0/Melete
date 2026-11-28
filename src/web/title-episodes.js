@@ -1,8 +1,8 @@
-// A series' seasons and episodes, as two panes: seasons down the left (Specials last), the
-// chosen season's episodes on the right, each row one link that plays it (from where it was
-// left), with Mark watched beside it; the season can be marked watched as a whole. For an
-// admin, each episode's file is folded under it, with "Wrong file?" for one Melete brought in.
-// Below 800 px the panes stack, the seasons a row of their own.
+// A series' seasons and episodes: a select of seasons (Specials last) with how many episodes
+// the chosen one has and how many are watched, then its episodes, each row one link that plays
+// it (from where it was left) with Mark watched as a toggle at its end; the season can be marked
+// watched as a whole. For an admin, each episode's file is folded under it, with "Wrong file?"
+// for one Melete brought in.
 //
 // episodesPicker(series, progress, { opening, gen, admin }) → the section; `progress` maps a
 // file id to the user's progress entry and is kept up to date as things are marked; `opening`
@@ -14,6 +14,7 @@ import { playHref } from "/web/cards.js";
 import { failed, placeholders } from "/web/page-parts.js";
 import { episodeCode, partway, timeLeft } from "/web/watch-play.js";
 import { fileItem } from "/web/title-more.js";
+import { icon } from "/web/music-controls.js";
 
 // Numbered seasons first, Specials last.
 export function seasonOrder(seasons) {
@@ -23,41 +24,56 @@ export function seasonOrder(seasons) {
 export function episodesPicker(series, progress, { opening, gen, admin = false }) {
   const seasons = seasonOrder(series.seasons);
   const pane = h("div", { class: "episode-pane", id: "episode-pane" });
-  const buttons = seasons.map((x) =>
-    h(
-      "button",
-      { type: "button", class: "season", "aria-pressed": "false", "aria-controls": "episode-pane" },
-      seasonName(x.season),
-      h("small", {}, x.episodes > x.available ? `${x.available} of ${plural(x.episodes, "episode", "episodes")}` : plural(x.available, "episode", "episodes")),
-    ),
+  const select = h(
+    "select",
+    { id: "season-choice", class: "season-choice", "aria-controls": "episode-pane" },
+    seasons.map((x, i) => h("option", { value: String(i) }, seasonName(x.season))),
   );
-  // Focus stays on the season pressed; the season's name and count are announced.
+  const count = h("span", { class: "season-count" });
+  const tools = h("span", { class: "season-tools" });
+  // Focus stays on the select; the season's name and count are announced.
   const choose = (i, said = false) => {
-    buttons.forEach((b, j) => b.setAttribute("aria-pressed", String(i === j)));
+    select.value = String(i);
     const params = new URLSearchParams(location.hash.split("?")[1] ?? "");
     params.set("season", seasons[i].season);
     history.replaceState(history.state, "", `#/series/${series.id}?${params}`);
-    showSeason(series, seasons[i], progress, pane, gen, admin).then((count) => {
-      if (said && count !== undefined) announce(`${seasonName(seasons[i].season)}, ${plural(count, "episode", "episodes")}`);
+    showSeason(series, seasons[i], progress, { pane, count, tools }, gen, admin).then((n) => {
+      if (said && n !== undefined) announce(`${seasonName(seasons[i].season)}, ${plural(n, "episode", "episodes")}`);
     });
   };
-  buttons.forEach((b, i) => b.addEventListener("click", () => choose(i, true)));
+  select.addEventListener("change", () => choose(Number(select.value), true));
   const first = Math.max(0, seasons.findIndex((x) => x.season === opening));
   choose(first);
   return h(
     "section",
     { class: "episodes-picker", "aria-labelledby": "seasons-head" },
     h("h2", { id: "seasons-head", class: "visually-hidden" }, "Seasons and episodes"),
-    h("div", { class: "season-list", role: "group", "aria-label": "Seasons" }, buttons),
+    h(
+      "div",
+      { class: "episode-pane-head" },
+      seasons.length > 1 ? h("label", { for: "season-choice", class: "visually-hidden" }, "Season") : null,
+      seasons.length > 1 ? h("span", { class: "season-pick" }, select) : h("h3", { class: "season-only" }, seasonName(seasons[0].season)),
+      count,
+      tools,
+    ),
     pane,
   );
 }
 
-// Loads a season into the pane: its heading, Mark season watched, and its episodes. Returns
-// how many episodes it has, or nothing when another season was chosen meanwhile.
-async function showSeason(series, chosen, progress, pane, gen, admin) {
+// "10 episodes, 9 watched", or "8 of 10 episodes" while some aren't in the library.
+function seasonCount(chosen, season, progress) {
+  const have = chosen.episodes > chosen.available ? `${chosen.available} of ${plural(chosen.episodes, "episode", "episodes")}` : plural(chosen.available, "episode", "episodes");
+  const watched = season ? season.episodes.filter((e) => e.files.length && progress.get(e.files[0].id)?.watched).length : 0;
+  return watched ? `${have}, ${watched} watched` : have;
+}
+
+// Loads a season into the pane: Mark season watched and its episodes, and its count beside the
+// select. Returns how many episodes it has, or nothing when another season was chosen meanwhile.
+async function showSeason(series, chosen, progress, { pane, count, tools }, gen, admin) {
   const mine = String(chosen.season);
   pane.dataset.season = mine;
+  count.textContent = seasonCount(chosen, null, progress);
+  tools.replaceChildren();
   pane.replaceChildren(placeholders(seasonName(chosen.season).toLowerCase(), { kind: "rows", count: 4 }));
   let season;
   try {
@@ -65,27 +81,26 @@ async function showSeason(series, chosen, progress, pane, gen, admin) {
   } catch (err) {
     if (err instanceof SignedOut) return signIn("Your session ended. Sign in again.");
     if (pane.dataset.season !== mine) return;
-    pane.replaceChildren(failed(seasonName(chosen.season).toLowerCase(), err, () => showSeason(series, chosen, progress, pane, gen, admin)));
+    pane.replaceChildren(failed(seasonName(chosen.season).toLowerCase(), err, () => showSeason(series, chosen, progress, { pane, count, tools }, gen, admin)));
     return;
   }
   if (gen !== generation || pane.dataset.season !== mine) return;
   const list = h("ol", { class: "episode-list" });
-  const markAll = h("button", { type: "button", class: "quiet" });
+  const markAll = h("button", { type: "button", class: "tertiary with-icon season-mark" });
   // Redrawn after marking; focus goes back to the button that was pressed, in its new row.
   const draw = (focusOn = null) => {
     list.replaceChildren(...season.episodes.map((e) => episodeRow(series, chosen.season, e, progress, () => draw(e), admin)));
     if (focusOn) list.children[season.episodes.indexOf(focusOn)]?.querySelector(".episode-mark")?.focus();
     const files = season.episodes.flatMap((e) => e.files);
     const all = files.length > 0 && season.episodes.every((e) => !e.files.length || progress.get(e.files[0].id)?.watched);
-    markAll.textContent = all ? "Mark season unwatched" : "Mark season watched";
+    markAll.replaceChildren(icon("check"), all ? "Mark season unwatched" : "Mark season watched");
+    count.textContent = seasonCount(chosen, season, progress);
     markAll.hidden = !files.length;
     markAll.onclick = () => markSeries(series.id, chosen.season, !all, progress, markAll).then(() => draw());
   };
   draw();
-  pane.replaceChildren(
-    h("div", { class: "episode-pane-head" }, h("h2", {}, seasonName(chosen.season)), markAll),
-    season.episodes.length ? list : h("p", { class: "status" }, "No episodes in this season yet."),
-  );
+  tools.replaceChildren(markAll);
+  pane.replaceChildren(season.episodes.length ? list : h("p", { class: "status" }, "No episodes in this season yet."));
   return season.episodes.length;
 }
 
@@ -148,36 +163,35 @@ export async function markFiles(files, watched, progress, button) {
   );
 }
 
-// One episode: a link that plays it (its still with "S2:E4" and how far through, its name,
-// air date, length and overview), and Mark watched beside it, and for an admin its file under
-// them; without a file, a plain row.
+// One episode: a link that plays it (its still with how far through drawn on it, its number and
+// name, air date, length and overview), and Mark watched as a toggle at its end, and for an
+// admin its file under them; without a file, a plain row. The one partway through has a fill.
 function episodeRow(series, seasonNumber, e, progress, redraw, admin) {
   const file = e.files[0];
   const code = episodeCode(seasonNumber, e.episode);
   const p = file ? progress.get(file.id) : null;
-  const chip = p?.watched ? "Watched" : partway(p) ? timeLeft(p) : null;
-  const still = h(
-    "span",
-    { class: "episode-still" },
-    e.still ? h("img", { src: e.still, alt: "", loading: "lazy" }) : null,
-    h("span", { class: "episode-code" }, code),
-    chip ? h("span", { class: `episode-chip${p?.watched ? "" : " on"}` }, chip) : null,
-  );
+  const going = partway(p);
+  const done = p?.watched ? 1 : going ? p.position_seconds / p.duration_seconds : 0;
+  const bar = done ? h("span", { class: `episode-progress${p?.watched ? " watched" : ""}`, "aria-hidden": "true" }, h("span", {})) : null;
+  bar?.firstChild.style.setProperty("width", `${Math.min(100, Math.round(done * 100))}%`);
+  const still = h("span", { class: "episode-still" }, e.still ? h("img", { src: e.still, alt: "", loading: "lazy" }) : null, bar);
+  const name = e.name ?? `Episode ${e.episode}`;
+  const facts = [going ? timeLeft(p) : p?.watched ? "Watched" : null, e.air_date ? `Aired ${airDate(e.air_date)}` : null, runtime(e.runtime_minutes)];
   const words = h(
     "span",
     { class: "episode-words" },
-    h("span", { class: "episode-name" }, e.name ?? `Episode ${e.episode}`),
-    h("span", { class: "episode-facts" }, [e.air_date ? `Aired ${airDate(e.air_date)}` : null, runtime(e.runtime_minutes)].filter(Boolean).join(" · ")),
+    h("span", { class: "episode-name" }, h("span", { class: "episode-number" }, seasonNumber === 0 ? code : String(e.episode)), name),
+    h("span", { class: "episode-facts" }, facts.filter(Boolean).join(" · ")),
     e.overview ? h("span", { class: "episode-overview" }, e.overview) : null,
   );
   if (!file) {
     return h("li", { class: "episode-row missing" }, h("div", { class: "episode-play" }, still, words, h("span", { class: "note" }, "Not in the library")));
   }
   const href = playHref(file.id, { series: series.id, season: seasonNumber, episode: e.episode });
-  const label = `${partway(p) ? "Resume" : "Play"} ${code}: ${e.name ?? `Episode ${e.episode}`}`;
-  const mark = h("button", { type: "button", class: "quiet episode-mark", "aria-label": `${p?.watched ? "Mark unwatched" : "Mark watched"}: ${code}` }, p?.watched ? "Mark unwatched" : "Mark watched");
+  const label = `${going ? "Resume" : "Play"} ${code}: ${name}`;
+  const mark = h("button", { type: "button", class: "icon filled tip-end episode-mark", "aria-pressed": String(Boolean(p?.watched)), "aria-label": `Watched: ${code}` }, icon("check"));
   mark.addEventListener("click", () => markFiles(e.files, !p?.watched, progress, mark).then(redraw));
-  return h("li", { class: "episode-row" }, h("a", { class: "episode-play", href, "aria-label": label }, still, words), mark, admin ? episodeFiles(e.files, code) : null);
+  return h("li", { class: `episode-row${going ? " going" : ""}` }, h("a", { class: "episode-play", href, "aria-label": label }, still, words), mark, admin ? episodeFiles(e.files, code) : null);
 }
 
 // For an admin: an episode's file (or files), folded, read when it's opened, as About shows a

@@ -23,9 +23,8 @@
   letter-spacing: 0.12em;
   text-align: center;
   padding: var(--space-3);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-m);
-  background: var(--surface);
+  border-radius: var(--radius-l);
+  background: var(--surface-raised);
 }
 
 /* Sections and title grids */
@@ -172,13 +171,16 @@ section + section { margin-block-start: var(--space-7); }
 .seasons a,
 .tabs a {
   display: block;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border-radius: var(--radius-pill);
   text-decoration: none;
 }
+.seasons a:hover,
+.tabs a:hover { background: var(--surface-raised); }
+/* The one chosen: filled with the text's colour, as a chosen chip is. */
 .seasons a[aria-current="page"],
-.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tabs a[aria-current="page"] { background: var(--text); color: var(--bg); font-weight: 600; }
 .tabs { margin-block-start: var(--space-3); }
 .seasons .count { display: block; font-size: var(--step--1); opacity: 0.85; }
 

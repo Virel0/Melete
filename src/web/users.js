@@ -186,7 +186,10 @@ function renaming(page, u, row) {
     }
     if (u.id === ctx.me.id) {
       ctx.me.username = wanted;
-      document.getElementById("username").textContent = wanted;
+      const name = document.getElementById("username");
+      name.textContent = wanted;
+      name.title = wanted;
+      name.parentElement.title = wanted;
     }
     await page.refresh();
     page.tell(`Renamed ${u.username} to ${wanted}. They sign in with the new name from now on.`);

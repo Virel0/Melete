@@ -15,6 +15,9 @@ services:
     ports:
       - "8100:8100"
     environment:
+      # Which service this is: each of Melete's images checks it at start, so an image put on
+      # another service's variable stops saying so.
+      MELETE_SERVICE: melete
       # The libraries. Adding or dropping one is a compose.local.yaml of your own, not an edit
       # here (README.md, Other library folders).
       MELETE_LIBRARY_MOVIES: movies:/media/movies
@@ -40,6 +43,10 @@ services:
       # clients (docs/REMOTE-ACCESS.md). Empty: every address reaches everything.
       MELETE_WAYS_IN: ${MELETE_WAYS_IN:-}
       MELETE_TRUSTED_PROXIES: ${MELETE_TRUSTED_PROXIES:-}
+      # The address watch party guests reach Melete at, which invite links begin with; also set
+      # in the web UI (Outside services, Watch party guests). Empty: a link begins with the
+      # address of the page that made it.
+      MELETE_PARTY_URL: ${MELETE_PARTY_URL:-}
       # Soulseek through slskd (0.26 or later): its API as this container reaches it, and one of
       # its API keys. Off when the address is empty.
       MELETE_SLSKD_URL: ${MELETE_SLSKD_URL:-}

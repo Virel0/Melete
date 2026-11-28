@@ -62,6 +62,15 @@ Contrast, measured on the dark values: `--text-soft` on `--bg` is 12.3:1 and on 
 11.2:1; `--muted` on `--surface-raised` is 5.7:1; `--bg` on `--accent-hover` is 10.5:1 and
 on `--danger` 8.2:1.
 
+Light values chosen so far: `--surface-hover` `#dedbd4`, `--text-soft` `#34363b`,
+`--accent-hover` `#744b0f` (darker than the light accent, since its ink is white). The
+`--on-art-*` veils sit over art, which is dark in both themes, so they keep one value.
+`--on-art-hover` (`rgb(236 233 226 / 0.24)`) is the veil under the pointer. Then
+`--surface-sunk` `#efede8` (a step below the light page, as white cards are a step above it)
+and `--accent-tint` `#f5e9d6`. `--shadow-float` (`0 24px 64px` at 50% black, 18% in the light
+theme) is the one shadow for what floats: menus, the command palette, the bar of what's
+chosen.
+
 ## Type
 
 Headings use the body font, set apart by size and weight. Whether headings get a font file of
@@ -130,6 +139,12 @@ and the seek preview in the player. Cards don't have them.
 
 A group of tertiary buttons can follow the primary and secondary ones after a thin
 divider (1 by 28 px, `--text` at 20%), as on a title's page.
+
+In the code, primary is the plain `button` (or `a.button`), secondary is `.quiet`, tertiary is
+`.tertiary` (with `.with-icon` when it has an icon in front), and icon buttons are
+`button.icon.filled`; a plain `button.icon` stays the player's unfilled control. An icon
+button's tooltip is drawn from its `aria-label`; `.tip-end` opens it towards the start, for
+buttons at the end of a row.
 
 ## Focus
 

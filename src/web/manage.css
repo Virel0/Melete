@@ -8,18 +8,21 @@
 /* The Library's toolbar: search, sort and library on the left; the view and actions after. */
 .library-toolbar { margin-block: 0 var(--space-3); }
 .library-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
-.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-s); overflow: hidden; }
-.segmented button { border-radius: 0; min-height: 2.25rem; }
-.segmented button + button { border-inline-start: 1px solid var(--line-strong); }
-.manage-body button[aria-pressed="true"] { background: var(--surface-raised); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius-pill); background: var(--surface); }
+.segmented button { min-height: 2.25rem; background: transparent; color: var(--muted); }
+.segmented button:hover { background: var(--surface-raised); color: var(--text); }
+/* The one chosen, as on the side switch: filled with the text's colour. */
+.manage-body .segmented button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
 .library-runs:empty { display: none; }
-.library-runs { margin-block-end: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--surface); }
+.library-runs { margin-block-end: var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius-l); background: var(--surface); }
 
 /* The filters, each with its count. */
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: 0 var(--space-3); }
-.filters button { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; border: 1px solid var(--line); border-radius: 999px; padding-inline: var(--space-3); }
-.filters button[aria-pressed="true"] { border-color: var(--accent); box-shadow: none; }
+.filters button { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; padding-inline: var(--space-4); background: var(--surface); color: var(--text); font-weight: 600; }
+.filters button:hover { background: var(--surface-raised); }
+.filters button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
 .filters .count { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+.filters button[aria-pressed="true"] .count { color: inherit; }
 
 /* Choosing several titles. */
 .selection-bar {
@@ -29,9 +32,9 @@
   gap: var(--space-2) var(--space-4);
   margin-block-end: var(--space-3);
   padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-m);
-  background: var(--surface);
+  border-radius: var(--radius-l);
+  background: var(--accent-tint);
+  box-shadow: var(--shadow-float);
   position: sticky;
   top: var(--header-height, 0px);
   z-index: 2;

@@ -3,9 +3,10 @@
    (placeholders while loading, the empty and failed states, cut names, and the managing side's
    state marks). Tokens are in app.css. */
 
-/* Header: one row on wide screens; narrower, the side's entries take a line of their own, and
-   wrap rather than scroll out of view. On a phone it scrolls away with the page, leaving the
-   screen to the page and the music bar. */
+/* Header: one row while everything fits. When the side's entries don't, they move as a whole to
+   a row of their own under it (shell.js adds `stacked`), never half onto a second line, and that
+   row scrolls sideways rather than wrapping. On a phone the header scrolls away with the page,
+   leaving the screen to the page and the music bar. */
 .bar {
   position: sticky;
   top: 0;
@@ -15,8 +16,8 @@
   align-items: center;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-2) var(--space-5);
-  background: var(--surface);
-  border-block-end: 1px solid var(--line);
+  /* The page's own colour, as html has it (app.css), and no line under it. */
+  background: color-mix(in oklab, var(--tint, var(--bg)) var(--tint-amount), var(--bg));
 }
 .wordmark {
   font-size: var(--step-1);
@@ -27,10 +28,9 @@
 .sides {
   display: inline-flex;
   flex: none;
-  padding: 2px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  padding: 3px;
+  background: var(--surface);
+  border-radius: var(--radius-pill);
 }
 .sides a {
   display: inline-flex;
@@ -51,8 +51,14 @@
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
   gap: 0 var(--space-1);
+}
+.bar.stacked .entries {
+  order: 5;
+  flex-basis: 100%;
+  margin-inline: calc(-1 * var(--space-3));
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .entries a {
   display: inline-flex;
@@ -103,9 +109,8 @@ kbd {
   min-width: 12rem;
   padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-float);
 }
 .account-menu a { padding: var(--space-2) var(--space-3); border-radius: var(--radius-s); color: var(--text); text-decoration: none; }
 .account-menu a:hover { background: var(--surface-raised); }
@@ -114,20 +119,22 @@ kbd {
 /* A health word beside a Manage service: its mark says the level as well as its colour. */
 .entries .state { font-size: var(--step--1); }
 
+/* Below 1440 px, Search is its magnifier and the account its picture, leaving the row to the
+   side's entries; the words stay for screen readers, and as tooltips (index.html). */
+@media (max-width: 90rem) {
+  .palette-open kbd { display: none; }
+  .palette-open { padding-inline: var(--space-3); }
+  .palette-open .label, .account summary .clip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .account summary { padding-inline: var(--space-2); }
+}
 @media (max-width: 64rem) {
   .bar { padding-inline: var(--space-4); }
-  .entries { order: 5; flex-basis: 100%; margin-inline: calc(-1 * var(--space-3)); }
 }
 @media (max-width: 40rem) {
   .bar { position: static; gap: var(--space-2); }
   /* Watch's Home is the same place, one tap away. */
   .wordmark { display: none; }
   .sides a { padding: 0 var(--space-2); }
-  .palette-open kbd { display: none; }
-  .palette-open { padding-inline: var(--space-3); }
-  /* The magnifier says it; the word stays for screen readers. */
-  .palette-open .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .account summary { max-width: 5.5rem; padding-inline: var(--space-2); }
   .entries a { min-height: 2.25rem; padding: 0 var(--space-2); font-size: var(--step--1); }
 }
 
@@ -145,8 +152,7 @@ kbd {
     height: calc(100vh - var(--header-height, 0px) - var(--player-height, 0px));
     overflow-y: auto;
     padding: var(--space-4) var(--space-3);
-    background: var(--surface);
-    border-inline-end: 1px solid var(--line);
+    background: var(--surface-sunk);
   }
   .frame.with-sidebar .fold { display: none; }
 }
@@ -185,9 +191,9 @@ kbd {
   overflow-y: auto;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow);
+  border: 0;
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-float);
 }
 .fold-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-block-end: var(--space-2); }
 .fold-head .sidebar-title { margin: 0; padding: 0; }
@@ -199,7 +205,7 @@ kbd {
   max-width: none;
   max-height: 80vh;
   padding-block-end: max(var(--space-3), env(safe-area-inset-bottom));
-  border-radius: var(--radius-m) var(--radius-m) 0 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 }
 .fold-menu::backdrop { background: var(--scrim); }
 @media (max-width: 40rem) {

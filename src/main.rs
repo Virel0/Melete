@@ -73,6 +73,7 @@ mod musicbrainz;
 mod offline;
 mod oidc;
 mod opensubtitles;
+mod own_service;
 mod picture_listings;
 mod playlist_import;
 mod plays;
@@ -139,7 +140,10 @@ use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    jobs::note_start();
     logging::init();
+    // Before anything else: an image put on another service's variable stops here, saying so.
+    own_service::check()?;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if show_seedbox_host_key(&args).await? {
@@ -330,7 +334,8 @@ fn start_transcoder(config: &config::Config) -> anyhow::Result<Arc<transcode::Tr
     Ok(transcoder)
 }
 
-/// Says which ways in reach Melete, warning about ones that look like an untrusted proxy.
+/// Says which ways in reach Melete, warning about ones that look like an untrusted proxy and
+/// ones a trusted proxy opens the household's parts by.
 fn log_ways_in(ways_in: &ways_in::WaysIn) {
     match &ways_in.ways {
         Some(ways) => {
@@ -345,15 +350,7 @@ fn log_ways_in(ways_in: &ways_in::WaysIn) {
                     );
                 }
             }
-            // A proxy not trusted to say who its clients are makes them all one address: one
-            // client's failed sign-ins or Quick Connect codes then hold up all the others.
-            for (way, address) in ways_in.untrusted_single_hosts() {
-                tracing::warn!(
-                    way,
-                    %address,
-                    "this way in comes from one address, likely a reverse proxy; add it to MELETE_TRUSTED_PROXIES, or every client through it counts as that one address for sign-in limits and Quick Connect"
-                );
-            }
+            ways_in.warn_at_start();
         }
         None => tracing::info!("MELETE_WAYS_IN is not set; every address reaches everything"),
     }

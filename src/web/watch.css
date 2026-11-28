@@ -17,6 +17,8 @@
   position: relative;
   isolation: isolate;
   display: grid;
+  /* As wide as the screen, never as wide as its longest row of controls (nor is its body). */
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   min-height: min(34rem, 72vh);
   margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) 0;
@@ -44,6 +46,7 @@
 }
 .hero-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: var(--space-3);
   width: min(100%, 38rem);
@@ -65,21 +68,30 @@
 .hero .actions { gap: var(--space-2); }
 .hero-placeholder { min-height: min(34rem, 72vh); margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-5); border-radius: 0; }
 
+/* The hero's buttons: Play at 48 px, the others a veil over the art rather than a fill. */
+.hero .actions :is(button, .button) { min-height: 3rem; padding-inline: var(--space-5); }
+.hero .actions :is(.quiet, .tertiary) { padding-inline: var(--space-4); }
+.hero .actions .tertiary { min-height: 2.75rem; padding-inline: var(--space-3); }
+.hero .quiet { background: var(--on-art-fill); }
+.hero .quiet:hover, .hero .tertiary:hover { background: var(--on-art-hover); }
 /* Buttons with an icon before their words: Play, My List. */
-.hero-play, .my-list { gap: var(--space-2); }
-.hero-play svg, .my-list svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
+.hero-play svg, .my-list svg { flex: none; width: 1.125rem; height: 1.125rem; fill: currentColor; }
 .my-list svg.lines { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .my-list .mark { display: inline-flex; }
-.my-list[aria-pressed="true"] { border-color: var(--accent); }
+/* What Play says after its verb: the time left, the length. */
+.hero-play .detail { font-weight: 500; }
 .hero-play[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
 
 /* Stepping between picks: previous, a dot each (the current one longer as well as brass), next,
-   and Pause. */
-.hero-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-block-start: var(--space-2); }
-.hero-dots { display: flex; }
-.hero-dot { min-height: 0; width: 1.75rem; height: 1.75rem; padding: 0; background: none; border: 0; }
-.hero-dot span { display: block; width: 1.125rem; height: 3px; margin-inline: auto; border-radius: 2px; background: var(--line-strong); }
-.hero-dot[aria-current="true"] span { width: 1.5rem; height: 5px; background: var(--accent); }
+   and Pause. Always one row: the dots narrow to fit, down to marks a few pixels wide on a
+   phone, rather than wrap. Narrow dots are fine as targets, since Previous and Next do the same
+   at full size. */
+.hero-steps { display: flex; align-items: center; gap: var(--space-1); width: 100%; margin-block-start: var(--space-2); }
+.hero-steps > * { flex: none; }
+.hero-steps > .hero-dots { flex: 0 1 auto; display: flex; min-width: 0; }
+.hero-dot { flex: 0 1 auto; width: 1.75rem; min-width: 0.625rem; min-height: 0; height: 1.75rem; padding: 0; background: none; border: 0; }
+.hero-dot span { display: block; width: min(1.125rem, 70%); height: 3px; margin-inline: auto; border-radius: 2px; background: var(--line-strong); }
+.hero-dot[aria-current="true"] span { width: min(1.5rem, 100%); height: 5px; background: var(--accent); }
 .hero-step svg { width: 1.25rem; height: 1.25rem; }
 .hero-pause { min-height: 2rem; padding-block: 0; margin-inline-start: var(--space-2); font-size: var(--step--1); }
 .hero-pause[aria-pressed="true"] { border-color: var(--accent); }
@@ -351,20 +363,19 @@ button.control svg { width: 1.5rem; height: 1.5rem; }
 .scrub-credits { position: absolute; top: 35%; bottom: 35%; background: var(--state-coming); opacity: 0.6; border-radius: 2px; }
 .scrub-preview { min-width: 4rem; }
 
-/* Subtitle chips under the seek bar: the one showing pressed, filled brass. */
+/* Subtitle chips under the seek bar: the one showing pressed, filled with the text's colour. */
 .subtitle-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2) 0; }
 .chip {
   min-height: 2rem;
   padding: 0 var(--space-3);
-  background: transparent;
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--step--1);
   font-weight: 400;
 }
 .chip:hover { background: var(--surface-raised); }
-.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.chip[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
 .player-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 @media (max-width: 40rem) {

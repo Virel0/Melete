@@ -36,6 +36,11 @@ pub(crate) async fn housekeeping(
             None
         });
     jobs::scans::remember(last);
+    // On before its first scan too: the Tasks page shows when that's due, or that it waits to
+    // be asked, rather than the task as off.
+    let schedule = scan_schedule(&pool).await;
+    let next = jobs::scans::next_whole(schedule, crate::db::unix_now());
+    crate::tasks::waiting("library", next);
     // The first scan knows which libraries answer, and what changed while Melete was down is
     // asked for (`library::changed`).
     library::health::checked().await;
@@ -70,27 +75,35 @@ pub(crate) async fn housekeeping(
     .await;
 }
 
-/// Matches new music albums to MusicBrainz, woken after each scan.
+/// Matches new music albums to MusicBrainz, woken after each scan; held back a little after the
+/// server starts ([`jobs::hold`]).
 pub(crate) async fn match_music(pool: sqlx::SqlitePool, mb: Arc<musicbrainz::Client>) {
-    jobs::repeat_task("music-matching", jobs::EVERY, &jobs::MUSIC, || async {
-        match music_match::match_pending(&pool, &mb).await {
-            Ok(report) if report == music_match::Report::default() => {}
-            Ok(report) => {
-                tracing::info!(
-                    matched = report.matched,
-                    unmatched = report.unmatched,
-                    ambiguous = report.ambiguous,
-                    errors = report.errors,
-                    "music matching finished"
-                );
-                // Matching gives tracks their recordings, which may be songs pending in playlists.
-                if report.matched > 0 {
-                    swap_in_arrived(&pool).await;
+    let hold = jobs::hold::MUSIC_MATCHING;
+    jobs::repeat_task_after(
+        "music-matching",
+        hold,
+        jobs::EVERY,
+        &jobs::MUSIC,
+        || async {
+            match music_match::match_pending(&pool, &mb).await {
+                Ok(report) if report == music_match::Report::default() => {}
+                Ok(report) => {
+                    tracing::info!(
+                        matched = report.matched,
+                        unmatched = report.unmatched,
+                        ambiguous = report.ambiguous,
+                        errors = report.errors,
+                        "music matching finished"
+                    );
+                    // Matching gives tracks their recordings, which may be songs pending in playlists.
+                    if report.matched > 0 {
+                        swap_in_arrived(&pool).await;
+                    }
                 }
+                Err(err) => tracing::error!(error = format!("{err:#}"), "music matching stopped"),
             }
-            Err(err) => tracing::error!(error = format!("{err:#}"), "music matching stopped"),
-        }
-    })
+        },
+    )
     .await;
 }
 
