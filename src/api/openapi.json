@@ -8148,7 +8148,7 @@
         "x-melete-access": "user",
         "x-melete-scope": "playback",
         "summary": "Say what the party plays next, and when",
-        "description": "For the host's player, as it counts down to the next episode: the file it plays next and when it starts, so everyone's player shows the same countdown (`up_next`); `{\"file_id\": null}` clears it. Only the host moves the party on, so only the host says this. Cleared too when the party moves to another file. The file must be one the host's account may watch.",
+        "description": "For the host's player, as it counts down to the next episode: the file it plays next and when it starts, so everyone's player shows the same countdown (`up_next`); `{\"file_id\": null, \"starts_at\": null}` clears it. Only the host moves the party on, so only the host says this. Cleared too when the party moves to another file. The file must be one the host's account may watch.",
         "parameters": [
           {"name": "id", "in": "path", "required": true, "description": "Watch party id.", "schema": {"type": "integer"}}
         ],
@@ -19618,10 +19618,10 @@
       },
       "UpNextInput": {
         "type": "object",
-        "required": ["file_id"],
+        "required": ["file_id", "starts_at"],
         "properties": {
           "file_id": {"type": ["integer", "null"], "description": "The next film's or episode's file; null clears it."},
-          "starts_at": {"type": "integer", "description": "When it starts, Unix milliseconds on the server's clock; needed with a file."}
+          "starts_at": {"type": ["integer", "null"], "description": "When it starts, Unix milliseconds on the server's clock; needed with a file, null when clearing."}
         },
         "additionalProperties": false
       },
