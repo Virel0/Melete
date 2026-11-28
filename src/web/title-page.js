@@ -1,7 +1,8 @@
 // A movie's or a series' own page: a header on the stage (its textless backdrop, logo or title,
-// facts, overview and genres, then Play saying what it will do, From the start beside a Resume,
-// Mark watched and My List), the page fading down from the title's strongest colour, which Play
-// wears too; a preview plays behind the header while it's in view (title-preview.js). A series
+// facts, overview and genres, then Play saying what it will do and From the start beside a
+// Resume, and after a thin line Mark watched, My List and the trailer as tertiary buttons), the
+// page fading down from the title's strongest colour; Play stays the accent, so it always looks
+// like Play. A preview plays behind the header while it's in view (title-preview.js). A series
 // then has its seasons and episodes (title-episodes.js); extras, cast and the collection have
 // their own addresses, and About folds the file details away (title-more.js).
 //
@@ -13,7 +14,7 @@ import { playHref } from "/web/cards.js";
 import { myListToggle } from "/web/favourites.js";
 import { icon } from "/web/music-controls.js";
 import { placeholders } from "/web/page-parts.js";
-import { buttonColour, css, strongest, tintPage } from "/web/title-colour.js";
+import { strongest, tintPage } from "/web/title-colour.js";
 import { episodesPicker, markFiles, markSeries, seasonOrder } from "/web/title-episodes.js";
 import { aboutSection, castPage, extrasPage, moreLikeThis, moreLinks } from "/web/title-more.js";
 import { headerPreview } from "/web/title-preview.js";
@@ -56,13 +57,6 @@ export function titlePage(kind, id, under, params, gen, admin) {
   return which === "movie" ? movie(id, gen, admin) : series(id, params, gen, admin);
 }
 
-// The stage's ink, which Play's words are in, as [r, g, b].
-function stageInk() {
-  const hex = getComputedStyle(document.documentElement).getPropertyValue("--stage-accent-ink").trim();
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  return m ? m.slice(1).map((x) => parseInt(x, 16)) : [0, 0, 0];
-}
-
 // A copy at a high frame rate, which may stutter on some players: most likely made up from the
 // film's own 24, unless its high frame rate releases are wanted (a film really made so), in which
 // case it's only said. Admins can look for another release on its Manage page.
@@ -101,7 +95,7 @@ function header(t, facts, genreHref, actions, notes = []) {
       h("ul", { class: "meta-row hero-facts" }, facts.filter(Boolean).map((f) => h("li", {}, f))),
       t.overview ? h("p", { class: "title-overview" }, t.overview) : null,
       t.genres.length ? h("ul", { class: "pills", "aria-label": "Genres" }, t.genres.map((g) => h("li", {}, h("a", { href: genreHref(g) }, g)))) : null,
-      h("div", { class: "actions" }, play, restart, actions),
+      h("div", { class: "actions" }, play, restart, actions.some(Boolean) ? h("span", { class: "action-divider", "aria-hidden": "true" }) : null, actions),
       MATCH_NOTES[t.match_status] ? h("p", { class: "note" }, MATCH_NOTES[t.match_status]) : null,
       ...notes,
     ),
@@ -121,17 +115,16 @@ function aim({ play, restart }, target, title) {
   if (!target) return;
   play.href = target.href;
   play.removeAttribute("aria-disabled");
-  play.replaceChildren(icon("play"), target.label);
+  // "Resume S1:E10 · 20 min left": the time left, or a movie's length, lighter after the verb.
+  const [verb, ...detail] = target.label.split(" · ");
+  play.replaceChildren(icon("play"), verb, ...(detail.length ? [h("span", { class: "detail" }, detail.join(" · "))] : []));
   play.setAttribute("aria-label", `${target.label}: ${title}`);
 }
 
-// The page fades down from the strongest colour of its art, and Play wears it.
-function colour(t, play, gen) {
+// The page fades down from the strongest colour of its art.
+function colour(t, gen) {
   strongest(t.textless_backdrop ?? t.backdrop ?? t.poster).then((rgb) => {
-    if (!rgb || gen !== generation) return;
-    tintPage(rgb);
-    play.classList.add("tinted");
-    play.style.setProperty("--play-colour", css(buttonColour(rgb, stageInk())));
+    if (rgb && gen === generation) tintPage(rgb);
   });
 }
 
@@ -158,7 +151,7 @@ export async function movie(id, gen, admin = false) {
   if (gen !== generation) return;
   const list = myListToggle();
   list.show({ kind: "movie", id: m.id, title: m.title });
-  const mark = h("button", { type: "button", class: "quiet" });
+  const mark = h("button", { type: "button", class: "tertiary with-icon" });
   const head = header(
     m,
     ["Movie", m.year && String(m.year), runtime(m.runtime_minutes)],
@@ -178,11 +171,11 @@ export async function movie(id, gen, admin = false) {
         : { href: playHref(file.id, { movie: m.id }, Boolean(p?.watched)), label: p?.watched ? "Play again" : runtime(m.runtime_minutes) ? `Play · ${runtime(m.runtime_minutes)}` : "Play" };
     aim(head, target, m.title);
     const watched = Boolean(p?.watched);
-    mark.textContent = watched ? "Mark unwatched" : "Mark watched";
+    mark.replaceChildren(icon("check"), watched ? "Mark unwatched" : "Mark watched");
     mark.onclick = () => markFiles(m.files, !watched, progress, mark).then(redraw);
   };
   redraw();
-  colour(m, head.play, gen);
+  colour(m, gen);
   show(
     m.title,
     head.el,
@@ -237,7 +230,7 @@ export async function series(id, params, gen, admin = false) {
   const list = myListToggle();
   list.show({ kind: "series", id: s.id, title: s.title });
   const numbered = s.seasons.filter((x) => x.season > 0).length;
-  const markAll = h("button", { type: "button", class: "quiet" }, "Mark all watched");
+  const markAll = h("button", { type: "button", class: "tertiary with-icon" }, icon("check"), "Mark all watched");
   const redraw = () => dispatchEvent(new HashChangeEvent("hashchange"));
   const order = orderNote(s, admin, `#/admin/${anime ? "anime" : "series"}/title/f${s.id}`, redraw);
   const head = header(
@@ -248,7 +241,7 @@ export async function series(id, params, gen, admin = false) {
     [order],
   );
   aim(head, target, s.title);
-  colour(s, head.play, gen);
+  colour(s, gen);
   const asked = params.has("season") ? Number(params.get("season")) : null;
   const opening = s.seasons.some((x) => x.season === asked) ? asked : season ?? seasonOrder(s.seasons).find((x) => x.available)?.season;
   const picker = () => episodesPicker(s, progress, { opening: Number(new URLSearchParams(location.hash.split("?")[1] ?? "").get("season") ?? opening), gen, admin });
@@ -257,7 +250,7 @@ export async function series(id, params, gen, admin = false) {
   markAll.addEventListener("click", async () => {
     if (!(await markSeries(s.id, null, !all, progress, markAll))) return;
     all = !all;
-    markAll.textContent = all ? "Mark all unwatched" : "Mark all watched";
+    markAll.replaceChildren(icon("check"), all ? "Mark all unwatched" : "Mark all watched");
     if (gen !== generation) return;
     const fresh = picker();
     episodes.replaceWith(fresh);

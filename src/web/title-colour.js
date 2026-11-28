@@ -1,10 +1,9 @@
 // A title's strongest colour, measured from its art in the browser: the most prominent hue,
 // not the average (which turns to mud), as Mneme takes it. The page fades from it down to
-// its ground, and Play wears it, lightened until its dark words read on it.
+// its ground; buttons stay in Melete's own colours.
 //
 // - strongest(src) → a promise of [r, g, b], or null when the art has no colour to speak of.
 // - tintPage(rgb): the fade down the page, until the page is left.
-// - buttonColour(rgb) → [r, g, b] for a button with the stage's dark ink on it.
 
 import { leaving } from "/web/page-state.js";
 
@@ -65,7 +64,7 @@ export function strongest(src) {
 }
 
 // "rgb(r g b)" for CSS.
-export const css = (rgb) => `rgb(${rgb.join(" ")})`;
+const css = (rgb) => `rgb(${rgb.join(" ")})`;
 
 export function tintPage(rgb) {
   const root = document.documentElement;
@@ -75,27 +74,4 @@ export function tintPage(rgb) {
     root.classList.remove("title-tinted");
     root.style.removeProperty("--title-tint");
   });
-}
-
-// Relative luminance, as WCAG works out contrast.
-function luminance(rgb) {
-  const [r, g, b] = rgb.map((v) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export function contrast(a, b) {
-  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
-  return (x + 0.05) / (y + 0.05);
-}
-
-// `rgb` lightened toward white until `ink` reads on it at 4.5:1 or more.
-export function buttonColour(rgb, ink) {
-  let colour = rgb;
-  for (let step = 0; step <= 20 && contrast(colour, ink) < 4.5; step++) {
-    colour = rgb.map((v) => Math.round(v + ((255 - v) * step) / 20));
-  }
-  return colour;
 }

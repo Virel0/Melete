@@ -68,12 +68,18 @@
 .hero .actions { gap: var(--space-2); }
 .hero-placeholder { min-height: min(34rem, 72vh); margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-5); border-radius: 0; }
 
+/* The hero's buttons: Play at 48 px, the others a veil over the art rather than a fill. */
+.hero .actions :is(button, .button) { min-height: 3rem; padding-inline: var(--space-5); }
+.hero .actions :is(.quiet, .tertiary) { padding-inline: var(--space-4); }
+.hero .actions .tertiary { min-height: 2.75rem; padding-inline: var(--space-3); }
+.hero .quiet { background: var(--on-art-fill); }
+.hero .quiet:hover, .hero .tertiary:hover { background: var(--on-art-hover); }
 /* Buttons with an icon before their words: Play, My List. */
-.hero-play, .my-list { gap: var(--space-2); }
-.hero-play svg, .my-list svg { width: 1.125rem; height: 1.125rem; fill: currentColor; }
+.hero-play svg, .my-list svg { flex: none; width: 1.125rem; height: 1.125rem; fill: currentColor; }
 .my-list svg.lines { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .my-list .mark { display: inline-flex; }
-.my-list[aria-pressed="true"] { border-color: var(--accent); }
+/* What Play says after its verb: the time left, the length. */
+.hero-play .detail { font-weight: 500; }
 .hero-play[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
 
 /* Stepping between picks: previous, a dot each (the current one longer as well as brass), next,

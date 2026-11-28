@@ -132,7 +132,7 @@ body.with-panel .frame { margin-inline-end: var(--panel-width); }
 .eq-band output { font-variant-numeric: tabular-nums; text-align: end; }
 /* The player's More menu (music-extras-menu.js): above its button in the bar, below it in the panel. */
 .more-menu { position: relative; flex: none; }
-.extras-menu { position: absolute; inset-inline-end: 0; inset-block-end: calc(100% + var(--space-2)); z-index: 11; width: min(19rem, calc(100vw - 2 * var(--space-4))); max-height: min(32rem, 70vh); overflow-y: auto; padding: var(--space-4); background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); text-align: start; }
+.extras-menu { position: absolute; inset-inline-end: 0; inset-block-end: calc(100% + var(--space-2)); z-index: 11; width: min(19rem, calc(100vw - 2 * var(--space-4))); max-height: min(32rem, 70vh); overflow-y: auto; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); text-align: start; }
 .extras-menu.below { inset-block-end: auto; inset-block-start: calc(100% + var(--space-2)); }
 .extras-choices { border: 0; padding: 0; margin: var(--space-3) 0 0; min-width: 0; }
 .extras-choices legend { padding: 0; margin-block-end: var(--space-2); font-weight: 600; }
