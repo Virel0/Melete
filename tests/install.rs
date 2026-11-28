@@ -138,3 +138,12 @@ fn a_hosts_own_compose_file_is_never_tracked() {
         "library changes go in compose.local.yaml, which updates never touch"
     );
 }
+
+#[test]
+fn the_address_for_watch_party_guests_reaches_the_container() {
+    assert_eq!(
+        lines_with(&read("compose.yaml"), "MELETE_PARTY_URL"),
+        ["MELETE_PARTY_URL: ${MELETE_PARTY_URL:-}"],
+        "set in .env, it has to be passed on to do anything"
+    );
+}
