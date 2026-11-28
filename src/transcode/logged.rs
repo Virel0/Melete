@@ -90,6 +90,8 @@ pub(super) enum Stopped {
     Failed,
     /// Its slot went to another viewer's conversion.
     TakenOver,
+    /// Its viewer, behind a watch party's shared run for a moment, caught up with it.
+    CaughtUp,
 }
 
 impl Stopped {
@@ -100,6 +102,7 @@ impl Stopped {
             Self::OnCpu => "it failed on the GPU; going on on the CPU",
             Self::Failed => "ffmpeg failed",
             Self::TakenOver => "its slot went to another viewer",
+            Self::CaughtUp => "its viewer caught up with the party's shared run",
         }
     }
 }
@@ -212,6 +215,7 @@ impl Running {
             run = self.run,
             converted_seconds = converted.round() as i64,
             took_seconds = took.round() as i64,
+            viewers = self.most_viewers.max(1),
             speed = format!("{speed:.2}x real time"),
             why = why.words(),
             "a video conversion stopped"
