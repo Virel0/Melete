@@ -18,6 +18,8 @@ services:
     # Melete's own user: Melete moves, and on a title's removal deletes, what it writes.
     user: "${MELETE_USER:-10001:10001}"
     environment:
+      # Which service this is, checked by the image at start (compose.yaml says why).
+      MELETE_SERVICE: trailers
       TRAILER_JOBS: /trailer-jobs
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
     volumes:
