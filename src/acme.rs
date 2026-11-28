@@ -121,7 +121,7 @@ pub async fn round(
         );
     }
     let mut state = renewal::load(pool).await?;
-    let attempt_for = renewal::attempt_for(&acme.directory, &acme.domain);
+    let attempt_for = renewal::attempt_for(&acme.directory, &acme.domain, acme.challenge);
     state.forget_failures_unless_for(&attempt_for);
     let held = files::read(folder).filter(|h| h.not_after > now);
     let fits = held.as_ref().filter(|h| {

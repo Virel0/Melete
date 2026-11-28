@@ -75,7 +75,12 @@ pub async fn status(pool: &SqlitePool, config: &Config) -> anyhow::Result<Status
     let caa = account_uri
         .iter()
         .flat_map(|uri| {
-            ["issue", "issuewild"].map(|tag| {
+            // An exact name needs no record for wildcards.
+            let tags: &[&str] = match acme.challenge {
+                crate::config::Challenge::Dns => &["issue", "issuewild"],
+                crate::config::Challenge::TlsAlpn => &["issue"],
+            };
+            tags.iter().map(move |tag| {
                 format!(
                     "{}. CAA 0 {tag} \"letsencrypt.org; accounturi={uri}\"",
                     acme.domain

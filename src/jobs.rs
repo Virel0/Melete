@@ -2,7 +2,10 @@
 //! startup, then on the scan schedule, and sooner when something asks (an import, an admin).
 
 use std::future::Future;
-use std::time::Duration;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
+
+use futures_util::FutureExt;
 
 use tokio::sync::Notify;
 
@@ -97,6 +100,62 @@ where
     .await;
 }
 
+/// When this server started, for the tasks held back after it ([`after_start`]).
+static STARTED: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+/// Notes the server starting, so the holds after it count from now.
+pub fn note_start() {
+    LazyLock::force(&STARTED);
+}
+
+/// What's left of `hold` since the server started: all of it at the start, none once it's past.
+pub fn after_start(hold: Duration) -> Duration {
+    hold.saturating_sub(STARTED.elapsed())
+}
+
+/// How long after the server starts its tasks that ask MusicBrainz begin, each its own, so
+/// they don't all ask at once while the server comes up (MusicBrainz answered "busy").
+pub mod hold {
+    use std::time::Duration;
+
+    /// Music matching.
+    pub const MUSIC_MATCHING: Duration = Duration::from_secs(2 * 60);
+    /// Playlist imports left queued or running.
+    pub const PLAYLIST_IMPORTS: Duration = Duration::from_secs(3 * 60);
+    /// The look for followed artists' new albums.
+    pub const FOLLOWING: Duration = Duration::from_secs(4 * 60);
+    /// Library artists' portraits, which ask Wikidata and Commons too (Wikidata asked for a
+    /// pause when asked in the first seconds).
+    pub const PORTRAITS: Duration = Duration::from_secs(6 * 60);
+}
+
+/// [`repeat_task`], its first run held back until `hold` after the server started
+/// ([`after_start`]). Asks while held, as a scan's at start, are answered by that first run.
+pub async fn repeat_task_after<F, Fut>(
+    name: &'static str,
+    hold: Duration,
+    interval: Duration,
+    asked: &Notify,
+    job: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = ()>,
+{
+    held(name, after_start(hold), asked).await;
+    repeat_task(name, interval, asked, job).await;
+}
+
+/// Waits `left`, noting the task `name` as due then; an ask meanwhile is let go, since the run
+/// after the wait answers it.
+async fn held(name: &'static str, left: Duration, asked: &Notify) {
+    if left.is_zero() {
+        return;
+    }
+    crate::tasks::scheduled(name, left);
+    tokio::time::sleep(left).await;
+    let _ = asked.notified().now_or_never();
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -133,5 +192,46 @@ mod tests {
         assert_eq!(runs.load(Ordering::SeqCst), 4);
         tokio::time::sleep(Duration::from_millis(700)).await;
         assert_eq!(runs.load(Ordering::SeqCst), 5, "on schedule");
+    }
+
+    #[tokio::test]
+    async fn a_held_task_waits_and_its_first_run_answers_asks_meanwhile() {
+        let asked = Arc::new(Notify::new());
+        let runs = Arc::new(AtomicUsize::new(0));
+        let (n, notify) = (runs.clone(), asked.clone());
+        tokio::spawn(async move {
+            held("test-held", Duration::from_millis(400), &notify).await;
+            repeat(Duration::from_secs(3600), &notify, || {
+                let n = n.clone();
+                async move {
+                    n.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        asked.notify_one();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 0, "held, even when asked");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "once, for the ask too");
+        asked.notify_one();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 2, "asked after");
+    }
+
+    #[test]
+    fn a_hold_counts_from_the_start() {
+        note_start();
+        let hour = Duration::from_secs(3600);
+        let left = after_start(hour);
+        assert!(left <= hour && left + STARTED.elapsed() >= hour, "{left:?}");
+        assert_eq!(after_start(Duration::ZERO), Duration::ZERO);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(
+            after_start(Duration::from_millis(10)),
+            Duration::ZERO,
+            "past"
+        );
     }
 }
