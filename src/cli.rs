@@ -7,6 +7,7 @@ use crate::{aoide, auth, backup, two_factor};
 
 pub(crate) const USAGE: &str = "usage:
   melete                                  run the server
+  melete --help                           show this
   melete user add <name> [--admin]        create a user with a generated password
   melete user reset-password <name> [--remove-second-factor | --keep-second-factor]
                                           set a new generated password and sign the user out everywhere;
@@ -21,6 +22,16 @@ pub(crate) const USAGE: &str = "usage:
                                           the proxy when the seedbox's SFTP is set to go through it)
   melete import aoide <aoide-sync.db> [--user <jellyfin-id>=<name>]... [--skip-user <jellyfin-id>]... [--apply]
                                           import the Jellyfin aoide-sidecar's sync data (a dry run without --apply)";
+
+/// Prints the usage, plainly, when the command line asks for it alone (`--help`, `-h` or
+/// `help`), saying whether it did.
+pub(crate) fn help(args: &[String]) -> bool {
+    let asked = matches!(args, [only] if matches!(only.as_str(), "--help" | "-h" | "help"));
+    if asked {
+        println!("{USAGE}");
+    }
+    asked
+}
 
 /// The proxy's setup for a command that reaches outside (the seedbox's host key): the
 /// environment's, with what the web UI saved where it's silent, so one set to go through the
