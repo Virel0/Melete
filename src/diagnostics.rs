@@ -102,7 +102,7 @@ fn secret_key(key: &str) -> bool {
 }
 
 /// `text` with Melete's tokens (session and API keys, stream links) replaced.
-fn scrub_text(text: &str) -> String {
+pub(crate) fn scrub_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = ["mlt_", "mls_", "mpi_", "mpg_"]

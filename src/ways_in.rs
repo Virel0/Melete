@@ -453,8 +453,10 @@ pub async fn guard(
     };
     let part = part(request.uri().path());
     if let Err(why) = ways.allows(peer, part) {
-        // Says which address Melete saw, so a setup can be checked.
-        tracing::info!(%peer, path = request.uri().path(), why, "refused by the ways in");
+        // Says which address Melete saw, so a setup can be checked; a stream link's secret
+        // (or any other token in the path) is left out.
+        let path = crate::diagnostics::scrub_text(request.uri().path());
+        tracing::info!(%peer, path, why, "refused by the ways in");
         return refused(why);
     }
     let client = match request.extensions().get::<ProxiedClient>() {
@@ -735,6 +737,44 @@ mod tests {
             ways.client(ip("10.20.0.1"), &HeaderMap::new()),
             ip("10.20.0.1")
         );
+    }
+
+    #[tokio::test]
+    async fn a_refused_stream_link_is_logged_without_its_secret() {
+        let app = Router::new()
+            .route("/api/v1/stream/{link}", get(|| async { "file" }))
+            .route("/api/v1/hls/{link}/{part}", get(|| async { "part" }))
+            .layer(axum::middleware::from_fn_with_state(
+                std::sync::Arc::new(household()),
+                guard,
+            ));
+        let household_link = format!("mls_{}", "a1b2".repeat(16));
+        let guest_link = format!("mls_g{}", "c3d4".repeat(16));
+        let log = crate::logging::testing::capture("info");
+        for path in [
+            format!("/api/v1/stream/{household_link}"),
+            format!("/api/v1/hls/{guest_link}/main.m3u8"),
+        ] {
+            let mut request = HttpRequest::get(&path).body(Body::empty()).unwrap();
+            request
+                .extensions_mut()
+                .insert(ConnectInfo(SocketAddr::new(ip("203.0.113.9"), 50_000)));
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+        }
+        let written = log.written.text();
+        // Still says what was refused, and where from.
+        assert_eq!(
+            written.matches("refused by the ways in").count(),
+            2,
+            "{written}"
+        );
+        assert!(written.contains("/api/v1/stream/"), "{written}");
+        assert!(written.contains("/main.m3u8"), "{written}");
+        assert!(written.contains("203.0.113.9"), "{written}");
+        for secret in [&household_link, &guest_link] {
+            assert!(!written.contains(&secret[4..]), "{written}");
+        }
     }
 
     #[tokio::test]
