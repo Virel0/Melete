@@ -3,7 +3,7 @@
 //! certificate is asked for and the CA isn't contacted. Records others keep there stay.
 
 use super::issue::{Claim, Reach};
-use crate::config::Acme;
+use crate::config::{Acme, Challenge};
 use crate::desec;
 
 /// How the Test went, and what to say.
@@ -15,7 +15,17 @@ pub async fn zone_takes(acme: &Acme, reach: &Reach) -> (bool, String) {
 }
 
 async fn tried(acme: &Acme, reach: &Reach) -> anyhow::Result<String> {
-    let desec = desec::Client::new(&reach.desec_api, acme.desec_token.clone())?;
+    let Some(token) = acme
+        .desec_token
+        .clone()
+        .filter(|_| acme.challenge == Challenge::Dns)
+    else {
+        return Ok(format!(
+            "TLS-ALPN needs no token: when a certificate is asked for, Let's Encrypt connects to {} on port 443 and Melete's HTTPS answers it, through the passthrough. Nothing was sent now; Get one now (staging first) tries it.",
+            acme.domain
+        ));
+    };
+    let desec = desec::Client::new(&reach.desec_api, token)?;
     let Some(zone) = desec.zone(&acme.domain).await? else {
         anyhow::bail!(
             "deSEC took the token, but it sees no zone holding {}; check the domain, and that the token belongs to the account holding it",
