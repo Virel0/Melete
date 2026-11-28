@@ -3,7 +3,7 @@
 // pictures, then the server's gallery folder, a category at a time), and removing it. Every
 // app shows it beside your name.
 
-import { group } from "/web/forms.js";
+import { fileButton, group } from "/web/forms.js";
 import { SignedOut, announce, api, h } from "/web/lib.js";
 import { PICTURE_TYPES, readPicture } from "/web/picture-file.js";
 
@@ -67,7 +67,7 @@ export async function pictureGroup() {
       { class: "field" },
       h("label", { for: "avatar-upload" }, "Upload a picture"),
       h("p", { class: "note", id: "avatar-upload-hint" }, "JPEG, PNG or WebP, up to 5 MB."),
-      input,
+      fileButton(input, "Choose a picture"),
     ),
     choose,
     h("div", { class: "form-actions" }, remove),

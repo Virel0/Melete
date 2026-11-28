@@ -296,7 +296,12 @@ shapes, in the table at the end.
 - A choice between three or four values (the theme) is a segmented pill like the side
   switch.
 - A file upload is a secondary button with an upload icon; the browser's own file picker is
-  never shown.
+  never shown. The input itself stays in the page, hidden from sight only, so its label and
+  the keyboard still reach it, and the chosen file's name shows after the button.
+- A select's chevron is drawn with two gradients, as the page's policy allows no image that
+  isn't a file of Melete's own.
+- A switch is a 44 by 24 px track: `--surface-raised` with a `--line-strong` edge when off,
+  the accent when on.
 - Saving is a secondary button under the fields, or the primary one when the form is the
   screen.
 

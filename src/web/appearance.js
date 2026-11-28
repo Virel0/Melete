@@ -33,26 +33,31 @@ function choose(value) {
   return true;
 }
 
+// A segmented pill, as the side switch is: each choice a radio button inside its own segment,
+// the arrow keys moving between them; System's note under the pill.
 export function appearanceGroup() {
   const now = chosen();
   const said = h("p", { class: "form-result", role: "status" });
+  const notes = [];
   const options = CHOICES.map(([value, label, hint]) => {
     const id = `appearance-${value}`;
-    const input = h("input", { type: "radio", name: "appearance", id, value, checked: value === now });
+    const input = h("input", { type: "radio", name: "appearance", id, value, checked: value === now, class: "visually-hidden" });
     input.addEventListener("change", () => {
       if (!input.checked) return;
       if (choose(value)) announce(`Appearance: ${label}`);
       else said.textContent = "This browser isn't keeping settings (a private window, say), so it can't be changed here.";
     });
-    const row = h("div", { class: "check" }, input, h("label", { for: id }, label));
-    if (!hint) return row;
-    input.setAttribute("aria-describedby", `${id}-hint`);
-    return [row, h("p", { class: "note check-hint", id: `${id}-hint` }, hint)];
+    if (hint) {
+      input.setAttribute("aria-describedby", `${id}-hint`);
+      notes.push(h("p", { class: "note", id: `${id}-hint` }, `${label}: ${hint}`));
+    }
+    return h("label", { class: "segment", for: id }, input, label);
   });
   return group(
     "Appearance",
     h("p", { class: "note" }, "Kept by this browser only."),
     h("fieldset", { class: "appearance" }, h("legend", { class: "visually-hidden" }, "Appearance"), options),
+    notes,
     said,
   );
 }
