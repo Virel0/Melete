@@ -1965,3 +1965,65 @@ fn the_log_says_why_and_what() {
     let p = plan_for(&sdr, Settings::default(), Hardware::Software);
     assert_eq!(p.about.why, "the player asked for H.264");
 }
+
+#[tokio::test]
+async fn viewers_of_one_session_share_its_run_until_the_last_stops_asking() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = crate::probe::testing::make_long_clip(dir.path(), 20);
+    let t = Transcoder::new("ffmpeg".into(), Hardware::Software, dir.path().join("t"), 4);
+    let plan = Plan {
+        duration: 20.0,
+        ..real_plan(&clip)
+    };
+    t.segment_for(b"party", b"host", &plan, 0).await.unwrap();
+    t.segment_for(b"party", b"guest", &plan, 0).await.unwrap();
+    t.segment_for(b"party", b"guest", &plan, 1).await.unwrap();
+    assert_eq!(t.running_count(), 1, "one run for both");
+    assert_eq!(t.viewers_of(b"party"), 2);
+    assert_eq!(t.running_start(b"party"), Some(0), "never started again");
+
+    // The host stops asking; the guest goes on.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    t.segment_for(b"party", b"guest", &plan, 1).await.unwrap();
+    t.sweep(Duration::from_millis(300));
+    assert_eq!(t.viewers_of(b"party"), 1, "the host is no longer counted");
+    assert_eq!(
+        t.running_start(b"party"),
+        Some(0),
+        "still running for the guest"
+    );
+    // The guest stops too: the last to go ends it.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    t.sweep(Duration::from_millis(300));
+    assert_eq!(t.running_start(b"party"), None);
+}
+
+#[tokio::test]
+async fn a_viewer_behind_a_shared_run_gets_their_own_rather_than_moving_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = crate::probe::testing::make_long_clip(dir.path(), 60);
+    let t = Transcoder::new("ffmpeg".into(), Hardware::Software, dir.path().join("t"), 4);
+    let plan = real_plan(&clip);
+    // Both jumped to segment 6; the guest's player still loads segment 2 from before.
+    t.segment_for(b"party", b"host", &plan, 6).await.unwrap();
+    t.segment_for(b"party", b"guest", &plan, 2).await.unwrap();
+    assert_eq!(t.running_start(b"party"), Some(6), "the shared run stays");
+    assert_eq!(
+        t.running_start(b"guest"),
+        Some(2),
+        "the guest's own, for now"
+    );
+    // Caught up, the guest is back on the shared run, and their own stops.
+    t.segment_for(b"party", b"guest", &plan, 6).await.unwrap();
+    assert_eq!(t.viewers_of(b"party"), 2);
+    assert_eq!(t.running_start(b"guest"), None);
+    // Everyone jumps back: the first to ask moves the shared run, and the other follows.
+    t.segment_for(b"party", b"host", &plan, 1).await.unwrap();
+    t.segment_for(b"party", b"guest", &plan, 1).await.unwrap();
+    assert_eq!(t.running_start(b"party"), Some(1), "moved, not left behind");
+    assert_eq!(t.viewers_of(b"party"), 2);
+    // Alone, a viewer going back moves the run, as before.
+    t.segment_for(b"alone", b"alone", &plan, 6).await.unwrap();
+    t.segment_for(b"alone", b"alone", &plan, 2).await.unwrap();
+    assert_eq!(t.running_start(b"alone"), Some(2));
+}

@@ -231,6 +231,7 @@ impl Transcoder {
             }
         }
         for r in running.values_mut() {
+            r.forget_idle(idle);
             r.note_end();
             let progress = r.progress();
             let finished = progress.finished.unwrap_or(r.start - 1);
@@ -260,11 +261,23 @@ impl Transcoder {
         }
     }
 
-    /// Waits for segment `n` of a session and returns its file, starting or restarting ffmpeg
-    /// as needed.
-    pub async fn segment(
+    /// [`Transcoder::segment_for`] a session of one viewer, for tests.
+    #[cfg(test)]
+    pub(crate) async fn segment(
         &self,
         session: &[u8],
+        plan: &Plan,
+        n: i64,
+    ) -> Result<PathBuf, TranscodeError> {
+        self.segment_for(session, session, plan, n).await
+    }
+
+    /// Waits for segment `n` of a session and returns its file, starting or restarting ffmpeg
+    /// as needed. `viewer` is who asks: a session's viewers share its run (a watch party's).
+    pub async fn segment_for(
+        &self,
+        session: &[u8],
+        viewer: &[u8],
         plan: &Plan,
         n: i64,
     ) -> Result<PathBuf, TranscodeError> {
@@ -277,14 +290,14 @@ impl Transcoder {
             /// A copy run's segment, to put together from these chunks.
             Assemble(Vec<PathBuf>, PathBuf),
         }
+        let session = self.behind_or_shared(session, viewer, n);
         let deadline = Instant::now() + SEGMENT_WAIT;
         loop {
             let assemble_from = {
                 let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
                 let next = match running.get_mut(session) {
                     Some(r) if n >= r.start => {
-                        r.last_request = Instant::now();
-                        r.last_segment = n;
+                        r.asked_by(viewer, Some(n));
                         r.set_paused(false);
                         let path = r.dir.join(format!("seg{n}.{}", r.extension));
                         let progress = r.progress();
@@ -364,16 +377,31 @@ impl Transcoder {
         }
     }
 
+    /// [`Transcoder::init_for`] a session of one viewer, for tests.
+    #[cfg(test)]
+    pub(crate) async fn init(
+        &self,
+        session: &[u8],
+        plan: &Plan,
+    ) -> Result<PathBuf, TranscodeError> {
+        self.init_for(session, session, plan).await
+    }
+
     /// Waits for a session's fMP4 init section, starting ffmpeg at the first segment if nothing
     /// runs. Every run of a session writes the same one.
-    pub async fn init(&self, session: &[u8], plan: &Plan) -> Result<PathBuf, TranscodeError> {
+    pub async fn init_for(
+        &self,
+        session: &[u8],
+        viewer: &[u8],
+        plan: &Plan,
+    ) -> Result<PathBuf, TranscodeError> {
         let deadline = Instant::now() + SEGMENT_WAIT;
         loop {
             {
                 let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
                 match running.get_mut(session) {
                     Some(r) => {
-                        r.last_request = Instant::now();
+                        r.asked_by(viewer, None);
                         let path = r.dir.join("init.mp4");
                         // Written with the first segment, before that is listed.
                         let listed = std::fs::read_to_string(r.dir.join("ffmpeg.m3u8"))
@@ -407,6 +435,25 @@ impl Transcoder {
             }
             tokio::time::sleep(POLL).await;
         }
+    }
+
+    /// How many runs there are, for tests.
+    #[cfg(test)]
+    pub(crate) fn running_count(&self) -> usize {
+        self.running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+
+    /// How many viewers a session's run counts, for tests.
+    #[cfg(test)]
+    fn viewers_of(&self, session: &[u8]) -> usize {
+        self.running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(session)
+            .map_or(0, |r| r.viewers.len())
     }
 
     #[cfg(test)]

@@ -115,3 +115,42 @@ async fn a_stuck_delete_holds_up_neither_the_rest_nor_the_database() {
         "left while its library wasn't responding"
     );
 }
+
+#[tokio::test]
+async fn emptying_the_trash_in_the_background_says_how_far_it_got() {
+    let pool = crate::db::open_in_memory().await;
+    let dir = tempfile::tempdir().unwrap();
+    let first = trashed(&pool, 1, dir.path(), "one").await;
+    let second = trashed(&pool, 1, dir.path(), "two").await;
+    // One changed since the trash put it there: left.
+    std::fs::write(dir.path().join(TRASH).join("1/two.mkv"), b"changed").unwrap();
+    let started = start_emptying(&pool).await.unwrap();
+    assert!(started.running && started.started_at.is_some());
+    // Asked again while it runs: the same run.
+    let again = start_emptying(&pool).await.unwrap();
+    assert_eq!(again.started_at, started.started_at);
+    let done = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let now = emptying();
+            if !now.running {
+                return now;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            done.files,
+            done.deleted,
+            done.left,
+            done.waiting,
+            done.freed
+        ),
+        (2, 1, 1, 0, 3)
+    );
+    assert!(done.current.is_none() && done.finished_at.is_some());
+    assert!(deleted(&pool, first).await);
+    assert!(!deleted(&pool, second).await);
+}

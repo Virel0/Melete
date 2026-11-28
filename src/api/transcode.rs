@@ -29,6 +29,7 @@ use crate::subtitles::{self, Format, Source};
 use crate::transcode::{self, Burn, Keyframes, Settings, TranscodeError, Transcoder, VideoCodec};
 
 mod ass_burn;
+mod shared;
 use ass_burn::TextTrack;
 
 /// Keyframe lists kept, by file version; a list is about 10 KB for a two-hour film.
@@ -430,9 +431,11 @@ async fn hls(
     if plan.burn.is_none() {
         plan.burn = text_burn(&state, &file, path, &settings).await?;
     }
+    // A watch party's viewers asking alike share one run; anyone else has their own.
+    let run = shared::conversion_key(&state.pool, (token_id, guest_id), &file, &plan, &key).await?;
     let made = match ask {
-        Ask::Init => state.transcoder.init(&key, &plan).await,
-        Ask::Segment(n) => state.transcoder.segment(&key, &plan, n).await,
+        Ask::Init => state.transcoder.init_for(&run, &key, &plan).await,
+        Ask::Segment(n) => state.transcoder.segment_for(&run, &key, &plan, n).await,
     };
     let segment_file = made.map_err(|err| match err {
         TranscodeError::Busy => ApiError::new(
@@ -484,6 +487,7 @@ mod tests {
         app: Router,
         token: String,
         token_id: i64,
+        transcoder: Arc<Transcoder>,
         _dir: tempfile::TempDir,
     }
 
@@ -534,12 +538,13 @@ mod tests {
             app: routes(
                 pool.clone(),
                 "ffprobe".into(),
-                transcoder,
+                transcoder.clone(),
                 dir.path().join("subtitles"),
             ),
             pool,
             token,
             token_id,
+            transcoder,
             _dir: dir,
         }
     }
