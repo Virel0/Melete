@@ -532,6 +532,56 @@ async fn flaresolverr_is_given_the_proxy_or_asked_nothing() {
     assert!(!log.lock().unwrap().iter().any(|l| l.contains("password")));
 }
 
+#[tokio::test]
+async fn a_refusal_says_what_to_do_and_a_solver_behind_the_vpn_needs_no_proxy() {
+    use crate::flaresolverr::testing::{Plays, start_as};
+    use crate::flaresolverr::{Client, WHAT_TO_DO};
+    let (url, log) = start_as(Plays::FlareSolverr(Some("3.4.0")), "<html></html>").await;
+    let at: SocketAddr = "192.168.1.10:1080".parse().unwrap();
+    let with_login = || {
+        let mut proxy = testing::proxy(Kind::Socks5, at);
+        proxy.login = Some(("alice".into(), Secret::new("the-proxy-password")));
+        setup(proxy, &[])
+    };
+    let page = |setup: Setup, behind_vpn: bool| {
+        let url = url.clone();
+        async move {
+            with(setup, async {
+                Client::new(&url)
+                    .unwrap()
+                    .behind_vpn(behind_vpn)
+                    .through(true)
+                    .get("https://uindex.org/")
+                    .await
+            })
+            .await
+            .0
+        }
+    };
+    for setup in [with_login(), Setup::default()] {
+        let refused = page(setup, false).await.unwrap_err();
+        assert!(refused.contains(WHAT_TO_DO), "{refused}");
+        assert!(refused.contains("turn the proxy off for it"), "{refused}");
+        assert!(!refused.contains("the-proxy-password"), "{refused}");
+    }
+    assert!(
+        log.lock().unwrap().iter().all(|l| l.is_empty()),
+        "nothing fetched"
+    );
+
+    // Behind the VPN already: fetched from the solver's own address, handed no proxy.
+    page(with_login(), true).await.unwrap();
+    page(Setup::default(), true).await.unwrap();
+    let asked: Vec<String> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| !l.is_empty())
+        .cloned()
+        .collect();
+    assert_eq!(asked, ["https://uindex.org/", "https://uindex.org/"]);
+}
+
 #[test]
 fn flaresolverr_reads_the_proxy_from_3_2_0() {
     for (version, takes) in [
