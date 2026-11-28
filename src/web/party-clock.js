@@ -10,9 +10,9 @@
 // - correct(video, p, clock, note): the player brought to the party by speed, rarely by a seek.
 //   A seek empties a conversion's buffer, and on a stream barely faster than real time each one
 //   puts the player further behind, so while the party plays:
-//   - drift under 0.3 s is left;
-//   - from 0.3 s to 4 s the player plays at 1.05× or 0.95× (1.1× or 0.9× past 1 s) until it's
-//     within 0.1 s, then at 1×; it plays faster only with 2 s or more buffered ahead, so
+//   - drift under 0.1 s is left (a speed change can't be heard, pitch kept, so it starts soon);
+//   - from 0.1 s to 4 s the player plays at 1.05× or 0.95× (1.1× or 0.9× past 1 s) until it's
+//     within 0.04 s, then at 1×; it plays faster only with 2 s or more buffered ahead, so
 //     catching up doesn't make it stall;
 //   - past 4 s it seeks, at most once in 10 s: forward, a little past the party by what its
 //     last catch-up seek took to play again, so it lands in step; backward only to a place it
@@ -20,7 +20,9 @@
 //   - while it's buffering (from `waiting` or `seeking` until it can play again, or without
 //     enough data to play on), nothing is done: drift then only says how slow the stream is;
 //   - a move someone made (their seek: a new version with the party elsewhere) is followed at
-//     once, with a seek past 0.3 s: it's not drift, and no limit applies.
+//     once, with a seek past 0.1 s: it's not drift, and no limit applies. A move is a version
+//     more than 0.3 s from where the one before had the party, past a pause's or a play's
+//     rounding, so pressing play isn't taken for one.
 //   A paused party has every player where it paused, except that while it's held for someone,
 //   and as it plays on after, a player up to 4 s behind (the one it waited for) stays and
 //   catches up by speed once it plays, rather than loading afresh. A player not going yet (the
@@ -30,7 +32,7 @@
 //   it does: drift, the action (none, rate or seek), the speed, the reference and whether the
 //   player was buffering; every seek is told.
 // - placeToSend(video, p, clock, sought): the place sent with this player's play or pause: the
-//   party's own while it plays (the player's, and the drift it last had past 0.3 s), so one
+//   party's own while it plays (the player's, and the drift it last had past 0.1 s), so one
 //   player behind pausing doesn't pull everyone back; the player's when the viewer sought.
 // - partySeek(video): whether the seek that just ended was one of these, or the player's own
 //   step of under a second over a gap, rather than the viewer's: neither is sent to the party.
@@ -41,11 +43,14 @@
 const SAMPLES = 8;
 const SAMPLE_MS = 5 * 60 * 1000;
 // Drift (seconds) left alone; where a speed change ends; past which the speed is firmer.
-const LEFT = 0.3;
-const SETTLED = 0.1;
+const LEFT = 0.1;
+const SETTLED = 0.04;
 const FIRM_PAST = 1;
 const GENTLE = 0.05;
 const FIRM = 0.1;
+// How far (seconds) a new version must put the party from where the one before had it to be
+// someone's move.
+const MOVED = 0.3;
 // Past this a player seeks, at most once in SEEK_EVERY_MS; when it's ahead by more than
 // FAR_AHEAD, even to a place it no longer holds.
 const SEEK_PAST = 4;
@@ -240,7 +245,7 @@ function movedBy(s, p) {
   s.seen = p;
   if (!before || before.version === p.version) return false;
   const then = before.position_ms + (before.playing ? Math.max(0, p.position_at - before.position_at) : 0);
-  return Math.abs(p.position_ms - then) / 1000 > LEFT;
+  return Math.abs(p.position_ms - then) / 1000 > MOVED;
 }
 
 export function placeToSend(video, p, clock, sought) {

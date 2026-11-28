@@ -46,24 +46,26 @@ function video(at, { ahead = 30, paused = false } = {}) {
 // A party playing since `now`, at `seconds` then.
 const playing = (seconds, version = 1) => ({ playing: true, position_ms: seconds * 1000, position_at: now, version });
 
-test("drift under 0.3 s is left alone", () => {
-  for (const drift of [0, 0.1, -0.25, 0.29]) {
+test("drift under 0.1 s is left alone", () => {
+  for (const drift of [0, 0.05, -0.09, 0.099]) {
     assert.deepEqual(decide({ drift, buffering: false, rate: 1, sinceSeekMs: Infinity, ahead: 30, targetHeld: true }), { action: "none", rate: 1 });
   }
 });
 
-test("drift from 0.3 s to 4 s is played out by speed, never a seek", () => {
+test("drift from 0.1 s to 4 s is played out by speed, never a seek", () => {
   const at = (drift, rate = 1) => decide({ drift, buffering: false, rate, sinceSeekMs: Infinity, ahead: 30, targetHeld: true });
+  assert.deepEqual(at(0.15), { action: "rate", rate: 1.05 });
+  assert.deepEqual(at(-0.15), { action: "rate", rate: 0.95 });
   assert.deepEqual(at(0.5), { action: "rate", rate: 1.05 });
   assert.deepEqual(at(-0.5), { action: "rate", rate: 0.95 });
   assert.deepEqual(at(2), { action: "rate", rate: 1.1 });
   assert.deepEqual(at(-3.9), { action: "rate", rate: 0.9 });
   assert.deepEqual(at(3.99), { action: "rate", rate: 1.1 });
-  // Once at a speed, it keeps it until within 0.1 s, then plays at 1×.
-  assert.deepEqual(at(0.2, 1.05), { action: "rate", rate: 1.05 });
-  assert.deepEqual(at(0.05, 1.05), { action: "none", rate: 1 });
+  // Once at a speed, it keeps it until within 0.04 s, then plays at 1×.
+  assert.deepEqual(at(0.07, 1.05), { action: "rate", rate: 1.05 });
+  assert.deepEqual(at(0.03, 1.05), { action: "none", rate: 1 });
   // Gone past the party: back to 1×, not the other way at once.
-  assert.deepEqual(at(-0.2, 1.05), { action: "none", rate: 1 });
+  assert.deepEqual(at(-0.05, 1.05), { action: "none", rate: 1 });
 });
 
 test("a player plays faster only with room in its buffer", () => {
@@ -149,11 +151,17 @@ test("someone's seek is followed at once, whatever the limits", () => {
   now += 30_000;
   assert.equal(correct(u, { playing: true, position_ms: 30_000, position_at: now - 1000, version: 3 }, clock), "none");
   assert.deepEqual(u.seeks, []);
+  // Pressing play a moment off the party's place (0.2 s) isn't a move either.
+  const x = video(40);
+  correct(x, { playing: false, position_ms: 40_000, position_at: now, version: 8 }, clock);
+  x.paused = false;
+  assert.equal(correct(x, { playing: true, position_ms: 40_200, position_at: now, version: 9 }, clock), "rate");
+  assert.deepEqual(x.seeks, []);
   // The party merely held and played on from where it was: no seek.
   const w = video(20);
   correct(w, playing(20, 5), clock);
   now += 1000;
-  w._at = 21.2;
+  w._at = 21.05;
   assert.equal(correct(w, { playing: true, position_ms: 21_000, position_at: now, version: 7 }, clock), "none");
   assert.deepEqual(w.seeks, []);
 });
@@ -212,9 +220,9 @@ test("a pause is sent at the party's place, unless the viewer sought", () => {
   assert.equal(placeToSend(behind, { ...p, playing: false }, clock, false), 99_000);
   assert.equal(placeToSend(behind, null, clock, false), 99_000);
   // In step, its own place is the party's, sent as it is.
-  const close = video(102.2);
+  const close = video(102.25);
   correct(close, p, clock);
-  assert.equal(placeToSend(close, p, clock, false), 102_200);
+  assert.equal(placeToSend(close, p, clock, false), 102_250);
 });
 
 test("each change in what sync does is noted for the playback report", () => {

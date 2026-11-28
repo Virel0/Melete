@@ -1,6 +1,6 @@
 ### Changed
 
-- Watch parties keep players in step by speed rather than by seeking: drift under 0.3 s is
+- Watch parties keep players in step by speed rather than by seeking: drift under 0.1 s is
   left, up to 4 s a player plays slightly faster or slower until it's back, and only past 4 s
   does it seek, at most once in 10 s, never while it's buffering, and forward by what its last
   such seek took to play again. A player plays faster only with a few seconds buffered ahead.
